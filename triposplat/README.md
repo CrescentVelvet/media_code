@@ -45,15 +45,15 @@ git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.g
 cd media_code
 cp proxy.env.example proxy.env
 # edit proxy.env: http_proxy / https_proxy (and CONDA_ENV if your env isn't 'doll')
-bash triposplat/run_all.sh
-```
-`run_all.sh`: activate conda env → verify torch → clone official repo → download weights → symlink `ckpts` → run inference.
+# bash triposplat/run_all.sh
+# `run_all.sh`: activate conda env → verify torch → clone official repo → download weights → symlink `ckpts` → run inference.
 
-## Step-by-step
-```bash
-bash triposplat/00_setup_env.sh        # activate env + verify torch (set INSTALL_DEPS=1 to install deps)
+# ## Step-by-step
+# bash triposplat/00_setup_env.sh        # activate env + verify torch (set INSTALL_DEPS=1 to install deps)
+sudo docker exec -it ff3dgs_v3 /bin/bash
+conda activate doll
 HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh  # hf download + ckpts symlink
-bash triposplat/02_run_inference.sh    # run_example.py  (GPU=3 to pin a specific card)
+GPU=7 bash triposplat/02_run_inference.sh    # run_example.py  (GPU=3 to pin a specific card)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
@@ -120,6 +120,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
 | `TRIPOSPLAT_DIR` | `../TripoSplat` | official code path |
 | `MODEL_DIR` | `../model/TripoSplat` | weights path (ckpts symlinks here) |
+| `OUTPUT_DIR` | `../TripoSplat/output` | where inference outputs are collected (moved from repo root) |
 | `TRIPOSPLAT_REPO` | official GitHub URL | clone source |
 | `HF_REPO_ID` | `VAST-AI/TripoSplat` | weights repo |
 | `INSTALL_DEPS` | `0` | set `1` to install known runtime deps in 00 |

@@ -7,9 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
+OUTPUT_DIR="${OUTPUT_DIR:-$TRIPOSPLAT_DIR/output}"
 
 echo "=== [02] Running TripoSplat inference ==="
 echo "  code dir: $TRIPOSPLAT_DIR"
+echo "  output:   $OUTPUT_DIR"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:      physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else
@@ -30,10 +32,15 @@ fi
 cd "$TRIPOSPLAT_DIR"
 python run_example.py
 
-echo "--- outputs ---"
-ls -lh output.ply output.splat preprocessed_image.webp 2>/dev/null || true
-for n in 32768 65536 131072 262144; do
-    ls -lh "output_${n}.ply" 2>/dev/null || true
-done
+# run_example.py writes outputs to CWD (repo root). Move them into OUTPUT_DIR
+# so they're collected in one place. (Official code is not modified.)
+mkdir -p "$OUTPUT_DIR"
+shopt -s nullglob
+mv -f output.ply output.splat preprocessed_image.webp "$OUTPUT_DIR/" 2>/dev/null || true
+mv -f output_*.ply "$OUTPUT_DIR/" 2>/dev/null || true
+shopt -u nullglob
 
-echo "=== [02] Done. Outputs written under: $TRIPOSPLAT_DIR ==="
+echo "--- outputs in $OUTPUT_DIR ---"
+ls -lh "$OUTPUT_DIR"/ 2>/dev/null || true
+
+echo "=== [02] Done. Outputs in: $OUTPUT_DIR ==="
