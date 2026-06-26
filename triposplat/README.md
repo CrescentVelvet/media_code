@@ -21,7 +21,8 @@ This folder holds **only orchestration scripts** — no official code, no weight
 │       ├── run_all.sh
 │       ├── setup_ca_bundle.sh   # one-time: extract proxy CA -> ~/.ca-bundle.crt
 │       ├── _extract_ca.py       #   helper used by setup_ca_bundle.sh
-│       └── _hf_download.py      #   snapshot_download with SSL verify off (01 fallback)
+│       ├── _hf_download.py      #   snapshot_download with SSL verify off (01 fallback)
+│       └── run_batch.py         #   batch inference (load pipeline once, loop images)
 ├── TripoSplat/              # official code (auto-cloned to ../TripoSplat)
 │   └── ckpts -> ../model/TripoSplat   # symlink to shared weights
 └── model/
@@ -53,7 +54,7 @@ cp proxy.env.example proxy.env
 sudo docker exec -it ff3dgs_v3 /bin/bash
 conda activate doll
 HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh  # hf download + ckpts symlink
-GPU=7 bash triposplat/02_run_inference.sh    # run_example.py  (GPU=3 to pin a specific card)
+GPU=7 INPUT_DIR=/path/to/images bash triposplat/02_run_inference.sh    # batch: each image -> <stem>.ply/.splat (262144)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
@@ -120,7 +121,9 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
 | `TRIPOSPLAT_DIR` | `../TripoSplat` | official code path |
 | `MODEL_DIR` | `../model/TripoSplat` | weights path (ckpts symlinks here) |
-| `OUTPUT_DIR` | `../TripoSplat/output` | where inference outputs are collected (moved from repo root) |
+| `OUTPUT_DIR` | `../TripoSplat/output` | where inference outputs are written |
+| `INPUT_DIR` | `../TripoSplat/static/example_inputs` | folder of images to batch-process |
+| `NUM_GAUSSIANS` | `262144` | gaussian count per image (only this density is produced) |
 | `TRIPOSPLAT_REPO` | official GitHub URL | clone source |
 | `HF_REPO_ID` | `VAST-AI/TripoSplat` | weights repo |
 | `INSTALL_DEPS` | `0` | set `1` to install known runtime deps in 00 |
@@ -129,10 +132,10 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `HF_HUB_ENABLE_HF_TRANSFER` | `0` | Rust accel; may ignore proxy, off by default |
 
 ## Outputs
-Written to the official code dir (`../TripoSplat` by default):
-- `output.ply` / `output.splat` — 262144 gaussians (view in [SuperSplat](https://superspl.at/editor))
-- `preprocessed_image.webp`
-- `output_{32768,65536,131072,262144}.ply` — multi-density variants
+`02` batch-processes every image in `INPUT_DIR`. For each `<stem>.<ext>`, writes to `OUTPUT_DIR`:
+- `<stem>.ply` / `<stem>.splat` — 262144 gaussians (view in [SuperSplat](https://superspl.at/editor))
+- `preprocessed/<stem>.webp` — background-removed input
+Only `NUM_GAUSSIANS` (default 262144) is produced; the official multi-density example is not used.
 
 ## Notes
 - Official code & weights follow their own license (TripoSplat = MIT). This folder only orchestrates; no official code is copied.
