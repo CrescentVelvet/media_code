@@ -13,12 +13,17 @@ fi
 [ -n "${https_proxy:-}" ] && export HTTPS_PROXY="$https_proxy"
 
 # --- Corporate proxy TLS interception workaround (pip/hf/git) ---
+# Prefer a user-built bundle (run setup_ca_bundle.sh once), then the system bundle.
 SYS_CA=/etc/ssl/certs/ca-certificates.crt
-if [ -f "$SYS_CA" ]; then
-    : "${REQUESTS_CA_BUNDLE:=$SYS_CA}"
-    : "${SSL_CERT_FILE:=$SYS_CA}"
-    : "${GIT_SSL_CAINFO:=$SYS_CA}"
-    : "${PIP_CERT:=$SYS_CA}"
+USER_CA="$HOME/.ca-bundle.crt"
+if [ -f "$USER_CA" ]; then CA_FILE="$USER_CA"
+elif [ -f "$SYS_CA" ]; then CA_FILE="$SYS_CA"
+else CA_FILE=""; fi
+if [ -n "$CA_FILE" ]; then
+    : "${REQUESTS_CA_BUNDLE:=$CA_FILE}"
+    : "${SSL_CERT_FILE:=$CA_FILE}"
+    : "${GIT_SSL_CAINFO:=$CA_FILE}"
+    : "${PIP_CERT:=$CA_FILE}"
     export REQUESTS_CA_BUNDLE SSL_CERT_FILE GIT_SSL_CAINFO PIP_CERT
 fi
 

@@ -14,11 +14,13 @@ This folder holds **only orchestration scripts** — no official code, no weight
 ├── media_code/              # this repo
 │   ├── proxy.env            # proxy + optional overrides, gitignored
 │   └── triposplat/
-│       ├── _env.sh          # shared: proxy + CA bundle + conda activate
+│       ├── _env.sh              # shared: proxy + CA bundle + conda activate
 │       ├── 00_setup_env.sh
 │       ├── 01_download_models.sh
 │       ├── 02_run_inference.sh
-│       └── run_all.sh
+│       ├── run_all.sh
+│       ├── setup_ca_bundle.sh   # one-time: extract proxy CA -> ~/.ca-bundle.crt
+│       └── _extract_ca.py       #   helper used by setup_ca_bundle.sh
 ├── TripoSplat/              # official code (auto-cloned to ../TripoSplat)
 │   └── ckpts -> ../model/TripoSplat   # symlink to shared weights
 └── model/
@@ -54,6 +56,14 @@ bash triposplat/02_run_inference.sh    # run_example.py
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
+## SSL / CA fix (corporate TLS-intercepting proxy)
+If `01_download_models.sh` fails with `SSLCertVerificationError` (or pip/hf SSL errors), the proxy's root CA isn't trusted. Build a bundle once:
+```bash
+bash triposplat/setup_ca_bundle.sh   # extracts proxy CA chain -> ~/.ca-bundle.crt, self-tests
+```
+`_env.sh` then auto-uses `~/.ca-bundle.crt` for pip/hf/git. Rerun `01_download_models.sh`.
+If the self-test reports the proxy didn't send its root CA, obtain the corporate root CA (`.crt`) and append it to `~/.ca-bundle.crt`, then rerun.
+
 ## Config (env vars, all optional)
 | var | default | note |
 |---|---|---|
@@ -63,6 +73,7 @@ Missing a package? Just `pip install <pkg>` in the conda env and rerun the faile
 | `TRIPOSPLAT_REPO` | official GitHub URL | clone source |
 | `HF_REPO_ID` | `VAST-AI/TripoSplat` | weights repo |
 | `INSTALL_DEPS` | `0` | set `1` to install known runtime deps in 00 |
+| `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |
 | `HF_HUB_ENABLE_HF_TRANSFER` | `0` | Rust accel; may ignore proxy, off by default |
 
 ## Outputs
@@ -75,4 +86,4 @@ Written to the official code dir (`../TripoSplat` by default):
 - Official code & weights follow their own license (TripoSplat = MIT). This folder only orchestrates; no official code is copied.
 - `.gitattributes` (repo root) forces LF so Windows-pushed scripts run cleanly on Ubuntu.
 - `proxy.env` (proxy creds / path / env overrides) is gitignored — never committed. Don't put credentials in scripts.
-- SSL behind a TLS-intercepting corporate proxy: pip uses `--trusted-host`; `hf`/`git` use the system CA bundle. See `proxy.env.example` if you must extract the proxy CA.
+- SSL behind a TLS-intercepting corporate proxy: pip uses `--trusted-host`; `hf`/`git` use the CA bundle (`_env.sh` prefers `~/.ca-bundle.crt`, built by `setup_ca_bundle.sh`).
