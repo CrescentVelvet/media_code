@@ -19,8 +19,8 @@ import time
 
 import numpy as np
 import torch
-import gsplat
 import imageio
+from gsplat import rasterization
 from plyfile import PlyData
 
 PLY_INPUT = os.environ.get("PLY_INPUT") or "output"
@@ -80,20 +80,15 @@ def load_ply(path):
 
 
 def gsplat_render(means, quats, scales, opacities, colors, viewmats, Ks):
-    """Call gsplat.rasterize, trying the (Ks) signature then (focals)."""
+    """Call gsplat.rasterization (1.x high-level: project + rasterize)."""
     dev = means.device
     W = torch.tensor([WIDTH], device=dev)
     H = torch.tensor([HEIGHT], device=dev)
     try:
-        return gsplat.rasterize(means, quats, scales, opacities, colors, viewmats, Ks, W, H)
-    except TypeError:
-        pass
-    try:
-        focal = torch.tensor([float(Ks[0, 0, 0])], device=dev)
-        return gsplat.rasterize(means, quats, scales, opacities, colors, viewmats, focal, W, H)
+        return rasterization(means, quats, scales, opacities, colors, viewmats, Ks, W, H)
     except TypeError:
         import inspect
-        print("[!] gsplat.rasterize signature:", inspect.signature(gsplat.rasterize), file=sys.stderr)
+        print("[!] rasterization signature:", inspect.signature(rasterization), file=sys.stderr)
         raise
 
 
