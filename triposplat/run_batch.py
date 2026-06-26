@@ -11,7 +11,6 @@ used — only one density is produced.
 Env vars (set by 02_run_inference.sh):
   TRIPOSPLAT_DIR, INPUT_DIR, OUTPUT_DIR, NUM_GAUSSIANS, DEVICE
 """
-import glob
 import os
 import sys
 import time
@@ -52,9 +51,9 @@ pipe = TripoSplatPipeline(
 )
 print("[*] pipeline ready")
 
-files = []
-for ext in ("*.webp", "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"):
-    files.extend(glob.glob(os.path.join(INPUT_DIR, ext)))
+IMG_EXTS = {".webp", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
+files = [os.path.join(INPUT_DIR, f) for f in os.listdir(INPUT_DIR)
+         if os.path.splitext(f)[1].lower() in IMG_EXTS]
 files = sorted(set(files))
 if not files:
     sys.exit(f"ERROR: no images in {INPUT_DIR}")
