@@ -23,8 +23,8 @@ if [ ! -d "$TRIPOSPLAT_DIR" ]; then
     exit 1
 fi
 
-if ! command -v hf >/dev/null 2>&1; then
-    echo "ERROR: 'hf' CLI not found in env '$CONDA_ENV'. Install with: pip install huggingface_hub" >&2
+if ! python -c "import huggingface_hub" 2>/dev/null; then
+    echo "ERROR: huggingface_hub not installed in env '$CONDA_ENV'. Install with: pip install huggingface_hub" >&2
     exit 1
 fi
 
@@ -37,7 +37,16 @@ mkdir -p "$MODEL_DIR"
 #   ckpts/clip_vision/dino_v3_vit_h.safetensors
 #   ckpts/vae/flux2-vae.safetensors
 #   ckpts/background_removal/birefnet.safetensors
-hf download "$HF_REPO_ID" --local-dir "$MODEL_DIR"
+# The CDN endpoints (us.aws.cdn.hf.co) present MITM certs the trust store
+# can't verify, so fall back to a downloader with SSL verification disabled.
+# Set HF_DISABLE_SSL=1 to skip the normal attempt and go straight to it.
+if [ "${HF_DISABLE_SSL:-0}" = "1" ]; then
+    echo "--- downloading (SSL verification DISABLED via HF_DISABLE_SSL=1) ---"
+    python "$SCRIPT_DIR/_hf_download.py" "$HF_REPO_ID" "$MODEL_DIR"
+elif ! hf download "$HF_REPO_ID" --local-dir "$MODEL_DIR"; then
+    echo "--- hf download failed (likely SSL on CDN); retrying with SSL verification disabled ---"
+    python "$SCRIPT_DIR/_hf_download.py" "$HF_REPO_ID" "$MODEL_DIR"
+fi
 
 echo "--- downloaded files ---"
 find "$MODEL_DIR" -maxdepth 2 -type f -printf '  %P\n' | sort

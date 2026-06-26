@@ -20,7 +20,8 @@ This folder holds **only orchestration scripts** — no official code, no weight
 │       ├── 02_run_inference.sh
 │       ├── run_all.sh
 │       ├── setup_ca_bundle.sh   # one-time: extract proxy CA -> ~/.ca-bundle.crt
-│       └── _extract_ca.py       #   helper used by setup_ca_bundle.sh
+│       ├── _extract_ca.py       #   helper used by setup_ca_bundle.sh
+│       └── _hf_download.py      #   snapshot_download with SSL verify off (01 fallback)
 ├── TripoSplat/              # official code (auto-cloned to ../TripoSplat)
 │   └── ckpts -> ../model/TripoSplat   # symlink to shared weights
 └── model/
@@ -88,7 +89,7 @@ bash triposplat/01_download_models.sh
 ```
 
 **5. `hf download` 报 `SSLCertVerificationError`**
-代理根 CA 不在系统证书包。一次性建包，之后 `_env.sh` 自动用 `~/.ca-bundle.crt`：
+代理根 CA 不在系统证书包。先一次性建包，`_env.sh` 会自动用 `~/.ca-bundle.crt`：
 ```bash
 bash triposplat/setup_ca_bundle.sh    # 抓代理证书链 -> ~/.ca-bundle.crt，并自检
 bash triposplat/01_download_models.sh
@@ -99,6 +100,8 @@ bash triposplat/01_download_models.sh
   cat /path/to/corporate_root_ca.crt >> ~/.ca-bundle.crt
   ```
   公司根 CA 常见于 `/usr/local/share/ca-certificates/`（脚本已自动并入该目录；在那里就不用手动加）。
+
+> 若建包后仍报 SSL（CDN 端点 `us.aws.cdn.hf.co` 等用了不同的 MITM 证书），`01` 会自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh` 跳过首次尝试。代理已全程 MITM，此处关掉校验可接受。
 
 **6. 缺包 `ModuleNotFoundError`**
 按需补，或一次性装齐已知小依赖：
@@ -120,6 +123,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `HF_REPO_ID` | `VAST-AI/TripoSplat` | weights repo |
 | `INSTALL_DEPS` | `0` | set `1` to install known runtime deps in 00 |
 | `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |
+| `HF_DISABLE_SSL` | `0` | set `1` to download weights with SSL verification disabled |
 | `HF_HUB_ENABLE_HF_TRANSFER` | `0` | Rust accel; may ignore proxy, off by default |
 
 ## Outputs
