@@ -57,7 +57,7 @@ sudo docker exec -it ff3dgs_v3 /bin/bash
 conda activate doll
 HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh  # hf download + ckpts symlink
 GPU=7 INPUT_DIR=/path/to/images bash triposplat/02_run_inference.sh    # batch: each image -> <stem>.ply/.splat (262144)
-GPU=7 PLY_INPUT=../TripoSplat/output/<set> bash triposplat/03_render_video.sh  # .ply -> mp4 (spiral, 1080p)
+GPU=7 PLY_INPUT=../TripoSplat/output/<set> bash triposplat/03_render_video.sh  # .ply -> mp4 (spiral, 720p)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
@@ -67,7 +67,7 @@ Render a folder of .ply along a spiral camera path (gsplat). Output path mirrors
 GPU=7 PLY_INPUT=../TripoSplat/output/setA bash triposplat/03_render_video.sh
 # -> ../TripoSplat/videos/setA/<stem>.mp4  (+ <stem>.png first frame for a quick check)
 ```
-Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 120f@30fps, 2 turns, ±30° elev, FOV 60°, z-up. If frames come out black/sideways: `UP_AXIS=y` or `VIEWMAT_C2W=1`. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT`.
+Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1080x720, 81f@15fps, 2 turns, ±30° elev, FOV 60°, z-up. If frames come out black/sideways: `UP_AXIS=y` or `VIEWMAT_C2W=1`. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT`.
 
 ## 可能遇到的问题
 

@@ -29,13 +29,13 @@ INPUT_NAME = os.environ.get("INPUT_NAME") or os.path.basename(os.path.normpath(P
 VIDEO_OUT_DIR = os.path.join(VIDEOS_DIR, INPUT_NAME)
 
 DEVICE = os.environ.get("DEVICE", "cuda")
-WIDTH = int(os.environ.get("WIDTH", "1920"))
-HEIGHT = int(os.environ.get("HEIGHT", "1080"))
+WIDTH = int(os.environ.get("WIDTH", "1080"))
+HEIGHT = int(os.environ.get("HEIGHT", "720"))
 FOV = math.radians(float(os.environ.get("FOV", "60")))
 TURNS = float(os.environ.get("TURNS", "2"))
 ELEV = math.radians(float(os.environ.get("ELEV", "30")))
-FRAMES = int(os.environ.get("FRAMES", "120"))
-FPS = int(os.environ.get("FPS", "30"))
+FRAMES = int(os.environ.get("FRAMES", "81"))
+FPS = int(os.environ.get("FPS", "15"))
 UP_AXIS = os.environ.get("UP_AXIS", "z").lower()
 RADIUS_SCALE = float(os.environ.get("RADIUS_SCALE", "1.15"))
 C2W = os.environ.get("VIEWMAT_C2W", "0") == "1"
