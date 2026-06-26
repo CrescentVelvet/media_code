@@ -4,30 +4,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALGO_DIR="$SCRIPT_DIR"
-REPO_DIR="$(dirname "$ALGO_DIR")"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
 
-# Optional proxy (honored by huggingface_hub's HTTP client).
-if [ -f "$REPO_DIR/proxy.env" ]; then
-    set -a; # shellcheck disable=SC1090
-    source "$REPO_DIR/proxy.env"; set +a
-fi
-
-# --- Corporate proxy TLS interception workaround (needed by `hf download`) ---
-SYS_CA=/etc/ssl/certs/ca-certificates.crt
-if [ -f "$SYS_CA" ]; then
-    : "${REQUESTS_CA_BUNDLE:=$SYS_CA}"
-    : "${SSL_CERT_FILE:=$SYS_CA}"
-    export REQUESTS_CA_BUNDLE SSL_CERT_FILE
-fi
-
-# ---- Config ----------------------------------------------------------------
-VENV_DIR="${VENV_DIR:-$ALGO_DIR/.venv}"
 TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../model/TripoSplat}"
 HF_REPO_ID="${HF_REPO_ID:-VAST-AI/TripoSplat}"
-# ----------------------------------------------------------------------------
-
 CKPTS_LINK="$TRIPOSPLAT_DIR/ckpts"
 
 echo "=== [01] Downloading TripoSplat weights ==="
@@ -41,8 +23,10 @@ if [ ! -d "$TRIPOSPLAT_DIR" ]; then
     exit 1
 fi
 
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+if ! command -v hf >/dev/null 2>&1; then
+    echo "ERROR: 'hf' CLI not found in env '$CONDA_ENV'. Install with: pip install huggingface_hub" >&2
+    exit 1
+fi
 
 mkdir -p "$MODEL_DIR"
 

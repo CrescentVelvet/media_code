@@ -3,13 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALGO_DIR="$SCRIPT_DIR"
-REPO_DIR="$(dirname "$ALGO_DIR")"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
 
-# ---- Config ----------------------------------------------------------------
-VENV_DIR="${VENV_DIR:-$ALGO_DIR/.venv}"
 TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
-# ----------------------------------------------------------------------------
 
 echo "=== [02] Running TripoSplat inference ==="
 echo "  code dir: $TRIPOSPLAT_DIR"
@@ -22,9 +19,6 @@ if [ ! -e "$TRIPOSPLAT_DIR/ckpts" ]; then
     echo "ERROR: $TRIPOSPLAT_DIR/ckpts missing. Run 01_download_models.sh first." >&2
     exit 1
 fi
-
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
 
 # run_example.py loads weights from ./ckpts/... (a symlink to the shared
 # model store) and reads ./static/example_inputs/... — launch from repo root.
