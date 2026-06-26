@@ -132,7 +132,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `HF_HUB_ENABLE_HF_TRANSFER` | `0` | Rust accel; may ignore proxy, off by default |
 
 ## Outputs
-`02` batch-processes every image in `INPUT_DIR`. For each `<stem>.<ext>`, writes to `OUTPUT_DIR`:
+`02` batch-processes every image in `INPUT_DIR`. Outputs are nested under `OUTPUT_DIR/<input_folder_name>/` (named after the input folder, so different runs don't clobber each other). For each `<stem>.<ext>`:
 - `<stem>.ply` / `<stem>.splat` — 262144 gaussians (view in [SuperSplat](https://superspl.at/editor))
 - `preprocessed/<stem>.webp` — background-removed input
 Only `NUM_GAUSSIANS` (default 262144) is produced; the official multi-density example is not used.

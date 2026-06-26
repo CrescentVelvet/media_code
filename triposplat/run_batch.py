@@ -24,6 +24,10 @@ from triposplat import TripoSplatPipeline
 
 INPUT_DIR = os.environ.get("INPUT_DIR") or os.path.join(TRIPOSPLAT_DIR, "static", "example_inputs")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(TRIPOSPLAT_DIR, "output")
+# Nest outputs under a subfolder named after the input folder, so different
+# INPUT_DIR runs don't clobber each other.
+INPUT_NAME = os.path.basename(os.path.normpath(INPUT_DIR)) or "input"
+OUTPUT_DIR = os.path.join(OUTPUT_DIR, INPUT_NAME)
 PREP_DIR = os.path.join(OUTPUT_DIR, "preprocessed")
 NUM_GAUSSIANS = int(os.environ.get("NUM_GAUSSIANS", "262144"))
 DEVICE = os.environ.get("DEVICE", "cuda")

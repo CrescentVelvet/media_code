@@ -12,11 +12,14 @@ TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
 INPUT_DIR="${INPUT_DIR:-$TRIPOSPLAT_DIR/static/example_inputs}"
 OUTPUT_DIR="${OUTPUT_DIR:-$TRIPOSPLAT_DIR/output}"
 NUM_GAUSSIANS="${NUM_GAUSSIANS:-262144}"
+# Outputs go to OUTPUT_DIR/<input_folder_name>/ so multiple INPUT_DIR runs
+# don't clobber each other (mirrors run_batch.py).
+INPUT_NAME="$(basename "$INPUT_DIR")"
 
 echo "=== [02] Batch TripoSplat inference ==="
 echo "  code dir:  $TRIPOSPLAT_DIR"
 echo "  input:     $INPUT_DIR"
-echo "  output:    $OUTPUT_DIR"
+echo "  output:    $OUTPUT_DIR/$INPUT_NAME"
 echo "  gaussians: $NUM_GAUSSIANS  (only this density)"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
@@ -40,4 +43,4 @@ fi
 export TRIPOSPLAT_DIR INPUT_DIR OUTPUT_DIR NUM_GAUSSIANS
 python "$SCRIPT_DIR/run_batch.py"
 
-echo "=== [02] Done. Outputs in: $OUTPUT_DIR ==="
+echo "=== [02] Done. Outputs in: $OUTPUT_DIR/$INPUT_NAME ==="
