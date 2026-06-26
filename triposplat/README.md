@@ -22,7 +22,9 @@ This folder holds **only orchestration scripts** — no official code, no weight
 │       ├── setup_ca_bundle.sh   # one-time: extract proxy CA -> ~/.ca-bundle.crt
 │       ├── _extract_ca.py       #   helper used by setup_ca_bundle.sh
 │       ├── _hf_download.py      #   snapshot_download with SSL verify off (01 fallback)
-│       └── run_batch.py         #   batch inference (load pipeline once, loop images)
+│       ├── run_batch.py         #   batch inference (load pipeline once, loop images)
+│       ├── 03_render_video.sh   # render .ply -> mp4 along a spiral (gsplat)
+│       └── render_video.py      #   spiral rendering helper (gsplat + imageio-ffmpeg)
 ├── TripoSplat/              # official code (auto-cloned to ../TripoSplat)
 │   └── ckpts -> ../model/TripoSplat   # symlink to shared weights
 └── model/
@@ -55,8 +57,17 @@ sudo docker exec -it ff3dgs_v3 /bin/bash
 conda activate doll
 HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh  # hf download + ckpts symlink
 GPU=7 INPUT_DIR=/path/to/images bash triposplat/02_run_inference.sh    # batch: each image -> <stem>.ply/.splat (262144)
+GPU=7 PLY_INPUT=../TripoSplat/output/<set> bash triposplat/03_render_video.sh  # .ply -> mp4 (spiral, 1080p)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
+
+## Render to video (.ply -> mp4)
+Render a folder of .ply along a spiral camera path (gsplat). Output path mirrors 02: `VIDEOS_DIR/<input_folder_name>/<stem>.mp4`.
+```bash
+GPU=7 PLY_INPUT=../TripoSplat/output/setA bash triposplat/03_render_video.sh
+# -> ../TripoSplat/videos/setA/<stem>.mp4  (+ <stem>.png first frame for a quick check)
+```
+Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 120f@30fps, 2 turns, ±30° elev, FOV 60°, z-up. If frames come out black/sideways: `UP_AXIS=y` or `VIEWMAT_C2W=1`. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT`.
 
 ## 可能遇到的问题
 
@@ -130,6 +141,11 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |
 | `HF_DISABLE_SSL` | `0` | set `1` to download weights with SSL verification disabled |
 | `HF_HUB_ENABLE_HF_TRANSFER` | `0` | Rust accel; may ignore proxy, off by default |
+| `PLY_INPUT` | `../TripoSplat/output` | .ply file or folder to render (03) |
+| `VIDEOS_DIR` | `../TripoSplat/videos` | base video dir; mp4s go to `VIDEOS_DIR/<input_folder_name>/` |
+| `WIDTH`×`HEIGHT` | `1920`×`1080` | render resolution (03) |
+| `TURNS`/`ELEV`/`FRAMES`/`FPS` | `2`/`30°`/`120`/`30` | spiral trajectory params (03) |
+| `UP_AXIS` | `z` | camera up axis; try `y` if the scene is sideways (03) |
 
 ## Outputs
 `02` batch-processes every image in `INPUT_DIR`. Outputs are nested under `OUTPUT_DIR/<input_folder_name>/` (named after the input folder, so different runs don't clobber each other). For each `<stem>.<ext>`:
