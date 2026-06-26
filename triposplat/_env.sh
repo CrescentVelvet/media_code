@@ -43,3 +43,10 @@ fi
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
+
+# Pin to a specific physical GPU (0-indexed) via GPU=N. It remaps
+# CUDA_VISIBLE_DEVICES so cuda:0 inside the process == physical GPU N.
+# (run_example.py hardcodes device="cuda" == cuda:0.) Default: first visible.
+if [ -n "${GPU:-}" ]; then
+    export CUDA_VISIBLE_DEVICES="$GPU"
+fi

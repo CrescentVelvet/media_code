@@ -52,8 +52,8 @@ bash triposplat/run_all.sh
 ## Step-by-step
 ```bash
 bash triposplat/00_setup_env.sh        # activate env + verify torch (set INSTALL_DEPS=1 to install deps)
-bash triposplat/01_download_models.sh  # hf download + ckpts symlink
-bash triposplat/02_run_inference.sh    # run_example.py
+HF_DISABLE_SSL=1 bash triposplat/01_download_models.sh  # hf download + ckpts symlink
+bash triposplat/02_run_inference.sh    # run_example.py  (GPU=3 to pin a specific card)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
@@ -117,6 +117,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | var | default | note |
 |---|---|---|
 | `CONDA_ENV` | `doll` | conda env to activate (must already have torch) |
+| `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
 | `TRIPOSPLAT_DIR` | `../TripoSplat` | official code path |
 | `MODEL_DIR` | `../model/TripoSplat` | weights path (ckpts symlinks here) |
 | `TRIPOSPLAT_REPO` | official GitHub URL | clone source |

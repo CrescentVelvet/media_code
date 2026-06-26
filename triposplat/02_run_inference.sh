@@ -10,6 +10,11 @@ TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
 
 echo "=== [02] Running TripoSplat inference ==="
 echo "  code dir: $TRIPOSPLAT_DIR"
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    echo "  GPU:      physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
+else
+    echo "  GPU:      default cuda:0 (= first visible)  [set GPU=N to pin a card]"
+fi
 
 if [ ! -d "$TRIPOSPLAT_DIR" ]; then
     echo "ERROR: TripoSplat code dir not found at $TRIPOSPLAT_DIR." >&2
