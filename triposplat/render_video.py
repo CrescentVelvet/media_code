@@ -40,6 +40,7 @@ UP_AXIS = os.environ.get("UP_AXIS", "y").lower()
 RADIUS_SCALE = float(os.environ.get("RADIUS_SCALE", "1.15"))
 C2W = os.environ.get("VIEWMAT_C2W", "0") == "1"
 BG = float(os.environ.get("BG", "0.0"))  # background brightness: 0=black (default), 0.5=gray for debug
+ROLL = math.radians(float(os.environ.get("ROLL", "0.0")))  # camera roll around forward axis (deg); try 90/-90/180 if the object is sideways
 
 FOCAL = WIDTH / (2 * math.tan(FOV / 2))
 C0 = 0.28209479
@@ -51,12 +52,15 @@ def cross(a, b):
                         a[0] * b[1] - a[1] * b[0]], dim=0)
 
 
-def lookat_w2c(eye, target, up):
+def lookat_w2c(eye, target, up, roll=0.0):
     f = target - eye
     f = f / f.norm()
     s = cross(f, up)
     s = s / s.norm()
     u = cross(s, f)
+    if roll != 0.0:  # rotate the (s, u) basis around the forward axis
+        cr, sr = math.cos(roll), math.sin(roll)
+        s, u = cr * s + sr * u, -sr * s + cr * u
     R = torch.stack([s, -u, f], dim=0)  # OpenCV: cam looks down +Z (object in front)
     M = torch.eye(4, device=eye.device)
     M[:3, :3] = R
@@ -124,7 +128,7 @@ def render_one(path, out_mp4):
         else:
             d = torch.tensor([ct * cp, st * cp, sp], device=DEVICE)   # orbit in xy-plane, elev on z
         eye = center + dist * d
-        vm = lookat_w2c(eye, center, up)
+        vm = lookat_w2c(eye, center, up, roll=ROLL)
         if C2W:
             vm = torch.inverse(vm)
         out = gsplat_render(means, quats, scales, opacities, colors, vm.unsqueeze(0), K.unsqueeze(0))
