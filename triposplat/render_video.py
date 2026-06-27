@@ -36,9 +36,10 @@ TURNS = float(os.environ.get("TURNS", "2"))
 ELEV = math.radians(float(os.environ.get("ELEV", "30")))
 FRAMES = int(os.environ.get("FRAMES", "81"))
 FPS = int(os.environ.get("FPS", "15"))
-UP_AXIS = os.environ.get("UP_AXIS", "z").lower()
+UP_AXIS = os.environ.get("UP_AXIS", "y").lower()
 RADIUS_SCALE = float(os.environ.get("RADIUS_SCALE", "1.15"))
 C2W = os.environ.get("VIEWMAT_C2W", "0") == "1"
+BG = float(os.environ.get("BG", "0.0"))  # background brightness: 0=black (default), 0.5=gray for debug
 
 FOCAL = WIDTH / (2 * math.tan(FOV / 2))
 C0 = 0.28209479
@@ -108,7 +109,12 @@ def render_one(path, out_mp4):
         t = i / max(FRAMES - 1, 1)
         theta = t * 2 * math.pi * TURNS
         phi = -ELEV + 2 * ELEV * t
-        d = torch.tensor([math.cos(theta) * math.cos(phi), math.sin(theta) * math.cos(phi), math.sin(phi)], device=DEVICE)
+        ct, st = math.cos(theta), math.sin(theta)
+        cp, sp = math.cos(phi), math.sin(phi)
+        if UP_AXIS == "y":
+            d = torch.tensor([ct * cp, sp, st * cp], device=DEVICE)   # orbit in xz-plane, elev on y
+        else:
+            d = torch.tensor([ct * cp, st * cp, sp], device=DEVICE)   # orbit in xy-plane, elev on z
         eye = center + dist * d
         vm = lookat_w2c(eye, center, up)
         if C2W:
@@ -129,7 +135,7 @@ def render_one(path, out_mp4):
             a = a[:, :, :1]
         else:
             a = np.ones((rgb.shape[0], rgb.shape[1], 1), dtype=np.float32)
-        img = (np.clip(rgb + (1.0 - a) * 0.5, 0, 1) * 255).astype(np.uint8)  # gray bg
+        img = (np.clip(rgb + (1.0 - a) * BG, 0, 1) * 255).astype(np.uint8)  # bg (default black)
         writer.append_data(img)
         if i == 0:
             imageio.imwrite(out_mp4.replace(".mp4", ".png"), img)
