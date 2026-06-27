@@ -96,10 +96,16 @@ def gsplat_render(means, quats, scales, opacities, colors, viewmats, Ks):
 def render_one(path, out_mp4):
     means, scales, quats, opacities, colors = load_ply(path)
     center = (means.amin(0) + means.amax(0)) / 2.0
-    radius = float((means.amax(0) - means.amin(0)).norm()) / 2.0
+    extent = means.amax(0) - means.amin(0)
+    radius = float(extent.norm()) / 2.0
     fov_v = 2 * math.atan(HEIGHT / (2 * FOCAL))
     dist = max(radius / math.tan(fov_v / 2) * RADIUS_SCALE, 1e-3)
-    up = torch.tensor([0.0, 0.0, 1.0], device=DEVICE) if UP_AXIS == "z" else torch.tensor([0.0, 1.0, 0.0], device=DEVICE)
+    if UP_AXIS == "x":
+        up = torch.tensor([1.0, 0.0, 0.0], device=DEVICE)
+    elif UP_AXIS == "y":
+        up = torch.tensor([0.0, 1.0, 0.0], device=DEVICE)
+    else:
+        up = torch.tensor([0.0, 0.0, 1.0], device=DEVICE)
     K = torch.tensor([[FOCAL, 0.0, WIDTH / 2.0], [0.0, FOCAL, HEIGHT / 2.0], [0.0, 0.0, 1.0]], device=DEVICE)
 
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
@@ -111,7 +117,9 @@ def render_one(path, out_mp4):
         phi = -ELEV + 2 * ELEV * t
         ct, st = math.cos(theta), math.sin(theta)
         cp, sp = math.cos(phi), math.sin(phi)
-        if UP_AXIS == "y":
+        if UP_AXIS == "x":
+            d = torch.tensor([sp, ct * cp, st * cp], device=DEVICE)   # orbit in yz-plane, elev on x
+        elif UP_AXIS == "y":
             d = torch.tensor([ct * cp, sp, st * cp], device=DEVICE)   # orbit in xz-plane, elev on y
         else:
             d = torch.tensor([ct * cp, st * cp, sp], device=DEVICE)   # orbit in xy-plane, elev on z
@@ -141,7 +149,8 @@ def render_one(path, out_mp4):
             imageio.imwrite(out_mp4.replace(".mp4", ".png"), img)
             amax = float(alphas.max()) if alphas is not None else 1.0
             amin = float(alphas.min()) if alphas is not None else 0.0
-            print(f"    frame0: center={center.cpu().tolist()} radius={radius:.4f} dist={dist:.2f} eye={eye.cpu().tolist()}")
+            print(f"    frame0: center={center.cpu().tolist()} radius={radius:.4f} dist={dist:.2f} extent={extent.cpu().tolist()} eye={eye.cpu().tolist()}")
+            print(f"    hint: largest extent axis = {['x','y','z'][int(extent.argmax())]} (try UP_AXIS=<that> if the object is sideways)")
             print(f"    frame0: render min/max {float(renders.min()):.3f}/{float(renders.max()):.3f}  alpha min/max {amin:.3f}/{amax:.3f}")
     writer.close()
     dt = time.time() - t0

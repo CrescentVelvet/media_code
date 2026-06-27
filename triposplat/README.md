@@ -68,7 +68,7 @@ git -c http.sslVerify=false pull
 GPU=7 PLY_INPUT=../TripoSplat/output/setA bash triposplat/03_render_video.sh
 # -> ../TripoSplat/videos/setA/<stem>.mp4  (+ <stem>.png first frame for a quick check)
 ```
-Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 81f@15fps, 2 turns, ±30° elev, FOV 60°, y-up, black bg. If the object is sideways: `UP_AXIS=z`; if the frame is all black: `VIEWMAT_C2W=1` or `BG=0.5` to debug. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT UP_AXIS BG`.
+Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 81f@15fps, 2 turns, ±30° elev, FOV 60°, y-up, black bg. If the object is sideways: set `UP_AXIS` to the largest-extent axis printed at frame0 (x/y/z); if the frame is all black: `VIEWMAT_C2W=1` or `BG=0.5` to debug. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT UP_AXIS BG`.
 
 ## 可能遇到的问题
 
@@ -146,7 +146,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `VIDEOS_DIR` | `../TripoSplat/videos` | base video dir; mp4s go to `VIDEOS_DIR/<input_folder_name>/` |
 | `WIDTH`×`HEIGHT` | `1920`×`1080` | render resolution (03) |
 | `TURNS`/`ELEV`/`FRAMES`/`FPS` | `2`/`30°`/`81`/`15` | spiral trajectory params (03) |
-| `UP_AXIS` | `y` | camera up axis; try `z` if the scene is sideways (03) |
+| `UP_AXIS` | `y` | camera up axis (x/y/z); if sideways, set to the largest-extent axis printed at frame0 (03) |
 
 ## Outputs
 `02` batch-processes every image in `INPUT_DIR`. Outputs are nested under `OUTPUT_DIR/<input_folder_name>/` (named after the input folder, so different runs don't clobber each other). For each `<stem>.<ext>`:
