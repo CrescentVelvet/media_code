@@ -41,6 +41,7 @@ RADIUS_SCALE = float(os.environ.get("RADIUS_SCALE", "1.15"))
 C2W = os.environ.get("VIEWMAT_C2W", "0") == "1"
 BG = float(os.environ.get("BG", "0.0"))  # background brightness: 0=black (default), 0.5=gray for debug
 ROLL = math.radians(float(os.environ.get("ROLL", "0.0")))  # camera roll around forward axis (deg); try 90/-90/180 if the object is sideways
+UP_VEC = os.environ.get("UP_VEC", "").strip()  # object's up direction as "x y z" or "x,y,z"; overrides UP_AXIS
 
 FOCAL = WIDTH / (2 * math.tan(FOV / 2))
 C0 = 0.28209479
@@ -65,7 +66,7 @@ def lookat_w2c(eye, target, up, roll=0.0):
     M = torch.eye(4, device=eye.device)
     M[:3, :3] = R
     M[:3, 3] = -R @ eye
-    return M
+    return M, u  # u = image-up direction in world (for calibration)
 
 
 def load_ply(path):
@@ -104,12 +105,20 @@ def render_one(path, out_mp4):
     radius = float(extent.norm()) / 2.0
     fov_v = 2 * math.atan(HEIGHT / (2 * FOCAL))
     dist = max(radius / math.tan(fov_v / 2) * RADIUS_SCALE, 1e-3)
-    if UP_AXIS == "x":
+    if UP_VEC:
+        up = torch.tensor([float(x) for x in UP_VEC.replace(",", " ").split()[:3]], device=DEVICE, dtype=torch.float32)
+        up = up / up.norm()
+    elif UP_AXIS == "x":
         up = torch.tensor([1.0, 0.0, 0.0], device=DEVICE)
     elif UP_AXIS == "y":
         up = torch.tensor([0.0, 1.0, 0.0], device=DEVICE)
     else:
         up = torch.tensor([0.0, 0.0, 1.0], device=DEVICE)
+    # orthonormal basis (e1, e2) of the orbit plane (perpendicular to up).
+    # Orbiting in this plane keeps the object upright for any up direction.
+    helper = torch.tensor([1.0, 0.0, 0.0], device=DEVICE) if abs(float(up[0])) < 0.9 else torch.tensor([0.0, 1.0, 0.0], device=DEVICE)
+    e1 = cross(up, helper); e1 = e1 / e1.norm()
+    e2 = cross(up, e1); e2 = e2 / e2.norm()
     K = torch.tensor([[FOCAL, 0.0, WIDTH / 2.0], [0.0, FOCAL, HEIGHT / 2.0], [0.0, 0.0, 1.0]], device=DEVICE)
 
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
@@ -121,14 +130,10 @@ def render_one(path, out_mp4):
         phi = -ELEV + 2 * ELEV * t
         ct, st = math.cos(theta), math.sin(theta)
         cp, sp = math.cos(phi), math.sin(phi)
-        if UP_AXIS == "x":
-            d = torch.tensor([sp, ct * cp, st * cp], device=DEVICE)   # orbit in yz-plane, elev on x
-        elif UP_AXIS == "y":
-            d = torch.tensor([ct * cp, sp, st * cp], device=DEVICE)   # orbit in xz-plane, elev on y
-        else:
-            d = torch.tensor([ct * cp, st * cp, sp], device=DEVICE)   # orbit in xy-plane, elev on z
+        # orbit in the plane perpendicular to up; elevation along up
+        d = (ct * cp) * e1 + (st * cp) * e2 + (sp) * up
         eye = center + dist * d
-        vm = lookat_w2c(eye, center, up, roll=ROLL)
+        vm, img_up = lookat_w2c(eye, center, up, roll=ROLL)
         if C2W:
             vm = torch.inverse(vm)
         out = gsplat_render(means, quats, scales, opacities, colors, vm.unsqueeze(0), K.unsqueeze(0))
@@ -154,7 +159,7 @@ def render_one(path, out_mp4):
             amax = float(alphas.max()) if alphas is not None else 1.0
             amin = float(alphas.min()) if alphas is not None else 0.0
             print(f"    frame0: center={center.cpu().tolist()} radius={radius:.4f} dist={dist:.2f} extent={extent.cpu().tolist()} eye={eye.cpu().tolist()}")
-            print(f"    hint: largest extent axis = {['x','y','z'][int(extent.argmax())]} (try UP_AXIS=<that> if the object is sideways)")
+            print(f"    frame0: image-up (world) = {[round(v, 3) for v in img_up.cpu().tolist()]}  <- if upright, set UP_VEC to this and ROLL=0 for a clean orbit")
             print(f"    frame0: render min/max {float(renders.min()):.3f}/{float(renders.max()):.3f}  alpha min/max {amin:.3f}/{amax:.3f}")
     writer.close()
     dt = time.time() - t0

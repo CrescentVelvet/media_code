@@ -17,7 +17,8 @@ FPS="${FPS:-15}"
 TURNS="${TURNS:-2}"
 ELEV="${ELEV:-30}"
 FOV="${FOV:-60}"
-UP_AXIS="${UP_AXIS:-x}"
+UP_AXIS="${UP_AXIS:-z}"
+ROLL="${ROLL:-90.0}"
 
 # Nest by input folder name (same logic as 02_run_inference.sh).
 if [ -d "$PLY_INPUT" ]; then
@@ -29,7 +30,7 @@ fi
 echo "=== [03] Render .ply -> mp4 (spiral) ==="
 echo "  ply input: $PLY_INPUT"
 echo "  videos:    $VIDEOS_DIR/$INPUT_NAME"
-echo "  spiral:    ${WIDTH}x${HEIGHT}, ${FRAMES}f@${FPS}fps, turns=$TURNS, elev=$ELEV°, fov=$FOV°, up=$UP_AXIS"
+echo "  spiral:    ${WIDTH}x${HEIGHT}, ${FRAMES}f@${FPS}fps, turns=$TURNS, elev=$ELEV°, fov=$FOV°, up=$UP_AXIS, roll=$ROLL°"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else
@@ -46,7 +47,7 @@ if [ ! -e "$PLY_INPUT" ]; then
     exit 1
 fi
 
-export PLY_INPUT VIDEOS_DIR INPUT_NAME WIDTH HEIGHT FRAMES FPS TURNS ELEV FOV UP_AXIS TRIPOSPLAT_DIR
+export PLY_INPUT VIDEOS_DIR INPUT_NAME WIDTH HEIGHT FRAMES FPS TURNS ELEV FOV UP_AXIS TRIPOSPLAT_DIR ROLL
 python "$SCRIPT_DIR/render_video.py"
 
 echo "=== [03] Done. Videos in: $VIDEOS_DIR/$INPUT_NAME ==="
