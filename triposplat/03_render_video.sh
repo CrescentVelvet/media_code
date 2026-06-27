@@ -17,7 +17,7 @@ FPS="${FPS:-15}"
 TURNS="${TURNS:-2}"
 ELEV="${ELEV:-30}"
 FOV="${FOV:-60}"
-UP_AXIS="${UP_AXIS:x}"
+UP_AXIS="${UP_AXIS:-x}"
 
 # Nest by input folder name (same logic as 02_run_inference.sh).
 if [ -d "$PLY_INPUT" ]; then
