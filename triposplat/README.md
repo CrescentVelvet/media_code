@@ -64,6 +64,7 @@ Missing a package? Just `pip install <pkg>` in the conda env and rerun the faile
 ## Render to video (.ply -> mp4)
 Render a folder of .ply along a spiral camera path (gsplat). Output path mirrors 02: `VIDEOS_DIR/<input_folder_name>/<stem>.mp4`.
 ```bash
+git -c http.sslVerify=false pull
 GPU=7 PLY_INPUT=../TripoSplat/output/setA bash triposplat/03_render_video.sh
 # -> ../TripoSplat/videos/setA/<stem>.mp4  (+ <stem>.png first frame for a quick check)
 ```

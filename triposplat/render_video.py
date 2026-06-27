@@ -56,7 +56,7 @@ def lookat_w2c(eye, target, up):
     s = cross(f, up)
     s = s / s.norm()
     u = cross(s, f)
-    R = torch.stack([s, u, -f], dim=0)  # OpenGL: cam looks down -Z
+    R = torch.stack([s, -u, f], dim=0)  # OpenCV: cam looks down +Z (object in front)
     M = torch.eye(4, device=eye.device)
     M[:3, :3] = R
     M[:3, 3] = -R @ eye
@@ -115,13 +115,28 @@ def render_one(path, out_mp4):
             vm = torch.inverse(vm)
         out = gsplat_render(means, quats, scales, opacities, colors, vm.unsqueeze(0), K.unsqueeze(0))
         renders = out[0] if isinstance(out, (tuple, list)) else out
-        img = renders[0].clamp(0, 1).detach().cpu().numpy()
-        if img.ndim == 3 and img.shape[0] in (3, 4) and img.shape[-1] not in (3, 4):
-            img = np.transpose(img, (1, 2, 0))
-        img = (np.clip(img[:, :, :3], 0, 1) * 255).astype(np.uint8)
+        alphas = out[1] if isinstance(out, (tuple, list)) and len(out) > 1 else None
+        rgb = renders[0].clamp(0, 1).detach().cpu().numpy()
+        if rgb.ndim == 3 and rgb.shape[0] in (3, 4) and rgb.shape[-1] not in (3, 4):
+            rgb = np.transpose(rgb, (1, 2, 0))
+        rgb = rgb[:, :, :3]
+        if alphas is not None:
+            a = alphas[0].clamp(0, 1).detach().cpu().numpy()
+            if a.ndim == 3 and a.shape[0] == 1 and a.shape[-1] != 1:
+                a = np.transpose(a, (1, 2, 0))
+            if a.ndim == 2:
+                a = a[:, :, None]
+            a = a[:, :, :1]
+        else:
+            a = np.ones((rgb.shape[0], rgb.shape[1], 1), dtype=np.float32)
+        img = (np.clip(rgb + (1.0 - a) * 0.5, 0, 1) * 255).astype(np.uint8)  # gray bg
         writer.append_data(img)
         if i == 0:
             imageio.imwrite(out_mp4.replace(".mp4", ".png"), img)
+            amax = float(alphas.max()) if alphas is not None else 1.0
+            amin = float(alphas.min()) if alphas is not None else 0.0
+            print(f"    frame0: center={center.cpu().tolist()} radius={radius:.4f} dist={dist:.2f} eye={eye.cpu().tolist()}")
+            print(f"    frame0: render min/max {float(renders.min()):.3f}/{float(renders.max()):.3f}  alpha min/max {amin:.3f}/{amax:.3f}")
     writer.close()
     dt = time.time() - t0
     print(f"    rendered {FRAMES} frames in {dt:.1f}s ({dt / FRAMES:.2f}s/frame)")
