@@ -16,7 +16,7 @@ FRAMES="${FRAMES:-81}"
 FPS="${FPS:-15}"
 TURNS="${TURNS:-2}"
 ELEV="${ELEV:--30}"
-START_ANGLE="${START_ANGLE:-210}"   # starting left-right (azimuth) angle in degrees
+START_ANGLE="${START_ANGLE:-240}"   # starting left-right (azimuth) angle in degrees
 FOV="${FOV:-60}"
 UP_AXIS="${UP_AXIS:-z}"
 UP_VEC="${UP_VEC:-0 -1 0}"   # object's up direction (overrides UP_AXIS); "0 -1 0" = -Y (upright for TripoSplat)
