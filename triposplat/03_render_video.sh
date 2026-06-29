@@ -18,8 +18,8 @@ TURNS="${TURNS:-2}"
 ELEV="${ELEV:-30}"
 FOV="${FOV:-60}"
 UP_AXIS="${UP_AXIS:-z}"
-UP_VEC="${UP_VEC:-0 1 0}"   # object's up direction (overrides UP_AXIS); "0 1 0" = +Y
-ROLL="${ROLL:-90.0}"
+UP_VEC="${UP_VEC:-0 -1 0}"   # object's up direction (overrides UP_AXIS); "0 -1 0" = -Y (upright for TripoSplat)
+ROLL="${ROLL:-0}"
 
 # Nest by input folder name (same logic as 02_run_inference.sh).
 if [ -d "$PLY_INPUT" ]; then
