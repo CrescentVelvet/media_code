@@ -34,6 +34,7 @@ HEIGHT = int(os.environ.get("HEIGHT", "720"))
 FOV = math.radians(float(os.environ.get("FOV", "60")))
 TURNS = float(os.environ.get("TURNS", "2"))
 ELEV = math.radians(float(os.environ.get("ELEV", "30")))
+START_ANGLE = math.radians(float(os.environ.get("START_ANGLE", "0.0")))  # starting azimuth (deg); left-right angle where the orbit begins
 FRAMES = int(os.environ.get("FRAMES", "81"))
 FPS = int(os.environ.get("FPS", "15"))
 UP_AXIS = os.environ.get("UP_AXIS", "y").lower()
@@ -126,7 +127,7 @@ def render_one(path, out_mp4):
     t0 = time.time()
     for i in range(FRAMES):
         t = i / max(FRAMES - 1, 1)
-        theta = t * 2 * math.pi * TURNS
+        theta = START_ANGLE + t * 2 * math.pi * TURNS
         phi = -ELEV + 2 * ELEV * t
         ct, st = math.cos(theta), math.sin(theta)
         cp, sp = math.cos(phi), math.sin(phi)

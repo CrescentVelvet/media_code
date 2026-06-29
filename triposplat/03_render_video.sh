@@ -16,6 +16,7 @@ FRAMES="${FRAMES:-81}"
 FPS="${FPS:-15}"
 TURNS="${TURNS:-2}"
 ELEV="${ELEV:-30}"
+START_ANGLE="${START_ANGLE:-0}"   # starting left-right (azimuth) angle in degrees
 FOV="${FOV:-60}"
 UP_AXIS="${UP_AXIS:-z}"
 UP_VEC="${UP_VEC:-0 -1 0}"   # object's up direction (overrides UP_AXIS); "0 -1 0" = -Y (upright for TripoSplat)
@@ -31,7 +32,7 @@ fi
 echo "=== [03] Render .ply -> mp4 (spiral) ==="
 echo "  ply input: $PLY_INPUT"
 echo "  videos:    $VIDEOS_DIR/$INPUT_NAME"
-echo "  spiral:    ${WIDTH}x${HEIGHT}, ${FRAMES}f@${FPS}fps, turns=$TURNS, elev=$ELEV°, fov=$FOV°, up=$UP_VEC, roll=$ROLL°"
+echo "  spiral:    ${WIDTH}x${HEIGHT}, ${FRAMES}f@${FPS}fps, turns=$TURNS, elev=$ELEV°, start=$START_ANGLE°, fov=$FOV°, up=$UP_VEC, roll=$ROLL°"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else
@@ -48,7 +49,7 @@ if [ ! -e "$PLY_INPUT" ]; then
     exit 1
 fi
 
-export PLY_INPUT VIDEOS_DIR INPUT_NAME WIDTH HEIGHT FRAMES FPS TURNS ELEV FOV UP_AXIS UP_VEC ROLL TRIPOSPLAT_DIR
+export PLY_INPUT VIDEOS_DIR INPUT_NAME WIDTH HEIGHT FRAMES FPS TURNS ELEV START_ANGLE FOV UP_AXIS UP_VEC ROLL TRIPOSPLAT_DIR
 python "$SCRIPT_DIR/render_video.py"
 
 echo "=== [03] Done. Videos in: $VIDEOS_DIR/$INPUT_NAME ==="

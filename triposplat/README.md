@@ -68,7 +68,7 @@ git -c http.sslVerify=false pull
 GPU=7 PLY_INPUT=../TripoSplat/output/setA bash triposplat/03_render_video.sh
 # -> ../TripoSplat/videos/setA/<stem>.mp4  (+ <stem>.png first frame for a quick check)
 ```
-Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 81f@15fps, 2 turns, ±30° elev, FOV 60°, y-up, black bg. If the object is sideways: run once, check frame0 — if `ROLL=90` makes it upright, read the printed `image-up (world)` vector and set `UP_VEC` to it (with `ROLL=0`) for a clean, non-tilting orbit; `UP_AXIS` (x/y/z) is the axis-aligned shortcut. If the frame is all black: `VIEWMAT_C2W=1` or `BG=0.5` to debug. Tweak via `TURNS ELEV FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT UP_AXIS UP_VEC ROLL BG`.
+Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. Defaults: 1920x1080, 81f@15fps, 2 turns, ±30° elev, FOV 60°, y-up, black bg. If the object is sideways: run once, check frame0 — if `ROLL=90` makes it upright, read the printed `image-up (world)` vector and set `UP_VEC` to it (with `ROLL=0`) for a clean, non-tilting orbit; `UP_AXIS` (x/y/z) is the axis-aligned shortcut. If the frame is all black: `VIEWMAT_C2W=1` or `BG=0.5` to debug. Tweak via `TURNS ELEV START_ANGLE FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT UP_AXIS UP_VEC ROLL BG`.
 
 ## 可能遇到的问题
 
@@ -146,6 +146,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `VIDEOS_DIR` | `../TripoSplat/videos` | base video dir; mp4s go to `VIDEOS_DIR/<input_folder_name>/` |
 | `WIDTH`×`HEIGHT` | `1920`×`1080` | render resolution (03) |
 | `TURNS`/`ELEV`/`FRAMES`/`FPS` | `2`/`30°`/`81`/`15` | spiral trajectory params (03) |
+| `START_ANGLE` | `0` | starting left-right (azimuth) angle in degrees (03) |
 | `UP_AXIS` | `y` | camera up axis (x/y/z) (03) |
 | `UP_VEC` | _(unset)_ | object's up as "x y z" (overrides UP_AXIS); set to the frame0 `image-up` vector for a clean upright orbit (03) |
 | `ROLL` | `0` | camera roll around forward axis (deg); try 90/-90/180 if the object is sideways (03) |
