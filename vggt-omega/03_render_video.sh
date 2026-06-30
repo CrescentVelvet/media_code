@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# 03_render_video.sh — render a point-cloud .ply to mp4 along a spiral (gsplat).
+# VGGT-Omega outputs plain XYZ+RGB point clouds (no gaussian attributes); each
+# point is splatted as a small isotropic gaussian. Output path mirrors 02:
+# VIDEOS_DIR/<scene_name>/<stem>.mp4
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
+
+VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
+PLY_INPUT="${PLY_INPUT:-$VGGT_DIR/output}"
+VIDEOS_DIR="${VIDEOS_DIR:-$VGGT_DIR/videos}"
+WIDTH="${WIDTH:-1280}"
+HEIGHT="${HEIGHT:-720}"
+FRAMES="${FRAMES:-120}"
+FPS="${FPS:-30}"
+TURNS="${TURNS:-1}"
+ELEV="${ELEV:--15}"
+START_ANGLE="${START_ANGLE:-0}"
+FOV="${FOV:-55}"
+UP_AXIS="${UP_AXIS:-y}"
+UP_VEC="${UP_VEC:-0 -1 0}"   # OpenCV cam convention: y-down -> up is -Y
+ROLL="${ROLL:-0}"
+POINT_SCALE="${POINT_SCALE:-0.002}"  # splat radius as a fraction of scene extent
+
+# Nest by input folder/scene name (same logic as 02_run_inference.sh).
+if [ -d "$PLY_INPUT" ]; then
+    INPUT_NAME="$(basename "$PLY_INPUT")"
+else
+    INPUT_NAME="$(basename "$(dirname "$PLY_INPUT")")"
+fi
+
+echo "=== [03] Render point-cloud .ply -> mp4 (spiral) ==="
+echo "  ply input: $PLY_INPUT"
+echo "  videos:    $VIDEOS_DIR/$INPUT_NAME"
+echo "  spiral:    ${WIDTH}x${HEIGHT}, ${FRAMES}f@${FPS}fps, turns=$TURNS, elev=$ELEV°, start=$START_ANGLE°, fov=$FOV°, up=$UP_VEC, roll=$ROLL°"
+echo "  splat:     point_scale=$POINT_SCALE (fraction of scene extent)"
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
+else
+    echo "  GPU:       default cuda:0 (= first visible)  [set GPU=N to pin a card]"
+fi
+
+if ! python -c "import gsplat, plyfile, imageio, imageio_ffmpeg" 2>/dev/null; then
+    echo "ERROR: missing deps. Install with: pip install gsplat plyfile imageio imageio-ffmpeg" >&2
+    exit 1
+fi
+if [ ! -e "$PLY_INPUT" ]; then
+    echo "ERROR: PLY_INPUT not found: $PLY_INPUT" >&2
+    echo "       Point it at a folder of .ply (e.g. ../vggt-omega/output) or a single .ply." >&2
+    exit 1
+fi
+
+export PLY_INPUT VIDEOS_DIR INPUT_NAME WIDTH HEIGHT FRAMES FPS TURNS ELEV START_ANGLE FOV UP_AXIS UP_VEC ROLL POINT_SCALE
+python "$SCRIPT_DIR/render_video.py"
+
+echo "=== [03] Done. Videos in: $VIDEOS_DIR/$INPUT_NAME ==="
