@@ -66,13 +66,13 @@ cp proxy.env.example proxy.env
 # `run_all.sh`: activate conda env -> verify torch -> clone official repo -> download checkpoint -> reconstruct.
 #   (Stops at 01 if HF_TOKEN missing or access not yet granted — add the token / wait for approval, then rerun 01.)
 
-# ## Step-by-step
+## Step-by-step
 # bash vggt-omega/00_setup_env.sh        # activate env + verify torch (INSTALL_DEPS=1 to install deps)
-# sudo docker exec -it ff3dgs_v3 /bin/bash
-# conda activate doll
-# VARIANT=1b_512 bash vggt-omega/01_download_models.sh         # gated hf download (needs HF_TOKEN)
-# GPU=7 INPUT_DIR=/path/to/images bash vggt-omega/02_run_inference.sh   # folder of images -> scene.ply + .npz + .glb
-# GPU=7 PLY_INPUT=../vggt-omega/output/<scene> bash vggt-omega/03_render_video.sh  # .ply -> mp4 (spiral)
+sudo docker exec -it ff3dgs_v3 /bin/bash
+conda activate doll
+VARIANT=1b_512 bash vggt-omega/01_download_models.sh         # gated hf download (needs HF_TOKEN)
+GPU=7 INPUT_DIR=/path/to/images bash vggt-omega/02_run_inference.sh   # folder of images -> scene.ply + .npz + .glb
+GPU=7 PLY_INPUT=../vggt-omega/output/<scene> bash vggt-omega/03_render_video.sh  # .ply -> mp4 (spiral)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
