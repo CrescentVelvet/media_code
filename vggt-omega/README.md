@@ -29,10 +29,10 @@ VGGT-Omega takes **a set of images of a scene** (or a video) and predicts, in a 
 │       ├── 03_render_video.sh     # render point-cloud .ply -> mp4 along a spiral (gsplat)
 │       └── render_video.py        #   spiral point-cloud renderer (gsplat + imageio-ffmpeg)
 ├── vggt-omega/              # official code (auto-cloned to ../vggt-omega)
-└── model/
+└── ../../model/             # checkpoint lives one dir above <code-dir> (shared by all algos)
     └── VGGT-Omega/          # checkpoint (hf download, gated)
 ```
-Defaults: official code at `../vggt-omega`, weights at `../model/VGGT-Omega` (relative to this repo). Override with `VGGT_DIR` / `MODEL_DIR`.
+Defaults: official code at `../vggt-omega`, weights at `../../model/VGGT-Omega` (relative to this repo). Override with `VGGT_DIR` / `MODEL_DIR`.
 
 ## Prerequisites
 - Ubuntu, NVIDIA driver (CUDA 12.x OK), `git`, `conda`
@@ -170,7 +170,7 @@ INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
 | `CONDA_ENV` | `doll` | conda env to activate (must already have torch>=2.3) |
 | `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
 | `VGGT_DIR` | `../vggt-omega` | official code path |
-| `MODEL_DIR` | `../model/VGGT-Omega` | checkpoint path |
+| `MODEL_DIR` | `../../model/VGGT-Omega` | checkpoint path |
 | `VGGT_REPO` | official GitHub URL | clone source |
 | `HF_REPO_ID` | `facebook/VGGT-Omega` | gated weights repo (needs `HF_TOKEN`) |
 | `VARIANT` | `1b_512` | checkpoint variant: `1b_512` (512px) or `1b_256_text` (256px, text-aligned; auto sets `enable_alignment`) |

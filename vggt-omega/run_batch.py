@@ -51,7 +51,7 @@ try:
 except Exception:
     _HAVE_TRIMESH = False
 
-MODEL_DIR = os.environ.get("MODEL_DIR") or os.path.join(VGGT_DIR, "..", "model", "VGGT-Omega")
+MODEL_DIR = os.environ.get("MODEL_DIR") or os.path.join(VGGT_DIR, "..", "..", "model", "VGGT-Omega")
 INPUT_DIR = os.environ.get("INPUT_DIR") or os.path.join(VGGT_DIR, "examples")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(VGGT_DIR, "output")
 VARIANT = os.environ.get("VARIANT", "1b_512")

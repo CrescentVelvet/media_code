@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 TRIPOSPLAT_DIR="${TRIPOSPLAT_DIR:-$REPO_DIR/../TripoSplat}"
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../model/TripoSplat}"
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/TripoSplat}"
 HF_REPO_ID="${HF_REPO_ID:-VAST-AI/TripoSplat}"
 CKPTS_LINK="$TRIPOSPLAT_DIR/ckpts"
 

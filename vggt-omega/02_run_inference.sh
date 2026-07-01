@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../model/VGGT-Omega}"
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
 INPUT_DIR="${INPUT_DIR:-$VGGT_DIR/examples}"
 OUTPUT_DIR="${OUTPUT_DIR:-$VGGT_DIR/output}"
 VARIANT="${VARIANT:-1b_512}"          # 1b_512 | 1b_256_text  (must match 01)

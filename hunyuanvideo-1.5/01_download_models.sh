@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 HYVIDEO_DIR="${HYVIDEO_DIR:-$REPO_DIR/../HunyuanVideo-1.5}"
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../model/HunyuanVideo-1.5}"
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/HunyuanVideo-1.5}"
 CKPTS_LINK="$HYVIDEO_DIR/ckpts"
 
 HF_REPO_ID="${HF_REPO_ID:-tencent/HunyuanVideo-1.5}"

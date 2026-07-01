@@ -28,14 +28,14 @@ Compared with `triposplat/`, this set adds a **training** script (`03_train.sh`)
 │       ├── _extract_ca.py           #   helper used by setup_ca_bundle.sh
 │       └── _hf_download.py          #   snapshot_download with SSL verify off (01 fallback)
 ├── HunyuanVideo-1.5/            # official code (auto-cloned to ../HunyuanVideo-1.5)
-│   └── ckpts -> ../model/HunyuanVideo-1.5   # symlink to shared weights
-└── model/
+│   └── ckpts -> ../../model/HunyuanVideo-1.5   # symlink to shared weights (../../model, one dir above <code-dir>)
+└── ../../model/                 # weights live one dir above <code-dir> (shared by all algos)
     └── HunyuanVideo-1.5/        # weights (hf / modelscope download)
         ├── transformer/         #   480p/720p t2v & i2v (+ distilled / step-distill / sr) variants
         ├── vae/  text_encoder/  #   Qwen2.5-VL-7B (llm), byt5-small, Glyph-SDXL-v2
         └── vision_encoder/siglip
 ```
-Defaults: official code at `../HunyuanVideo-1.5`, weights at `../model/HunyuanVideo-1.5` (relative to this repo). Override with `HYVIDEO_DIR` / `MODEL_DIR`.
+Defaults: official code at `../HunyuanVideo-1.5`, weights at `../../model/HunyuanVideo-1.5` (relative to this repo). Override with `HYVIDEO_DIR` / `MODEL_DIR`.
 
 ## Prerequisites
 - Ubuntu, NVIDIA driver (CUDA 12.x), `git`, `conda`
@@ -163,7 +163,7 @@ bash hunyuanvideo-1.5/01_download_models.sh
 - 仍报 SSL（CDN 端点用了不同的 MITM 证书）→ `01` 自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash 01_download_models.sh`。
 
 **5. ModelScope（Glyph-SDXL-v2 / byT5 权重）下载失败**
-`01` 会先尝试 `pip install modelscope` 再 `modelscope download`。代理下仍失败时手动下载：打开 https://modelscope.cn/models/AI-ModelScope/Glyph-SDXL-v2/files ，把 `checkpoints/byt5_model.pt`（及 `assets/`）放进 `../model/HunyuanVideo-1.5/text_encoder/Glyph-SDXL-v2/` 后重跑。
+`01` 会先尝试 `pip install modelscope` 再 `modelscope download`。代理下仍失败时手动下载：打开 https://modelscope.cn/models/AI-ModelScope/Glyph-SDXL-v2/files ，把 `checkpoints/byt5_model.pt`（及 `assets/`）放进 `../../model/HunyuanVideo-1.5/text_encoder/Glyph-SDXL-v2/` 后重跑。
 
 **6. FLUX.1-Redux-dev（siglip 视觉编码器）需授权**
 仅 I2V 需要。去 https://huggingface.co/black-forest-labs/FLUX.1-Redux-dev 申请访问，通过后：
@@ -189,7 +189,7 @@ HF_TOKEN=<your_token> bash hunyuanvideo-1.5/01_download_models.sh
 | `CONDA_ENV` | `doll` | conda env to activate (must have torch>=2.6 after INSTALL_DEPS) |
 | `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=0`; for multi-GPU leave unset |
 | `HYVIDEO_DIR` | `../HunyuanVideo-1.5` | official code path |
-| `MODEL_DIR` | `../model/HunyuanVideo-1.5` | weights path (ckpts symlinks here) |
+| `MODEL_DIR` | `../../model/HunyuanVideo-1.5` | weights path (ckpts symlinks here) |
 | `HYVIDEO_REPO` | official GitHub URL | clone source |
 | `INSTALL_DEPS` | `0` (run_all: `1`) | set `1` to `pip install -r requirements.txt` |
 | `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |

@@ -26,11 +26,11 @@ This folder holds **only orchestration scripts** — no official code, no weight
 │       ├── 03_render_video.sh   # render .ply -> mp4 along a spiral (gsplat)
 │       └── render_video.py      #   spiral rendering helper (gsplat + imageio-ffmpeg)
 ├── TripoSplat/              # official code (auto-cloned to ../TripoSplat)
-│   └── ckpts -> ../model/TripoSplat   # symlink to shared weights
-└── model/
+│   └── ckpts -> ../../model/TripoSplat   # symlink to shared weights (../../model, one dir above <code-dir>)
+└── ../../model/             # weights live one dir above <code-dir> (shared by all algos)
     └── TripoSplat/          # weights (hf download)
 ```
-Defaults: official code at `../TripoSplat`, weights at `../model/TripoSplat` (relative to this repo). Override with `TRIPOSPLAT_DIR` / `MODEL_DIR`.
+Defaults: official code at `../TripoSplat`, weights at `../../model/TripoSplat` (relative to this repo). Override with `TRIPOSPLAT_DIR` / `MODEL_DIR`.
 
 ## Prerequisites
 - Ubuntu, NVIDIA driver (CUDA 11.8+ OK), `git`, `conda`
@@ -132,7 +132,7 @@ INSTALL_DEPS=1 bash triposplat/00_setup_env.sh
 | `CONDA_ENV` | `doll` | conda env to activate (must already have torch) |
 | `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
 | `TRIPOSPLAT_DIR` | `../TripoSplat` | official code path |
-| `MODEL_DIR` | `../model/TripoSplat` | weights path (ckpts symlinks here) |
+| `MODEL_DIR` | `../../model/TripoSplat` | weights path (ckpts symlinks here) |
 | `OUTPUT_DIR` | `../TripoSplat/output` | where inference outputs are written |
 | `INPUT_DIR` | `../TripoSplat/static/example_inputs` | folder of images to batch-process |
 | `NUM_GAUSSIANS` | `262144` | gaussian count per image (only this density is produced) |

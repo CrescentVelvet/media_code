@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../model/VGGT-Omega}"
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
 HF_REPO_ID="${HF_REPO_ID:-facebook/VGGT-Omega}"
 
 # Which checkpoint to fetch. VARIANT selects the file; 02_run_inference.sh
