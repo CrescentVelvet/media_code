@@ -14,7 +14,7 @@ This folder holds **only orchestration scripts** — no official code, no weight
 <code-dir>/
 ├── media_code/              # this repo
 │   ├── proxy.env            # proxy + optional overrides, gitignored
-│   └── Trellis-2/
+│   └── trellis-2/
 │       ├── _env.sh              # shared: proxy + CA bundle + conda activate + TRELLIS.2 runtime env
 │       ├── 00_setup_env.sh      # activate env + verify torch + run official setup.sh
 │       ├── 01_download_models.sh
@@ -40,7 +40,7 @@ Defaults: official code at `../TRELLIS.2`, weights at `../../model/TRELLIS.2-4B`
   conda create -n trellis2 python=3.10 -y && conda activate trellis2
   pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
   ```
-  Or skip this and use `CREATE_ENV=1 bash Trellis-2/run_all.sh` (the official `setup.sh --new-env` creates it).
+  Or skip this and use `CREATE_ENV=1 bash trellis-2/run_all.sh` (the official `setup.sh --new-env` creates it).
 - NVIDIA GPU with **>=24GB VRAM** (A100 40G/80G or H100 ideal; verified on A100/H100). For V100 (no flash-attn), `pip install xformers` and set `ATTN_BACKEND=xformers`.
 
 ## Setup (on the server)
@@ -50,15 +50,15 @@ git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.g
 cd media_code
 cp proxy.env.example proxy.env
 # edit proxy.env: http_proxy / https_proxy (and CONDA_ENV if your env isn't 'trellis2')
-# bash Trellis-2/run_all.sh
+# bash trellis-2/run_all.sh
 # `run_all.sh`: clone official repo (--recursive) -> install deps (or create env) -> download weights -> run inference.
 
 ## Step-by-step
-# bash Trellis-2/00_setup_env.sh        # activate env + verify torch + install extensions (INSTALL_DEPS=1)
-# CREATE_ENV=1 bash Trellis-2/00_setup_env.sh   # alt: create the trellis2 env fresh via setup.sh --new-env
-# HF_DISABLE_SSL=1 bash Trellis-2/01_download_models.sh   # hf download microsoft/TRELLIS.2-4B
-# GPU=7 INPUT_DIR=/path/to/images bash Trellis-2/02_run_inference.sh    # each image -> <stem>.glb + <stem>.latent.npz
-# GPU=7 LATENT_INPUT=../TRELLIS.2/output/<set> bash Trellis-2/03_render_video.sh  # .latent.npz -> mp4 (PBR turntable)
+# bash trellis-2/00_setup_env.sh        # activate env + verify torch + install extensions (INSTALL_DEPS=1)
+# CREATE_ENV=1 bash trellis-2/00_setup_env.sh   # alt: create the trellis2 env fresh via setup.sh --new-env
+# HF_DISABLE_SSL=1 bash trellis-2/01_download_models.sh   # hf download microsoft/TRELLIS.2-4B
+# GPU=7 INPUT_DIR=/path/to/images bash trellis-2/02_run_inference.sh    # each image -> <stem>.glb + <stem>.latent.npz
+# GPU=7 LATENT_INPUT=../TRELLIS.2/output/<set> bash trellis-2/03_render_video.sh  # .latent.npz -> mp4 (PBR turntable)
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step. If a specific extension fails to compile, re-run `00` with a reduced `SETUP_FLAGS` (e.g. drop `--flash-attn` and set `ATTN_BACKEND=xformers`).
 
@@ -74,7 +74,7 @@ Missing a package? Just `pip install <pkg>` in the conda env and rerun the faile
 Decode the cached latents and render a turntable with TRELLIS.2's PBR renderer. No generation is repeated. Output path mirrors `02`: `VIDEOS_DIR/<input_folder_name>/<stem>.mp4` (+ a `<stem>.png` first frame).
 ```bash
 git -c http.sslVerify=false pull
-GPU=7 LATENT_INPUT=../TRELLIS.2/output/setA bash Trellis-2/03_render_video.sh
+GPU=7 LATENT_INPUT=../TRELLIS.2/output/setA bash trellis-2/03_render_video.sh
 # -> ../TRELLIS.2/videos/setA/<stem>.mp4
 ```
 `RENDER_MODE=shaded` (default) writes a clean turntable of the PBR-shaded image; `RENDER_MODE=pbr` writes the official composite grid (shaded + normal + base_color + metallic + roughness + alpha, as in `example.py`'s `make_pbr_vis_frames`). Lighting comes from an HDRI env map under `<TRELLIS_DIR>/assets/hdri/` (`ENVMAP=forest|sunset|courtyard|none`). Tweak the camera via `NUM_FRAMES FPS R FOV RENDER_RES`.
@@ -90,7 +90,7 @@ GPU=7 LATENT_INPUT=../TRELLIS.2/output/setA bash Trellis-2/03_render_video.sh
 `_env.sh` 已设 `PIP_CERT` 指向 CA bundle，`setup.sh` 的 pip 命令会继承。仍失败时手动信任：
 ```bash
 pip config set global.trusted-host "pypi.org pypi.python.org files.pythonhosted.org download.pytorch.org"
-bash Trellis-2/00_setup_env.sh
+bash trellis-2/00_setup_env.sh
 ```
 
 **3. 编译扩展报 CUDA 找不到 / 版本不对**
@@ -101,7 +101,7 @@ nvcc --version                        # 看 release 版本
 ls $CUDA_HOME/include/cuda_runtime.h  # 必须存在
 # 多版本时显式指定：
 export CUDA_HOME=/usr/local/cuda-12.4
-bash Trellis-2/00_setup_env.sh
+bash trellis-2/00_setup_env.sh
 ```
 
 **4. `--basic` 里 `sudo apt install libjpeg-dev` 失败（docker 无 sudo）**
@@ -109,14 +109,14 @@ bash Trellis-2/00_setup_env.sh
 ```bash
 apt install -y libjpeg-dev
 # 或跳过 basic、手动装其余小依赖后用精简 flags：
-SETUP_FLAGS="--flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm" bash Trellis-2/00_setup_env.sh
+SETUP_FLAGS="--flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm" bash trellis-2/00_setup_env.sh
 ```
 
 **5. flash-attn 编译失败 / 显卡不支持（如 V100）**
 V100 不支持 flash-attn。装 xformers 并切后端：
 ```bash
 pip install xformers
-ATTN_BACKEND=xformers SETUP_FLAGS="--basic --xformers-instead" bash Trellis-2/00_setup_env.sh   # 见下方注
+ATTN_BACKEND=xformers SETUP_FLAGS="--basic --xformers-instead" bash trellis-2/00_setup_env.sh   # 见下方注
 ```
 > `setup.sh` 没有 `--xformers` 选项；用 `SETUP_FLAGS="--basic --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm"`（去掉 `--flash-attn`），再 `pip install xformers`，并 `export ATTN_BACKEND=xformers`（`_env.sh` 会透传）。
 
@@ -124,14 +124,14 @@ ATTN_BACKEND=xformers SETUP_FLAGS="--basic --xformers-instead" bash Trellis-2/00
 HF 的 Xet/Rust 通道不认代理。`_env.sh` 已设 `HF_HUB_DISABLE_XET=1`；仍报则彻底卸载：
 ```bash
 pip uninstall -y hf_xet
-bash Trellis-2/01_download_models.sh
+bash trellis-2/01_download_models.sh
 ```
 
 **7. `hf download` 报 `SSLCertVerificationError`**
 代理根 CA 不在系统证书包。先一次性建包，`_env.sh` 会自动用 `~/.ca-bundle.crt`：
 ```bash
-bash Trellis-2/setup_ca_bundle.sh    # 抓代理证书链 -> ~/.ca-bundle.crt，并自检
-bash Trellis-2/01_download_models.sh
+bash trellis-2/setup_ca_bundle.sh    # 抓代理证书链 -> ~/.ca-bundle.crt，并自检
+bash trellis-2/01_download_models.sh
 ```
 - 自检 `[OK]` → 直接重跑 `01`。
 - 自检 `[FAIL]`（代理握手没带根 CA）→ 把公司根 CA 追加后再重跑：
@@ -140,7 +140,7 @@ bash Trellis-2/01_download_models.sh
   ```
   公司根 CA 常见于 `/usr/local/share/ca-certificates/`（脚本已自动并入该目录）。
 
-> 若建包后仍报 SSL（CDN 端点 `us.aws.cdn.hf.co` 等用了不同的 MITM 证书），`01` 会自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash Trellis-2/01_download_models.sh` 跳过首次尝试。代理已全程 MITM，此处关掉校验可接受。
+> 若建包后仍报 SSL（CDN 端点 `us.aws.cdn.hf.co` 等用了不同的 MITM 证书），`01` 会自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash trellis-2/01_download_models.sh` 跳过首次尝试。代理已全程 MITM，此处关掉校验可接受。
 
 **8. 缺包 `ModuleNotFoundError`**
 按需补：
