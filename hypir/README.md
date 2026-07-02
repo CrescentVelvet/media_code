@@ -92,6 +92,43 @@ GPU=0 WEIGHT_PATH=/path/to/checkpoint-N/state_dict.pth bash hypir/02_run_inferen
 ```
 The LoRA module list / rank (256) match the official HYPIR-SD2 config; override via `LORA_MODULES` / `LORA_RANK` only if you trained a different config.
 
+## Pipeline（推理流程详解）
+对应官方代码 `HYPIR/enhancer/base.py::enhance` + `HYPIR/enhancer/sd2.py::forward_generator` + `HYPIR/utils/common.py`。一张 LQ 图像从输入到输出经过 5 步：
+
+1. **上采样（bicubic 插值）** — `F.interpolate(lq, scale_factor=upscale, mode="bicubic")`。先把 LQ 双三次插值放大到目标分辨率（`scale_by=factor` 时按固定倍数，`longest_side` 时按长边到固定尺寸）。这一步的输出同时存为 `ref`（参考图），供第 5 步小波融合用。若短边 ≤ `patch_size`(512)，还会把短边 resize 到至少 512，保证 VAE 有足够大的画布（此 resize 只作用于送入 VAE 的 `lq`，不改动 `ref`）。
+2. **VAE 编码（分块，patch=512）** — `lq` 归一化到 `[-1,1]`、pad 到 8 的倍数（`vae_scale_factor=8`），再用 `make_tiled_fn` 分块送入 `vae.encode(...).latent_dist.sample()`。tile 在**像素空间**大小为 `patch_size`(512)、stride=`stride`(256)，下采样到**潜空间** 64（512/8）。重叠区用高斯权重平滑拼接，避免接缝。注意 `.sample()` 从 VAE 编码分布里采样，带轻微随机性——这就是推理要设 `--seed` 的原因。
+3. **UNet 一步去噪（LoRA + SD2，t=200）** — 见下方「一步去噪」。加载了 LoRA 的 SD2 UNet 以 LQ 潜变量为输入、在 timestep=200 做一次前向 + 一次 DDPM 反推，得到复原的 HR 潜变量。同样分块（潜空间 64 / stride 32）。
+4. **VAE 解码（分块）** — `make_tiled_fn(vae.decode(tile).sample, scale_type="up", scale=8, channel=3)` 把复原潜变量解码回像素空间（潜 64 → 像素 512 的 tile）。然后裁掉 padding、`(x+1)/2` 回到 `[0,1]`、bicubic 缩回 `ref` 的尺寸 `(h0,w0)`。
+5. **小波融合** — `wavelet_reconstruction(x, ref)`：把第 4 步解码输出（`content`）与第 1 步上采样参考图（`style=ref`）做多尺度融合。见下方「小波融合」。
+
+### 一步去噪（one-step denoising）怎么回事
+标准 DDPM 生成要迭代 ~1000 步（DDIM ~50 步）逐步去噪。**HYPIR 不迭代，只走一步**，关键在于把「LQ 潜变量」直接当作部分加噪的 `x_t`：
+
+```
+z_in = z_lq * vae.scaling_factor          # LQ 潜变量当 x_t（不再加随机噪声！）
+eps  = UNet_lora(z_in, t=200, text_embed)  # UNet 预测"把 x_0 变成 x_t 的噪声"
+z0   = scheduler.step(eps, coeff_t=200, z_in).pred_original_sample   # 一步反推 x_0
+```
+
+- DDPM 有闭式关系：`x_0 = (x_t − √(1−ᾱ_t)·eps) / √(ᾱ_t)`。给定 `x_t`（=LQ 潜变量）和 UNet 预测的噪声 `eps`，**一次代数运算**就能解出估计的干净潜变量 `x_0`，不需要迭代。
+- 为什么一步就够？因为 LoRA 是**专门为 t=200 这一步训练**的：训练时同样把 GT 的 LQ 潜变量当 `x_t`、UNet 预测 `eps`、一步反推 `x_0`，再用 `x_0` 解码出的图像与 GT HR 算 L2+LPIPS+GAN 损失（见 `HYPIR/trainer/base.py::optimize_generator`）。也就是说 LoRA 学到的就是「在 t=200 这一步、从 LQ 潜变量一步反推出 HR 潜变量」这个映射，推理时自然一步即出。
+- `model_t=200` 是喂给 UNet 的时间步标签（UNet 以为自己正在 t=200 去噪）；`coeff_t=200` 是反推 `x_0` 时用的噪声调度系数所在时间步。两者在此都取 200。
+- 这就是论文标题里的 "score prior"：扩散 UNet 的噪声预测（score）在单个时间步上提供了一个强先验，把退化图直接拉回干净图——快（一次前向）且借用了 SD2 在海量图像上学到的先验。
+
+### 小波融合（wavelet reconstruction）怎么回事
+解码出的 HR 图像纹理清晰，但扩散模型可能引入色偏/结构幻觉；而上采样 LQ 颜色和整体结构是可靠的，只是模糊（缺高频）。小波融合取两者之长：
+
+- `wavelet_decomposition(img, levels=5)` 用逐级放大的高斯模糊（dilation 半径 1,2,4,8,16）把图像拆成 **低频**（`low`：颜色、光照、大尺度结构）和 **高频**（`high`：边缘、纹理、细节）。
+- `wavelet_reconstruction(content=x_decoded, style=ref)` 的实际计算是：
+  ```
+  result = content_high + style_low
+         = 解码输出的高频 + 上采样LQ的低频
+  ```
+  即**高频（纹理/边缘）来自扩散解码输出，低频（颜色/结构）来自上采样 LQ**。
+- 效果：最终图保留 LQ 原本正确的颜色与构图（低频），同时注入扩散模型生成的锐利纹理（高频），避免色偏和结构漂移，又实现了超分。这是 SUPIR/CCSR 一脉相承的经典 trick。
+
+> 总结一句：**上采样定颜色结构 → VAE 编码进潜空间 → LoRA-UNet 一步反推干净潜变量 → VAE 解码回像素 → 与上采样原图小波融合（取扩散的高频 + LQ 的低频）**。
+
 ## Dataset construction (03 — image folder → parquet)
 HYPIR's `RealESRGANDataset` (default `crop_type=none`, `out_size=512`) **asserts every GT image is exactly 512×512**. `03_build_dataset.sh` handles this:
 - `CROP=1` (default): slices each image into 512×512 patches (non-overlapping; set `CROP_STRIDE < CROP_SIZE` for overlap) saved under `<parquet_dir>/patches`, and the parquet points at the patches. This mirrors the README's "crop LSDIR into 512×512 patches".
