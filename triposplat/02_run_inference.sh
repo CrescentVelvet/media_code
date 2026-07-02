@@ -17,10 +17,10 @@ NUM_GAUSSIANS="${NUM_GAUSSIANS:-262144}"
 INPUT_NAME="$(basename "$INPUT_DIR")"
 
 echo "=== [02] Batch TripoSplat inference ==="
-echo "  code dir:  $TRIPOSPLAT_DIR"
-echo "  input:     $INPUT_DIR"
-echo "  output:    $OUTPUT_DIR/$INPUT_NAME"
-echo "  gaussians: $NUM_GAUSSIANS  (only this density)"
+echo "  代码路径:  $TRIPOSPLAT_DIR"
+echo "  输入单张图像:     $INPUT_DIR"
+echo "  输出三维模型:     $OUTPUT_DIR/$INPUT_NAME"
+echo "  高斯点数量: $NUM_GAUSSIANS  (only this density)"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else

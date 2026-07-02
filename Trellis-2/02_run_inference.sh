@@ -18,10 +18,10 @@ OUTPUT_DIR="${OUTPUT_DIR:-$TRELLIS_DIR/output}"
 INPUT_NAME="$(basename "$INPUT_DIR")"
 
 echo "=== [02] Batch TRELLIS.2 image-to-3D ==="
-echo "  code dir:  $TRELLIS_DIR"
-echo "  model:     $MODEL_DIR"
-echo "  input:     $INPUT_DIR"
-echo "  output:    $OUTPUT_DIR/$INPUT_NAME"
+echo "  代码路径:  $TRELLIS_DIR"
+echo "  模型路径:     $MODEL_DIR"
+echo "  输入:     $INPUT_DIR"
+echo "  输出:    $OUTPUT_DIR/$INPUT_NAME"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else

@@ -27,11 +27,11 @@ MAX_POINTS="${MAX_POINTS:-2000000}"   # cap on points saved to scene.ply (0=none
 VIDEO_FPS="${VIDEO_FPS:-1}"           # frame sampling fps when INPUT_DIR is a video
 
 echo "=== [02] Batch VGGT-Omega reconstruction ==="
-echo "  code dir:  $VGGT_DIR"
-echo "  model:     $MODEL_DIR  (variant=$VARIANT)"
-echo "  input:     $INPUT_DIR"
-echo "  output:    $OUTPUT_DIR"
-echo "  res:       $RESOLUTION ($MODE), conf_thres=$CONF_THRES, max_points=$MAX_POINTS"
+echo "  代码路径:  $VGGT_DIR"
+echo "  模型路径:     $MODEL_DIR  (variant=$VARIANT)"
+echo "  输入:     $INPUT_DIR"
+echo "  输出:    $OUTPUT_DIR"
+echo "  分辨率:       $RESOLUTION ($MODE), conf_thres=$CONF_THRES, max_points=$MAX_POINTS"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES (cuda:0 in-process)  [GPU=N to change]"
 else

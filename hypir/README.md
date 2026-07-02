@@ -171,17 +171,20 @@ bash hypir/01_download_models.sh
 ```
 若你换用的镜像确为 gated 仓库（HF 对未认证账号返回 "not found" 实为 401），则需：1) 在该仓库页面接受许可证；2) 建 read token；3) `HF_TOKEN=<token> bash hypir/01_download_models.sh`（脚本会自动把 token 透传给 `hf download` 和 SSL 兜底下载器）。
 
-**6. 推理 OOM（显存不足）**
+**6. 推理 找不到diffusion_pytorch_model.bin**
+是HYPIR/HYPIR/enhancer/sd2.py里强制要求bin格式，但下载到模型是safetensor格式，修改use_safetensors=True即可。
+
+**7. 推理 OOM（显存不足）**
 降 `PATCH_SIZE`（512→256，并相应降 `STRIDE` 到 128），或降 `UPSCALE`。免费 T4 可跑默认 512 patch（见官方 colab）。仍紧张时设 `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
 
-**7. 训练时 `open_clip` / `lpips` 下载权重失败**
+**8. 训练时 `open_clip` / `lpips` 下载权重失败**
 - 判别器 `ImageOpenCLIPConvNext` 在初始化时下载 `convnext_xxlarge`（laion2b_s34b_b82k_augreg_soup，open_clip 走 HuggingFace）。`_env.sh` 的 CA bundle + `HF_HUB_DISABLE_XET` 通常能覆盖；仍失败时手动放到 open_clip 缓存或 `HF_DISABLE_SSL=1` 后重试。
 - `lpips.LPIPS(net="vgg")` 从作者 URL 下载 VGG 权重（走 `torch.hub`）。代理下若失败：先 `bash hypir/setup_ca_bundle.sh`，或预先把 `vgg.pth` 放进 `~/.cache/torch/hub/checkpoints/`。
 
-**8. 训练报 `assert image.height == self.out_size`**
+**9. 训练报 `assert image.height == self.out_size`**
 你的 GT 不是 512×512 且 `crop_type=none`。要么用 `03_build_dataset.sh` 的 `CROP=1` 预切 512 patch，要么 `CROP_TYPE=random bash hypir/04_train.sh`。
 
-**9. 训练多卡 `accelerate launch` 只用一卡**
+**10. 训练多卡 `accelerate launch` 只用一卡**
 没配 accelerate 多进程。先 `accelerate config`（选 multi-GPU），再 `N_TRAIN_GPU=8 bash hypir/04_train.sh`（脚本会加 `--num_processes`）。单卡可忽略。
 
 > 通用：`proxy.env`（代理凭证）在仓内 gitignored，`~/.ca-bundle.crt` 在家目录，都不入库；切勿把凭证写进脚本。

@@ -25,9 +25,9 @@ GLYPH_MS_ID="${GLYPH_MS_ID:-AI-ModelScope/Glyph-SDXL-v2}"
 SIGLIP_REPO_ID="${SIGLIP_REPO_ID:-black-forest-labs/FLUX.1-Redux-dev}"
 
 echo "=== [01] Downloading HunyuanVideo-1.5 weights ==="
-echo "  model dir: $MODEL_DIR"
-echo "  code dir:  $HYVIDEO_DIR"
-echo "  HF repo:   $HF_REPO_ID"
+echo "  代码路径:  $HYVIDEO_DIR"
+echo "  模型路径: $MODEL_DIR"
+echo "  HF仓库ID:   $HF_REPO_ID"
 
 if [ ! -d "$HYVIDEO_DIR" ]; then
     echo "ERROR: HunyuanVideo-1.5 code dir not found at $HYVIDEO_DIR." >&2
