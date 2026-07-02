@@ -123,6 +123,7 @@ def main():
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
 
         lq_pil = Image.open(fp).convert("RGB")
+        w0, h0 = lq_pil.size            # 超分前分辨率 (WxH)
         lq_tensor = to_tensor(lq_pil).unsqueeze(0)
 
         if TXT_DIR is not None:
@@ -146,12 +147,14 @@ def main():
                 return_type="pil",
             )[0]
             dt = time.time() - t1
+            w1, h1 = result.size          # 超分后分辨率 (WxH)
             result.save(result_path)
             infer_times.append(dt)
             ok += 1
             pshow = (prompt[:40] + ("…" if len(prompt) > 40 else "")) if prompt else "<empty>"
+            ratio = f"×{w1 / w0:.1f}" if w0 else ""
             print(f"[{i}/{len(images)}] {fp.name}  ->  {rel.with_suffix('.png').as_posix()}  "
-                  f"| 推理 {dt:.2f}s | prompt: {pshow}")
+                  f"| 分辨率 {w0}x{h0} -> {w1}x{h1} {ratio} | 推理 {dt:.2f}s | prompt: {pshow}")
         except Exception as e:
             print(f"[{i}/{len(images)}] {fp.name}  ! failed: {e}", file=sys.stderr)
 
