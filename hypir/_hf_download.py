@@ -7,6 +7,7 @@ Equivalent to `hf download <repo> --local-dir <dir>` but forces verify=False.
 
 Optional 3rd arg: comma-separated allow_patterns (glob), e.g.
   "model_index.json,scheduler/*,unet/*"  -> only those paths are fetched.
+Optional 4th arg: HF token (for gated repos you might switch to).
 """
 import os
 import sys
@@ -32,12 +33,18 @@ requests.Session.request = _no_verify
 from huggingface_hub import snapshot_download
 
 if len(sys.argv) < 3:
-    sys.exit("usage: _hf_download.py <repo_id> <local_dir> [allow_patterns,comma,separated]")
+    sys.exit("usage: _hf_download.py <repo_id> <local_dir> [allow_patterns,comma,separated] [token]")
 
 repo_id, local_dir = sys.argv[1], sys.argv[2]
 allow = [p.strip() for p in sys.argv[3].split(",")] if len(sys.argv) > 3 and sys.argv[3].strip() else None
-extra = {"allow_patterns": allow} if allow else {}
+token = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4].strip() else None
+extra = {}
+if allow:
+    extra["allow_patterns"] = allow
+if token:
+    extra["token"] = token
 print(f"[*] snapshot_download({repo_id!r} -> {local_dir})  [SSL verification DISABLED]"
-      + (f"  allow_patterns={allow}" if allow else ""))
+      + (f"  allow_patterns={allow}" if allow else "")
+      + (f"  token=***" if token else ""))
 snapshot_download(repo_id=repo_id, local_dir=local_dir, **extra)
 print("[*] done")

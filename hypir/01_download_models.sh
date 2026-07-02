@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # 01_download_models.sh — pull HYPIR weights into the shared model store:
-#   1. stabilityai/stable-diffusion-2-1-base  -> $MODEL_DIR/sd2_base  (base diffusers model)
-#   2. lxq007/HYPIR                            -> $MODEL_DIR           (HYPIR_sd2.pth LoRA)
+#   1. Manojb/stable-diffusion-2-1-base  -> $MODEL_DIR/sd2_base  (base diffusers model)
+#   2. lxq007/HYPIR                      -> $MODEL_DIR           (HYPIR_sd2.pth LoRA)
 #
-# The base SD2 model is fetched with --include for only the subfolders the code
-# actually loads (scheduler/tokenizer/text_encoder/unet/vae); the LoRA repo is
-# a single .pth. Both fall back to an SSL-bypass downloader if the CDN MITM
-# cert can't be verified.
+# NOTE: the original `stabilityai/stable-diffusion-2-1-base` has been removed
+# from HuggingFace. The default is the public community mirror
+# `Manojb/stable-diffusion-2-1-base` (full diffusers format). Both repos are
+# PUBLIC (not gated) — no HF_TOKEN required. Override with HF_BASE_REPO.
+#
+# The base model is fetched with --include for ONLY the default-variant
+# safetensors weights + configs the code loads (avoids downloading the fp16/.bin
+# duplicates and the root .ckpt/.safetensors single-file checkpoints — saves ~9GB).
+# The LoRA repo is small, fetched in full. Both fall back to an SSL-bypass
+# downloader if the CDN MITM cert can't be verified.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,16 +22,18 @@ source "$SCRIPT_DIR/_env.sh"
 HYPIR_DIR="${HYPIR_DIR:-$REPO_DIR/../HYPIR}"
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/HYPIR}"
 
-HF_BASE_REPO="${HF_BASE_REPO:-stabilityai/stable-diffusion-2-1-base}"
+HF_BASE_REPO="${HF_BASE_REPO:-Manojb/stable-diffusion-2-1-base}"
 HF_LORA_REPO="${HF_LORA_REPO:-lxq007/HYPIR}"
 LORA_FILE="${LORA_FILE:-HYPIR_sd2.pth}"
 
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-$MODEL_DIR/sd2_base}"
 WEIGHT_PATH="${WEIGHT_PATH:-$MODEL_DIR/$LORA_FILE}"
 
-# Only these subfolders are referenced by HYPIR (DDPMScheduler/CLIPTextModel/
-# CLIPTokenizer/UNet2DConditionModel/AutoencoderKL all use subfolder=...).
-BASE_INCLUDES="model_index.json,scheduler/*,tokenizer/*,text_encoder/*,unet/*,vae/*"
+# Only the default-variant safetensors + configs (HYPIR loads via
+# from_pretrained(path, subfolder=..., torch_dtype=bf16), which uses the
+# non-variant .safetensors files). Tuned for the Manojb diffusers mirror; if you
+# point HF_BASE_REPO at a mirror with different filenames, broaden these.
+BASE_INCLUDES="model_index.json,scheduler/*,tokenizer/*,text_encoder/config.json,text_encoder/model.safetensors,unet/config.json,unet/diffusion_pytorch_model.safetensors,vae/config.json,vae/diffusion_pytorch_model.safetensors"
 
 echo "=== [01] Downloading HYPIR weights ==="
 echo "  model dir:  $MODEL_DIR"
@@ -60,19 +68,21 @@ hf_get() {
     fi
     if [ "${HF_DISABLE_SSL:-0}" = "1" ]; then
         echo "--- [$repo] downloading (SSL verification DISABLED via HF_DISABLE_SSL=1) ---"
-        python "$SCRIPT_DIR/_hf_download.py" "$repo" "$dir" "$includes"
+        python "$SCRIPT_DIR/_hf_download.py" "$repo" "$dir" "$includes" "$token"
     else
         if ! hf download "$repo" "${token_args[@]}" "${include_args[@]}" --local-dir "$dir"; then
             echo "--- [$repo] hf download failed (likely SSL on CDN); retrying with SSL verification disabled ---"
-            python "$SCRIPT_DIR/_hf_download.py" "$repo" "$dir" "$includes"
+            python "$SCRIPT_DIR/_hf_download.py" "$repo" "$dir" "$includes" "$token"
         fi
     fi
 }
 
-# 1. Base SD2 diffusers model (only the needed subfolders).
+# 1. Base SD2 diffusers model (only the default-variant weights + configs).
+#    Public mirror — no HF_TOKEN needed. (If you switch HF_BASE_REPO to a gated
+#    repo, set HF_TOKEN and hf_get will forward it automatically.)
 if [ "${SKIP_BASE:-0}" != "1" ]; then
     echo "--- [1/2] base model: $HF_BASE_REPO ---"
-    hf_get "$HF_BASE_REPO" "$BASE_MODEL_DIR" "$BASE_INCLUDES"
+    hf_get "$HF_BASE_REPO" "$BASE_MODEL_DIR" "$BASE_INCLUDES" "${HF_TOKEN:-}"
 else
     echo "--- [1/2] SKIPPED base model (SKIP_BASE=1) ---"
 fi
@@ -80,7 +90,7 @@ fi
 # 2. HYPIR LoRA weights (single .pth file; whole repo is fine).
 if [ "${SKIP_LORA:-0}" != "1" ]; then
     echo "--- [2/2] lora weights: $HF_LORA_REPO ---"
-    hf_get "$HF_LORA_REPO" "$MODEL_DIR"
+    hf_get "$HF_LORA_REPO" "$MODEL_DIR" "" "${HF_TOKEN:-}"
 else
     echo "--- [2/2] SKIPPED lora weights (SKIP_LORA=1) ---"
 fi

@@ -31,7 +31,7 @@ Compared with `triposplat/`, this set adds a **dataset-build** step (`03_build_d
 ├── HYPIR/                       # official code (auto-cloned to ../HYPIR)
 └── ../../model/                 # weights live one dir above <code-dir> (shared by all algos)
     └── HYPIR/
-        ├── sd2_base/            # stabilityai/stable-diffusion-2-1-base (diffusers: scheduler/tokenizer/text_encoder/unet/vae)
+        ├── sd2_base/            # Manojb/stable-diffusion-2-1-base (public mirror; diffusers: scheduler/tokenizer/text_encoder/unet/vae)
         └── HYPIR_sd2.pth        # LoRA weights (lxq007/HYPIR)
 ```
 Defaults: official code at `../HYPIR`, weights at `../../model/HYPIR` (relative to this repo). Override with `HYPIR_DIR` / `MODEL_DIR`.
@@ -62,7 +62,7 @@ CONDA_ENV=hypir INSTALL_DEPS=1 bash hypir/run_all.sh
 sudo docker exec -it <container> /bin/bash
 conda activate hypir   # or 'doll' if you share it
 INSTALL_DEPS=1 bash hypir/00_setup_env.sh          # activate + verify torch + pip install -r requirements.txt
-HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # hf download sd2-base + HYPIR_sd2.pth
+HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # hf download sd2-base (public Manojb mirror) + HYPIR_sd2.pth
 # Inference on the bundled examples (6 LQ images + prompts):
 GPU=0 bash hypir/02_run_inference.sh
 # On your own images (no prompts -> empty caption):
@@ -163,17 +163,25 @@ bash hypir/01_download_models.sh
 - 自检 `[FAIL]` → 把公司根 CA 追加到 `~/.ca-bundle.crt` 后重跑（公司根 CA 常见于 `/usr/local/share/ca-certificates/`，脚本已自动并入）。
 - 仍报 SSL（CDN 端点用了不同的 MITM 证书）→ `01` 自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash hypir/01_download_models.sh`。
 
-**5. 推理 OOM（显存不足）**
+**5. `hf download` 报 `repository not found for url .../stable-diffusion-2-1-base`**
+原始 `stabilityai/stable-diffusion-2-1-base` 已从 HuggingFace 下架。脚本默认改用公开镜像 `Manojb/stable-diffusion-2-1-base`（完整 diffusers 格式，非 gated，无需 token）。若你仍指向旧的 `stabilityai/...`，会报此错；改成默认源即可：
+```bash
+unset HF_BASE_REPO   # 用默认 Manojb/stable-diffusion-2-1-base
+bash hypir/01_download_models.sh
+```
+若你换用的镜像确为 gated 仓库（HF 对未认证账号返回 "not found" 实为 401），则需：1) 在该仓库页面接受许可证；2) 建 read token；3) `HF_TOKEN=<token> bash hypir/01_download_models.sh`（脚本会自动把 token 透传给 `hf download` 和 SSL 兜底下载器）。
+
+**6. 推理 OOM（显存不足）**
 降 `PATCH_SIZE`（512→256，并相应降 `STRIDE` 到 128），或降 `UPSCALE`。免费 T4 可跑默认 512 patch（见官方 colab）。仍紧张时设 `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
 
-**6. 训练时 `open_clip` / `lpips` 下载权重失败**
+**7. 训练时 `open_clip` / `lpips` 下载权重失败**
 - 判别器 `ImageOpenCLIPConvNext` 在初始化时下载 `convnext_xxlarge`（laion2b_s34b_b82k_augreg_soup，open_clip 走 HuggingFace）。`_env.sh` 的 CA bundle + `HF_HUB_DISABLE_XET` 通常能覆盖；仍失败时手动放到 open_clip 缓存或 `HF_DISABLE_SSL=1` 后重试。
 - `lpips.LPIPS(net="vgg")` 从作者 URL 下载 VGG 权重（走 `torch.hub`）。代理下若失败：先 `bash hypir/setup_ca_bundle.sh`，或预先把 `vgg.pth` 放进 `~/.cache/torch/hub/checkpoints/`。
 
-**7. 训练报 `assert image.height == self.out_size`**
+**8. 训练报 `assert image.height == self.out_size`**
 你的 GT 不是 512×512 且 `crop_type=none`。要么用 `03_build_dataset.sh` 的 `CROP=1` 预切 512 patch，要么 `CROP_TYPE=random bash hypir/04_train.sh`。
 
-**8. 训练多卡 `accelerate launch` 只用一卡**
+**9. 训练多卡 `accelerate launch` 只用一卡**
 没配 accelerate 多进程。先 `accelerate config`（选 multi-GPU），再 `N_TRAIN_GPU=8 bash hypir/04_train.sh`（脚本会加 `--num_processes`）。单卡可忽略。
 
 > 通用：`proxy.env`（代理凭证）在仓内 gitignored，`~/.ca-bundle.crt` 在家目录，都不入库；切勿把凭证写进脚本。
@@ -190,7 +198,8 @@ bash hypir/01_download_models.sh
 | `SKIP_TORCH` | `0` | `1` = filter torch/torchvision pins out of requirements (keep existing torch) |
 | `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |
 | `HF_DISABLE_SSL` | `0` | set `1` to download weights with SSL verification disabled |
-| `HF_BASE_REPO` | `stabilityai/stable-diffusion-2-1-base` | base diffusers model repo |
+| `HF_TOKEN` | _(unset)_ | only needed if you point `HF_BASE_REPO` at a gated repo; the default mirror is public |
+| `HF_BASE_REPO` | `Manojb/stable-diffusion-2-1-base` | base diffusers model repo (public mirror; original `stabilityai/...` was removed) |
 | `HF_LORA_REPO` | `lxq007/HYPIR` | LoRA weights repo |
 | `LORA_FILE` | `HYPIR_sd2.pth` | LoRA file name inside HF_LORA_REPO |
 | `BASE_MODEL_DIR` | `$MODEL_DIR/sd2_base` | local base model dir (passed as `--base_model_path`) |
