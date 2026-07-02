@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # 02_run_inference.sh — batch HYPIR image restoration over a folder of LQ
-# images via the official test.py. The pipeline is loaded ONCE and reused
-# across all images (test.py does this internally — no per-image relaunch).
+# images. Calls run_inference.py (a thin wrapper over SD2Enhancer that mirrors
+# the official test.py: recursive walk, relative-path output, prompt handling)
+# but loads the pipeline ONCE, loops over all images, and prints model-load +
+# per-image timing + a summary. No per-image relaunch.
 #
 # For each image in LQ_DIR (walked recursively), produces:
 #   $OUTPUT_DIR/result/<same-relative-path>.png   (restored)
 #   $OUTPUT_DIR/prompt/<same-relative-path>.txt   (prompt used)
 #
 # Prompts: pass TXT_DIR (a folder mirroring LQ_DIR's structure, .txt per image)
-# to use per-image captions; otherwise --captioner empty is used.
+# to use per-image captions; otherwise an empty captioner is used.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +45,8 @@ PATCH_SIZE="${PATCH_SIZE:-512}"
 STRIDE="${STRIDE:-256}"
 SEED="${SEED:-231}"
 DEVICE="${DEVICE:-cuda}"
+MODEL_T="${MODEL_T:-200}"
+COEFF_T="${COEFF_T:-200}"
 
 # Fixed LoRA module list / rank from the official HYPIR-SD2 config.
 LORA_RANK="${LORA_RANK:-256}"
@@ -78,35 +82,19 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-# Build the prompt args: --txt_dir <dir> OR --captioner empty.
-EXTRA_ARGS=()
-if [ -n "$TXT_DIR" ]; then
-    EXTRA_ARGS+=(--txt_dir "$TXT_DIR")
-else
-    EXTRA_ARGS+=(--captioner empty)
-fi
-[ -n "$TARGET_LONGEST_SIDE" ] && EXTRA_ARGS+=(--target_longest_side "$TARGET_LONGEST_SIDE")
-
-# Make `from HYPIR...` importable when running test.py from outside the repo.
+# Make `from HYPIR...` importable when running run_inference.py from outside the repo.
 export PYTHONPATH="$HYPIR_DIR:${PYTHONPATH:-}"
 
-python "$HYPIR_DIR/test.py" \
-    --base_model_type sd2 \
-    --base_model_path "$BASE_MODEL_DIR" \
-    --config "$HYPIR_DIR/configs/sd2_gradio.yaml" \
-    --model_t 200 \
-    --coeff_t 200 \
-    --lora_rank "$LORA_RANK" \
-    --lora_modules "$LORA_MODULES" \
-    --weight_path "$WEIGHT_PATH" \
-    --patch_size "$PATCH_SIZE" \
-    --stride "$STRIDE" \
-    --lq_dir "$LQ_DIR" \
-    --scale_by "$SCALE_BY" \
-    --upscale "$UPSCALE" \
-    --output_dir "$OUTPUT_DIR" \
-    --seed "$SEED" \
-    --device "$DEVICE" \
-    "${EXTRA_ARGS[@]}"
+# Forward params to run_inference.py (reads env; loads pipeline ONCE, loops,
+# prints model-load + per-image timing). Replaces the direct test.py call —
+# test.py has no --config flag and prints no per-image timing.
+export HYPIR_DIR
+export BASE_MODEL_PATH="$BASE_MODEL_DIR"
+export WEIGHT_PATH LORA_RANK LORA_MODULES MODEL_T COEFF_T
+export LQ_DIR OUTPUT_DIR SCALE_BY UPSCALE PATCH_SIZE STRIDE SEED DEVICE
+export TXT_DIR TARGET_LONGEST_SIDE
+export CAPTIONER="${CAPTIONER:-}" FIXED_CAPTION="${FIXED_CAPTION:-}"
+
+python "$SCRIPT_DIR/run_inference.py"
 
 echo "=== [02] Done. Results in: $OUTPUT_DIR/result ==="
