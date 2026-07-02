@@ -93,6 +93,7 @@ export PYTHONPATH="$HYPIR_DIR:${PYTHONPATH:-}"
 python "$HYPIR_DIR/test.py" \
     --base_model_type sd2 \
     --base_model_path "$BASE_MODEL_DIR" \
+    --config "$HYPIR_DIR/configs/sd2_gradio.yaml" \
     --model_t 200 \
     --coeff_t 200 \
     --lora_rank "$LORA_RANK" \
