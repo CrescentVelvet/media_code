@@ -295,6 +295,9 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
 
 ### Step 4 — 确认数据集在位
 ```bash
+# Windows
+scp -r D:\模型数据集\ppr10k_faces_20260703 w00950754@xx.xx.xxx.xxx:/data_3d/w00950754/code/HYPIR/dataset
+# Ubuntu
 DATA=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703
 ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
 ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
