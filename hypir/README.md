@@ -248,6 +248,102 @@ to disable (gaussian-init from scratch, official behaviour).
 > `use_sharpener=true` (USM on HQ) matches the preprocessing the released LoRA
 > was trained with — keep it on when warm-starting.
 
+## 新手指南：配对人脸微调全流程（照着做即可）
+
+这篇给第一次用的人：从「数据已上传」到「跑完训练、看到还原结果」，每步都有可复制的命令。命令都在服务器上执行。
+
+### 你需要先有的
+- 一台 Ubuntu + NVIDIA GPU 服务器（训练建议 A100 / H100 / 4090；只推理 T4 也行）。
+- 已用 `face_crop/crop_faces_paired.py` 建好的**配对人脸数据集**（`hq/` 与 `lq/` 同名 PNG），并上传到默认路径：
+  `/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703/{hq,lq}`
+- 服务器上已装好 `conda` 和 `git`。
+
+### 训练到底在干什么（一句话版）
+把「模糊的 360p LQ 人脸」和「清晰的 HQ 人脸」**成对**喂给模型，让它学会把模糊脸还原成清晰脸。我们不是从零训练，而是在官方已发布的 `HYPIR_sd2.pth` 上**继续练（暖启动）**，让它专精你的人脸数据——所以 7 千张就够、收敛也快。
+
+### 整体流程
+1. 拉本仓 + 配代理 → 2. 建专用 conda 环境 + 装依赖 → 3. 下官方权重 → 4. 确认数据在位 → 5. 一条命令开训 → 6. 看进度/曲线 → 7. 用 checkpoint 推理看图。
+
+---
+
+### Step 1 — 拉仓库、配代理（一次性）
+```bash
+cd /data_3d/w00950754/code
+git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
+cd media_code
+cp proxy.env.example proxy.env
+# 编辑 proxy.env：填 http_proxy / https_proxy（公司代理用）；自用网络可跳过
+```
+
+### Step 2 — 建专用环境 + 装依赖（一次性）
+HYPIR 的依赖和本仓别的算法冲突，**务必用独立环境**：
+```bash
+conda create -n hypir python=3.10 -y
+conda activate hypir
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+CONDA_ENV=hypir INSTALL_DEPS=1 bash hypir/00_setup_env.sh   # 装官方 requirements.txt
+pip install polars pillow                                    # 配对数据集要用
+```
+
+### Step 3 — 下官方权重（一次性）
+```bash
+conda activate hypir
+bash hypir/setup_ca_bundle.sh          # 公司代理才需要：建 CA 包；自用网络可跳过
+HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
+# 下完在 ../../model/HYPIR/ 下：sd2_base/（基座）和 HYPIR_sd2.pth（暖启动用的 LoRA）
+```
+
+### Step 4 — 确认数据集在位
+```bash
+DATA=/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703
+ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
+ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
+```
+
+### Step 5 — 开始训练（一条命令）
+```bash
+conda activate hypir
+GPU=0 bash hypir/04_train_paired.sh
+```
+这一条命令会自动：按文件名建配对 parquet → 填配置 → 从 `HYPIR_sd2.pth` 暖启动 LoRA → `accelerate launch` 开训。
+默认 15000 步、bs=6、lr=1e-5，每 500 步存一个 checkpoint 到：
+`../HYPIR/experiments/pbr10k_faces_paired/checkpoint-N/state_dict.pth`
+
+### Step 6 — 看训练进度
+- 终端每 100 步打印一次 loss。
+- TensorBoard 看曲线：
+```bash
+tensorboard --logdir ../HYPIR/experiments/pbr10k_faces_paired --port 6006
+# 本地浏览器开 http://<服务器IP>:6006
+```
+- 看已存的 checkpoint：
+```bash
+ls ../HYPIR/experiments/pbr10k_faces_paired/
+```
+中途想停没问题。续训：
+```bash
+RESUME=../HYPIR/experiments/pbr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04_train_paired.sh
+```
+
+### Step 7 — 用训好的 checkpoint 还原人脸、看效果
+```bash
+conda activate hypir
+CKPT=../HYPIR/experiments/pbr10k_faces_paired/checkpoint-15000/state_dict.pth
+LQ=/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703/lq
+WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
+  SCALE_BY=longest_side TARGET_LONGEST_SIDE=512 \
+  bash hypir/02_run_inference.sh
+```
+还原结果在 `../HYPIR/results/lq/result/*.png`。下载下来和原 LQ 对比，脸应更清晰。
+> 想用别的 checkpoint，把 `CKPT` 路径里的步数换掉即可（如 `checkpoint-10000`）。
+
+### 调参速查（按需改）
+- 显存不够：`BATCH_SIZE=4`，或 `GRAD_ACCUM=2`（等效翻倍 batch）。
+- 想更稳、别把发布模型「练歪」：`LR_G=5e-6 LR_D=5e-6`。
+- 想多练/少练：`MAX_TRAIN_STEPS=30000`（更多）或 `10000`（更快）。
+- 多卡：先跑一次 `accelerate config` 选 multi-GPU，再 `N_TRAIN_GPU=8 bash hypir/04_train_paired.sh`（此时**不要**设 `GPU=`）。
+- 跑报错了：看下面「可能遇到的问题」对应条目。
+
 ## 可能遇到的问题
 
 公司代理做 HTTPS 中间人解密，下面按流水线阶段列出常见报错与修法（命令在服务器上、conda 环境已激活时执行）。
