@@ -1,0 +1,79 @@
+# HYPIR-SD2 LoRA training on REAL paired LQ+HQ face crops (no synthetic
+# degradation). Derived from configs/sd2_train.yaml; the dataset and
+# batch_transform targets point at the plug-in classes in paired_face_plugin.py
+# (importable via PYTHONPATH set by 04_train_paired.sh).
+#
+# TODOs are filled by gen_paired_config.py. Scalar hyperparams (lr/steps/bs/...)
+# are patched by 04_train_paired.sh after generation.
+
+output_dir: TODO                      # filled: experiment dir (checkpoints + logs)
+
+data_config:
+  train:
+    batch_size: 6                      # per-GPU; patched by 04_train_paired.sh
+    dataloader_num_workers: 4
+    dataset:
+      target: paired_face_plugin.PairedFaceDataset
+      params:
+        file_meta:
+          file_list: TODO              # filled: parquet from build_paired_dataset.py
+          image_path_prefix: ""        # filled (usually "")
+          hq_path_key: hq_path
+          lq_path_key: lq_path
+          prompt_key: prompt
+        out_size: 512                  # training resolution; HQ/LQ both resized to this
+        crop_type: none                # none=resize whole face | center | random (paired)
+        use_hflip: true
+        use_rot: false
+        p_empty_prompt: 0.0            # 0 = always use prompt; 1.0 = null-text
+        return_file_name: false
+    batch_transform:
+      target: paired_face_plugin.PairedFaceBatchTransform
+      params:
+        hq_key: hq
+        lq_key: lq
+        txt_key: txt
+        use_sharpener: true            # USM-sharpen HQ to match released LoRA's GT prep
+
+base_model_type: sd2
+base_model_path: TODO                  # filled: local sd2_base dir (Manojb mirror)
+
+# Warm-start the LoRA from the released HYPIR_sd2.pth (fine-tune) instead of
+# gaussian-init from scratch. Set to ~ / null to train from scratch.
+lora_weight_path: TODO
+
+model_t: 200                           # timestep label fed to UNet
+coeff_t: 200                           # timestep used by the one-step x0 inversion
+lora_rank: 256                         # must match the released LoRA (HYPIR_sd2.pth)
+lora_modules: [to_k, to_q, to_v, to_out.0, conv, conv1, conv2, conv_shortcut, conv_out, proj_in, proj_out, ff.net.2, ff.net.0.proj]
+
+use_ema: true
+ema_decay: 0.999
+resume_ema: false                      # false: no EMA state to resume from a raw LoRA file
+
+# Loss weights (match the released model).
+lambda_gan: 0.5
+lambda_lpips: 5
+lambda_l2: 1
+
+# Optimizer (patched by 04_train_paired.sh).
+lr_G: 1e-5
+lr_D: 1e-5
+optimizer_type: adam
+opt_kwargs:
+  betas: [0.9, 0.999]
+
+mixed_precision: bf16
+seed: 231
+max_train_steps: 15000                 # patched; ~2 epochs over 7000 pairs at bs=6
+gradient_accumulation_steps: 1         # patched
+gradient_checkpointing: true
+max_grad_norm: 1.0
+logging_dir: logs
+report_to: tensorboard
+checkpointing_steps: 500               # patched
+checkpoints_total_limit: 2
+resume_from_checkpoint: ~              # patched: a 04 checkpoint dir to resume from
+log_image_steps: 100                   # patched
+log_grad_steps: 100                    # patched
+log_grad_modules: [conv_out]

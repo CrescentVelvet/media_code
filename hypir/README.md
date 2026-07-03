@@ -169,6 +169,85 @@ WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_infe
 ```
 > The official trainer also saves `ema_state_dict.pth` alongside each checkpoint. To use EMA weights, point `WEIGHT_PATH` at the EMA file (same key set) — the loader in `SD2Enhancer.init_generator` accepts either.
 
+## Paired face fine-tuning on REAL LQ+HQ (03b / 04-paired) — `crop_faces_paired.py` output → HYPIR
+
+The official `03`/`04` path trains on **HQ only** and *synthesizes* LQ via
+RealESRGAN degradation. To train on **real** degradation (e.g. the 360p camera
+LQ + RAW-decoded HQ face pairs from `face_crop/crop_faces_paired.py`), use the
+paired plug-ins — **no official file is modified**: the derived config points
+`target:` at plug-in classes in `paired_face_plugin.py` (importable via
+PYTHONPATH), and `train_paired.py` subclasses `SD2Trainer` to warm-start the
+LoRA from the released `HYPIR_sd2.pth`.
+
+> 中文说明：官方 `03/04` 只用 HQ、LQ 是现场用 RealESRGAN 合成退化的（盲复原配方）。
+> 你用 `face_crop/crop_faces_paired.py` 建的是「真实 360p 相机 LQ + RAW 解码 HQ」配对，
+> 想直接喂真实退化，就用这套配对插件。**不改任何官方文件**：填好的配置把 `target:`
+> 指向 `paired_face_plugin.py` 里的插件类（靠 `04_train_paired.sh` 设的 `PYTHONPATH`
+> 导入），`train_paired.py` 再子类化 `SD2Trainer` 实现从发布权重暖启动。
+>
+> 核心思想：7k 张配对从零训 LoRA 不够（发布模型是 bs1024 大数据训的），所以默认
+> **暖启动**——把发布的 `HYPIR_sd2.pth` 当 LoRA 初始化，再在你的人脸数据上继续练，
+> 等于把通用复原模型「适配」到人脸域。数据流见下图，训练循环(一步去噪+L2/LPIPS/GAN)
+> 与官方完全一致，只是 LQ 来自真实配对而非合成。
+
+```
+HQ folder (.../hq/<stem>_faceN.png)  ┐  paired by filename
+LQ folder (.../lq/<stem>_faceN.png)  ┘
+   └─ 03b_build_paired_dataset.py  -> parquet(hq_path, lq_path, prompt)
+        └─ PairedFaceDataset        : load HQ+LQ, resize/paired-crop to 512,
+                                      same flip/rot -> {hq, lq, txt}
+        └─ PairedFaceBatchTransform : USM-sharpen HQ, rename -> {GT, LQ, txt}
+        └─ FineTuneSD2Trainer       : warm-start LoRA from HYPIR_sd2.pth, then
+                                      the unchanged one-step + L2/LPIPS/GAN loop
+```
+
+### Usage
+```bash
+# Dataset already uploaded as .../pbr10k_faces_20260703/{hq,lq} (defaults):
+GPU=0 bash hypir/04_train_paired.sh
+
+# Build the parquet only (no train):
+HQ_DIR=.../hq LQ_DIR=.../lq bash hypir/03b_build_paired_dataset.sh
+
+# Custom everything:
+GPU=0 DATASET_ROOT=.../pbr10k_faces_20260703 MAX_TRAIN_STEPS=20000 \
+    LR_G=5e-6 BATCH_SIZE=8 bash hypir/04_train_paired.sh
+
+# Train from scratch (no warm-start) instead of fine-tuning the released LoRA:
+LORA_WEIGHT_PATH= GPU=0 bash hypir/04_train_paired.sh
+```
+Inference with your checkpoint (same as 02):
+```bash
+WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_inference.sh
+```
+
+### Why fine-tune (warm-start) instead of from scratch
+The released `HYPIR_sd2.pth` was trained on a large dataset at batch 1024. With
+only ~7k face pairs you cannot relearn the one-step restoration from scratch —
+so `04_train_paired.sh` **warm-starts** from `HYPIR_sd2.pth` by default
+(`LORA_WEIGHT_PATH`) and adapts it to your face domain. Set `LORA_WEIGHT_PATH=`
+to disable (gaussian-init from scratch, official behaviour).
+
+### Training parameters (for ~7k paired face crops)
+| var | default | note |
+| --- | --- | --- |
+| `DATASET_ROOT` | `/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
+| `LORA_WEIGHT_PATH` | `$MODEL_DIR/HYPIR_sd2.pth` | warm-start; `""` = from scratch |
+| `OUT_SIZE` | `512` | HQ & LQ both resized to this (HYPIR's VAE patch size) |
+| `CROP_TYPE` | `none` | resize whole face; `random` for paired random-patch aug |
+| `MAX_TRAIN_STEPS` | `15000` | ~2 epochs over 7k at bs=6; try 10k–30k |
+| `BATCH_SIZE` | `6` | per-GPU; raise to 8–12 on A100/H100 |
+| `LR_G` / `LR_D` | `1e-5` / `1e-5` | use `5e-6` for gentler adaptation |
+| `GRAD_ACCUM` | `1` | increase if a bigger effective batch is wanted |
+| `CHECKPOINTING_STEPS` | `500` | saves `checkpoint-N/state_dict.pth` |
+| `N_TRAIN_GPU` | _(unset)_ | `>1` → multi-GPU (run `accelerate config` first) |
+| `RESUME` | _(unset)_ | a `checkpoint-N` dir to resume from |
+
+> The HQ/LQ scale of these pairs is ~10× (full RAW decode); both are rendered at
+> `OUT_SIZE=512`, so the model learns real 360p-camera → clean face restoration.
+> `use_sharpener=true` (USM on HQ) matches the preprocessing the released LoRA
+> was trained with — keep it on when warm-starting.
+
 ## 可能遇到的问题
 
 公司代理做 HTTPS 中间人解密，下面按流水线阶段列出常见报错与修法（命令在服务器上、conda 环境已激活时执行）。
