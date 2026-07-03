@@ -52,7 +52,7 @@ log = logging.getLogger("paired")
 
 DEFAULT_HQ = r"C:\baidunetdiskdownload\PPR0K_all_files_11161_zip\raw_zips\raw"
 DEFAULT_LQ = r"C:\baidunetdiskdownload\PPR0K_all_files_11161_zip\train_val_images_tif_360p\source"
-DEFAULT_OUT = r"C:\code\ppr0k_faces"
+DEFAULT_OUT = r"C:\code\ppr10k_faces"
 LOG_NAME = "faces_paired_log.csv"
 RAW_EXTS = {".cr2", ".nef", ".arw", ".raf", ".rw2", ".dng"}
 AR_TOL = 0.02  # accept up to 2% aspect-ratio mismatch

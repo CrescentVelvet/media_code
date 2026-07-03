@@ -203,14 +203,14 @@ LQ folder (.../lq/<stem>_faceN.png)  ┘
 
 ### Usage
 ```bash
-# Dataset already uploaded as .../pbr10k_faces_20260703/{hq,lq} (defaults):
+# Dataset already uploaded as .../ppr10k_faces_20260703/{hq,lq} (defaults):
 GPU=0 bash hypir/04_train_paired.sh
 
 # Build the parquet only (no train):
 HQ_DIR=.../hq LQ_DIR=.../lq bash hypir/03b_build_paired_dataset.sh
 
 # Custom everything:
-GPU=0 DATASET_ROOT=.../pbr10k_faces_20260703 MAX_TRAIN_STEPS=20000 \
+GPU=0 DATASET_ROOT=.../ppr10k_faces_20260703 MAX_TRAIN_STEPS=20000 \
     LR_G=5e-6 BATCH_SIZE=8 bash hypir/04_train_paired.sh
 
 # Train from scratch (no warm-start) instead of fine-tuning the released LoRA:
@@ -231,7 +231,7 @@ to disable (gaussian-init from scratch, official behaviour).
 ### Training parameters (for ~7k paired face crops)
 | var | default | note |
 | --- | --- | --- |
-| `DATASET_ROOT` | `/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
+| `DATASET_ROOT` | `/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
 | `LORA_WEIGHT_PATH` | `$MODEL_DIR/HYPIR_sd2.pth` | warm-start; `""` = from scratch |
 | `OUT_SIZE` | `512` | HQ & LQ both resized to this (HYPIR's VAE patch size) |
 | `CROP_TYPE` | `none` | resize whole face; `random` for paired random-patch aug |
@@ -248,14 +248,14 @@ to disable (gaussian-init from scratch, official behaviour).
 > `use_sharpener=true` (USM on HQ) matches the preprocessing the released LoRA
 > was trained with — keep it on when warm-starting.
 
-## 新手指南：配对人脸微调全流程（照着做即可）
+## 配对人脸微调全流程
 
 这篇给第一次用的人：从「数据已上传」到「跑完训练、看到还原结果」，每步都有可复制的命令。命令都在服务器上执行。
 
 ### 你需要先有的
 - 一台 Ubuntu + NVIDIA GPU 服务器（训练建议 A100 / H100 / 4090；只推理 T4 也行）。
 - 已用 `face_crop/crop_faces_paired.py` 建好的**配对人脸数据集**（`hq/` 与 `lq/` 同名 PNG），并上传到默认路径：
-  `/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703/{hq,lq}`
+  `/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}`
 - 服务器上已装好 `conda` 和 `git`。
 
 ### 训练到底在干什么（一句话版）
@@ -295,7 +295,7 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
 
 ### Step 4 — 确认数据集在位
 ```bash
-DATA=/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703
+DATA=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703
 ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
 ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
 ```
@@ -307,29 +307,29 @@ GPU=0 bash hypir/04_train_paired.sh
 ```
 这一条命令会自动：按文件名建配对 parquet → 填配置 → 从 `HYPIR_sd2.pth` 暖启动 LoRA → `accelerate launch` 开训。
 默认 15000 步、bs=6、lr=1e-5，每 500 步存一个 checkpoint 到：
-`../HYPIR/experiments/pbr10k_faces_paired/checkpoint-N/state_dict.pth`
+`../HYPIR/experiments/ppr10k_faces_paired/checkpoint-N/state_dict.pth`
 
 ### Step 6 — 看训练进度
 - 终端每 100 步打印一次 loss。
 - TensorBoard 看曲线：
 ```bash
-tensorboard --logdir ../HYPIR/experiments/pbr10k_faces_paired --port 6006
+tensorboard --logdir ../HYPIR/experiments/ppr10k_faces_paired --port 6006
 # 本地浏览器开 http://<服务器IP>:6006
 ```
 - 看已存的 checkpoint：
 ```bash
-ls ../HYPIR/experiments/pbr10k_faces_paired/
+ls ../HYPIR/experiments/ppr10k_faces_paired/
 ```
 中途想停没问题。续训：
 ```bash
-RESUME=../HYPIR/experiments/pbr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04_train_paired.sh
+RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04_train_paired.sh
 ```
 
 ### Step 7 — 用训好的 checkpoint 还原人脸、看效果
 ```bash
 conda activate hypir
-CKPT=../HYPIR/experiments/pbr10k_faces_paired/checkpoint-15000/state_dict.pth
-LQ=/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703/lq
+CKPT=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-15000/state_dict.pth
+LQ=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq
 WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
   SCALE_BY=longest_side TARGET_LONGEST_SIDE=512 \
   bash hypir/02_run_inference.sh

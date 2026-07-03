@@ -6,7 +6,7 @@
 #       配对依据是文件名完全相同——crop_faces_paired.py 已保证 hq/ 与 lq/ 同名。
 #
 # 必填：
-#   HQ_DIR=/.../pbr10k_faces_20260703/hq   LQ_DIR=/.../pbr10k_faces_20260703/lq
+#   HQ_DIR=/.../ppr10k_faces_20260703/hq   LQ_DIR=/.../ppr10k_faces_20260703/lq
 # 常用覆盖：
 #   PARQUET_OUT=/.../paired.parquet   输出路径（默认放在 HQ_DIR 同级）
 #   PROMPT=""                         每张图的文本提示（""=空文本训练，HYPIR 默认）
@@ -17,8 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"   # 激活 conda 环境、设代理/CA、按 GPU=N 选卡
 
-: "${HQ_DIR:?set HQ_DIR (e.g. .../pbr10k_faces_20260703/hq)}"
-: "${LQ_DIR:?set LQ_DIR (e.g. .../pbr10k_faces_20260703/lq)}"
+: "${HQ_DIR:?set HQ_DIR (e.g. .../ppr10k_faces_20260703/hq)}"
+: "${LQ_DIR:?set LQ_DIR (e.g. .../ppr10k_faces_20260703/lq)}"
 # 默认把 parquet 输出到 HQ_DIR 的同级目录，文件名 hypir_paired.parquet
 PARQUET_OUT="${PARQUET_OUT:-$(dirname "$HQ_DIR")/hypir_paired.parquet}"
 PARQUET_OUT="$(mkdir -p "$(dirname "$PARQUET_OUT")" && cd "$(dirname "$PARQUET_OUT")" && pwd)/$(basename "$PARQUET_OUT")"

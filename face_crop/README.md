@@ -109,7 +109,7 @@ pip install rawpy
 ### Usage
 
 ```bat
-:: one-click: HQ raw -> C:\code\ppr0k_faces\{hq,lq} paired PNGs
+:: one-click: HQ raw -> C:\code\ppr10k_faces\{hq,lq} paired PNGs
 run_face_crop_paired.bat
 ```
 
@@ -125,7 +125,7 @@ python crop_faces_paired.py --workers 12
 | --- | --- | --- |
 | `--hq` | `…\raw_zips\raw` | HQ RAW directory (CR2/NEF/ARW/RAF/RW2) |
 | `--lq` | `…\train_val_images_tif_360p\source` | LQ `.tif` directory (same stems) |
-| `--output` / `-o` | `C:\code\ppr0k_faces` | output root (creates `hq/` and `lq/`) |
+| `--output` / `-o` | `C:\code\ppr10k_faces` | output root (creates `hq/` and `lq/`) |
 | `--half-size` | off | decode HQ at half resolution (~2× faster, ~5× scale; default full ~10.7×) |
 | `--workers` | `min(cpu,8)` | process-pool size (RAW decode is the bottleneck) |
 | `--model-kind` / `--min-confidence` / `--pad` / `--min-size` | `short`/`0.5`/`0.15`/`24` | same as the single-folder script |

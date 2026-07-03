@@ -10,11 +10,11 @@
 # 而不是从零重学(7k 张数据从零练不够，发布模型是 bs1024 大数据训出来的)。
 #
 # 默认数据集路径(可改)：
-#   /data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703/{hq,lq}
+#   /data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}
 # 任何参数都能用环境变量覆盖(见 README 的 Config 表)。
 #
 # 必填(二选一)：
-#   PARQUET_PATH=/path/to/paired.parquet   (由 03b_build_paired_dataset.sh 生成)
+#   PARQUET_PATH=/path/to/paired.parquet   (由 03_build_paired_dataset.sh 生成)
 #   HQ_DIR=.../hq  LQ_DIR=.../lq           (没给 parquet 就自动先建一张)
 set -euo pipefail
 
@@ -28,22 +28,22 @@ MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/HYPIR}"
 BASE_MODEL_PATH="${BASE_MODEL_PATH:-$MODEL_DIR/sd2_base}"            # SD2 基座(本地 diffusers)
 LORA_WEIGHT_PATH="${LORA_WEIGHT_PATH:-$MODEL_DIR/HYPIR_sd2.pth}"    # 暖启动 LoRA；设 "" 则从零训
 
-# 实验输出目录(checkpoint + 日志)，默认 HYPIR_DIR/experiments/pbr10k_faces_paired
-OUTPUT_DIR="${OUTPUT_DIR:-$HYPIR_DIR/experiments/pbr10k_faces_paired}"
+# 实验输出目录(checkpoint + 日志)，默认 HYPIR_DIR/experiments/ppr10k_faces_paired
+OUTPUT_DIR="${OUTPUT_DIR:-$HYPIR_DIR/experiments/ppr10k_faces_paired}"
 OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
 # 默认数据集位置(用环境变量覆盖即可)
-DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/pbr10k_faces_20260703}"
+DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703}"
 HQ_DIR="${HQ_DIR:-$DATASET_ROOT/hq}"
 LQ_DIR="${LQ_DIR:-$DATASET_ROOT/lq}"
 
-# --- 1. 取得配对 parquet(没给就先用 03b 建一张) ---
+# --- 1. 取得配对 parquet(没给就先用 03 建一张) ---
 PARQUET_PATH="${PARQUET_PATH:-}"
 if [ -z "$PARQUET_PATH" ]; then
-    echo "--- no PARQUET_PATH; building one from HQ=$HQ_DIR LQ=$LQ_DIR (03b) ---"
+    echo "--- no PARQUET_PATH; building one from HQ=$HQ_DIR LQ=$LQ_DIR (03) ---"
     PARQUET_OUT="$OUTPUT_DIR/hypir_paired.parquet" \
         HQ_DIR="$HQ_DIR" LQ_DIR="$LQ_DIR" \
-        bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
+        bash "$SCRIPT_DIR/03_build_paired_dataset.sh"
     PARQUET_PATH="$OUTPUT_DIR/hypir_paired.parquet"
 fi
 [ -f "$PARQUET_PATH" ] || { echo "ERROR: parquet not found: $PARQUET_PATH" >&2; exit 1; }
