@@ -45,9 +45,8 @@ def main():
         sys.exit(f"ERROR: parquet not found: {PARQUET_PATH}")
     if not os.path.isfile(TEMPLATE):
         sys.exit(f"ERROR: template not found: {TEMPLATE}")
-    if not CONFIG_OUT:
-        CONFIG_OUT = os.path.join(OUTPUT_DIR, "sd2_train_filled.yaml")
-    config_out = os.path.abspath(CONFIG_OUT)
+    config_out = CONFIG_OUT or os.path.join(OUTPUT_DIR, "sd2_train_filled.yaml")
+    config_out = os.path.abspath(config_out)
     os.makedirs(os.path.dirname(config_out) or ".", exist_ok=True)
 
     cfg = OmegaConf.load(TEMPLATE)
