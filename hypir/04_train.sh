@@ -134,6 +134,8 @@ if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then
     ACCEL_ARGS+=(--num_processes "$N_TRAIN_GPU")
 fi
 [ -n "${MIXED_PRECISION:-}" ] && ACCEL_ARGS+=(--mixed_precision "$MIXED_PRECISION")
+# 多卡时指定分布式端口，避开默认 29500 被占(0=自动找空闲端口；单卡时被忽略)。
+ACCEL_ARGS+=(--main_process_port "${PORT:-0}")
 
 accelerate launch "${ACCEL_ARGS[@]}" train.py --config "$CONFIG_OUT"
 

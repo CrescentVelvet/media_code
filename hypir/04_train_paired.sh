@@ -123,9 +123,12 @@ cd "$HYPIR_DIR"
 
 ACCEL_ARGS=()
 if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then
-    ACCEL_ARGS+=(--num_processes "$N_TRAIN_GPU")   # 多卡：先跑一次 `accelerate config` 选 multi-GPU
+    ACCEL_ARGS+=(--num_processes "$N_TRAIN_GPU")   # 多卡：显式指定进程数(不必先跑 accelerate config)
 fi
 [ -n "${MIXED_PRECISION:-}" ] && ACCEL_ARGS+=(--mixed_precision "$MIXED_PRECISION")
+# 多卡时指定分布式端口，避开默认 29500 被别的进程占用(0=自动找空闲端口，单机多卡适用)。
+# 单卡(GPU=N)时 accelerate 跑单进程，此参数被忽略，无副作用。
+ACCEL_ARGS+=(--main_process_port "${PORT:-0}")
 
 accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT"
 
