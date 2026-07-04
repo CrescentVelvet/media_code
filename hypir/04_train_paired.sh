@@ -14,8 +14,11 @@
 # 任何参数都能用环境变量覆盖(见 README 的 Config 表)。
 #
 # 必填(二选一)：
-#   PARQUET_PATH=/path/to/paired.parquet   (由 03_build_paired_dataset.sh 生成)
+#   PARQUET_PATH=/path/to/paired.parquet   (由 03b_build_paired_dataset.sh 生成)
 #   HQ_DIR=.../hq  LQ_DIR=.../lq           (没给 parquet 就自动先建一张)
+#
+# 日志：默认后台运行(BG=1)，stdout/stderr 写入
+#       $OUTPUT_DIR/${MODEL}-${DATASET}-LoRA_<时间>.log；BG=0 改前台(tee 同步存日志)。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +39,11 @@ OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703}"
 HQ_DIR="${HQ_DIR:-$DATASET_ROOT/hq}"
 LQ_DIR="${LQ_DIR:-$DATASET_ROOT/lq}"
+
+# 日志文件名里的模型/数据集标签(可被环境变量覆盖)；日志最终存到 OUTPUT_DIR
+MODEL="${MODEL:-hypir}"
+DATASET="${DATASET:-$(basename "$DATASET_ROOT")}"
+LOG_FILE="$OUTPUT_DIR/${MODEL}-${DATASET}-LoRA_$(date +%Y%m%d_%H%M%S).log"
 
 # --- 1. 取得配对 parquet(没给就先用 03 建一张) ---
 PARQUET_PATH="${PARQUET_PATH:-}"
@@ -74,6 +82,7 @@ echo "  dataset:   crop_type=$CROP_TYPE out_size=$OUT_SIZE"
 echo "  train:     steps=$MAX_TRAIN_STEPS bs=$BATCH_SIZE grad_accum=$GRAD_ACCUM lr_G=$LR_G lr_D=$LR_D seed=$SEED"
 echo "  ckpt:      every $CHECKPOINTING_STEPS steps"
 echo "  output:    $OUTPUT_DIR"
+echo "  log:       $LOG_FILE  (BG=${BG:-1})"
 [ -n "$RESUME" ] && echo "  resume:    $RESUME"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
@@ -130,8 +139,23 @@ fi
 # 单卡(GPU=N)时 accelerate 跑单进程，此参数被忽略，无副作用。
 ACCEL_ARGS+=(--main_process_port "${PORT:-0}")
 
-accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT"
-
-echo "=== [04-paired] Done. Checkpoints in: $OUTPUT_DIR ==="
-echo "    Each checkpoint-N/state_dict.pth is a LoRA weight file."
-echo "    Inference: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
+# --- 7. 启动训练 ---
+# 默认后台运行、stdout/stderr 全存到 LOG_FILE(BG=1)；想前台看实时输出就 BG=0(用 tee 同时存日志)。
+if [ "${BG:-1}" = "0" ]; then
+    accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" 2>&1 | tee "$LOG_FILE"
+    echo "=== [04-paired] Done. Checkpoints in: $OUTPUT_DIR ==="
+    echo "    Inference: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
+else
+    nohup accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" > "$LOG_FILE" 2>&1 &
+    TRAIN_PID=$!
+    echo "=== [04-paired] 训练已在后台启动 (PID=$TRAIN_PID) ==="
+    echo "    日志: $LOG_FILE"
+    echo "    跟踪: tail -f $LOG_FILE"
+    echo "    停止: kill $TRAIN_PID  (或 pkill -f train_paired.py)"
+    echo "    推理: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
+    # 等 5 秒看是否秒退(配置/依赖报错会立刻挂)
+    sleep 5
+    if ! kill -0 "$TRAIN_PID" 2>/dev/null; then
+        echo "    [警告] 进程 5 秒内已退出，多半是配置/依赖报错，查日志: tail -50 $LOG_FILE"
+    fi
+fi
