@@ -74,15 +74,15 @@ export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
 RESUME="${RESUME:-}"                                 # 断点续训：填一个 04 的 checkpoint-N 目录
 
 echo "=== [04-paired] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
-echo "  code:      $HYPIR_DIR"
-echo "  base:      $BASE_MODEL_PATH"
-echo "  lora init: ${LORA_WEIGHT_PATH:-<from scratch>}"
+echo "  代码路径:      $HYPIR_DIR"
+echo "  模型路径:      $BASE_MODEL_PATH"
+echo "  LoRA路径: ${LORA_WEIGHT_PATH:-<from scratch>}"
 echo "  parquet:   $PARQUET_PATH"
-echo "  dataset:   crop_type=$CROP_TYPE out_size=$OUT_SIZE"
-echo "  train:     steps=$MAX_TRAIN_STEPS bs=$BATCH_SIZE grad_accum=$GRAD_ACCUM lr_G=$LR_G lr_D=$LR_D seed=$SEED"
-echo "  ckpt:      every $CHECKPOINTING_STEPS steps"
-echo "  output:    $OUTPUT_DIR"
-echo "  log:       $LOG_FILE  (BG=${BG:-1})"
+echo "  数据集路径:   crop_type=$CROP_TYPE out_size=$OUT_SIZE"
+echo "  训练参数:     steps=$MAX_TRAIN_STEPS bs=$BATCH_SIZE grad_accum=$GRAD_ACCUM lr_G=$LR_G lr_D=$LR_D seed=$SEED"
+echo "  存档点:      every $CHECKPOINTING_STEPS steps"
+echo "  输出路径:    $OUTPUT_DIR"
+echo "  日志路径:       $LOG_FILE  (BG=${BG:-1})"
 [ -n "$RESUME" ] && echo "  resume:    $RESUME"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
@@ -126,8 +126,9 @@ OmegaConf.save(cfg, p)
 print(f"[*] patched hyperparams -> {p}")
 PY
 
-# --- 6. 启动训练(把本目录加进 PYTHONPATH，让 paired_face_plugin 可被 import) ---
-export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+# --- 6. 启动训练(把本目录与 HYPIR_DIR 都加进 PYTHONPATH，让 paired_face_plugin 和 HYPIR.* 都可 import) ---
+export HYPIR_DIR                    # 供 train_paired.py 兜底 sys.path 用
+export PYTHONPATH="$SCRIPT_DIR:$HYPIR_DIR${PYTHONPATH:+:$PYTHONPATH}"
 cd "$HYPIR_DIR"
 
 ACCEL_ARGS=()
