@@ -207,10 +207,13 @@ class FineTuneSD2Trainer(SD2Trainer):
     """
 
     def init_generator(self):
-        super().init_generator()                       # builds UNet + adds fresh LoRA
-        wp = getattr(self.config, "lora_weight_path", None)
-        if wp:
-            sd = torch.load(wp, map_location="cpu")
-            m, u = self.G.load_state_dict(sd, strict=False)
-            print(f"[FineTuneSD2Trainer] warm-started LoRA from {wp} "
-                  f"(missing={len(m)} unexpected={len(u)})")
+        # 官方 SD2Trainer.init_generator 读 config.weight_path 来加载 LoRA(暖启动)；
+        # 我们的 config 用的是 lora_weight_path，所以在这里映射过去。
+        # 无 lora_weight_path 时也设 weight_path=None(从零训)，避免官方代码访问缺键报错。
+        lora_wp = getattr(self.config, "lora_weight_path", None)
+        if not hasattr(self.config, "weight_path"):
+            from omegaconf import OmegaConf
+            OmegaConf.set_struct(self.config, False)
+            self.config.weight_path = lora_wp   # 暖启动=权重路径；从零训=None
+            OmegaConf.set_struct(self.config, True)
+        super().init_generator()
