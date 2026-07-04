@@ -283,6 +283,10 @@ conda activate hypir
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 CONDA_ENV=hypir INSTALL_DEPS=1 bash hypir/00_setup_env.sh   # 装官方 requirements.txt
 pip install polars pillow                                    # 配对数据集要用
+pip install lpips
+pip install vision_aided_loss
+pip install open-clip-torch
+python -c "import open_clip; open_clip.create_model_and_transforms('convnext_xxlarge', pretrained='laion2b_s34b_b82k_augreg_soup')"
 ```
 
 ### Step 3 — 下官方权重（一次性）
