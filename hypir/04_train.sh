@@ -134,8 +134,27 @@ if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then
     ACCEL_ARGS+=(--num_processes "$N_TRAIN_GPU")
 fi
 [ -n "${MIXED_PRECISION:-}" ] && ACCEL_ARGS+=(--mixed_precision "$MIXED_PRECISION")
-# 多卡时指定分布式端口，避开默认 29500 被占(0=自动找空闲端口；单卡时被忽略)。
-ACCEL_ARGS+=(--main_process_port "${PORT:-0}")
+
+# 数一下可见 GPU 数(判断是否多卡)：CUDA_VISIBLE_DEVICES 按逗号数，否则用 nvidia-smi。
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    _NGPU=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F, '{print NF}')
+else
+    _NGPU=$(nvidia-smi -L 2>/dev/null | wc -l)
+    [ "$_NGPU" -eq 0 ] && _NGPU=1
+fi
+_MULTI=0
+[ "$_NGPU" -gt 1 ] && _MULTI=1
+if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then _MULTI=1; fi
+
+# 多卡才传分布式端口，避开默认 29500 被占。注意：传 0 会触发 torch TCPStore
+# "非法端口" + worker 600s 超时(实测)，所以用 python 实算一个空闲端口；单卡不传。
+if [ "$_MULTI" = "1" ]; then
+    if [ -z "${PORT:-}" ]; then
+        PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
+    fi
+    : "${PORT:=29530}"
+    ACCEL_ARGS+=(--main_process_port "$PORT")
+fi
 
 accelerate launch "${ACCEL_ARGS[@]}" train.py --config "$CONFIG_OUT"
 

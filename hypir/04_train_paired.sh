@@ -136,9 +136,27 @@ if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then
     ACCEL_ARGS+=(--num_processes "$N_TRAIN_GPU")   # 多卡：显式指定进程数(不必先跑 accelerate config)
 fi
 [ -n "${MIXED_PRECISION:-}" ] && ACCEL_ARGS+=(--mixed_precision "$MIXED_PRECISION")
-# 多卡时指定分布式端口，避开默认 29500 被别的进程占用(0=自动找空闲端口，单机多卡适用)。
-# 单卡(GPU=N)时 accelerate 跑单进程，此参数被忽略，无副作用。
-ACCEL_ARGS+=(--main_process_port "${PORT:-0}")
+
+# 数一下可见 GPU 数(判断是否多卡)：CUDA_VISIBLE_DEVICES 按逗号数，否则用 nvidia-smi。
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    _NGPU=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F, '{print NF}')
+else
+    _NGPU=$(nvidia-smi -L 2>/dev/null | wc -l)
+    [ "$_NGPU" -eq 0 ] && _NGPU=1
+fi
+_MULTI=0
+[ "$_NGPU" -gt 1 ] && _MULTI=1
+if [ -n "${N_TRAIN_GPU:-}" ] && [ "${N_TRAIN_GPU:-1}" -gt 1 ]; then _MULTI=1; fi
+
+# 多卡才传分布式端口，避开默认 29500 被占。注意：传 0 会触发 torch TCPStore
+# "非法端口" + worker 600s 超时(实测)，所以用 python 实算一个空闲端口；单卡不传。
+if [ "$_MULTI" = "1" ]; then
+    if [ -z "${PORT:-}" ]; then
+        PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
+    fi
+    : "${PORT:=29530}"
+    ACCEL_ARGS+=(--main_process_port "$PORT")
+fi
 
 # --- 7. 启动训练 ---
 # 默认后台运行、stdout/stderr 全存到 LOG_FILE(BG=1)；想前台看实时输出就 BG=0(用 tee 同时存日志)。
