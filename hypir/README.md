@@ -306,7 +306,7 @@ ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
 ### Step 5 — 开始训练（一条命令）
 ```bash
 conda activate hypir
-GPU=4,5,6,7 bash hypir/04_train_paired.sh
+GPU=2,7 BG=0 bash hypir/04_train_paired.sh
 ```
 这一条命令会自动：按文件名建配对 parquet → 填配置 → 从 `HYPIR_sd2.pth` 暖启动 LoRA → `accelerate launch` 开训。
 默认 15000 步、bs=6、lr=1e-5，每 500 步存一个 checkpoint 到：
