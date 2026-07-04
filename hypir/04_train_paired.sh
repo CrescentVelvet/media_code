@@ -62,7 +62,7 @@ CROP_TYPE="${CROP_TYPE:-none}"        # none=把整张脸 resize 到 512 | cente
 OUT_SIZE="${OUT_SIZE:-512}"           # HQ/LQ 都缩放到此尺寸(HYPIR 的 VAE patch 就是 512)
 
 # --- 3. 训练超参(默认值面向 ~7k 配对的微调；都可被环境变量覆盖) ---
-export MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-15000}"   # ~2 个 epoch(bs=6)；10k–30k 可调
+export MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-300000}"   # ~2 个 epoch(bs=6)；10k–30k 可调
 export BATCH_SIZE="${BATCH_SIZE:-6}"                 # 每卡 batch；A100/H100 可提到 8–12
 export LR_G="${LR_G:-1e-5}"                          # 想更温和别忘掉发布模型就用 5e-6
 export LR_D="${LR_D:-1e-5}"
