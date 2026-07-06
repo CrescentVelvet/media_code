@@ -1,112 +1,65 @@
 # HYPIR runner
 
-One-click orchestration to run [HYPIR](https://github.com/XPixelGroup/HYPIR) (SIGGRAPH 2025, "Harnessing Diffusion-Yielded Score Priors for Image Restoration") **inference**, **dataset construction**, and **LoRA training** on an Ubuntu + NVIDIA GPU server.
-This folder holds **only orchestration scripts** — no official code, no weights. The official repo is cloned automatically; weights are downloaded from HuggingFace.
+在 Ubuntu + NVIDIA 服务器上跑 [HYPIR](https://github.com/XPixelGroup/HYPIR)（SIGGRAPH 2025 图像复原）的**推理 / 数据集构建 / LoRA 训练**。本目录只含编排脚本——官方代码自动 clone、权重从 HuggingFace 下载。
 
-Compared with `triposplat/`, this set adds a **dataset-build** step (`03_build_dataset.sh`) and a **LoRA training** step (`04_train.sh`) — the full reproduce path: env → weights → inference → your-data → train.
+## 常用命令
 
-## Design
-- **Reuses an existing conda env** (default name `doll`) that already has a CUDA-enabled torch — no separate venv. Run `INSTALL_DEPS=1 bash hypir/00_setup_env.sh` once to install the official `requirements.txt`.
-  - ⚠️ HYPIR pins `diffusers==0.32.2` / `transformers==4.49.0` / `peft==0.14.0` — these **conflict** with other algos in this repo (e.g. `hunyuanvideo-1.5` wants `diffusers==0.35.0` / `transformers==4.57.1`). **Use a dedicated env**: `conda create -n hypir python=3.10 -y` then `CONDA_ENV=hypir ...`. Set `SKIP_TORCH=1` if you don't want the `torch==2.6.0` pin to disturb an existing torch.
-- Code and weights live outside this repo (see Layout).
+> 假设已进入容器并 `conda activate hypir`；路径取 `04_train_paired.sh` 默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
 
-## Layout (when this repo is cloned under your code dir)
-```
-<code-dir>/
-├── media_code/                  # this repo
-│   ├── proxy.env                # proxy + optional overrides, gitignored
-│   └── hypir/
-│       ├── _env.sh                  # shared: proxy + CA bundle + conda activate
-│       ├── 00_setup_env.sh          # activate env + verify torch (INSTALL_DEPS=1 -> requirements.txt)
-│       ├── 01_download_models.sh    # hf download SD2-base + HYPIR_sd2.pth (lora)
-│       ├── 02_run_inference.sh      # batch test.py -> restored PNGs
-│       ├── 03_build_dataset.sh      # image folder -> training parquet (+ optional 512 crop)
-│       ├── build_dataset.py         #   parquet builder (polars)
-│       ├── 04_train.sh              # accelerate launch train.py on your parquet (LoRA)
-│       ├── gen_train_config.py      #   fills TODOs in configs/sd2_train.yaml (no fork)
-│       ├── run_all.sh               # one-click: clone -> 00 -> 01 -> 02
-│       ├── setup_ca_bundle.sh       # one-time: extract proxy CA -> ~/.ca-bundle.crt
-│       ├── _extract_ca.py           #   helper used by setup_ca_bundle.sh
-│       └── _hf_download.py          #   snapshot_download with SSL verify off (01 fallback)
-├── HYPIR/                       # official code (auto-cloned to ../HYPIR)
-└── ../../model/                 # weights live one dir above <code-dir> (shared by all algos)
-    └── HYPIR/
-        ├── sd2_base/            # Manojb/stable-diffusion-2-1-base (public mirror; diffusers: scheduler/tokenizer/text_encoder/unet/vae)
-        └── HYPIR_sd2.pth        # LoRA weights (lxq007/HYPIR)
-```
-Defaults: official code at `../HYPIR`, weights at `../../model/HYPIR` (relative to this repo). Override with `HYPIR_DIR` / `MODEL_DIR`.
-
-## Prerequisites
-- Ubuntu, NVIDIA driver (CUDA 12.x), `git`, `conda`
-- A conda env with a CUDA-enabled torch already installed. Recommended **dedicated** env:
-  ```bash
-  conda create -n hypir python=3.10 -y && conda activate hypir
-  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-  ```
-- NVIDIA GPU: a free T4 is enough for inference (per the official colab); A100/H100/RTX-4090 for training.
-
-## Setup (on the server)
 ```bash
-cd <your-code-dir>   # e.g. /data_3d/<uid>/code
-git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
-cd media_code
-cp proxy.env.example proxy.env
-# edit proxy.env: http_proxy / https_proxy (and CONDA_ENV if your env isn't 'doll')
-# Dedicated env recommended (HYPIR's pins conflict with other algos):
-CONDA_ENV=hypir INSTALL_DEPS=1 bash hypir/run_all.sh
-# run_all.sh: clone official repo -> activate env + install requirements -> download weights -> run example restoration.
-```
+# 1) 构建数据集（按同名文件配对 HQ/LQ -> parquet）
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
+LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq \
+bash hypir/03_build_paired_dataset.sh
 
-## Step-by-step
-```bash
-sudo docker exec -it <container> /bin/bash
-conda activate hypir   # or 'doll' if you share it
-INSTALL_DEPS=1 bash hypir/00_setup_env.sh          # activate + verify torch + pip install -r requirements.txt
-HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # hf download sd2-base (public Manojb mirror) + HYPIR_sd2.pth
-# Inference on the bundled examples (6 LQ images + prompts):
-GPU=0 bash hypir/02_run_inference.sh
-# On your own images (no prompts -> empty caption):
-GPU=0 LQ_DIR=/path/to/images bash hypir/02_run_inference.sh
-# Build a training parquet from your HQ image folder (crops to 512x512 by default):
-DATA_DIR=/data/LSDIR bash hypir/03_build_dataset.sh
-# LoRA fine-tune:
-PARQUET_PATH=/data/LSDIR/hypir_train.parquet GPU=0 bash hypir/04_train.sh
-# Test the trained LoRA (just point WEIGHT_PATH at the checkpoint):
-GPU=0 WEIGHT_PATH=.../checkpoint-N/state_dict.pth bash hypir/02_run_inference.sh
-# Quantitative eval (PSNR/SSIM/LPIPS vs HQ + bicubic baseline):
-GPU=0 bash hypir/05_eval.sh
-```
-Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
+# 2) 开始训练（默认后台运行，日志路径见启动提示）
+GPU=0 bash hypir/04_train_paired.sh
 
-## Inference (02 — image restoration / super-resolution)
-`02_run_inference.sh` calls `run_inference.py` (a thin wrapper over `SD2Enhancer` that mirrors the official `test.py`: recursive walk, relative-path output, prompt handling), loading the SD2 base + LoRA **once** and looping over every image in `LQ_DIR`. For each image it writes:
-- `OUTPUT_DIR/result/<same-relative-path>.png` — restored image
-- `OUTPUT_DIR/prompt/<same-relative-path>.txt` — prompt used
+# 3) 继续上次 LoRA 训练（RESUME 指向 checkpoint 目录）
+GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 \
+  bash hypir/04_train_paired.sh
 
-LoRA 权重由 `WEIGHT_PATH` 决定（默认 = 发布的 `HYPIR_sd2.pth`）。**测训练好的 LoRA 只需把 `WEIGHT_PATH` 指向 checkpoint 的 `state_dict.pth`**，无需另写脚本（训练存的 `state_dict.pth` 就是 LoRA 参数，键名与 `SD2Enhancer` 加载逻辑对得上）。Prompts：传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）用逐图描述；不传则用空 caption（null-text 复原，论文默认，效果不错）。
-```bash
-# === 测试原生(发布)模型 ===  默认 WEIGHT_PATH=$MODEL_DIR/HYPIR_sd2.pth，跑官方示例图(4x 超分):
-GPU=0 bash hypir/02_run_inference.sh
-
-# === 测试训练好的 LoRA ===  换 WEIGHT_PATH 指向 checkpoint-65000/state_dict.pth:
-#   (人脸配对是 512->512 复原，故 UPSCALE=1；指向你的 LQ 测试集)
-GPU=0 UPSCALE=1 \
-  WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth \
-  LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq \
-  OUTPUT_DIR=../HYPIR/results/ppr10k_faces_trained \
+# 4) 测试原生(发布)模型 inference —— 指定输入路径
+GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=1 \
   bash hypir/02_run_inference.sh
 
-# === 原生 vs 训练 LoRA 对比 === 同一批 LQ 各跑一次(OUTPUT_DIR 分开)，看 result/ 差异:
-GPU=0 UPSCALE=1 LQ_DIR=.../ppr10k_faces_20260703/lq OUTPUT_DIR=../HYPIR/results/native  bash hypir/02_run_inference.sh
-GPU=0 UPSCALE=1 LQ_DIR=.../ppr10k_faces_20260703/lq WEIGHT_PATH=.../checkpoint-65000/state_dict.pth OUTPUT_DIR=../HYPIR/results/trained bash hypir/02_run_inference.sh
-
-# 其它常用覆盖：
-GPU=0 LQ_DIR=/path/to/lq UPSCALE=2 bash hypir/02_run_inference.sh                              # 2x 超分, 空 prompt
-GPU=0 LQ_DIR=/path/to/lq SCALE_BY=longest_side TARGET_LONGEST_SIDE=1920 bash hypir/02_run_inference.sh  # 按长边放大
+# 5) 测试自己训的 LoRA inference —— 指定输入路径 + 训练权重
+GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=1 \
+  WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth \
+  bash hypir/02_run_inference.sh
 ```
-The LoRA module list / rank (256) match the official HYPIR-SD2 config; override via `LORA_MODULES` / `LORA_RANK` only if you trained a different config.
 
-> 想要**定量评测**（PSNR/SSIM/LPIPS + LQ|result|HQ 三联对比图 + metrics.csv）而非仅肉眼看结果，用 `05_eval.sh`（见下）。02 只产出复原图，不带指标。
+- 结果：训练 → `../HYPIR/experiments/ppr10k_faces_paired/checkpoint-*/`；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
+- 想要定量指标（PSNR/SSIM/LPIPS + LQ|result|HQ 对比图）用 `GPU=0 bash hypir/05_eval.sh`。
+- prompt 默认空 caption；要逐图描述就传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）。
+
+## 首次准备
+```bash
+cd <your-code-dir>            # e.g. /data_3d/<uid>/code
+git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
+cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
+conda create -n hypir python=3.10 -y && conda activate hypir
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+INSTALL_DEPS=1 bash hypir/00_setup_env.sh          # 装官方 requirements.txt
+HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # 下 SD2-base + HYPIR_sd2.pth
+```
+⚠️ HYPIR 的 `diffusers/transformers/peft` 版本 pin 与本仓其他算法冲突，务必用专用 env（`CONDA_ENV=hypir`），别装进共享的 `doll`。
+
+---
+
+以下为详细参考（流程原理 / 各脚本参数 / 排错 / 目录布局）。
+
+## Inference (02 — 更多用法)
+`02_run_inference.sh` 调 `run_inference.py`：加载一次、循环全图，逐图打印分辨率与耗时，输出 `OUTPUT_DIR/result/<rel>.png` + `prompt/<rel>.txt`。测原生 / 训练 LoRA 见上文「常用命令」#4/#5。其它覆盖示例：
+```bash
+# 原生 vs 训练 LoRA 对比：同一批 LQ 各跑一次(OUTPUT_DIR 分开)
+GPU=0 UPSCALE=1 LQ_DIR=.../lq OUTPUT_DIR=../HYPIR/results/native  bash hypir/02_run_inference.sh
+GPU=0 UPSCALE=1 LQ_DIR=.../lq WEIGHT_PATH=.../checkpoint-N/state_dict.pth OUTPUT_DIR=../HYPIR/results/trained bash hypir/02_run_inference.sh
+# 2x 超分 / 按长边放大：
+GPU=0 LQ_DIR=/path/to/lq UPSCALE=2 bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=/path/to/lq SCALE_BY=longest_side TARGET_LONGEST_SIDE=1920 bash hypir/02_run_inference.sh
+```
+LoRA 模块名 / 秩(256) 来自官方 HYPIR-SD2 config；换了训练配置才需 override `LORA_MODULES` / `LORA_RANK`。
 
 ## Pipeline（推理流程详解）
 对应官方代码 `HYPIR/enhancer/base.py::enhance` + `HYPIR/enhancer/sd2.py::forward_generator` + `HYPIR/utils/common.py`。一张 LQ 图像从输入到输出经过 5 步：
@@ -527,6 +480,19 @@ bash hypir/01_download_models.sh
 - **03 dataset**: `PARQUET_OUT` (+ `patches/*.png` when `CROP=1`).
 - **04 training**: `OUTPUT_DIR/checkpoint-<step>/{state_dict.pth, ema_state_dict.pth, ...}`. Point `02`'s `WEIGHT_PATH` at `state_dict.pth` to run your fine-tuned model.
 - **05 eval**: `EVAL_DIR/{result,compare}/<rel>.png` + `EVAL_DIR/metrics.csv`（逐图 PSNR/SSIM/LPIPS，含 bicubic 基线）。
+
+## 目录布局
+```
+<code-dir>/
+├── media_code/                  # 本仓
+│   ├── proxy.env                # 代理 + 覆盖项, gitignored
+│   └── hypir/                   # 编排脚本(本目录)
+├── HYPIR/                       # 官方代码(自动 clone 到 ../HYPIR)
+└── ../../model/HYPIR/           # 权重(在 <code-dir> 上一级, 各算法共享)
+    ├── sd2_base/                # Manojb/stable-diffusion-2-1-base (公开镜像; diffusers: scheduler/tokenizer/text_encoder/unet/vae)
+    └── HYPIR_sd2.pth            # 发布 LoRA (lxq007/HYPIR)
+```
+默认：官方代码 `../HYPIR`、权重 `../../model/HYPIR`（相对本目录）；用 `HYPIR_DIR` / `MODEL_DIR` 覆盖。复用现有 conda env（默认 `doll`），但 HYPIR 的依赖 pin 与其他算法冲突——建议专用 env（`CONDA_ENV=hypir`），`SKIP_TORCH=1` 可不动现有 torch。
 
 ## Notes
 - Official code & weights follow their own license (HYPIR = non-commercial use only — see the repo). This folder only orchestrates; no official code is copied.
