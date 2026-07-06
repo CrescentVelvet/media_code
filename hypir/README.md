@@ -13,18 +13,18 @@ HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/da
 # 2) 开始训练(暖启动, 默认后台, 日志见提示)
 GPU=0 BG=0 bash hypir/04b_train_paired.sh
 # 3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
-GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
+GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 BG=0 bash hypir/04b_train_paired.sh
 
 # ── 合成退化路径(只输入 HQ, 在线合成 LQ, 03c/04c) ──
 # 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
 # 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
+GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 bash hypir/04c_train_synthetic.sh
 
 # ── 推理(02) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
-# 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(04b 的 checkpoint; 04c 的在 experiments/synthetic_exp1/)
+# 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(04b 的在 experiments/ppr10k_faces_paired; 04c 的在 experiments/synthetic_exp1/)
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
 ```
 
