@@ -19,7 +19,7 @@ GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/check
 # 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
 # 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
-GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 bash hypir/04c_train_synthetic.sh
+GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
 # ── 推理(02) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
@@ -32,6 +32,7 @@ GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPI
 - 想要定量指标（PSNR/SSIM/LPIPS + LQ|result|HQ 对比图）用 `GPU=0 bash hypir/05_eval.sh`。
 - prompt 默认空 caption；要逐图描述就传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）。
 - 两条训练路径区别：04b 用真实配对 LQ（不退化）；04c 只给 HQ、LQ 在线合成（HYPIR 默认退化 blur/sinc/noise/jpeg）。同一份 HQ 都可试，对比真实 vs 合成退化。
+- `#5 用 BATCH_SIZE=8` 的原因：官方 `sd2_train.yaml` 的 `RealESRGANBatchTransform` 要求 `queue_size`(默认 256) 是 `batch_size`(每卡) 的倍数——`256%6≠0` 会报错，`256%8=0` OK。想用 bs=6 就改 `queue_size=252`(=6×42)（在 04c/04_train.sh heredoc 加 `cfg.data_config.train.batch_transform.params.queue_size=252`），别动 bs。
 
 ## 首次准备
 ```bash
@@ -441,6 +442,7 @@ bash hypir/01_download_models.sh
 
 **8. 训练时 `open_clip` / `lpips` 下载权重失败**
 - 判别器 `ImageOpenCLIPConvNext` 在初始化时下载 `convnext_xxlarge`（laion2b_s34b_b82k_augreg_soup，open_clip 走 HuggingFace）。`_env.sh` 的 CA bundle + `HF_HUB_DISABLE_XET` 通常能覆盖；仍失败时手动放到 open_clip 缓存或 `HF_DISABLE_SSL=1` 后重试。
+- **首次成功下载后，设 `HF_HUB_OFFLINE=1` 强制走本地缓存**（写进 `proxy.env` 或运行命令前），避免每次训练反复下载、代理下反复失败。前提是 `~/.cache/huggingface/` 里已有 convnext 权重（先联网成功跑一次再开离线）。
 - `lpips.LPIPS(net="vgg")` 从作者 URL 下载 VGG 权重（走 `torch.hub`）。代理下若失败：先 `bash hypir/setup_ca_bundle.sh`，或预先把 `vgg.pth` 放进 `~/.cache/torch/hub/checkpoints/`。
 
 **9. 训练报 `assert image.height == self.out_size`**
@@ -448,6 +450,12 @@ bash hypir/01_download_models.sh
 
 **10. 训练多卡 `accelerate launch` 只用一卡**
 没配 accelerate 多进程。先 `accelerate config`（选 multi-GPU），再 `N_TRAIN_GPU=8 bash hypir/04_train.sh`（脚本会加 `--num_processes`）。单卡可忽略。
+
+**11. 训练报 `queue_size` 不能被 `batch_size` 整除（合成退化路径 04c/04 才有）**
+官方 `sd2_train.yaml` 的 `RealESRGANBatchTransform` 有个训练池 `queue_size=256`，要求是 `batch_size`(每卡) 的倍数。`256%6≠0` → 报错。修法二选一：
+- 用 `BATCH_SIZE=8`（`256%8=0`，常用命令 #5 即如此；显存够就这个）；
+- 或保 `BATCH_SIZE=6`、改 `queue_size=252`(=6×42)：在 04c/04_train.sh 的 heredoc 加 `cfg.data_config.train.batch_transform.params.queue_size=252`。
+> 注：配对路径 04b 用 `PairedFaceBatchTransform`（无 queue_size），不受此限制。
 
 > 通用：`proxy.env`（代理凭证）在仓内 gitignored，`~/.ca-bundle.crt` 在家目录，都不入库；切勿把凭证写进脚本。
 

@@ -52,7 +52,7 @@ IMAGE_PATH_KEY="${IMAGE_PATH_KEY:-image_path}"
 PROMPT_KEY="${PROMPT_KEY:-prompt}"
 
 # --- 训练超参(面向 HQ-only 在线退化微调；都可被环境变量覆盖) ---
-export MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-15000}"
+export MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-300000}"
 export BATCH_SIZE="${BATCH_SIZE:-6}"
 export LR_G="${LR_G:-1e-5}"
 export LR_D="${LR_D:-1e-5}"
