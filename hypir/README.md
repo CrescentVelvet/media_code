@@ -71,26 +71,42 @@ GPU=0 LQ_DIR=/path/to/images bash hypir/02_run_inference.sh
 DATA_DIR=/data/LSDIR bash hypir/03_build_dataset.sh
 # LoRA fine-tune:
 PARQUET_PATH=/data/LSDIR/hypir_train.parquet GPU=0 bash hypir/04_train.sh
+# Test the trained LoRA (just point WEIGHT_PATH at the checkpoint):
+GPU=0 WEIGHT_PATH=.../checkpoint-N/state_dict.pth bash hypir/02_run_inference.sh
+# Quantitative eval (PSNR/SSIM/LPIPS vs HQ + bicubic baseline):
+GPU=0 bash hypir/05_eval.sh
 ```
 Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
 
 ## Inference (02 — image restoration / super-resolution)
-`02_run_inference.sh` runs the official `test.py`, which loads the SD2 base + LoRA **once** and loops over every image in `LQ_DIR` (walked recursively). For each image it writes:
+`02_run_inference.sh` calls `run_inference.py` (a thin wrapper over `SD2Enhancer` that mirrors the official `test.py`: recursive walk, relative-path output, prompt handling), loading the SD2 base + LoRA **once** and looping over every image in `LQ_DIR`. For each image it writes:
 - `OUTPUT_DIR/result/<same-relative-path>.png` — restored image
 - `OUTPUT_DIR/prompt/<same-relative-path>.txt` — prompt used
 
-Prompts: pass `TXT_DIR` (a folder mirroring `LQ_DIR`'s structure, one `.txt` per image) to use per-image captions. Without `TXT_DIR`, `--captioner empty` is used (null-text restoration — works well per the paper).
+LoRA 权重由 `WEIGHT_PATH` 决定（默认 = 发布的 `HYPIR_sd2.pth`）。**测训练好的 LoRA 只需把 `WEIGHT_PATH` 指向 checkpoint 的 `state_dict.pth`**，无需另写脚本（训练存的 `state_dict.pth` 就是 LoRA 参数，键名与 `SD2Enhancer` 加载逻辑对得上）。Prompts：传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）用逐图描述；不传则用空 caption（null-text 复原，论文默认，效果不错）。
 ```bash
-# 4x upscale, default example prompts:
+# === 测试原生(发布)模型 ===  默认 WEIGHT_PATH=$MODEL_DIR/HYPIR_sd2.pth，跑官方示例图(4x 超分):
 GPU=0 bash hypir/02_run_inference.sh
-# Your images, empty prompts, 2x upscale:
-GPU=0 LQ_DIR=/path/to/lq UPSCALE=2 bash hypir/02_run_inference.sh
-# Scale to a target longest side instead of a fixed factor:
-GPU=0 LQ_DIR=/path/to/lq SCALE_BY=longest_side TARGET_LONGEST_SIDE=1920 bash hypir/02_run_inference.sh
-# Use a trained LoRA checkpoint instead of the released one:
-GPU=0 WEIGHT_PATH=/path/to/checkpoint-N/state_dict.pth bash hypir/02_run_inference.sh
+
+# === 测试训练好的 LoRA ===  换 WEIGHT_PATH 指向 checkpoint-65000/state_dict.pth:
+#   (人脸配对是 512->512 复原，故 UPSCALE=1；指向你的 LQ 测试集)
+GPU=0 UPSCALE=1 \
+  WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth \
+  LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq \
+  OUTPUT_DIR=../HYPIR/results/ppr10k_faces_trained \
+  bash hypir/02_run_inference.sh
+
+# === 原生 vs 训练 LoRA 对比 === 同一批 LQ 各跑一次(OUTPUT_DIR 分开)，看 result/ 差异:
+GPU=0 UPSCALE=1 LQ_DIR=.../ppr10k_faces_20260703/lq OUTPUT_DIR=../HYPIR/results/native  bash hypir/02_run_inference.sh
+GPU=0 UPSCALE=1 LQ_DIR=.../ppr10k_faces_20260703/lq WEIGHT_PATH=.../checkpoint-65000/state_dict.pth OUTPUT_DIR=../HYPIR/results/trained bash hypir/02_run_inference.sh
+
+# 其它常用覆盖：
+GPU=0 LQ_DIR=/path/to/lq UPSCALE=2 bash hypir/02_run_inference.sh                              # 2x 超分, 空 prompt
+GPU=0 LQ_DIR=/path/to/lq SCALE_BY=longest_side TARGET_LONGEST_SIDE=1920 bash hypir/02_run_inference.sh  # 按长边放大
 ```
 The LoRA module list / rank (256) match the official HYPIR-SD2 config; override via `LORA_MODULES` / `LORA_RANK` only if you trained a different config.
+
+> 想要**定量评测**（PSNR/SSIM/LPIPS + LQ|result|HQ 三联对比图 + metrics.csv）而非仅肉眼看结果，用 `05_eval.sh`（见下）。02 只产出复原图，不带指标。
 
 ## Pipeline（推理流程详解）
 对应官方代码 `HYPIR/enhancer/base.py::enhance` + `HYPIR/enhancer/sd2.py::forward_generator` + `HYPIR/utils/common.py`。一张 LQ 图像从输入到输出经过 5 步：
@@ -351,6 +367,30 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - 多卡：先跑一次 `accelerate config` 选 multi-GPU，再 `N_TRAIN_GPU=8 bash hypir/04_train_paired.sh`（此时**不要**设 `GPU=`）。
 - 跑报错了：看下面「可能遇到的问题」对应条目。
 
+## Evaluation (05 — 定量评测训练效果)
+`05_eval.sh` 用训练好的 LoRA（`WEIGHT_PATH`）复原 LQ 测试图，并与同名 HQ 计算 **PSNR / SSIM / LPIPS**，同时给出 **bicubic 基线**（无模型，纯插值）作对比——两者之差即模型增益。还存三联对比图（LQ | result | HQ）和 `metrics.csv`。PSNR/SSIM 纯 numpy/torch 无额外依赖；LPIPS 用 `lpips` 包（HYPIR 自带依赖，首次会下 VGG 权重，代理失败则自动跳过 LPIPS、仍出 PSNR/SSIM）。
+```bash
+# 默认指向 04_train_paired.sh 的产物（权重 checkpoint-65000 + 数据集 lq/hq），评 50 张:
+GPU=0 bash hypir/05_eval.sh
+
+# 评全量、换别的 checkpoint:
+GPU=0 CKPT_STEP=70000 EVAL_LIMIT=0 bash hypir/05_eval.sh
+
+# 指向留出测试集做客观评测（默认 TEST_LQ/HQ 即训练集，指标反映拟合程度）:
+GPU=0 TEST_LQ_DIR=/data/holdout/lq TEST_HQ_DIR=/data/holdout/hq bash hypir/05_eval.sh
+
+# 只想看复原图、不算指标（不传 TEST_HQ_DIR）——等价于 02 但用训练 LoRA:
+GPU=0 TEST_LQ_DIR=.../lq TEST_HQ_DIR="" bash hypir/05_eval.sh
+```
+输出（默认 `$TRAIN_DIR/eval_ckpt<STEP>/`）：`result/`（复原图）、`compare/`（LQ|result|HQ 三联图）、`metrics.csv`（逐图指标）。汇总打印形如：
+```
+[*] === 指标汇总 (model vs HQ; bicubic 为无模型基线) ===
+    bicubic: PSNR 18.32  SSIM 0.6120  LPIPS 0.4210
+    model  : PSNR 24.15  SSIM 0.7831  LPIPS 0.1980
+    ΔPSNR  : +5.83 dB
+```
+> 只想肉眼对比原生 vs 训练 LoRA、不需要指标的话，直接用 02 跑两次（见上文 Inference 小节）即可，05 是给定量评测用的。
+
 ## 可能遇到的问题
 
 公司代理做 HTTPS 中间人解密，下面按流水线阶段列出常见报错与修法（命令在服务器上、conda 环境已激活时执行）。
@@ -468,10 +508,25 @@ bash hypir/01_download_models.sh
 | `MIXED_PRECISION` | _(unset; config=bf16)_ | override accelerate mixed precision |
 | `RESUME` | _(unset)_ | `checkpoint-N` dir to resume from |
 
+### Evaluation (05)
+| var | default | note |
+|---|---|---|
+| `TRAIN_DIR` | `../HYPIR/experiments/ppr10k_faces_paired` | 训练产物目录（checkpoint-*/ 在此） |
+| `CKPT_STEP` | `65000` | 评测哪个 checkpoint；`WEIGHT_PATH` 默认 `$TRAIN_DIR/checkpoint-$CKPT_STEP/state_dict.pth` |
+| `WEIGHT_PATH` | _(see above)_ | 训练好的 LoRA；覆写即评任意权重 |
+| `TEST_LQ_DIR` | `.../ppr10k_faces_20260703/lq` | 测试 LQ 图像夹（按同名文件与 HQ 配对） |
+| `TEST_HQ_DIR` | `.../ppr10k_faces_20260703/hq` | 测试 HQ 图像夹；设空则只复原不算指标 |
+| `EVAL_DIR` | `$TRAIN_DIR/eval_ckpt$CKPT_STEP` | 评测输出（result/ compare/ metrics.csv） |
+| `UPSCALE` | `1` | 人脸配对是 512→512 复原；做超分改大 |
+| `EVAL_LIMIT` | `50` | 评测张数；`0`=全部 |
+| `SAVE_COMPARE` | `1` | `1`=存 LQ\|result\|HQ 三联对比图 |
+| `SCALE_BY` / `PATCH_SIZE` / `STRIDE` / `SEED` | `factor` / `512` / `256` / `231` | 同 02 |
+
 ## Outputs
 - **02 inference**: `OUTPUT_DIR/result/<rel>.png` (restored) + `OUTPUT_DIR/prompt/<rel>.txt`.
 - **03 dataset**: `PARQUET_OUT` (+ `patches/*.png` when `CROP=1`).
 - **04 training**: `OUTPUT_DIR/checkpoint-<step>/{state_dict.pth, ema_state_dict.pth, ...}`. Point `02`'s `WEIGHT_PATH` at `state_dict.pth` to run your fine-tuned model.
+- **05 eval**: `EVAL_DIR/{result,compare}/<rel>.png` + `EVAL_DIR/metrics.csv`（逐图 PSNR/SSIM/LPIPS，含 bicubic 基线）。
 
 ## Notes
 - Official code & weights follow their own license (HYPIR = non-commercial use only — see the repo). This folder only orchestrates; no official code is copied.
