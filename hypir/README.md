@@ -4,28 +4,34 @@
 
 ## 常用命令
 
-> 假设已进入容器并 `conda activate hypir`；路径取 `04b_train_paired.sh` 默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> 假设已进入容器并 `conda activate hypir`；路径取各脚本默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
 
 ```bash
-# 1) 构建数据集（按同名文件配对 HQ/LQ -> parquet）
+# ── 配对路径(真实 LQ+HQ，03b/04b) ──
+# 1) 构建配对数据集(按同名文件配对 HQ/LQ -> parquet)
 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
-
-# 2) 开始训练（默认后台运行，日志路径见启动提示）
+# 2) 开始训练(暖启动, 默认后台, 日志见提示)
 GPU=0 BG=0 bash hypir/04b_train_paired.sh
-
-# 3) 继续上次 LoRA 训练（RESUME 指向 checkpoint 目录）
+# 3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
 GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
 
-# 4) 测试原生(发布)模型 inference —— 指定输入路径
-GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
+# ── 合成退化路径(只输入 HQ, 在线合成 LQ, 03c/04c) ──
+# 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
+# 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
 
-# 5) 测试自己训的 LoRA inference —— 指定输入路径 + 训练权重
+# ── 推理(02) ──
+# 6) 测试原生(发布)模型 —— 指定输入路径
+GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
+# 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(04b 的 checkpoint; 04c 的在 experiments/synthetic_exp1/)
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
 ```
 
-- 结果：训练 → `../HYPIR/experiments/ppr10k_faces_paired/checkpoint-*/`；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
+- 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（04b=`ppr10k_faces_paired`，04c=`synthetic_exp1`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
 - 想要定量指标（PSNR/SSIM/LPIPS + LQ|result|HQ 对比图）用 `GPU=0 bash hypir/05_eval.sh`。
 - prompt 默认空 caption；要逐图描述就传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）。
+- 两条训练路径区别：04b 用真实配对 LQ（不退化）；04c 只给 HQ、LQ 在线合成（HYPIR 默认退化 blur/sinc/noise/jpeg）。同一份 HQ 都可试，对比真实 vs 合成退化。
 
 ## 首次准备
 ```bash
@@ -44,7 +50,7 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # 下 SD2-base + HYPIR_sd2.pt
 以下为详细参考（流程原理 / 各脚本参数 / 排错 / 目录布局）。
 
 ## Inference (02 — 更多用法)
-`02_run_inference.sh` 调 `run_inference.py`：加载一次、循环全图，逐图打印分辨率与耗时，输出 `OUTPUT_DIR/result/<rel>.png` + `prompt/<rel>.txt`。测原生 / 训练 LoRA 见上文「常用命令」#4/#5。其它覆盖示例：
+`02_run_inference.sh` 调 `run_inference.py`：加载一次、循环全图，逐图打印分辨率与耗时，输出 `OUTPUT_DIR/result/<rel>.png` + `prompt/<rel>.txt`。测原生 / 训练 LoRA 见上文「常用命令」#6/#7。其它覆盖示例：
 ```bash
 # 原生 vs 训练 LoRA 对比：同一批 LQ 各跑一次(OUTPUT_DIR 分开)
 GPU=0 UPSCALE=1 LQ_DIR=.../lq OUTPUT_DIR=../HYPIR/results/native  bash hypir/02_run_inference.sh
