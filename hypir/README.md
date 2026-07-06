@@ -8,25 +8,19 @@
 
 ```bash
 # 1) 构建数据集（按同名文件配对 HQ/LQ -> parquet）
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
-LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq \
-bash hypir/03_build_paired_dataset.sh
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03_build_paired_dataset.sh
 
 # 2) 开始训练（默认后台运行，日志路径见启动提示）
-GPU=0 bash hypir/04_train_paired.sh
+GPU=0 BG=0 bash hypir/04_train_paired.sh
 
 # 3) 继续上次 LoRA 训练（RESUME 指向 checkpoint 目录）
-GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 \
-  bash hypir/04_train_paired.sh
+GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04_train_paired.sh
 
 # 4) 测试原生(发布)模型 inference —— 指定输入路径
-GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=1 \
-  bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
 
 # 5) 测试自己训的 LoRA inference —— 指定输入路径 + 训练权重
-GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=1 \
-  WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth \
-  bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
 ```
 
 - 结果：训练 → `../HYPIR/experiments/ppr10k_faces_paired/checkpoint-*/`；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
