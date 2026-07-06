@@ -11,7 +11,7 @@ your own real-degradation face pairs instead of synthesizing LQ from HQ.
   train_paired.py (entry point)             -> FineTuneSD2Trainer   # warm-start LoRA
 
 No official HYPIR file is modified — this module is importable because
-``04_train_paired.sh`` puts this folder on ``PYTHONPATH``.
+``04b_train_paired.sh`` puts this folder on ``PYTHONPATH``.
 
 Data flow (per sample):
   parquet(hq_path, lq_path, prompt)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 04_train_paired.sh — 在「真实配对 LQ+HQ 人脸」上微调 HYPIR-SD2 的 LoRA。
+# 04b_train_paired.sh — 在「真实配对 LQ+HQ 人脸」上微调 HYPIR-SD2 的 LoRA。
 #
 # 流程：建配对 parquet(若缺) -> 填 sd2_train_paired.yaml -> 打标量超参 ->
 #       accelerate launch train_paired.py --config <填好的配置>
@@ -51,7 +51,7 @@ if [ -z "$PARQUET_PATH" ]; then
     echo "--- no PARQUET_PATH; building one from HQ=$HQ_DIR LQ=$LQ_DIR (03) ---"
     PARQUET_OUT="$OUTPUT_DIR/hypir_paired.parquet" \
         HQ_DIR="$HQ_DIR" LQ_DIR="$LQ_DIR" \
-        bash "$SCRIPT_DIR/03_build_paired_dataset.sh"
+        bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
     PARQUET_PATH="$OUTPUT_DIR/hypir_paired.parquet"
 fi
 [ -f "$PARQUET_PATH" ] || { echo "ERROR: parquet not found: $PARQUET_PATH" >&2; exit 1; }
@@ -73,7 +73,7 @@ export LOG_IMAGE_STEPS="${LOG_IMAGE_STEPS:-100}"
 export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
 RESUME="${RESUME:-}"                                 # 断点续训：填一个 04 的 checkpoint-N 目录
 
-echo "=== [04-paired] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
+echo "=== [04b] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
 echo "  代码路径:      $HYPIR_DIR"
 echo "  模型路径:      $BASE_MODEL_PATH"
 echo "  LoRA路径: ${LORA_WEIGHT_PATH:-<from scratch>}"
@@ -162,12 +162,12 @@ fi
 # 默认后台运行、stdout/stderr 全存到 LOG_FILE(BG=1)；想前台看实时输出就 BG=0(用 tee 同时存日志)。
 if [ "${BG:-1}" = "0" ]; then
     accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" 2>&1 | tee "$LOG_FILE"
-    echo "=== [04-paired] Done. Checkpoints in: $OUTPUT_DIR ==="
+    echo "=== [04b] Done. Checkpoints in: $OUTPUT_DIR ==="
     echo "    Inference: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
 else
     nohup accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" > "$LOG_FILE" 2>&1 &
     TRAIN_PID=$!
-    echo "=== [04-paired] 训练已在后台启动 (PID=$TRAIN_PID) ==="
+    echo "=== [04b] 训练已在后台启动 (PID=$TRAIN_PID) ==="
     echo "    日志: $LOG_FILE"
     echo "    跟踪: tail -f $LOG_FILE"
     echo "    停止: kill $TRAIN_PID  (或 pkill -f train_paired.py)"

@@ -4,17 +4,17 @@
 
 ## 常用命令
 
-> 假设已进入容器并 `conda activate hypir`；路径取 `04_train_paired.sh` 默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> 假设已进入容器并 `conda activate hypir`；路径取 `04b_train_paired.sh` 默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
 
 ```bash
 # 1) 构建数据集（按同名文件配对 HQ/LQ -> parquet）
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03_build_paired_dataset.sh
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
 
 # 2) 开始训练（默认后台运行，日志路径见启动提示）
-GPU=0 BG=0 bash hypir/04_train_paired.sh
+GPU=0 BG=0 bash hypir/04b_train_paired.sh
 
 # 3) 继续上次 LoRA 训练（RESUME 指向 checkpoint 目录）
-GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04_train_paired.sh
+GPU=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
 
 # 4) 测试原生(发布)模型 inference —— 指定输入路径
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
@@ -132,7 +132,7 @@ WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_infe
 ```
 > The official trainer also saves `ema_state_dict.pth` alongside each checkpoint. To use EMA weights, point `WEIGHT_PATH` at the EMA file (same key set) — the loader in `SD2Enhancer.init_generator` accepts either.
 
-## Paired face fine-tuning on REAL LQ+HQ (03b / 04-paired) — `crop_faces_paired.py` output → HYPIR
+## Paired face fine-tuning on REAL LQ+HQ (03b / 04b) — `crop_faces_paired.py` output → HYPIR
 
 The official `03`/`04` path trains on **HQ only** and *synthesizes* LQ via
 RealESRGAN degradation. To train on **real** degradation (e.g. the 360p camera
@@ -145,7 +145,7 @@ LoRA from the released `HYPIR_sd2.pth`.
 > 中文说明：官方 `03/04` 只用 HQ、LQ 是现场用 RealESRGAN 合成退化的（盲复原配方）。
 > 你用 `face_crop/crop_faces_paired.py` 建的是「真实 360p 相机 LQ + RAW 解码 HQ」配对，
 > 想直接喂真实退化，就用这套配对插件。**不改任何官方文件**：填好的配置把 `target:`
-> 指向 `paired_face_plugin.py` 里的插件类（靠 `04_train_paired.sh` 设的 `PYTHONPATH`
+> 指向 `paired_face_plugin.py` 里的插件类（靠 `04b_train_paired.sh` 设的 `PYTHONPATH`
 > 导入），`train_paired.py` 再子类化 `SD2Trainer` 实现从发布权重暖启动。
 >
 > 核心思想：7k 张配对从零训 LoRA 不够（发布模型是 bs1024 大数据训的），所以默认
@@ -156,7 +156,7 @@ LoRA from the released `HYPIR_sd2.pth`.
 ```
 HQ folder (.../hq/<stem>_faceN.png)  ┐  paired by filename
 LQ folder (.../lq/<stem>_faceN.png)  ┘
-   └─ 03b_build_paired_dataset.py  -> parquet(hq_path, lq_path, prompt)
+   └─ build_paired_dataset.py     -> parquet(hq_path, lq_path, prompt)
         └─ PairedFaceDataset        : load HQ+LQ, resize/paired-crop to 512,
                                       same flip/rot -> {hq, lq, txt}
         └─ PairedFaceBatchTransform : USM-sharpen HQ, rename -> {GT, LQ, txt}
@@ -167,17 +167,17 @@ LQ folder (.../lq/<stem>_faceN.png)  ┘
 ### Usage
 ```bash
 # Dataset already uploaded as .../ppr10k_faces_20260703/{hq,lq} (defaults):
-GPU=0 bash hypir/04_train_paired.sh
+GPU=0 bash hypir/04b_train_paired.sh
 
 # Build the parquet only (no train):
 HQ_DIR=.../hq LQ_DIR=.../lq bash hypir/03b_build_paired_dataset.sh
 
 # Custom everything:
 GPU=0 DATASET_ROOT=.../ppr10k_faces_20260703 MAX_TRAIN_STEPS=20000 \
-    LR_G=5e-6 BATCH_SIZE=8 bash hypir/04_train_paired.sh
+    LR_G=5e-6 BATCH_SIZE=8 bash hypir/04b_train_paired.sh
 
 # Train from scratch (no warm-start) instead of fine-tuning the released LoRA:
-LORA_WEIGHT_PATH= GPU=0 bash hypir/04_train_paired.sh
+LORA_WEIGHT_PATH= GPU=0 bash hypir/04b_train_paired.sh
 ```
 Inference with your checkpoint (same as 02):
 ```bash
@@ -187,7 +187,7 @@ WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_infe
 ### Why fine-tune (warm-start) instead of from scratch
 The released `HYPIR_sd2.pth` was trained on a large dataset at batch 1024. With
 only ~7k face pairs you cannot relearn the one-step restoration from scratch —
-so `04_train_paired.sh` **warm-starts** from `HYPIR_sd2.pth` by default
+so `04b_train_paired.sh` **warm-starts** from `HYPIR_sd2.pth` by default
 (`LORA_WEIGHT_PATH`) and adapts it to your face domain. Set `LORA_WEIGHT_PATH=`
 to disable (gaussian-init from scratch, official behaviour).
 
@@ -273,7 +273,7 @@ ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
 ### Step 5 — 开始训练（一条命令）
 ```bash
 conda activate hypir
-GPU=2,7 BG=0 bash hypir/04_train_paired.sh
+GPU=2,7 BG=0 bash hypir/04b_train_paired.sh
 ```
 这一条命令会自动：按文件名建配对 parquet → 填配置 → 从 `HYPIR_sd2.pth` 暖启动 LoRA → `accelerate launch` 开训。
 默认 15000 步、bs=6、lr=1e-5，每 500 步存一个 checkpoint 到：
@@ -292,7 +292,7 @@ ls ../HYPIR/experiments/ppr10k_faces_paired/
 ```
 中途想停没问题。续训：
 ```bash
-RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04_train_paired.sh
+RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04b_train_paired.sh
 ```
 
 ### Step 7 — 用训好的 checkpoint 还原人脸、看效果
@@ -311,7 +311,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - 显存不够：`BATCH_SIZE=4`，或 `GRAD_ACCUM=2`（等效翻倍 batch）。
 - 想更稳、别把发布模型「练歪」：`LR_G=5e-6 LR_D=5e-6`。
 - 想多练/少练：`MAX_TRAIN_STEPS=30000`（更多）或 `10000`（更快）。
-- 多卡：先跑一次 `accelerate config` 选 multi-GPU，再 `N_TRAIN_GPU=8 bash hypir/04_train_paired.sh`（此时**不要**设 `GPU=`）。
+- 多卡：先跑一次 `accelerate config` 选 multi-GPU，再 `N_TRAIN_GPU=8 bash hypir/04b_train_paired.sh`（此时**不要**设 `GPU=`）。
 - 跑报错了：看下面「可能遇到的问题」对应条目。
 
 ## Synthetic degradation (03c / 04c — 只输入 HQ，在线退化 + 暖启动)
@@ -330,7 +330,7 @@ HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
 ```
 - RealESRGANDataset 需要 HQ ≥ 512：`CROP_TYPE=random`（在线裁 512 patch，HQ>512 时推荐）或 `CROP_TYPE=none`（HQ 需预 resize 到 512）。HQ < 512 时先 resize 上采样到 ≥512。
 - **04c = 暖启动 + 在线退化**（默认从 `$MODEL_DIR/HYPIR_sd2.pth` 暖启动）。想**从零训**（官方默认）就用 `04_train.sh`：`PARQUET_PATH=... CROP_TYPE=random bash hypir/04_train.sh`。
-- 与 `04_train_paired` 区别：04_train_paired 用真实 LQ（`sd2_train_paired.yaml`，不退化）；04c 用合成 LQ（官方 `sd2_train.yaml`，在线退化）。同一份 HQ 两种方式都试，对比真实 vs 合成退化的效果。
+- 与 `04b_train_paired` 区别：04b_train_paired 用真实 LQ（`sd2_train_paired.yaml`，不退化）；04c 用合成 LQ（官方 `sd2_train.yaml`，在线退化）。同一份 HQ 两种方式都试，对比真实 vs 合成退化的效果。
 
 ## ⚠️ 暖启动机制（重要：勿改错，否则暖启动静默失效）
 **背景**：官方 GitHub 的 `HYPIR/trainer/sd2.py` 里 `SD2Trainer.init_generator` 只做 `init_lora_weights="gaussian"`（随机初始化），**完全不加载 LoRA 权重** —— 即官方默认是从零训，没有暖启动。
@@ -343,9 +343,9 @@ state_dict = torch.load(self.config.weight_path, map_location="cpu", weights_onl
 ```
 **这是暖启动能生效的唯一原因**。没有这两行，下面的链路全断。
 
-**暖启动链路**（04c / 04-paired 都走这条）：
+**暖启动链路**（04c / 04b 都走这条）：
 ```
-config.lora_weight_path = .../HYPIR_sd2.pth        # 04c/04-paired 在填好的 config 里设
+config.lora_weight_path = .../HYPIR_sd2.pth        # 04c/04b 在填好的 config 里设
   ↓ FineTuneSD2Trainer.init_generator (paired_face_plugin.py)
 config.weight_path = config.lora_weight_path        # 官方 config 无 weight_path 字段 → hasattr=False → 赋值
   ↓ super().init_generator()  (你改过的 sd2.py)
@@ -356,7 +356,7 @@ torch.load(config.weight_path) → load_state_dict    # 真正把发布 LoRA 载
 **勿改错清单**：
 - 🔴 **别把 clone 里的 `sd2.py` 还原成官方版**。一旦丢了第 57-58 行的 `torch.load`，`FineTuneSD2Trainer` 设的 `weight_path` 无人读 → 暖启动静默失效，变回从零训（不会报错，但 checkpoint 质量退化，且很难察觉）。
 - 🔴 **别删 `FineTuneSD2Trainer` 里的 `config.weight_path = lora_wp` 映射**。否则 `sd2.py` 读 `config.weight_path` 时缺键 → `Missing key weight_path` 直接崩。
-- 🟡 改过的 `sd2.py` 是**无条件** `torch.load(config.weight_path)`（grep 未见 `if` guard）。所以 `lora_weight_path` 留空（想从零训）会把 `weight_path=None` 传进去 → `torch.load(None)` 崩。**04c / 04-paired 务必设 `lora_weight_path`**；从零训用 `04_train.sh`（官方 `train.py`），但跑前先 `grep` 确认 `sd2.py` 对缺 `weight_path` 的处理，否则同样崩。
+- 🟡 改过的 `sd2.py` 是**无条件** `torch.load(config.weight_path)`（grep 未见 `if` guard）。所以 `lora_weight_path` 留空（想从零训）会把 `weight_path=None` 传进去 → `torch.load(None)` 崩。**04c / 04b 务必设 `lora_weight_path`**；从零训用 `04_train.sh`（官方 `train.py`），但跑前先 `grep` 确认 `sd2.py` 对缺 `weight_path` 的处理，否则同样崩。
 
 **定期自检**（确认暖启动仍生效）：
 ```bash
@@ -367,7 +367,7 @@ grep -n "weight_path\|torch.load" $HYPIR_DIR/HYPIR/trainer/sd2.py
 ## Evaluation (05 — 定量评测训练效果)
 `05_eval.sh` 用训练好的 LoRA（`WEIGHT_PATH`）复原 LQ 测试图，并与同名 HQ 计算 **PSNR / SSIM / LPIPS**，同时给出 **bicubic 基线**（无模型，纯插值）作对比——两者之差即模型增益。还存三联对比图（LQ | result | HQ）和 `metrics.csv`。PSNR/SSIM 纯 numpy/torch 无额外依赖；LPIPS 用 `lpips` 包（HYPIR 自带依赖，首次会下 VGG 权重，代理失败则自动跳过 LPIPS、仍出 PSNR/SSIM）。
 ```bash
-# 默认指向 04_train_paired.sh 的产物（权重 checkpoint-65000 + 数据集 lq/hq），评 50 张:
+# 默认指向 04b_train_paired.sh 的产物（权重 checkpoint-65000 + 数据集 lq/hq），评 50 张:
 GPU=0 bash hypir/05_eval.sh
 
 # 评全量、换别的 checkpoint:

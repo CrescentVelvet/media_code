@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fill the TODO fields in sd2_train_paired.yaml and write a derived config for
 paired face fine-tuning. No official file is modified — a filled copy is written
-under OUTPUT_DIR and passed (via 04_train_paired.sh) to train_paired.py.
+under OUTPUT_DIR and passed (via 04b_train_paired.sh) to train_paired.py.
 
 Env:
   TEMPLATE        (default $SCRIPT_DIR/sd2_train_paired.yaml)

@@ -5,7 +5,7 @@
 # PSNR / SSIM / LPIPS，并给出 bicubic 基线（无模型）作对比，看模型增益。
 # 同时存：复原结果图、三联对比图(LQ|result|HQ)、metrics.csv。
 #
-# 默认指向 04_train_paired.sh 的产物：
+# 默认指向 04b_train_paired.sh 的产物：
 #   权重:  $TRAIN_DIR/checkpoint-$CKPT_STEP/state_dict.pth
 #   数据:  $DATASET_ROOT/{lq,hq}  (按同名文件配对)
 #   输出:  $TRAIN_DIR/eval_ckpt$CKPT_STEP/{result,compare,metrics.csv}

@@ -1,16 +1,16 @@
 # HYPIR-SD2 LoRA training on REAL paired LQ+HQ face crops (no synthetic
 # degradation). Derived from configs/sd2_train.yaml; the dataset and
 # batch_transform targets point at the plug-in classes in paired_face_plugin.py
-# (importable via PYTHONPATH set by 04_train_paired.sh).
+# (importable via PYTHONPATH set by 04b_train_paired.sh).
 #
 # TODOs are filled by gen_paired_config.py. Scalar hyperparams (lr/steps/bs/...)
-# are patched by 04_train_paired.sh after generation.
+# are patched by 04b_train_paired.sh after generation.
 
 output_dir: TODO                      # filled: experiment dir (checkpoints + logs)
 
 data_config:
   train:
-    batch_size: 6                      # per-GPU; patched by 04_train_paired.sh
+    batch_size: 6                      # per-GPU; patched by 04b_train_paired.sh
     dataloader_num_workers: 4
     dataset:
       target: paired_face_plugin.PairedFaceDataset
@@ -56,7 +56,7 @@ lambda_gan: 0.5
 lambda_lpips: 5
 lambda_l2: 1
 
-# Optimizer (patched by 04_train_paired.sh).
+# Optimizer (patched by 04b_train_paired.sh).
 lr_G: 1e-5
 lr_D: 1e-5
 optimizer_type: adam

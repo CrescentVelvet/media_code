@@ -86,7 +86,7 @@ def main():
     if dropped:
         print(f"    dropped {dropped} pairs (LQ < {MIN_SIDE}px or unreadable)")
     print(f"[*] prompt={'<empty>' if PROMPT == '' else repr(PROMPT)}")
-    print(f"[*] next: PARQUET_PATH={out} bash hypir/04_train_paired.sh")
+    print(f"[*] next: PARQUET_PATH={out} bash hypir/04b_train_paired.sh")
 
 
 if __name__ == "__main__":

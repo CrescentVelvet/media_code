@@ -34,4 +34,4 @@ export HQ_DIR LQ_DIR PARQUET_OUT
 python "$SCRIPT_DIR/build_paired_dataset.py"
 
 echo "=== [03b] Done. Paired parquet: $PARQUET_OUT ==="
-echo "    Next: PARQUET_PATH=$PARQUET_OUT bash $SCRIPT_DIR/04_train_paired.sh"
+echo "    Next: PARQUET_PATH=$PARQUET_OUT bash $SCRIPT_DIR/04b_train_paired.sh"

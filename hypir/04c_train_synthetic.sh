@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 04c_train_synthetic.sh — 在 HQ-only 数据上用 HYPIR 官方在线退化 + 暖启动发布 LoRA 微调。
 #
-# 与 04_train_paired.sh 的区别：config 用官方 configs/sd2_train.yaml
+# 与 04b_train_paired.sh 的区别：config 用官方 configs/sd2_train.yaml
 # （RealESRGANDataset + RealESRGANBatchTransform，在线合成 LQ：blur/sinc/noise/jpeg
 #  两阶段，每 epoch 随机刷新）而非 sd2_train_paired.yaml（真实配对，不退化）。
 # 暖启动机制相同：FineTuneSD2Trainer（train_paired.py）从 config.lora_weight_path
