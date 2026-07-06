@@ -314,6 +314,56 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - 多卡：先跑一次 `accelerate config` 选 multi-GPU，再 `N_TRAIN_GPU=8 bash hypir/04_train_paired.sh`（此时**不要**设 `GPU=`）。
 - 跑报错了：看下面「可能遇到的问题」对应条目。
 
+## Synthetic degradation (03c / 04c — 只输入 HQ，在线退化 + 暖启动)
+`03c_build_synthetic_dataset.sh` 是 `03b`(真实配对) 的**合成退化**对照：只给 HQ 文件夹，产出 parquet(`image_path` + `prompt`)；训练时由官方 `RealESRGANDataset` + `RealESRGANBatchTransform` **在线合成 LQ**（HYPIR 默认退化：blur/sinc/noise/jpeg 两阶段，每 epoch 随机刷新）——不存 LQ 文件、增强更多样、省盘。这是 HYPIR 发布模型本身的训练方式。`04c_train_synthetic.sh` 在此基础上**暖启动发布 LoRA**（用官方 `sd2_train.yaml` + `train_paired.py`/`FineTuneSD2Trainer`，你改过的 `sd2.py` 会 `torch.load(config.weight_path)` 真正加载）。
+```bash
+# 只输入 HQ，产出 HQ-only parquet（LQ 训练时在线合成）：
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
+bash hypir/03c_build_synthetic_dataset.sh
+# -> .../hypir_synthetic.parquet
+
+# 训练(暖启动发布 LoRA + 在线退化；HQ>512 用 CROP_TYPE=random 在线裁 512 patch)：
+PARQUET_PATH=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_synthetic.parquet \
+CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
+# 也可只给 HQ_DIR，让 04c 自动先建 parquet 再训：
+HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
+```
+- RealESRGANDataset 需要 HQ ≥ 512：`CROP_TYPE=random`（在线裁 512 patch，HQ>512 时推荐）或 `CROP_TYPE=none`（HQ 需预 resize 到 512）。HQ < 512 时先 resize 上采样到 ≥512。
+- **04c = 暖启动 + 在线退化**（默认从 `$MODEL_DIR/HYPIR_sd2.pth` 暖启动）。想**从零训**（官方默认）就用 `04_train.sh`：`PARQUET_PATH=... CROP_TYPE=random bash hypir/04_train.sh`。
+- 与 `04_train_paired` 区别：04_train_paired 用真实 LQ（`sd2_train_paired.yaml`，不退化）；04c 用合成 LQ（官方 `sd2_train.yaml`，在线退化）。同一份 HQ 两种方式都试，对比真实 vs 合成退化的效果。
+
+## ⚠️ 暖启动机制（重要：勿改错，否则暖启动静默失效）
+**背景**：官方 GitHub 的 `HYPIR/trainer/sd2.py` 里 `SD2Trainer.init_generator` 只做 `init_lora_weights="gaussian"`（随机初始化），**完全不加载 LoRA 权重** —— 即官方默认是从零训，没有暖启动。
+
+**改动**：本仓库 clone 的 `HYPIR/HYPIR/trainer/sd2.py` 被改过，在 `init_generator` 里加了加载逻辑（`grep -n "weight_path\|torch.load" sd2.py` 可见第 57-58 行）：
+```python
+print(f"Load model weights from {self.config.weight_path}")
+state_dict = torch.load(self.config.weight_path, map_location="cpu", weights_only=False)
+# ... load_state_dict ...
+```
+**这是暖启动能生效的唯一原因**。没有这两行，下面的链路全断。
+
+**暖启动链路**（04c / 04-paired 都走这条）：
+```
+config.lora_weight_path = .../HYPIR_sd2.pth        # 04c/04-paired 在填好的 config 里设
+  ↓ FineTuneSD2Trainer.init_generator (paired_face_plugin.py)
+config.weight_path = config.lora_weight_path        # 官方 config 无 weight_path 字段 → hasattr=False → 赋值
+  ↓ super().init_generator()  (你改过的 sd2.py)
+torch.load(config.weight_path) → load_state_dict    # 真正把发布 LoRA 载入 UNet
+  → 暖启动成功（checkpoint-* 是暖启动来的，不是从零）
+```
+
+**勿改错清单**：
+- 🔴 **别把 clone 里的 `sd2.py` 还原成官方版**。一旦丢了第 57-58 行的 `torch.load`，`FineTuneSD2Trainer` 设的 `weight_path` 无人读 → 暖启动静默失效，变回从零训（不会报错，但 checkpoint 质量退化，且很难察觉）。
+- 🔴 **别删 `FineTuneSD2Trainer` 里的 `config.weight_path = lora_wp` 映射**。否则 `sd2.py` 读 `config.weight_path` 时缺键 → `Missing key weight_path` 直接崩。
+- 🟡 改过的 `sd2.py` 是**无条件** `torch.load(config.weight_path)`（grep 未见 `if` guard）。所以 `lora_weight_path` 留空（想从零训）会把 `weight_path=None` 传进去 → `torch.load(None)` 崩。**04c / 04-paired 务必设 `lora_weight_path`**；从零训用 `04_train.sh`（官方 `train.py`），但跑前先 `grep` 确认 `sd2.py` 对缺 `weight_path` 的处理，否则同样崩。
+
+**定期自检**（确认暖启动仍生效）：
+```bash
+grep -n "weight_path\|torch.load" $HYPIR_DIR/HYPIR/trainer/sd2.py
+# 应见 init_generator 里那两行 torch.load(self.config.weight_path)；没有 = 暖启动已坏
+```
+
 ## Evaluation (05 — 定量评测训练效果)
 `05_eval.sh` 用训练好的 LoRA（`WEIGHT_PATH`）复原 LQ 测试图，并与同名 HQ 计算 **PSNR / SSIM / LPIPS**，同时给出 **bicubic 基线**（无模型，纯插值）作对比——两者之差即模型增益。还存三联对比图（LQ | result | HQ）和 `metrics.csv`。PSNR/SSIM 纯 numpy/torch 无额外依赖；LPIPS 用 `lpips` 包（HYPIR 自带依赖，首次会下 VGG 权重，代理失败则自动跳过 LPIPS、仍出 PSNR/SSIM）。
 ```bash
