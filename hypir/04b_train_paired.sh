@@ -74,15 +74,15 @@ export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
 RESUME="${RESUME:-}"                                 # 断点续训：填一个 04 的 checkpoint-N 目录
 
 echo "=== [04b] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
-echo "  代码路径:      $HYPIR_DIR"
-echo "  模型路径:      $BASE_MODEL_PATH"
-echo "  LoRA路径: ${LORA_WEIGHT_PATH:-<from scratch>}"
-echo "  parquet:   $PARQUET_PATH"
-echo "  数据集路径:   crop_type=$CROP_TYPE out_size=$OUT_SIZE"
-echo "  训练参数:     steps=$MAX_TRAIN_STEPS bs=$BATCH_SIZE grad_accum=$GRAD_ACCUM lr_G=$LR_G lr_D=$LR_D seed=$SEED"
-echo "  存档点:      every $CHECKPOINTING_STEPS steps"
-echo "  输出路径:    $OUTPUT_DIR"
-echo "  日志路径:       $LOG_FILE  (BG=${BG:-1})"
+echo "  💎代码路径:      $HYPIR_DIR"
+echo "  💎模型路径:      $BASE_MODEL_PATH"
+echo "  💎LoRA路径: ${LORA_WEIGHT_PATH:-<from scratch>}"
+echo "  💎parquet:   $PARQUET_PATH"
+echo "  💎数据集路径:   crop_type=$CROP_TYPE out_size=$OUT_SIZE"
+echo "  💎训练参数:     steps=$MAX_TRAIN_STEPS bs=$BATCH_SIZE grad_accum=$GRAD_ACCUM lr_G=$LR_G lr_D=$LR_D seed=$SEED"
+echo "  💎存档点:      every $CHECKPOINTING_STEPS steps"
+echo "  💎输出路径:    $OUTPUT_DIR"
+echo "  💎日志路径:       $LOG_FILE  (BG=${BG:-1})"
 [ -n "$RESUME" ] && echo "  resume:    $RESUME"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:       physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
@@ -163,15 +163,15 @@ fi
 if [ "${BG:-1}" = "0" ]; then
     accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" 2>&1 | tee "$LOG_FILE"
     echo "=== [04b] Done. Checkpoints in: $OUTPUT_DIR ==="
-    echo "    Inference: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
+    echo "    💎Inference: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
 else
     nohup accelerate launch "${ACCEL_ARGS[@]}" "$SCRIPT_DIR/train_paired.py" --config "$CONFIG_OUT" > "$LOG_FILE" 2>&1 &
     TRAIN_PID=$!
     echo "=== [04b] 训练已在后台启动 (PID=$TRAIN_PID) ==="
-    echo "    日志: $LOG_FILE"
-    echo "    跟踪: tail -f $LOG_FILE"
-    echo "    停止: kill $TRAIN_PID  (或 pkill -f train_paired.py)"
-    echo "    推理: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
+    echo "    💎日志: $LOG_FILE"
+    echo "    💎跟踪: tail -f $LOG_FILE"
+    echo "    💎停止: kill $TRAIN_PID  (或 pkill -f train_paired.py)"
+    echo "    💎推理: WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth bash $SCRIPT_DIR/02_run_inference.sh"
     # 等 5 秒看是否秒退(配置/依赖报错会立刻挂)
     sleep 5
     if ! kill -0 "$TRAIN_PID" 2>/dev/null; then
