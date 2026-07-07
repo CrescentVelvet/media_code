@@ -71,6 +71,7 @@ export SEED="${SEED:-231}"
 export CHECKPOINTING_STEPS="${CHECKPOINTING_STEPS:-500}"   # 每 N 步存一个 checkpoint-N/state_dict.pth
 export LOG_IMAGE_STEPS="${LOG_IMAGE_STEPS:-100}"
 export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
+export CHECKPOINTS_TOTAL_LIMIT="${CHECKPOINTS_TOTAL_LIMIT:-}"   # 空=全留(None); 数字=留 N 个; ⚠️0=只留最新1个(非全留)
 RESUME="${RESUME:-}"                                 # 断点续训：填一个 04 的 checkpoint-N 目录
 
 echo "=== [04b] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
@@ -120,10 +121,13 @@ cfg.seed = int("$SEED")
 cfg.checkpointing_steps = int("$CHECKPOINTING_STEPS")
 cfg.log_image_steps = int("$LOG_IMAGE_STEPS")
 cfg.log_grad_steps = int("$LOG_GRAD_STEPS")
+ctl = "$CHECKPOINTS_TOTAL_LIMIT"
+cfg.checkpoints_total_limit = int(ctl) if ctl.strip() else None   # 空=None(全留) / N(留N) / 0(只留最新1)
 res = "$RESUME"
 cfg.resume_from_checkpoint = res if res else None
 OmegaConf.save(cfg, p)
-print(f"[*] patched hyperparams -> {p}")
+_ctl_desc = "全留(None)" if not ctl.strip() else ctl
+print(f"[*] patched hyperparams -> {p}  (checkpoints_total_limit={_ctl_desc})")
 PY
 
 # --- 6. 启动训练(把本目录与 HYPIR_DIR 都加进 PYTHONPATH，让 paired_face_plugin 和 HYPIR.* 都可 import) ---

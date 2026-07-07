@@ -233,6 +233,7 @@ to disable (gaussian-init from scratch, official behaviour).
 | `LR_G` / `LR_D` | `1e-5` / `1e-5` | use `5e-6` for gentler adaptation |
 | `GRAD_ACCUM` | `1` | increase if a bigger effective batch is wanted |
 | `CHECKPOINTING_STEPS` | `500` | saves `checkpoint-N/state_dict.pth` |
+| `CHECKPOINTS_TOTAL_LIMIT` | _(空=全留)_ | 空=None 全留(默认，防过拟合丢好点)；数字=留 N 个；⚠️`0`=只留最新 1 个(非全留) |
 | `N_TRAIN_GPU` | _(unset)_ | `>1` → multi-GPU (run `accelerate config` first) |
 | `RESUME` | _(unset)_ | a `checkpoint-N` dir to resume from |
 

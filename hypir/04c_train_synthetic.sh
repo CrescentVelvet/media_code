@@ -61,6 +61,7 @@ export SEED="${SEED:-231}"
 export CHECKPOINTING_STEPS="${CHECKPOINTING_STEPS:-500}"
 export LOG_IMAGE_STEPS="${LOG_IMAGE_STEPS:-100}"
 export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
+export CHECKPOINTS_TOTAL_LIMIT="${CHECKPOINTS_TOTAL_LIMIT:-}"   # 空=全留(None); 数字=留 N; ⚠️0=只留最新1个(非全留)
 RESUME="${RESUME:-}"
 
 echo "=== [04c] HYPIR-SD2 LoRA fine-tune (synthetic online degradation + warm-start) ==="
@@ -111,6 +112,8 @@ cfg.log_image_steps = int("$LOG_IMAGE_STEPS")
 cfg.log_grad_steps = int("$LOG_GRAD_STEPS")
 res = "$RESUME"
 cfg.resume_from_checkpoint = res if res else None
+ctl = "$CHECKPOINTS_TOTAL_LIMIT"
+cfg.checkpoints_total_limit = int(ctl) if ctl.strip() else None   # 空=None(全留) / N(留N) / 0(只留最新1)
 # 暖启动：官方 sd2_train.yaml 没有 lora_weight_path 字段，这里加上。
 # FineTuneSD2Trainer 会把它映射到 config.weight_path，你改过的 sd2.py 会 torch.load 它。
 lwp = "$LORA_WEIGHT_PATH"
@@ -119,7 +122,8 @@ cfg.lora_weight_path = lwp if lwp else None
 cfg.resume_ema = False        # 从原始 LoRA 暖启动：没有 EMA state 可恢复
 OmegaConf.set_struct(cfg, True)
 OmegaConf.save(cfg, p)
-print(f"[*] patched -> {p}  (lora_weight_path={lwp or '<from scratch>'}, resume_ema=False)")
+_ctl_desc = "全留(None)" if not ctl.strip() else ctl
+print(f"[*] patched -> {p}  (lora_weight_path={lwp or '<from scratch>'}, resume_ema=False, checkpoints_total_limit={_ctl_desc})")
 PY
 
 # --- 3. 启动训练(train_paired.py = FineTuneSD2Trainer 暖启动；官方 config = 在线退化)---
