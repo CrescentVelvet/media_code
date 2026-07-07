@@ -432,6 +432,19 @@ GPU=0 TEST_LQ_DIR=.../lq TEST_HQ_DIR="" bash hypir/05_eval.sh
   ```
   ⚠️ 密码特殊字符 URL 编码：`*`→`%2A`、`+`→`%2B`、`@`→`%40`、`:`→`%3A`、`#`→`%23`、`&`→`%26`、`=`→`%3D`。例：密码 `p*ss+word` 写成 `p%2Ass%2Bword`。
   > 这和 `_env.sh` 里的 `http_proxy`/`https_proxy` 环境变量是**两套**：环境变量给 curl/hf/pip 用，`git config http.proxy` 给 git 本身用；两个都设最稳。
+- 报 `Failed to connect to proxyhk.huawei.com port 8080: No route to host`（代理都连不上 → git/pip/hf 全挂）：根因是 **docker 网桥网段和代理 IP 冲突**——`docker-compose` 建 network 时分的子网（如 `172.18.0.0/16`，网桥 `br-407a71493298`）把 `proxyhk.huawei.com` 解析到的 `172.18.100.92` 包进去了，内核把去代理的流量送进 docker 网桥而非物理网卡。排查 + 修：
+  ```bash
+  # 1) 查代理 IP + 看它落进哪个网桥网段（命中即冲突）：
+  getent hosts proxyhk.huawei.com        # 例: 172.18.100.92
+  ip route | grep 172.18                # 命中 172.18.0.0/16 dev br-xxxxx → 冲突
+  # 2) 加一条主机路由，把代理 IP 强制走物理网卡（ens1f0 换成你的网卡，网关用默认网关）：
+  ip route show default                  # 取默认网关，例 10.x.x.1
+  sudo ip route add 172.18.100.92 via 10.x.x.1 dev ens1f0
+  # 3) 验证：应能连代理了
+  curl -x http://USER:PASS@proxyhk.huawei.com:8080 https://github.com -I   # 200/302 即通
+  ```
+  持久化（重启不丢）：写到 `/etc/network/if-up.d/` 脚本或 `nmcli`；治本是在 `/etc/docker/daemon.json` 配 `default-address-pools` 给 docker 分不与代理冲突的子网（如 `10.250.0.0/16`），再 `systemctl restart docker`。
+  > 同机其他容器/虚拟网桥也可能占 `172.17.0.0/16`、`172.19.0.0/16` 等；只要代理 IP 落进任一 docker 网段就中招。
 
 **2. `pip install -r requirements.txt` 报 `SSL:CERTIFICATE_VERIFY_FAILED` / 超时**
 ```bash
