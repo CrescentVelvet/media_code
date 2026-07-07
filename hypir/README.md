@@ -422,8 +422,16 @@ GPU=0 TEST_LQ_DIR=.../lq TEST_HQ_DIR="" bash hypir/05_eval.sh
 
 公司代理做 HTTPS 中间人解密，下面按流水线阶段列出常见报错与修法（命令在服务器上、conda 环境已激活时执行）。
 
-**1. clone 本仓 / 官方仓报 SSL / 认证**
-公开仓免认证，加 `-c http.sslVerify=false` 即可。`run_all.sh` 已对官方仓做了一次 `sslVerify=false` 兜底。
+**1. clone/pull 本仓或官方仓报错**
+- 报 `SSL certificate problem` / 认证：公开仓免认证，加 `-c http.sslVerify=false`（`run_all.sh` 已对官方仓做 `sslVerify=false` 兜底）。
+- 报 `Failed to connect to github.com port 443`（连不上，**非 SSL**）：git 没走代理。设全局代理（带认证的把用户名密码写进 URL，**密码特殊字符必须 URL 编码**，否则 git 解析错/连不上）：
+  ```bash
+  git config --global https.proxy http://USER:PASS@proxyhk.huawei.com:8080
+  git config --global http.proxy  http://USER:PASS@proxyhk.huawei.com:8080   # 顺手也设 http
+  # 取消：git config --global --unset https.proxy ; git config --global --unset http.proxy
+  ```
+  ⚠️ 密码特殊字符 URL 编码：`*`→`%2A`、`+`→`%2B`、`@`→`%40`、`:`→`%3A`、`#`→`%23`、`&`→`%26`、`=`→`%3D`。例：密码 `p*ss+word` 写成 `p%2Ass%2Bword`。
+  > 这和 `_env.sh` 里的 `http_proxy`/`https_proxy` 环境变量是**两套**：环境变量给 curl/hf/pip 用，`git config http.proxy` 给 git 本身用；两个都设最稳。
 
 **2. `pip install -r requirements.txt` 报 `SSL:CERTIFICATE_VERIFY_FAILED` / 超时**
 ```bash
