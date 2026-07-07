@@ -26,6 +26,8 @@ GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 bash hypir/02_run_inference.sh
 # 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(04b 的在 experiments/ppr10k_faces_paired; 04c 的在 experiments/synthetic_exp1/)
 GPU=0 LQ_DIR=/path/to/your/lq UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
+# 8) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
+HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
 ```
 
 - 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（04b=`ppr10k_faces_paired`，04c=`synthetic_exp1`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
@@ -98,6 +100,27 @@ z0   = scheduler.step(eps, coeff_t=200, z_in).pred_original_sample   # 一步反
 - 效果：最终图保留 LQ 原本正确的颜色与构图（低频），同时注入扩散模型生成的锐利纹理（高频），避免色偏和结构漂移，又实现了超分。这是 SUPIR/CCSR 一脉相承的经典 trick。
 
 > 总结一句：**上采样定颜色结构 → VAE 编码进潜空间 → LoRA-UNet 一步反推干净潜变量 → VAE 解码回像素 → 与上采样原图小波融合（取扩散的高频 + LQ 的低频）**。
+
+### 合成退化流程（训练时 HQ→LQ，03c/04c 与 06 预览共用）
+官方 `RealESRGANDataset` + `RealESRGANBatchTransform` 把 HQ 合成退化成 LQ（HYPIR 发布模型本身的训练方式；03c/04c 在线跑、06 离线预览复用同一套，参数取自 `configs/sd2_train.yaml`，无复制）。
+
+**1) 取 HQ + 生成核**（`RealESRGANDataset.__getitem__`）
+- 加载 HQ；`crop_type=none` 时 resize 到 `out_size`(512)（`random` 则裁 512 patch）。
+- 随机生成 3 个核：`kernel1`/`kernel2`（模糊核：iso/aniso/generalized/plateau，或 sinc 低通，按 `kernel_prob`/`sinc_prob`）、`sinc_kernel`（最终 sinc 滤波核）。
+- 可选 flip/rot 增强（06 预览/确定性时关掉）。
+- 返回 `{hq, kernel1, kernel2, sinc_kernel, txt}`。
+
+**2) 两阶段退化**（`RealESRGANBatchTransform.__call__`，对 `hq` 操作，参数全在 config 的 `batch_transform.params`）
+- `GT = USMSharp(hq)`：先 USM 锐化 HQ 当 GT（匹配发布模型训练时的 GT 预处理）。
+- **第一阶段**：`filter2D(hq, kernel1)` 模糊 → 随机 resize（up/down/keep，scale 取自 `resize_range`，mode 随机 area/bilinear/bicubic）→ 加噪（按 `gaussian_noise_prob` 选高斯或泊松，强度 `noise_range`/`poisson_scale_range`，可灰噪）→ JPEG（质量取自 `jpeg_range`）。
+- **第二阶段**：按 `second_blur_prob` 可能再 `filter2D(kernel2)` 模糊 → 按 `stage2_scale`(≈4) 下采样 → 随机 resize2 → 加噪2 → **resize-back + sinc 滤波** 与 **JPEG2** 顺序随机（各 0.5，避免扭曲条纹）→ 若 `resize_back=true` 缩回原尺寸(512)。
+- `LQ = clamp(round(out·255))/255`（量化到 8-bit）。
+
+**3) 训练池**（`queue_size>0` 时，仅训练用）
+- 把 `{GT,LQ,txt}` 入队（池容量 `queue_size`=256）；满后随机抽一个**缓存样本**返回（增 batch 内多样性），故 `queue_size` 须被 `batch_size`(每卡) 整除（`256%6` 报错 → 用 `BATCH_SIZE=8` 或改 `queue_size=252`，见排错 #11）。
+- **06 预览脚本设 `queue_size=0`**：跳过池，直接返回**当前 HQ 的 LQ**（否则满 256 后返回的是别的图的缓存，看不到当前 HQ 的退化）。
+
+> 一句话：`HQ →(USM锐化)→ GT`；`HQ →(两阶段 blur/resize/noise/jpeg/sinc)→ LQ`。训练时 LQ 现场合、每 epoch 随机刷新；06 离线跑同一套、`queue_size=0` 看当前图。
 
 ## Dataset construction (03 — image folder → parquet)
 HYPIR's `RealESRGANDataset` (default `crop_type=none`, `out_size=512`) **asserts every GT image is exactly 512×512**. `03_build_dataset.sh` handles this:
