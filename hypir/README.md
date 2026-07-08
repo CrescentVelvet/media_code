@@ -20,6 +20,8 @@ GPU=0 BG=0 RESUME=/data_3d/w00xxxxxx/code/HYPIR/experiments/ppr10k_faces_paired/
 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
 # 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
 GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
+# 5b) 换别的数据集训(只改 HQ_DIR + OUTPUT_DIR，别和旧实验混；guojia_datas 是 HQ 文件夹，可含子目录)
+GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/guojia_datas CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
 # ── 推理(02/06) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
@@ -30,7 +32,7 @@ GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 WEIGHT_PAT
 GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
 ```
 
-- 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（04b=`ppr10k_faces_paired`，04c=`synthetic_exp1`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
+- 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（`<exp>` = `OUTPUT_DIR` 的名字，如 04b=`ppr10k_faces_paired`、04c 默认=`synthetic_exp1`、换数据集时=`guojia_datas`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
 - 想要定量指标（PSNR/SSIM/LPIPS + LQ|result|HQ 对比图）用 `GPU=0 bash hypir/05_eval.sh`。
 - prompt 默认空 caption；要逐图描述就传 `TXT_DIR`（与 `LQ_DIR` 同构、每图一个 `.txt`）。
 - 两条训练路径区别：04b 用真实配对 LQ（不退化）；04c 只给 HQ、LQ 在线合成（HYPIR 默认退化 blur/sinc/noise/jpeg）。同一份 HQ 都可试，对比真实 vs 合成退化。
