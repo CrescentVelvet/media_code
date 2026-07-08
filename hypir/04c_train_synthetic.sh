@@ -27,7 +27,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-$HYPIR_DIR/experiments/synthetic_exp1}"
 OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
 # 默认数据集(用环境变量覆盖)；没给 parquet 就从 HQ_DIR 自动建一张
-DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703}"
+DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703}"
 HQ_DIR="${HQ_DIR:-$DATASET_ROOT/hq}"
 
 MODEL="${MODEL:-hypir}"

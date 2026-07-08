@@ -7,12 +7,12 @@
 
 支持的图片来源：
 1. 路径1：jpg格式图片目录
-   /data_3d/w00950754/output/renders-videos/测试位姿-新轨迹对比_denoise/Elsa-174-FBX/水豚噜噜3_res720_view90
+   /data_3d/w00xxxxxx/output/renders-videos/测试位姿-新轨迹对比_denoise/Elsa-174-FBX/水豚噜噜3_res720_view90
    - 包含大量的.jpg文件
    - 文件名格式：000.jpg, 001.jpg, 002.jpg 等
 
 2. 路径2：render.jpg格式图片目录
-   /data_3d/y00965182/Dataset/dataset_denoise_0609/dataset_dolls_GS/Elsa-174-FBX-horizontal-mp4/Elsa-174-FBX_0a9d593c_1280x1280/result_gs/test_time/denoise_img
+   /data_3d/y00xxxxxx/Dataset/dataset_denoise_0609/dataset_dolls_GS/Elsa-174-FBX-horizontal-mp4/Elsa-174-FBX_0a9d593c_1280x1280/result_gs/test_time/denoise_img
    - 包含render.jpg文件
    - 文件名格式：10_theta0.00_phi10.00_zangle180.00_render.jpg 等
 
@@ -85,7 +85,7 @@ def get_bounding_boxes(images: list[Tensor], use_HR: bool = False, device=torch.
     torch.jit.optimized_execution(False)
     file_name = "BiRefNet-general-epoch_244_fp16.sbin" if use_HR else "BiRefNet-general-20250610_fp16.sbin"
     size = [1024, 1024] if use_HR else [512, 512]
-    load_path = os.path.join("/data_3d/w00950754/model/DollGenRecon/reconstruction_reduce_denoise_accelerate/src/module/mask_generator_weights", file_name)
+    load_path = os.path.join("/data_3d/w00xxxxxx/model/DollGenRecon/reconstruction_reduce_denoise_accelerate/src/module/mask_generator_weights", file_name)
     model = torch.jit.load(load_path, map_location=device).eval()
     logger.info(f"模型加载完毕！权重路径：{file_name}")
     normalize_opt = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -407,11 +407,11 @@ def test_one_image():
     PADDING_MODE = 'constant'
     DEVICE = 'cuda'
 
-    INPUT_NOISE = '/data_3d/y00965182/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4/Elsa-174-FBX_0a9d593c_1280x1280/result_gs/test_time/denoise_img'
-    OUTPUT_NOISE = "/data_3d/y00965182/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4-cropped-render"
+    INPUT_NOISE = '/data_3d/y00xxxxxx/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4/Elsa-174-FBX_0a9d593c_1280x1280/result_gs/test_time/denoise_img'
+    OUTPUT_NOISE = "/data_3d/y00xxxxxx/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4-cropped-render"
 
-    INPUT_GT = '/data_3d/w00950754/output/renders-videos/测试位姿-新轨迹对比_denoise/Elsa-174-FBX/水豚噜噜3_res720_view90'
-    OUTPUT_GT = "/data_3d/y00965182/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4-cropped-gt"
+    INPUT_GT = '/data_3d/w00xxxxxx/output/renders-videos/测试位姿-新轨迹对比_denoise/Elsa-174-FBX/水豚噜噜3_res720_view90'
+    OUTPUT_GT = "/data_3d/y00xxxxxx/Dataset/dataset_denoise_0609/dataset_dolls_GS/old_test/Elsa-174-FBX-horizontal-mp4-cropped-gt"
     
     device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
     logger.info(f"使用设备: {device}")
@@ -525,15 +525,15 @@ def batch_process():
     DATASETS = [
         # 玩偶去噪数据集
         {'names': ['Elsa-174-FBX', 'Baiyu-104-FBX', 'Mixamo-102-FBX'],
-         'input_base_noise': '/data_3d/y00965182/Dataset/dataset_denoise_0702/dataset_dolls_GS',
-         'input_base_gt': '/data_3d/w00950754/output/renders-videos/测试位姿-新轨迹对比_denoise',
-         'output_base': '/data_3d/y00965182/Dataset/dataset_denoise_0702/dataset_dolls_GS-dataset'},
+         'input_base_noise': '/data_3d/y00xxxxxx/Dataset/dataset_denoise_0702/dataset_dolls_GS',
+         'input_base_gt': '/data_3d/w00xxxxxx/output/renders-videos/测试位姿-新轨迹对比_denoise',
+         'output_base': '/data_3d/y00xxxxxx/Dataset/dataset_denoise_0702/dataset_dolls_GS-dataset'},
         # 萌宠去噪数据集
         {'names': ['Cats-Sketch-56-GLB', 'Cats-UE-21-GLB', 'CatsDogs-64-FBX',
                    'Dogs-Blenderkit-25-BLD', 'Dogs-Sketch-102-GLB', 'Dogs-UE-58-GLB'],
-         'input_base_noise': '/data_3d/y00965182/Dataset/dataset_denoise_0702/dataset_pets_GS',
-         'input_base_gt': '/data_3d/w00950754/output/renders-videos/测试位姿-新轨迹对比_denoise',
-         'output_base': '/data_3d/y00965182/Dataset/dataset_denoise_0702/dataset_pets_GS-dataset'},
+         'input_base_noise': '/data_3d/y00xxxxxx/Dataset/dataset_denoise_0702/dataset_pets_GS',
+         'input_base_gt': '/data_3d/w00xxxxxx/output/renders-videos/测试位姿-新轨迹对比_denoise',
+         'output_base': '/data_3d/y00xxxxxx/Dataset/dataset_denoise_0702/dataset_pets_GS-dataset'},
     ]
     # 输出基础路径，会自动创建render和gt子文件夹
 

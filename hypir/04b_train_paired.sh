@@ -10,7 +10,7 @@
 # 而不是从零重学(7k 张数据从零练不够，发布模型是 bs1024 大数据训出来的)。
 #
 # 默认数据集路径(可改)：
-#   /data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}
+#   /data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}
 # 任何参数都能用环境变量覆盖(见 README 的 Config 表)。
 #
 # 必填(二选一)：
@@ -36,7 +36,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-$HYPIR_DIR/experiments/ppr10k_faces_paired}"
 OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
 # 默认数据集位置(用环境变量覆盖即可)
-DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703}"
+DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703}"
 HQ_DIR="${HQ_DIR:-$DATASET_ROOT/hq}"
 LQ_DIR="${LQ_DIR:-$DATASET_ROOT/lq}"
 

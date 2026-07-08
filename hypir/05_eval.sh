@@ -28,7 +28,7 @@ CKPT_STEP="${CKPT_STEP:-65000}"
 WEIGHT_PATH="${WEIGHT_PATH:-$TRAIN_DIR/checkpoint-$CKPT_STEP/state_dict.pth}"
 
 # 评测数据(默认即 04 的数据集；指向留出集做客观评测)
-DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703}"
+DATASET_ROOT="${DATASET_ROOT:-/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703}"
 TEST_LQ_DIR="${TEST_LQ_DIR:-$DATASET_ROOT/lq}"
 TEST_HQ_DIR="${TEST_HQ_DIR:-$DATASET_ROOT/hq}"     # 设为空则只复原不算指标
 

@@ -9,25 +9,25 @@
 ```bash
 # ── 配对路径(真实 LQ+HQ，03b/04b) ──
 # 1) 构建配对数据集(按同名文件配对 HQ/LQ -> parquet)
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
+HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
 # 2) 开始训练(暖启动, 默认后台, 日志见提示)
 GPU=0 BG=0 bash hypir/04b_train_paired.sh
 # 3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
-GPU=0 BG=0 RESUME=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
+GPU=0 BG=0 RESUME=/data_3d/w00xxxxxx/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
 
 # ── 合成退化路径(只输入 HQ, 在线合成 LQ, 03c/04c) ──
 # 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
+HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
 # 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
-GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
+GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
 # ── 推理(02/06) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
-GPU=0 LQ_DIR=/data_3d/w00950754/code/HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
 # 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(04b 的在 experiments/ppr10k_faces_paired; 04c 的在 experiments/synthetic_exp1/)
-GPU=0 LQ_DIR=/data_3d/w00950754/code/HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=/data_3d/w00950754/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=/data_3d/w00xxxxxx/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/state_dict.pth bash hypir/02_run_inference.sh
 # 8) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
-GPU=0 HQ_DIR=/data_3d/w00950754/code/HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
+GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
 ```
 
 - 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（04b=`ppr10k_faces_paired`，04c=`synthetic_exp1`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
@@ -237,7 +237,7 @@ to disable (gaussian-init from scratch, official behaviour).
 ### Training parameters (for ~7k paired face crops)
 | var | default | note |
 | --- | --- | --- |
-| `DATASET_ROOT` | `/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
+| `DATASET_ROOT` | `/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
 | `LORA_WEIGHT_PATH` | `$MODEL_DIR/HYPIR_sd2.pth` | warm-start; `""` = from scratch |
 | `OUT_SIZE` | `512` | HQ & LQ both resized to this (HYPIR's VAE patch size) |
 | `CROP_TYPE` | `none` | resize whole face; `random` for paired random-patch aug |
@@ -262,7 +262,7 @@ to disable (gaussian-init from scratch, official behaviour).
 ### 你需要先有的
 - 一台 Ubuntu + NVIDIA GPU 服务器（训练建议 A100 / H100 / 4090；只推理 T4 也行）。
 - 已用 `face_crop/crop_faces_paired.py` 建好的**配对人脸数据集**（`hq/` 与 `lq/` 同名 PNG），并上传到默认路径：
-  `/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}`
+  `/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}`
 - 服务器上已装好 `conda` 和 `git`。
 
 ### 训练到底在干什么（一句话版）
@@ -275,7 +275,7 @@ to disable (gaussian-init from scratch, official behaviour).
 
 ### Step 1 — 拉仓库、配代理（一次性）
 ```bash
-cd /data_3d/w00950754/code
+cd /data_3d/w00xxxxxx/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code
 cp proxy.env.example proxy.env
@@ -307,9 +307,9 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
 ### Step 4 — 确认数据集在位
 ```bash
 # Windows
-scp -r D:\模型数据集\ppr10k_faces_20260703 w00950754@xx.xx.xxx.xxx:/data_3d/w00950754/code/HYPIR/dataset
+scp -r D:\模型数据集\ppr10k_faces_20260703 w00xxxxxx@xx.xx.xxx.xxx:/data_3d/w00xxxxxx/code/HYPIR/dataset
 # Ubuntu
-DATA=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703
+DATA=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703
 ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
 ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
 ```
@@ -343,7 +343,7 @@ RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir
 ```bash
 conda activate hypir
 CKPT=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-15000/state_dict.pth
-LQ=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/lq
+LQ=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq
 WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
   SCALE_BY=longest_side TARGET_LONGEST_SIDE=512 \
   bash hypir/02_run_inference.sh
@@ -362,12 +362,12 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 `03c_build_synthetic_dataset.sh` 是 `03b`(真实配对) 的**合成退化**对照：只给 HQ 文件夹，产出 parquet(`image_path` + `prompt`)；训练时由官方 `RealESRGANDataset` + `RealESRGANBatchTransform` **在线合成 LQ**（HYPIR 默认退化：blur/sinc/noise/jpeg 两阶段，每 epoch 随机刷新）——不存 LQ 文件、增强更多样、省盘。这是 HYPIR 发布模型本身的训练方式。`04c_train_synthetic.sh` 在此基础上**暖启动发布 LoRA**（用官方 `sd2_train.yaml` + `train_paired.py`/`FineTuneSD2Trainer`，你改过的 `sd2.py` 会 `torch.load(config.weight_path)` 真正加载）。
 ```bash
 # 只输入 HQ，产出 HQ-only parquet（LQ 训练时在线合成）：
-HQ_DIR=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
+HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
 bash hypir/03c_build_synthetic_dataset.sh
 # -> .../hypir_synthetic.parquet
 
 # 训练(暖启动发布 LoRA + 在线退化；HQ>512 用 CROP_TYPE=random 在线裁 512 patch)：
-PARQUET_PATH=/data_3d/w00950754/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_synthetic.parquet \
+PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_synthetic.parquet \
 CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
 # 也可只给 HQ_DIR，让 04c 自动先建 parquet 再训：
 HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
