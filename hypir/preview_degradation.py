@@ -105,6 +105,12 @@ def main():
 
     # BatchTransform: force queue_size=0 -> return current LQ directly, skip the
     # training-pool (and the queue_size % batch_size divisibility check).
+    # Filter bt_params to what this clone's __init__ actually accepts — your
+    # batch_transform.py may be a simplified (Gaussian-blur-only) version with a
+    # smaller __init__ signature than the official one.
+    import inspect
+    _accepted = set(inspect.signature(RealESRGANBatchTransform.__init__).parameters) - {"self"}
+    bt_params = {kk: vv for kk, vv in bt_params.items() if kk in _accepted}
     bt_params["queue_size"] = 0
     bt = RealESRGANBatchTransform(**bt_params)
 
@@ -114,14 +120,16 @@ def main():
     for idx in range(len(hq_files)):
         stem = Path(hq_files[idx]).stem
         for k in range(NUM_PER_IMAGE):
-            sample = dataset[idx]  # {hq: CHW, kernel1/2/sinc: (21,21), txt}
-            batch = {
-                "hq": sample["hq"].unsqueeze(0).to(DEVICE),
-                "kernel1": sample["kernel1"].unsqueeze(0).to(DEVICE),
-                "kernel2": sample["kernel2"].unsqueeze(0).to(DEVICE),
-                "sinc_kernel": sample["sinc_kernel"].unsqueeze(0).to(DEVICE),
-                "txt": [sample["txt"]],
-            }
+            sample = dataset[idx]  # {hq: CHW, txt, maybe kernel1/2/sinc} — be key-agnostic:
+            # your clone's dataset may not generate kernels if its batch_transform
+            # doesn't use them (Gaussian-blur-only mod); build the batch from
+            # whatever keys the sample actually has.
+            batch = {}
+            for kk, vv in sample.items():
+                if isinstance(vv, torch.Tensor):
+                    batch[kk] = vv.unsqueeze(0).to(DEVICE)
+                else:  # txt (str) -> list-of-one for the batch dim
+                    batch[kk] = [vv]
             out = bt(batch)
             lq = out["LQ"][0].clamp(0, 1).cpu().numpy()  # CHW [0,1]
             lq_arr = (np.transpose(lq, (1, 2, 0)) * 255).astype(np.uint8)

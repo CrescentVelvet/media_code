@@ -122,6 +122,19 @@ z0   = scheduler.step(eps, coeff_t=200, z_in).pred_original_sample   # 一步反
 
 > 一句话：`HQ →(USM锐化)→ GT`；`HQ →(两阶段 blur/resize/noise/jpeg/sinc)→ LQ`。训练时 LQ 现场合、每 epoch 随机刷新；06 离线跑同一套、`queue_size=0` 看当前图。
 
+> ⚠️ **本仓 clone 的 `HYPIR/dataset/batch_transform.py` 是修改版**（只高斯模糊）：`__call__` 不走上面官方那套两阶段 blur/resize/noise/jpeg/sinc，而是简化为——
+> ```python
+> # 修改版 __call__（你的 clone 实际跑的）
+> hq = USMSharp(batch[hq_key])                 # GT = USM 锐化后的 HQ
+> kernel = random.randint(1,5)*2+1             # 3/5/7/9/11
+> num = random.randint(1,5)                    # 重复 1-5 次
+> lq = hq.clone()
+> for _ in range(num):
+>     lq = torchvision.transforms.GaussianBlur(kernel_size=kernel, sigma=(1.0,2.0))(lq)
+> # 没有 resize / noise(gauss/poisson) / JPEG / sinc / 第二阶段
+> ```
+> 所以上面官方流程的**第一阶段后半（resize/noise/JPEG）和整个第二阶段（sinc/JPEG2/resize-back）在你环境里不发生**——LQ 只是「HQ 被 1-5 次随机高斯模糊」。`queue_size` 训练池保留（故 `256%6` 仍报错，见排错 #11）。**以你 clone 的 `batch_transform.py` 实际代码为准**；06 预览和 04c 训练复用的就是这版，看到/用到的是纯高斯模糊退化。想恢复完整官方退化就把 `batch_transform.py` 还原成 GitHub 版。
+
 ## Dataset construction (03 — image folder → parquet)
 HYPIR's `RealESRGANDataset` (default `crop_type=none`, `out_size=512`) **asserts every GT image is exactly 512×512**. `03_build_dataset.sh` handles this:
 - `CROP=1` (default): slices each image into 512×512 patches (non-overlapping; set `CROP_STRIDE < CROP_SIZE` for overlap) saved under `<parquet_dir>/patches`, and the parquet points at the patches. This mirrors the README's "crop LSDIR into 512×512 patches".

@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"   # 激活 conda、设代理/CA、按 GPU=N 选卡
 
+HYPIR_DIR="${HYPIR_DIR:-$REPO_DIR/../HYPIR}"
+export HYPIR_DIR               # 供 preview_degradation.py import HYPIR.* (用你 clone 的修改版 batch_transform)
+
 : "${HQ_DIR:?set HQ_DIR (e.g. .../ppr10k_faces_20260703/hq)}"
 LQ_OUT="${LQ_OUT:-$(dirname "$HQ_DIR")/lq_preview}"
 
