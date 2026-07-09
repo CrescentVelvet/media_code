@@ -15,4 +15,5 @@ Code used for work in the blue zone.
 - [`hunyuanvideo-1.5/`](hunyuanvideo-1.5/) — one-click HunyuanVideo-1.5 video generation: T2V/I2V inference **and** fine-tuning on your own dataset. See its [README](hunyuanvideo-1.5/README.md).
 - [`hypir/`](hypir/) — one-click HYPIR image restoration/super-resolution: inference, dataset construction, **and** LoRA training on your own images. See its [README](hypir/README.md).
 - [`qwen3vl/`](qwen3vl/) — one-click Qwen3-VL image-to-text (图生文) batch inference: VLM captioning / VQA over a folder of images → per-image `.txt`. See its [README](qwen3vl/README.md).
+- [`flux1/`](flux1/) — one-click FLUX.1 text-to-image (文生图) batch inference: prompts (single or per-line file) → PNGs via diffusers `FluxPipeline` (schnell default; dev gated). See its [README](flux1/README.md).
 - [`face_crop/`](face_crop/) — one-click batch face detection & cropping (MediaPipe BlazeFace): multi-face per image → `<stem>_faceN.jpg` sorted left-to-right, resumable CSV log. See its [README](face_crop/README.md).
