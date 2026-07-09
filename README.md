@@ -14,4 +14,5 @@ Code used for work in the blue zone.
 - [`vggt-omega/`](vggt-omega/) — one-click VGGT-Omega feed-forward scene reconstruction (cameras + depth → point cloud). See its [README](vggt-omega/README.md).
 - [`hunyuanvideo-1.5/`](hunyuanvideo-1.5/) — one-click HunyuanVideo-1.5 video generation: T2V/I2V inference **and** fine-tuning on your own dataset. See its [README](hunyuanvideo-1.5/README.md).
 - [`hypir/`](hypir/) — one-click HYPIR image restoration/super-resolution: inference, dataset construction, **and** LoRA training on your own images. See its [README](hypir/README.md).
+- [`qwen3vl/`](qwen3vl/) — one-click Qwen3-VL image-to-text (图生文) batch inference: VLM captioning / VQA over a folder of images → per-image `.txt`. See its [README](qwen3vl/README.md).
 - [`face_crop/`](face_crop/) — one-click batch face detection & cropping (MediaPipe BlazeFace): multi-face per image → `<stem>_faceN.jpg` sorted left-to-right, resumable CSV log. See its [README](face_crop/README.md).
