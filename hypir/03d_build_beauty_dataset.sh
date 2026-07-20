@@ -1,31 +1,43 @@
 #!/usr/bin/env bash
-# 03d_build_beauty_dataset.sh — 用 RetouchFormer 美颜构建「配对蒸馏数据集」
-# (hq=美颜目标, lq=对齐的原图预处理)。
+# 03d_build_beauty_dataset.sh — 用 RetouchFormer 美颜 + 高斯模糊构建「配对对比数据集」
+# (hq_orig=原图对齐 crop, hq_beauty=美颜, lq_gauss=高斯模糊退化)。
 #
 # 与 03b(真实配对 LQ+HQ) / 03c(只输入 HQ 在线合成退化) 对照：这里只输入一个
-# 「原图人脸」文件夹，对每张跑 RetouchFormer 美颜，同时保存：
-#   hq/<name>.png = 美颜结果(训练目标)
-#   lq/<name>.png = 模型实际看到的 Resize(512)+CenterCrop(512) 原图(训练输入)
-# 两者像素级对齐(来自同一 src 张量)，任意尺寸/宽高比输入都安全——模型 VRT 写死
-# 512×512，非方形输入会被 CenterCrop，而 lq 保存的正是这个被 crop 后的版本，故与 hq
-# 严丝合缝。这是「直接拷贝原图当 LQ」做不到的(只有输入本就 512×512 方形时拷贝才行)。
+# 「原图人脸」文件夹，对每张同时保存 THREE 张像素级对齐的 512×512 PNG：
+#   hq_orig/<name>.png   = 原图对齐 crop(Resize512+CenterCrop512)  —— 复原实验的 HQ 目标
+#   hq_beauty/<name>.png = RetouchFormer 美颜结果                  —— 美颜实验的 HQ 目标
+#   lq_gauss/<name>.png  = 同一 crop 的高斯模糊退化                 —— 两个实验共用的 LQ 输入
+# 三者都派生自模型输入 src 张量(同一 crop)，故像素级对齐——任意尺寸/宽高比输入都安全
+# (模型 VRT 写死 512×512，非方形会被 CenterCrop，而 hq_orig/lq_gauss 存的正是这个 crop 版本)。
 #
-# 产出可直接喂 03b -> 04b：HYPIR 学到的映射是 LQ(原图) -> HQ(美颜)，即把
-# RetouchFormer 的「去瑕疵 + 磨皮保结构」retouching 蒸馏进 HYPIR 的一步扩散框架，
-# 实现「人脸增强 + 一点点美颜磨皮」(推理时还享受 HYPIR 的速度与 tiled 任意分辨率)。
+# 为什么是三套(两张 parquet)而不是一套：
+#   现有 03c/04c 在线退化路径(LQ=高斯模糊, HQ=原图)虽能复原模糊，但会「长痘变丑」——
+#   模型过度增强、凭空 invent 皮肤瑕疵。把 HQ 目标换成 RetouchFormer 的美颜版(已去瑕疵+磨皮
+#   保结构)而 LQ 保持同样的模糊，模型仍学去模糊(增强不失)但目标变成干净光滑皮肤，故不再
+#   invent 瑕疵。同时建两套可 A/B 对比：
+#     rest.parquet        : lq_gauss -> hq_orig   (基线 = 现有 03c 风格复原)
+#     rest_beauty.parquet : lq_gauss -> hq_beauty (复原 + 美颜，修掉长痘问题)
+#   各用 04b 训一个(OUTPUT_DIR 分开)，再用 05/02 评测算指标，对比哪个不毁脸。
+#
+# 高斯模糊复现本仓 HYPIR clone 里简化版 batch_transform.py 的逻辑(随机 kernel 3/5/7/9/11、
+# sigma 1-2、重复 1-5 次)，每图一个 FIXED seeded 实现(离线，非每 epoch 重随机)。
+#   NB: 模糊作用于 raw 对齐 crop(非 USM(orig))，与 03c 的 LQ=blur(USM(orig)) 略有偏差；
+#       但 A/B 共用同一 lq_gauss，对比仍是单变量(HQ 目标不同)。BLUR_SEED 可复现地重随机。
 #
 # ⚠️ 双 conda env：
-#   Phase A(美颜) 用 retouchformer env(python3.8 + torch1.13.1，含 stylegan2 CUDA 算子)；
-#   Phase B(建 parquet) 切到 hypir env(只需 polars + pillow)。
+#   Phase A(美颜+模糊) 用 retouchformer env(python3.8 + torch1.13.1，含 stylegan2 CUDA 算子)；
+#   Phase B(建两张 parquet) 切到 hypir env(只需 polars + pillow)。
 #   本脚本自动切换——用 RETOUCH_CONDA_ENV / HYPIR_CONDA_ENV 覆盖环境名(默认
 #   retouchformer / hypir)。
 #
 # 必填：INPUT_DIR=/path/to/faces  (原图人脸文件夹，可含子目录)
 # 常用覆盖：
-#   OUTPUT_DIR=/.../beauty_faces   hq/lq 输出根目录(默认在 INPUT_DIR 同级建 beauty_<input_name>/)
-#   SAVE_COMPARE=1                 同时存 compare/<name>.png (LQ|HQ 横向拼接，便于核对对齐/美颜度)
+#   OUTPUT_DIR=/.../beauty_faces   hq_orig/hq_beauty/lq_gauss 输出根(默认在 INPUT_DIR 同级建 beauty_<input>/)
+#   SAVE_COMPARE=1                 同时存 compare/<name>.png ([LQ|orig|beauty] 横拼，便于核对对齐/美颜/模糊度)
 #   RESIZE_MODE=square             square(默认,CenterCrop512,任意输入安全) | smallest(仅 Resize512,需方形输入)
-#   SKIP_PARQUET=1                 只产 hq/lq，不建 parquet(之后再 03b)；默认会建 parquet 供 04b 直接用
+#   SKIP_BLUR=1                    只产 hq_orig+hq_beauty(不建 lq_gauss)，则也跳过 parquet(无 LQ 没法配对)
+#   BLUR_SEED=231                  高斯模糊随机种子(复现用)
+#   SKIP_PARQUET=1                 只产图，不建 parquet(之后再 03b)；默认会建两张 parquet 供 04b 直接用
 #   GPU=0                           美颜用哪张卡(Phase B 建 parquet 不用卡)
 #
 # 例：
@@ -41,10 +53,10 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
 INPUT_NAME="$(basename "$INPUT_DIR")"
 
-# 默认输出到 INPUT_DIR 同级的 beauty_<input_name>/ (hq/ + lq/ [+ compare/] 在其下)
+# 默认输出到 INPUT_DIR 同级的 beauty_<input_name>/ (hq_orig/ + hq_beauty/ + lq_gauss/ [+ compare/])
 OUTPUT_DIR="${OUTPUT_DIR:-$(dirname "$INPUT_DIR")/beauty_$INPUT_NAME"}"
 
-# ─── Phase A: RetouchFormer 美颜 (retouchformer env) ───
+# ─── Phase A: RetouchFormer 美颜 + 高斯模糊 (retouchformer env) ───
 # 复用 retouchformer/_env.sh：代理 + CA bundle + 选卡(GPU=N) + 激活 retouchformer env。
 # 强制 CONDA_ENV=retouchformer(避免用户传 CONDA_ENV=hypir 时误激活错 env)；可用
 # RETOUCH_CONDA_ENV 改名。注意：_env.sh 用 SCRIPT_DIR 算 REPO_DIR，这里把 SCRIPT_DIR
@@ -67,15 +79,17 @@ MODEL_NAME="${MODEL_NAME:-RetouchFormer}"
 RESIZE_MODE="${RESIZE_MODE:-square}"          # square | smallest
 SIZE="${SIZE:-512}"                           # model is fixed to 512
 DEVICE="${DEVICE:-cuda}"
-export SAVE_COMPARE="${SAVE_COMPARE:-0}"      # 1=额外存 compare/<name>.png (LQ|HQ 横拼)
+export SAVE_COMPARE="${SAVE_COMPARE:-0}"      # 1=额外存 compare/<name>.png ([LQ|orig|beauty] 横拼)
+export SKIP_BLUR="${SKIP_BLUR:-0}"            # 1=只产 hq_orig+hq_beauty(不建 lq_gauss，也跳过 parquet)
+export BLUR_SEED="${BLUR_SEED:-231}"          # 高斯模糊随机种子(复现用)
 
-echo "=== [03d] Phase A: RetouchFormer 美颜 -> 配对 hq/lq (512x512, 对齐) ==="
+echo "=== [03d] Phase A: RetouchFormer 美颜 + 高斯模糊 -> 配对对比 hq_orig/hq_beauty/lq_gauss ==="
 echo "  美颜env:        retouchformer (CONDA_ENV=$CONDA_ENV)"
 echo "  代码路径:       $RETOUCH_DIR"
 echo "  权重:           $WEIGHT_PATH"
 echo "  输入(原图):     $INPUT_DIR"
-echo "  输出根:         $OUTPUT_DIR  (hq/ + lq/+compare/)"
-echo "  参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE"
+echo "  输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/ + lq_gauss/+compare/)"
+echo "  参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:            physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
 else
@@ -96,29 +110,43 @@ mkdir -p "$OUTPUT_DIR"
 export RETOUCH_DIR WEIGHT_PATH MODEL_NAME INPUT_DIR OUTPUT_DIR RESIZE_MODE SIZE DEVICE
 python "$SCRIPT_DIR/build_beauty_dataset.py"
 
-echo "=== [03d] Phase A done. hq/lq under: $OUTPUT_DIR ==="
+echo "=== [03d] Phase A done. hq_orig/hq_beauty/lq_gauss under: $OUTPUT_DIR ==="
 
-# ─── Phase B: 建配对 parquet (hypir env) ───
+# ─── Phase B: 建两张配对 parquet (hypir env) ───
+# rest.parquet        : lq_gauss -> hq_orig   (基线复原)
+# rest_beauty.parquet : lq_gauss -> hq_beauty  (复原+美颜)
+# 两张共用同一 lq_gauss(LQ)，只 HQ 目标不同 -> 单变量对比 HQ 美颜 vs 原图对「长痘」的影响。
+if [ "${SKIP_BLUR:-0}" = "1" ]; then
+    echo "    SKIP_BLUR=1 -> 无 lq_gauss，跳过 parquet。如需配对训练，去掉 SKIP_BLUR 重跑。"
+    exit 0
+fi
 if [ "${SKIP_PARQUET:-0}" = "1" ]; then
     echo "    SKIP_PARQUET=1 -> 跳过 parquet 构建。之后手动建："
-    echo "      HQ_DIR=$OUTPUT_DIR/hq LQ_DIR=$OUTPUT_DIR/lq bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
+    echo "      HQ_DIR=$OUTPUT_DIR/hq_orig  LQ_DIR=$OUTPUT_DIR/lq_gauss PARQUET_OUT=$OUTPUT_DIR/rest.parquet        bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
+    echo "      HQ_DIR=$OUTPUT_DIR/hq_beauty LQ_DIR=$OUTPUT_DIR/lq_gauss PARQUET_OUT=$OUTPUT_DIR/rest_beauty.parquet bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
     exit 0
 fi
 
-HQ_DIR="$OUTPUT_DIR/hq"
-LQ_DIR="$OUTPUT_DIR/lq"
-PARQUET_OUT="${PARQUET_OUT:-$OUTPUT_DIR/hypir_beauty.parquet}"
+build_parquet() {  # <hq_subdir> <parquet_name>
+    local hq_sub="$1" pq="$2"
+    local hq="$OUTPUT_DIR/$hq_sub"
+    local lq="$OUTPUT_DIR/lq_gauss"
+    local out="$OUTPUT_DIR/$pq"
+    echo "--- [03d] build parquet: LQ=$lq  HQ=$hq  -> $out ---"
+    # 03b 会自己 source hypir/_env.sh 激活 hypir env；显式传 CONDA_ENV=hypir(可用
+    # HYPIR_CONDA_ENV 改名)。Phase A 激活的 retouchformer env 会被 03b 子 shell 覆盖。
+    HQ_DIR="$hq" LQ_DIR="$lq" PARQUET_OUT="$out" \
+        CONDA_ENV="${HYPIR_CONDA_ENV:-hypir}" \
+        bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
+}
 
-echo "=== [03d] Phase B: 建配对 parquet (hypir env) ==="
-echo "  HQ_DIR=$HQ_DIR"
-echo "  LQ_DIR=$LQ_DIR"
-echo "  -> $PARQUET_OUT"
-# 03b 会自己 source hypir/_env.sh 激活 hypir env；显式传 CONDA_ENV=hypir(可用
-# HYPIR_CONDA_ENV 改名)。Phase A 激活的 retouchformer env 会被 03b 子 shell 覆盖。
-HQ_DIR="$HQ_DIR" LQ_DIR="$LQ_DIR" PARQUET_OUT="$PARQUET_OUT" \
-    CONDA_ENV="${HYPIR_CONDA_ENV:-hypir}" \
-    bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
+build_parquet "hq_orig"   "rest.parquet"
+build_parquet "hq_beauty" "rest_beauty.parquet"
 
-echo "=== [03d] Done. 美颜配对数据集就绪: $OUTPUT_DIR ==="
-echo "    parquet: $PARQUET_OUT"
-echo "    next(训练·暖启动 HYPIR_sd2.pth): PARQUET_PATH=$PARQUET_OUT bash $SCRIPT_DIR/04b_train_paired.sh"
+echo "=== [03d] Done. 美颜对比数据集就绪: $OUTPUT_DIR ==="
+echo "    rest.parquet        (lq_gauss->hq_orig  基线复原): $OUTPUT_DIR/rest.parquet"
+echo "    rest_beauty.parquet (lq_gauss->hq_beauty 复原+美颜): $OUTPUT_DIR/rest_beauty.parquet"
+echo "    next(各自训一个, OUTPUT_DIR 分开):"
+echo "      A 基线:   PARQUET_PATH=$OUTPUT_DIR/rest.parquet        OUTPUT_DIR=$OUTPUT_DIR/exp_rest        bash $SCRIPT_DIR/04b_train_paired.sh"
+echo "      B 美颜:   PARQUET_PATH=$OUTPUT_DIR/rest_beauty.parquet OUTPUT_DIR=$OUTPUT_DIR/exp_rest_beauty bash $SCRIPT_DIR/04b_train_paired.sh"
+echo "    训完用 05_eval / 02_run_inference 对比两组复原图，看 B 是否修掉了「长痘变丑」。"
