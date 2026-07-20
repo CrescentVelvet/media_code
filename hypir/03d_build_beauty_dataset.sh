@@ -54,7 +54,7 @@ INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
 INPUT_NAME="$(basename "$INPUT_DIR")"
 
 # 默认输出到 INPUT_DIR 同级的 beauty_<input_name>/ (hq_orig/ + hq_beauty/ + lq_gauss/ [+ compare/])
-OUTPUT_DIR="${OUTPUT_DIR:-$(dirname "$INPUT_DIR")/beauty_$INPUT_NAME"}"
+OUTPUT_DIR="${OUTPUT_DIR:-$(dirname "$INPUT_DIR")/beauty_$INPUT_NAME}"
 
 # ─── Phase A: RetouchFormer 美颜 + 高斯模糊 (retouchformer env) ───
 # 复用 retouchformer/_env.sh：代理 + CA bundle + 选卡(GPU=N) + 激活 retouchformer env。
