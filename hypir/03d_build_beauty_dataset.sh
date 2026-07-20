@@ -102,8 +102,7 @@ fi
     echo "       Run bash retouchformer/run_all.sh first (clones the official repo)." >&2; exit 1; }
 [ -f "$WEIGHT_PATH" ] || {
     echo "ERROR: checkpoint not found at $WEIGHT_PATH." >&2
-    echo "       Run bash retouchformer/01_download_models.sh first (Baidu manual step), or set WEIGHT_PATH." >&2
-    exit 1; }
+    echo "       Run bash retouchformer/01_download_models.sh first (Baidu manual step), or set WEIGHT_PATH." >&2; exit 1; }
 
 mkdir -p "$OUTPUT_DIR"
 
