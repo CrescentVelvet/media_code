@@ -231,8 +231,8 @@ def main():
                 infer_times.append(dt)
                 ok += 1
                 tag = "" if not SKIP_BLUR else " [no-blur]"
-                print(f"[{i}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
-                      f"{'+ lq_gauss' if not SKIP_BLUR else ''}  | "
+                print(f"♻️[{i}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
+                      f"{' + lq_gauss' if not SKIP_BLUR else ''} | "
                       f"{w0}x{h0} -> {W}x{H} | 美颜 {dt:.2f}s{tag}")
             except Exception as e:
                 print(f"[{i}/{len(images)}] {fp.name}  ! failed: {e}", file=sys.stderr)

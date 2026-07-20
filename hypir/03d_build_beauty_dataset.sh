@@ -88,7 +88,7 @@ echo " 💎 美颜env:        retouchformer (CONDA_ENV=$CONDA_ENV)"
 echo " 💎 代码路径:       $RETOUCH_DIR"
 echo " 💎 权重:           $WEIGHT_PATH"
 echo " 💎 输入(原图):     $INPUT_DIR"
-echo " 💎 输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/ + lq_gauss/+compare/)"
+echo " 💎 输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/ + lq_gauss/ + compare/)"
 echo " 💎 参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:            physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
