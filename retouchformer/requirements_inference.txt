@@ -1,0 +1,27 @@
+# requirements_inference.txt — minimal deps to RUN inference (img_retouching)
+# of RetouchFormer. This is a TRIMMED subset of the official requirements.txt
+# (which is a full `pip freeze` snapshot, including training-only heavies like
+# deepspeed/gradio/fschat/mpi4py/wandb/tensorboard AND an uninstallable
+# `transformers==4.43.0.dev0` dev pin). Inference needs none of those.
+#
+# torch / torchvision are NOT listed here — preinstall a CUDA-enabled build
+# matching your GPU (see README). INSTALL_DEPS=1 + SKIP_TORCH=1 keeps them.
+# Versions are pinned to the official requirements.txt pins (known compatible
+# with torch==1.13.1). Loosen if you use a newer torch.
+numpy==1.26.4
+pillow==10.2.0
+opencv-python==4.9.0.80
+opencv-python-headless==4.9.0.80
+tqdm==4.66.2
+einops==0.7.0
+kornia==0.7.2
+timm==0.9.16
+scikit-image==0.22.0
+scikit-learn==1.4.2
+scipy==1.13.0
+PyYAML==6.0.1
+ninja==1.11.1.1
+# lpips + openai-clip: only needed by eval.py (PSNR/SSIM/LPIPS). The model
+# itself does not import them at inference time; keep them optional.
+lpips==0.1.4
+openai-clip==1.0.1
