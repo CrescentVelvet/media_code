@@ -401,6 +401,7 @@ GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 \
 ```
 - `SAVE_COMPARE=1` 额外存 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜]` 横拼，一眼核对三张对齐 + 模糊度 + 美颜强度。
 - 只想先抽几张看美颜/对齐、不建 parquet（仅需 retouchformer env、跳过 hypir env）：加 `SKIP_PARQUET=1`。
+- 想**抽样核对或做 PPT 展示图**：加 `SAVE_COMPARE=1 SKIP_PARQUET=1`（只出图、不建 parquet，仅需 retouchformer env、跳过 hypir env）——产出的 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜]` 三联横拼，一张图把「模糊退化 → 原图 → 美颜」三态并排，对齐 + 模糊度 + 美颜强度一目了然，直接可下到 PPT；要单独摆版就用 `hq_orig/` + `hq_beauty/` + `lq_gauss/` 三张原图。输入用任意人脸小夹即可。
 - 只要 `hq_orig`+`hq_beauty`、不要模糊 LQ（则也不配对、不建 parquet）：加 `SKIP_BLUR=1`。
 - 高斯模糊随机种子复现：`BLUR_SEED=231`（默认，与 HYPIR 的 `SEED` 同值）。
 - 模糊作用于 raw 对齐 crop（非 `USM(orig)`），与 03c 的 `LQ=blur(USM(orig))` 略有偏差；但 A/B 共用同一 `lq_gauss`，对比仍是单变量。NB：`lq_gauss` 是离线固定模糊（每图一个实现），不像 03c/04c 每 epoch 在线重随机——故 A 是「略少增强的 03c 基线」，但 A vs B 是干净的单变量实验（只 HQ 目标不同）。
