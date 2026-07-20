@@ -24,11 +24,10 @@
 #   NB: 模糊作用于 raw 对齐 crop(非 USM(orig))，与 03c 的 LQ=blur(USM(orig)) 略有偏差；
 #       但 A/B 共用同一 lq_gauss，对比仍是单变量(HQ 目标不同)。BLUR_SEED 可复现地重随机。
 #
-# ⚠️ 双 conda env：
-#   Phase A(美颜+模糊) 用 retouchformer env(python3.8 + torch1.13.1，含 stylegan2 CUDA 算子)；
-#   Phase B(建两张 parquet) 切到 hypir env(只需 polars + pillow)。
-#   本脚本自动切换——用 RETOUCH_CONDA_ENV / HYPIR_CONDA_ENV 覆盖环境名(默认
-#   retouchformer / hypir)。
+# conda env：不强制——默认沿用当前已激活 env(CONDA_DEFAULT_ENV)，缺包就 pip 兜底装。
+#   想强制专 env 就设 RETOUCH_CONDA_ENV(Phase A)/ HYPIR_CONDA_ENV(Phase B)。
+#   (官方推荐 Phase A 用 retouchformer env: python3.8 + torch1.13.1 含 stylegan2 CUDA 算子；
+#    但别的 env 也能跑——op/ 非 Linux 或 torch 版本不匹配会回退纯 PyTorch，慢但能出图。)
 #
 # 必填：INPUT_DIR=/path/to/faces  (原图人脸文件夹，可含子目录)
 # 常用覆盖：
@@ -56,12 +55,13 @@ INPUT_NAME="$(basename "$INPUT_DIR")"
 # 默认输出到 INPUT_DIR 同级的 beauty_<input_name>/ (hq_orig/ + hq_beauty/ + lq_gauss/ [+ compare/])
 OUTPUT_DIR="${OUTPUT_DIR:-$(dirname "$INPUT_DIR")/beauty_$INPUT_NAME}"
 
-# ─── Phase A: RetouchFormer 美颜 + 高斯模糊 (retouchformer env) ───
-# 复用 retouchformer/_env.sh：代理 + CA bundle + 选卡(GPU=N) + 激活 retouchformer env。
-# 强制 CONDA_ENV=retouchformer(避免用户传 CONDA_ENV=hypir 时误激活错 env)；可用
-# RETOUCH_CONDA_ENV 改名。注意：_env.sh 用 SCRIPT_DIR 算 REPO_DIR，这里把 SCRIPT_DIR
-# 设成本目录(hypir/) 也能得到正确的 media_code 根 —— proxy.env 路径一致。
-export CONDA_ENV="${RETOUCH_CONDA_ENV:-retouchformer}"
+# ─── Phase A: RetouchFormer 美颜 + 高斯模糊 ───
+# 复用 retouchformer/_env.sh 做代理 + CA bundle + 选卡(GPU=N) + conda 激活，但不强制
+# retouchformer env——默认沿用当前已激活 env(CONDA_DEFAULT_ENV)，想强制专 env 就显式设
+# RETOUCH_CONDA_ENV=retouchformer(或你起的名)。缺包(torch/torchvision/PIL)就 pip 兜底装。
+# 注意：_env.sh 用 SCRIPT_DIR 算 REPO_DIR，这里 SCRIPT_DIR=本目录(hypir/) 也得到正确的
+# media_code 根 —— proxy.env 路径一致。
+export CONDA_ENV="${RETOUCH_CONDA_ENV:-${CONDA_DEFAULT_ENV:-base}}"
 # shellcheck disable=SC1091
 source "$REPO_DIR/retouchformer/_env.sh"
 
@@ -107,6 +107,15 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 export RETOUCH_DIR WEIGHT_PATH MODEL_NAME INPUT_DIR OUTPUT_DIR RESIZE_MODE SIZE DEVICE
+
+# 缺包就装（沿用当前 env；torch/torchvision/PIL 缺任一就 pip 兜底装。想用特定 torch 版本
+# 或 CUDA build 请提前在当前 env 装好，这里只兜底默认 build。）
+if ! python -c "import torch, torchvision, PIL" 2>/dev/null; then
+    echo "--- 缺 torch/torchvision/PIL，pip 兜底安装 ---"
+    pip install --trusted-host pypi.org --trusted-host pypi.python.org \
+        --trusted-host files.pythonhosted.org --timeout 600 --retries 10 torch torchvision pillow
+fi
+
 python "$SCRIPT_DIR/build_beauty_dataset.py"
 
 echo "=== [03d] Phase A done. hq_orig/hq_beauty/lq_gauss under: $OUTPUT_DIR ==="
@@ -132,10 +141,10 @@ build_parquet() {  # <hq_subdir> <parquet_name>
     local lq="$OUTPUT_DIR/lq_gauss"
     local out="$OUTPUT_DIR/$pq"
     echo "--- [03d] build parquet: LQ=$lq  HQ=$hq  -> $out ---"
-    # 03b 会自己 source hypir/_env.sh 激活 hypir env；显式传 CONDA_ENV=hypir(可用
-    # HYPIR_CONDA_ENV 改名)。Phase A 激活的 retouchformer env 会被 03b 子 shell 覆盖。
+    # 03b 会自己 source hypir/_env.sh 做 conda 激活；传 CONDA_ENV=当前 env(或 HYPIR_CONDA_ENV
+    # 覆盖)使其不强制切到 hypir——沿用 Phase A 同一 env。03b 自带缺 polars 就 pip 装的兜底。
     HQ_DIR="$hq" LQ_DIR="$lq" PARQUET_OUT="$out" \
-        CONDA_ENV="${HYPIR_CONDA_ENV:-hypir}" \
+        CONDA_ENV="${HYPIR_CONDA_ENV:-${CONDA_DEFAULT_ENV:-base}}" \
         bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
 }
 
