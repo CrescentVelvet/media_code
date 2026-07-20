@@ -567,6 +567,19 @@ bash hypir/01_download_models.sh
 - 或保 `BATCH_SIZE=6`、改 `queue_size=252`(=6×42)：在 04c/04_train.sh 的 heredoc 加 `cfg.data_config.train.batch_transform.params.queue_size=252`。
 > 注：配对路径 04b 用 `PairedFaceBatchTransform`（无 queue_size），不受此限制。
 
+**12. 跑 `.sh` 报 `syntax error near unexpected token ('`（CRLF 行尾）**
+脚本被 CRLF 行尾污染（Windows→服务器用 scp/rsync/zip/复制等非 git 方式同步时带过去）。bash 遇到每行末尾的 `\r` 把引号上下文搞坏，于是 `echo "...(Baidu manual step)..."` 里的 `(` 被当成未引用的子 shell 起始符 → 解析报错（常报在某条 echo 行，如 `03d` 第 105 行）。本仓 `.gitattributes` 强制 LF，但只有 `git checkout/pull` 才会在检出时落 LF，非 git 传输方式不会自动转。
+```bash
+file hypir/03d_build_beauty_dataset.sh           # 出现 "CRLF line terminators" 即中招
+grep -c $'\r' hypir/03d_build_beauty_dataset.sh  # 非 0 即有 \r
+# 修法（任选）：
+sed -i 's/\r$//' hypir/03d_build_beauty_dataset.sh                    # 剥掉 \r
+find hypir retouchformer -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有 .sh
+dos2unix hypir/03d_build_beauty_dataset.sh                           # 有 dos2unix 的话
+git checkout -- hypir/03d_build_beauty_dataset.sh                    # git 同步的：.gitattributes 还原 LF
+```
+`.py` 不受影响（Python 词法器能吃 CRLF），但想统一也可一并 `sed`。预防：用 `git pull` 同步（git 按 `.gitattributes` 落 LF）；用 scp/rsync 的话传完跑一下上面的 `sed`；或 Windows 上 `git config --global core.autocrlf false` 再提交/同步。
+
 > 通用：`proxy.env`（代理凭证）在仓内 gitignored，`~/.ca-bundle.crt` 在家目录，都不入库；切勿把凭证写进脚本。
 
 ## Config (env vars, all optional)
