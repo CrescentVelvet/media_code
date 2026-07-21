@@ -396,8 +396,13 @@ HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
 ```bash
 # 抽样看效果
 GPU=0 SAVE_COMPARE=1 SKIP_PARQUET=1 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
-# 构建数据集
+
+# 构建数据集（单卡）
 GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+
+# 构建数据集（多卡）
+GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+
 # -> 默认 INPUT_DIR 同级 beauty_<input>/ 下：
 #    hq_orig/  hq_beauty/  lq_gauss/  compare/  +  rest.parquet  +  rest_beauty.parquet
 ```
