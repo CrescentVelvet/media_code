@@ -74,6 +74,11 @@ SAVE_COMPARE = os.environ.get("SAVE_COMPARE", "0") == "1"
 BLUR_SEED = int(os.environ.get("BLUR_SEED", "231"))
 SKIP_BLUR = os.environ.get("SKIP_BLUR", "0") == "1"     # 1 = don't build lq_gauss
 
+# Multi-GPU sharding via torchrun: each process is independent (no comms).
+# torchrun sets LOCAL_RANK/WORLD_SIZE; standalone (plain python) defaults to 0/1.
+LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
+WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
+
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif", ".ppm"}
 
 # Match the official wildDataset transform: Resize(SIZE) -> ToTensor ->
@@ -128,7 +133,7 @@ def main():
               f"in Encoder/Decoder and VRT input_resolution=(6,64,64). Non-512 sizes "
               f"will most likely crash the model.", file=sys.stderr)
 
-    device = torch.device(DEVICE if (DEVICE == "cuda" and torch.cuda.is_available()) else "cpu")
+    device = torch.device(f"cuda:{LOCAL_RANK}" if (DEVICE == "cuda" and torch.cuda.is_available()) else "cpu")
     if DEVICE == "cuda" and not torch.cuda.is_available():
         print("WARNING: CUDA not available — falling back to CPU (very slow).", file=sys.stderr)
 
@@ -171,19 +176,26 @@ def main():
     images.sort(key=lambda x: str(x.relative_to(input_dir)))
     if not images:
         sys.exit(f"ERROR: no images in {input_dir}")
-    print(f"[*] {len(images)} image(s): {input_dir} -> {out_dir}")
-    print(f"[*]   hq_orig(原图对齐crop) -> {dirs['hq_orig']}")
-    print(f"[*]   hq_beauty(美颜)        -> {dirs['hq_beauty']}")
-    if not SKIP_BLUR:
-        print(f"[*]   lq_gauss(高斯模糊LQ)   -> {dirs['lq_gauss']}  (blur_seed={BLUR_SEED})")
-    print(f"[*] params: resize={RESIZE_MODE} size={SIZE} device={device} "
-          f"save_compare={SAVE_COMPARE} skip_blur={SKIP_BLUR}")
+    if LOCAL_RANK == 0:
+        print(f"[*] {len(images)} image(s): {input_dir} -> {out_dir}")
+        print(f"[*]   hq_orig(原图对齐crop) -> {dirs['hq_orig']}")
+        print(f"[*]   hq_beauty(美颜)        -> {dirs['hq_beauty']}")
+        if not SKIP_BLUR:
+            print(f"[*]   lq_gauss(高斯模糊LQ)   -> {dirs['lq_gauss']}  (blur_seed={BLUR_SEED})")
+        print(f"[*] params: resize={RESIZE_MODE} size={SIZE} device={device} "
+              f"save_compare={SAVE_COMPARE} skip_blur={SKIP_BLUR}")
+    # shard: each rank takes a strided subset so no two ranks touch the same image
+    my_images = images[LOCAL_RANK::WORLD_SIZE]
+    if WORLD_SIZE > 1:
+        print(f"[*]   [r{LOCAL_RANK}/{WORLD_SIZE}] {device}: handling {len(my_images)}/{len(images)} images")
 
     infer_times = []
     ok = 0
     t_loop0 = time.time()
+    rank_pfx = f"[r{LOCAL_RANK}/{WORLD_SIZE}] " if WORLD_SIZE > 1 else ""
     with torch.no_grad():
-        for i, fp in enumerate(images, 1):
+        for i, fp in enumerate(my_images, 1):
+            gidx = LOCAL_RANK + (i - 1) * WORLD_SIZE + 1   # global 1-indexed position
             rel = fp.relative_to(input_dir)
             stem = rel.with_suffix(".png")
             orig_path = dirs["hq_orig"] / stem
@@ -231,13 +243,14 @@ def main():
                 _, _, H, W = pred.shape
                 infer_times.append(dt)
                 ok += 1
-                print(f"♻️[{i}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
-                      f"{' + lq_gauss' if not SKIP_BLUR else ''} | "
-                      f"{w0}x{h0} -> {W}x{H} | 美颜 {dt:.2f}s{tag}")
+                if WORLD_SIZE == 1 or i <= 3 or i % 50 == 0:
+                    print(f"{rank_pfx}♻️[{gidx}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
+                          f"{' + lq_gauss' if not SKIP_BLUR else ''} | "
+                          f"{w0}x{h0} -> {W}x{H} | 美颜 {dt:.2f}s{tag}")
             except Exception as e:
                 # 损坏/截断图(OSError: image file is truncated)或推理失败都跳过、不中断；
                 # 删掉本图已写的半成品(避免半对进 parquet 破坏同名配对)。
-                print(f"[{i}/{len(images)}] {fp.name}  ! failed (skipped): {e}", file=sys.stderr)
+                print(f"{rank_pfx}[{gidx}/{len(images)}] {fp.name}  ! failed (skipped): {e}", file=sys.stderr)
                 for d in dirs.values():
                     p = d / stem
                     try:
@@ -248,23 +261,24 @@ def main():
 
     loop_time = time.time() - t_loop0
     pure = sum(infer_times)
-    skipped = len(images) - ok
+    skipped = len(my_images) - ok
     skip_note = f", {skipped} skipped (损坏/截断图，见上方 ! failed 行)" if skipped else ""
-    print(f"[*] done. {ok}/{len(images)} succeeded{skip_note}. "
+    print(f"{rank_pfx}[*] done. {ok}/{len(my_images)} succeeded{skip_note}. "
           f"模型加载 {load_time:.2f}s + 循环 {loop_time:.2f}s (其中纯推理 {pure:.2f}s)")
     if infer_times:
         avg = pure / len(infer_times)
-        print(f"[*] 单图美颜耗时: avg {avg:.2f}s, min {min(infer_times):.2f}s, "
+        print(f"{rank_pfx}[*] 单图美颜耗时: avg {avg:.2f}s, min {min(infer_times):.2f}s, "
               f"max {max(infer_times):.2f}s, 共 {len(infer_times)} 张")
-    print(f"[*] hq_orig(原图对齐crop):    {dirs['hq_orig']}")
-    print(f"[*] hq_beauty(美颜):         {dirs['hq_beauty']}")
-    if not SKIP_BLUR:
-        print(f"[*] lq_gauss(高斯模糊LQ):    {dirs['lq_gauss']}")
-    if SAVE_COMPARE:
-        print(f"[*] 对齐核对图(LQ|orig|beauty): {dirs['compare']}")
-    if not SKIP_BLUR:
-        print(f"[*] next: bash {os.path.dirname(os.path.abspath(__file__))}"
-              f"/03d_build_beauty_dataset.sh 会用 03b 产两张 parquet(rest/rest_beauty)")
+    if LOCAL_RANK == 0:
+        print(f"[*] hq_orig(原图对齐crop):    {dirs['hq_orig']}")
+        print(f"[*] hq_beauty(美颜):         {dirs['hq_beauty']}")
+        if not SKIP_BLUR:
+            print(f"[*] lq_gauss(高斯模糊LQ):    {dirs['lq_gauss']}")
+        if SAVE_COMPARE:
+            print(f"[*] 对齐核对图(LQ|orig|beauty): {dirs['compare']}")
+        if not SKIP_BLUR:
+            print(f"[*] next: bash {os.path.dirname(os.path.abspath(__file__))}"
+                  f"/03d_build_beauty_dataset.sh 会用 03b 产两张 parquet(rest/rest_beauty)")
 
 
 if __name__ == "__main__":

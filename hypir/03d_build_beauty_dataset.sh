@@ -38,9 +38,13 @@
 #   BLUR_SEED=231                  高斯模糊随机种子(复现用)
 #   SKIP_PARQUET=1                 只产图，不建 parquet(之后再 03b)；默认会建两张 parquet 供 04b 直接用
 #   GPU=0                           美颜用哪张卡(Phase B 建 parquet 不用卡)
+#   NPROC=4                         多卡分片加速 Phase A(NPROC<=可见卡数; 不设 GPU 用全部可见卡, 或 GPU=0,1,2,3)
 #
 # 例：
 #   GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 \
+#     SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+#   # 多卡加速(4 卡，不设 GPU 用全部可见卡)：
+#   NPROC=4 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 \
 #     SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
 set -euo pipefail
 
@@ -89,7 +93,10 @@ echo " 💎 代码路径:       $RETOUCH_DIR"
 echo " 💎 权重:           $WEIGHT_PATH"
 echo " 💎 输入(原图):     $INPUT_DIR"
 echo " 💎 输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/ + lq_gauss/ + compare/)"
-echo " 💎 参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED"
+echo " 💎 参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED nproc=${NPROC:-1}"
+if [ "${NPROC:-1}" -gt 1 ]; then
+    echo " 💎 多卡:           NPROC=${NPROC} (torchrun 分片, 见下)"
+fi
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "  GPU:            physical $CUDA_VISIBLE_DEVICES  [GPU=N to change]"
 else
@@ -107,6 +114,7 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 export RETOUCH_DIR WEIGHT_PATH MODEL_NAME INPUT_DIR OUTPUT_DIR RESIZE_MODE SIZE DEVICE
+export NPROC="${NPROC:-1}"                 # >1 -> torchrun 多卡分片(每进程绑一张卡跑自己的图片子集)
 
 # 缺包就装（沿用当前 env；torch/torchvision/PIL 缺任一就 pip 兜底装。想用特定 torch 版本
 # 或 CUDA build 请提前在当前 env 装好，这里只兜底默认 build。）
@@ -116,7 +124,25 @@ if ! python -c "import torch, torchvision, PIL" 2>/dev/null; then
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10 torch torchvision pillow
 fi
 
-python "$SCRIPT_DIR/build_beauty_dataset.py"
+# 多卡：torchrun 把图片列表 strided 分片到 N 个进程，每个进程在 cuda:LOCAL_RANK 上独立加载
+# 模型跑自己的子集（输出按相对路径写、互不重叠，无需同步——等价于 N 个单卡推理并行）。
+# 单卡(NPROC=1)走 python，同现状。多卡用法：NPROC=4 (不设 GPU 用全部可见卡) 或 GPU=0,1,2,3 NPROC=4。
+if [ "$NPROC" -gt 1 ]; then
+    if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+        _NGPU=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F, '{print NF}')
+    else
+        _NGPU=$(nvidia-smi -L 2>/dev/null | wc -l); [ "$_NGPU" -eq 0 ] && _NGPU=1
+    fi
+    if [ "$_NGPU" -lt "$NPROC" ]; then
+        echo "ERROR: NPROC=$NPROC 但只有 $_NGPU 张可见 GPU。设 NPROC<=可见卡数(或 GPU=0,1,2,3 + NPROC=4)。" >&2; exit 1
+    fi
+    PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
+    : "${PORT:=29531}"
+    echo " 💎 多卡: NPROC=$NPROC (可见 $_NGPU 卡), torchrun --master_port=$PORT"
+    torchrun --nproc_per_node="$NPROC" --master_port="$PORT" "$SCRIPT_DIR/build_beauty_dataset.py"
+else
+    python "$SCRIPT_DIR/build_beauty_dataset.py"
+fi
 
 echo "=== [03d] Phase A done. hq_orig/hq_beauty/lq_gauss under: $OUTPUT_DIR ==="
 
