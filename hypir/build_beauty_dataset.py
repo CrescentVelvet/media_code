@@ -133,6 +133,12 @@ def main():
               f"in Encoder/Decoder and VRT input_resolution=(6,64,64). Non-512 sizes "
               f"will most likely crash the model.", file=sys.stderr)
 
+    # Pin this process's current CUDA device to its rank's GPU. Custom CUDA ops
+    # (e.g. RetouchFormer's stylegan2 kernels) use torch.cuda.current_device();
+    # without set_device it defaults to 0, so on non-zero ranks they allocate on
+    # cuda:0 while the model lives on cuda:LOCAL_RANK -> "illegal memory access".
+    if DEVICE == "cuda" and torch.cuda.is_available():
+        torch.cuda.set_device(LOCAL_RANK)
     device = torch.device(f"cuda:{LOCAL_RANK}" if (DEVICE == "cuda" and torch.cuda.is_available()) else "cpu")
     if DEVICE == "cuda" and not torch.cuda.is_available():
         print("WARNING: CUDA not available — falling back to CPU (very slow).", file=sys.stderr)
