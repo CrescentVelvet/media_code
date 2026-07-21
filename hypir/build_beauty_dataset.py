@@ -188,24 +188,25 @@ def main():
             stem = rel.with_suffix(".png")
             orig_path = dirs["hq_orig"] / stem
             beauty_path = dirs["hq_beauty"] / stem
-            orig_path.parent.mkdir(parents=True, exist_ok=True)
-            beauty_path.parent.mkdir(parents=True, exist_ok=True)
-
-            img = Image.open(fp).convert("RGB")
-            w0, h0 = img.size
-            src = tfm(img).unsqueeze(0).to(device)   # [1,3,512,512] in [-1,1] — model input
-
-            # hq_orig = the exact aligned crop the model sees (un-beautified original)
-            save_image(src, str(orig_path), normalize=True, value_range=(-1, 1))
-
-            t1 = time.time()
+            tag = "" if not SKIP_BLUR else " [no-blur]"
             try:
+                orig_path.parent.mkdir(parents=True, exist_ok=True)
+                beauty_path.parent.mkdir(parents=True, exist_ok=True)
+                img = Image.open(fp).convert("RGB")
+                w0, h0 = img.size
+                src = tfm(img).unsqueeze(0).to(device)   # [1,3,512,512] in [-1,1] — model input
+
+                # hq_orig = the exact aligned crop the model sees (un-beautified original)
+                save_image(src, str(orig_path), normalize=True, value_range=(-1, 1))
+
+                t1 = time.time()
                 pred, _ = model(src)            # [1,3,512,512] in [-1,1] — beautified
                 dt = time.time() - t1
                 # hq_beauty = RetouchFormer output. Both [-1,1] -> [0,1] PNG via
                 # save_image normalize=True, value_range=(-1,1) (matches run_inference.py).
                 save_image(pred, str(beauty_path), normalize=True, value_range=(-1, 1))
 
+                lq = None
                 if not SKIP_BLUR:
                     lq = blur_fn(src)          # [1,3,512,512] in [-1,1] — one fixed realization
                     lq_path = dirs["lq_gauss"] / stem
@@ -230,16 +231,26 @@ def main():
                 _, _, H, W = pred.shape
                 infer_times.append(dt)
                 ok += 1
-                tag = "" if not SKIP_BLUR else " [no-blur]"
                 print(f"♻️[{i}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
                       f"{' + lq_gauss' if not SKIP_BLUR else ''} | "
                       f"{w0}x{h0} -> {W}x{H} | 美颜 {dt:.2f}s{tag}")
             except Exception as e:
-                print(f"[{i}/{len(images)}] {fp.name}  ! failed: {e}", file=sys.stderr)
+                # 损坏/截断图(OSError: image file is truncated)或推理失败都跳过、不中断；
+                # 删掉本图已写的半成品(避免半对进 parquet 破坏同名配对)。
+                print(f"[{i}/{len(images)}] {fp.name}  ! failed (skipped): {e}", file=sys.stderr)
+                for d in dirs.values():
+                    p = d / stem
+                    try:
+                        if p.exists():
+                            p.unlink()
+                    except Exception:
+                        pass
 
     loop_time = time.time() - t_loop0
     pure = sum(infer_times)
-    print(f"[*] done. {ok}/{len(images)} succeeded. "
+    skipped = len(images) - ok
+    skip_note = f", {skipped} skipped (损坏/截断图，见上方 ! failed 行)" if skipped else ""
+    print(f"[*] done. {ok}/{len(images)} succeeded{skip_note}. "
           f"模型加载 {load_time:.2f}s + 循环 {loop_time:.2f}s (其中纯推理 {pure:.2f}s)")
     if infer_times:
         avg = pure / len(infer_times)
