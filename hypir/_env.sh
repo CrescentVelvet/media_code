@@ -34,14 +34,14 @@ fi
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 # Activate the existing conda env (torch already installed; reuse to avoid
-# re-downloading torch). Override the env name with CONDA_ENV.
+# re-downloading torch). 不强制切 env——默认沿用你当前已激活的 env
+# (CONDA_DEFAULT_ENV)，所以 `conda activate hypir` 一次后所有 hypir 脚本都用它，
+# 不必再每条命令传 CONDA_ENV=hypir。想强制别的 env 就显式 `CONDA_ENV=xxx`。
 # HYPIR pins diffusers==0.32.2 / transformers==4.49.0 / peft==0.14.0, which
-# CONFLICT with other algos in this repo — use a dedicated env:
-#   conda create -n hypir python=3.10 -y && CONDA_ENV=hypir ...
-# Default 'doll' matches the rest of the repo; just be aware of the conflict.
-CONDA_ENV="${CONDA_ENV:-doll}"
+# CONFLICT with other algos in this repo — 用专用 env：conda create -n hypir python=3.10 -y
+CONDA_ENV="${CONDA_ENV:-${CONDA_DEFAULT_ENV:-base}}"
 if ! command -v conda >/dev/null 2>&1; then
-    echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    echo "ERROR: conda not found on PATH (need an activated env; or set CONDA_ENV)." >&2
     exit 1
 fi
 # shellcheck disable=SC1091

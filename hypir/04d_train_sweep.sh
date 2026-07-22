@@ -7,15 +7,16 @@
 # 练完逐 checkpoint 评测找峰值(常在早期，如几百~几千步)，而非取终点。
 #
 # 用法(一个命令 = 一个后台实验，换 GPU/PARQUET/LR_G 跑多条即并行)：
-#   CONDA_ENV=hypir GPU=0 PARQUET_PATH=.../rest.parquet        bash hypir/04d_train_sweep.sh 5e-6
-#   CONDA_ENV=hypir GPU=1 PARQUET_PATH=.../rest.parquet        bash hypir/04d_train_sweep.sh 2e-6
-#   CONDA_ENV=hypir GPU=2 PARQUET_PATH=.../rest_beauty.parquet bash hypir/04d_train_sweep.sh 5e-6
-#   CONDA_ENV=hypir GPU=3 PARQUET_PATH=.../rest.parquet SWEEP_TAG=disc1e5 LR_D=1e-5 bash hypir/04d_train_sweep.sh 5e-6
+#   前提：已 conda activate 你的训练 env（脚本不再切 env）。
+#   GPU=0 PARQUET_PATH=.../rest.parquet        bash hypir/04d_train_sweep.sh 5e-6
+#   GPU=1 PARQUET_PATH=.../rest.parquet        bash hypir/04d_train_sweep.sh 2e-6
+#   GPU=2 PARQUET_PATH=.../rest_beauty.parquet bash hypir/04d_train_sweep.sh 5e-6
+#   GPU=3 PARQUET_PATH=.../rest.parquet SWEEP_TAG=disc1e5 LR_D=1e-5 bash hypir/04d_train_sweep.sh 5e-6
 #
 # 参数：
 #   $1 = LR_G (必填，如 5e-6 / 2e-6 / 1e-5)
 # 环境变量(可选，未设则用下方默认；其余 04b 参数如 BATCH_SIZE/GRAD_ACCUM/CROP_TYPE/
-#   OUT_SIZE/CONDA_ENV/RESUME/CHECKPOINTS_TOTAL_LIMIT/N_TRAIN_GPU/LORA_WEIGHT_PATH 均透传给 04b)：
+#   OUT_SIZE/RESUME/CHECKPOINTS_TOTAL_LIMIT/N_TRAIN_GPU/LORA_WEIGHT_PATH 均透传给 04b)：
 #   PARQUET_PATH        必填(用哪个 parquet：rest.parquet=A基线 / rest_beauty.parquet=B美颜)
 #   MAX_TRAIN_STEPS     默认 30000
 #   CHECKPOINTING_STEPS 默认 100(每100步存一个，便于找峰值)
