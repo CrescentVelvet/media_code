@@ -23,6 +23,18 @@ GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP
 # 5b) 换别的数据集训(只改 HQ_DIR + OUTPUT_DIR，别和旧实验混；guojia_datas 是 HQ 文件夹，可含子目录)
 GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/guojia_datas CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
+# ── 美颜退化路径(只输入原始图像, 合成高斯模糊退化 LQ 和美颜增强 HQ, 03d/04b) ──
+# 03d) 抽样看效果
+GPU=0 SAVE_COMPARE=1 SKIP_PARQUET=1 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+# 03d) 构建数据集（单卡）
+GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+# 03d) 构建数据集（多卡）
+GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+# 04b) A 基线(只高斯模糊，预期会长痘变丑)：
+GPU=0 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
+# 04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版，预期修掉长痘、又不毁脸)：
+GPU=0 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
+
 # ── 推理(02/06) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
 GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
@@ -362,18 +374,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 
 ## Synthetic degradation (03c / 04c — 只输入 HQ，在线退化 + 暖启动)
 `03c_build_synthetic_dataset.sh` 是 `03b`(真实配对) 的**合成退化**对照：只给 HQ 文件夹，产出 parquet(`image_path` + `prompt`)；训练时由官方 `RealESRGANDataset` + `RealESRGANBatchTransform` **在线合成 LQ**（HYPIR 默认退化：blur/sinc/noise/jpeg 两阶段，每 epoch 随机刷新）——不存 LQ 文件、增强更多样、省盘。这是 HYPIR 发布模型本身的训练方式。`04c_train_synthetic.sh` 在此基础上**暖启动发布 LoRA**（用官方 `sd2_train.yaml` + `train_paired.py`/`FineTuneSD2Trainer`，你改过的 `sd2.py` 会 `torch.load(config.weight_path)` 真正加载）。
-```bash
-# 只输入 HQ，产出 HQ-only parquet（LQ 训练时在线合成）：
-HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
-bash hypir/03c_build_synthetic_dataset.sh
-# -> .../hypir_synthetic.parquet
-
-# 训练(暖启动发布 LoRA + 在线退化；HQ>512 用 CROP_TYPE=random 在线裁 512 patch)：
-PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_synthetic.parquet \
-CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
-# 也可只给 HQ_DIR，让 04c 自动先建 parquet 再训：
-HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
-```
+命令见上文「常用命令」#4/#5（建 HQ-only parquet → 04c 在线退化训练，默认暖启动 `HYPIR_sd2.pth`）。
 - RealESRGANDataset 需要 HQ ≥ 512：`CROP_TYPE=random`（在线裁 512 patch，HQ>512 时推荐）或 `CROP_TYPE=none`（HQ 需预 resize 到 512）。HQ < 512 时先 resize 上采样到 ≥512。
 - **04c = 暖启动 + 在线退化**（默认从 `$MODEL_DIR/HYPIR_sd2.pth` 暖启动）。想**从零训**（官方默认）就用 `04_train.sh`：`PARQUET_PATH=... CROP_TYPE=random bash hypir/04_train.sh`。
 - 与 `04b_train_paired` 区别：04b_train_paired 用真实 LQ（`sd2_train_paired.yaml`，不退化）；04c 用合成 LQ（官方 `sd2_train.yaml`，在线退化）。同一份 HQ 两种方式都试，对比真实 vs 合成退化的效果。
@@ -390,36 +391,18 @@ HQ_DIR=.../hq CROP_TYPE=random GPU=0 bash hypir/04c_train_synthetic.sh
 
 各喂 04b 训一个（`OUTPUT_DIR` 分开），再用 `05_eval.sh` / `02_run_inference.sh` 评测算指标，对比哪组不毁脸。
 
-⚠️ **双 conda env**：Phase A（美颜 + 模糊）用 `retouchformer` env（python3.8 + torch1.13.1，含 stylegan2 CUDA 算子）；Phase B（建两张 parquet）切 `hypir` env（只需 polars + pillow）。本脚本自动切换——`RETOUCH_CONDA_ENV` / `HYPIR_CONDA_ENV` 可改环境名。**前置**：需先按 `retouchformer/README.md` 装好 retouchformer env + 放好 `gen_best.pth`（`retouchformer/01_download_models.sh`，百度网盘手动下，提取码 `reto`）。
+**conda env**：不强制——默认沿用当前已激活 env，缺包（torch/torchvision/PIL、Phase B 的 polars）就 pip 兜底装；想强制专 env 就设 `RETOUCH_CONDA_ENV`（Phase A）/ `HYPIR_CONDA_ENV`（Phase B）。官方推荐 Phase A 用 `retouchformer` env（python3.8 + torch1.13.1，含 stylegan2 CUDA 算子），但别的 env 也能跑（op/ 非 Linux 或 torch 版本不匹配会回退纯 PyTorch，慢但能出图）。**前置**：放好 `gen_best.pth`（`retouchformer/01_download_models.sh`，百度网盘手动下，提取码 `reto`）。
 
-### 构建美颜模糊图像数据集
-```bash
-# 抽样看效果
-GPU=0 SAVE_COMPARE=1 SKIP_PARQUET=1 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
-
-# 构建数据集（单卡）
-GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
-
-# 构建数据集（多卡）
-GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
-
-# -> 默认 INPUT_DIR 同级 beauty_<input>/ 下：
-#    hq_orig/  hq_beauty/  lq_gauss/  compare/  +  rest.parquet  +  rest_beauty.parquet
-```
+### 构建数据集
+命令见上文「常用命令」#03d（抽样 / 单卡 / 多卡）。产出在默认 `beauty_<input>/` 下：`hq_orig/` + `hq_beauty/` + `lq_gauss/` + `compare/`（SAVE_COMPARE=1）+ `rest.parquet` + `rest_beauty.parquet`。常用参数：
 - `SAVE_COMPARE=1` 额外存 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜]` 横拼，一眼核对三张对齐 + 模糊度 + 美颜强度。
-- 只想先抽几张看美颜/对齐、不建 parquet（仅需 retouchformer env、跳过 hypir env）：加 `SKIP_PARQUET=1`。
-- 想抽样核对做 PPT 展示：加 `SAVE_COMPARE=1 SKIP_PARQUET=1`（只出图、不建 parquet，仅需 retouchformer env、跳过 hypir env）——产出的 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜]` 三联横拼，一张图把「模糊退化 → 原图 → 美颜」三态并排，对齐 + 模糊度 + 美颜强度一目了然，直接可下到 PPT；要单独摆版就用 `hq_orig/` + `hq_beauty/` + `lq_gauss/` 三张原图。输入用任意人脸小夹即可。
+- 想抽样核对或做 PPT 展示：加 `SAVE_COMPARE=1 SKIP_PARQUET=1`（只出图、不建 parquet，只跑 Phase A 用当前 env 即可）——产出的 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜]` 三联横拼，一张图把「模糊退化 → 原图 → 美颜」三态并排，对齐 + 模糊度 + 美颜强度一目了然，直接可下到 PPT；要单独摆版就用 `hq_orig/` + `hq_beauty/` + `lq_gauss/` 三张原图。输入用任意人脸小夹即可。
 - 只要 `hq_orig`+`hq_beauty`、不要模糊 LQ（则也不配对、不建 parquet）：加 `SKIP_BLUR=1`。
 - 高斯模糊随机种子复现：`BLUR_SEED=231`（默认，与 HYPIR 的 `SEED` 同值）。
 - 模糊作用于 raw 对齐 crop（非 `USM(orig)`），与 03c 的 `LQ=blur(USM(orig))` 略有偏差；但 A/B 共用同一 `lq_gauss`，对比仍是单变量。NB：`lq_gauss` 是离线固定模糊（每图一个实现），不像 03c/04c 每 epoch 在线重随机——故 A 是「略少增强的 03c 基线」，但 A vs B 是干净的单变量实验（只 HQ 目标不同）。
 
-### A/B 对比训练（复用 04b，各自 OUTPUT_DIR 分开，暖启动 HYPIR_sd2.pth）
-```bash
-# A 基线(只高斯模糊，预期会「长痘变丑」)：
-PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest GPU=0 BG=0 bash hypir/04b_train_paired.sh
-# B 复原+美颜(LQ 同样模糊、HQ 换美颜版，预期修掉长痘、又不毁脸)：
-PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty GPU=0 BG=0 bash hypir/04b_train_paired.sh
-```
+### A/B 对比训练
+命令见上文「常用命令」#04b（A 基线 / B 美颜，各自 `OUTPUT_DIR` 分开，默认暖启动 `HYPIR_sd2.pth`）。
 - 两条都默认从 `$MODEL_DIR/HYPIR_sd2.pth` 暖启动（暖启动机制见下文「⚠️ 暖启动机制」；勿把 clone 里 `sd2.py` 还原成官方版，否则暖启动静默失效）。
 - 训完用 `05_eval.sh` 算 PSNR/SSIM/LPIPS + 三联对比图，或 `02_run_inference.sh` 各跑一组测试图肉眼对比：
   ```bash
@@ -433,7 +416,7 @@ PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/
   ```
 - 三条路径 LQ/HQ 取舍对比：04b 真实配对 LQ=真实退化(360p 相机)、HQ=原图；03c/04c 在线 LQ=每 epoch 重随机高斯模糊、HQ=原图；03d 离线 LQ=固定高斯模糊、HQ=原图**或**美颜版（A/B 二选一对比）。
 
-## 暖启动机制（重要：勿改错，否则暖启动静默失效）
+## 暖启动机制
 **背景**：官方 GitHub 的 `HYPIR/trainer/sd2.py` 里 `SD2Trainer.init_generator` 只做 `init_lora_weights="gaussian"`（随机初始化），**完全不加载 LoRA 权重** —— 即官方默认是从零训，没有暖启动。
 
 **改动**：本仓库 clone 的 `HYPIR/HYPIR/trainer/sd2.py` 被改过，在 `init_generator` 里加了加载逻辑（`grep -n "weight_path\|torch.load" sd2.py` 可见第 57-58 行）：
