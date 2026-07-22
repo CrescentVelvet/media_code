@@ -73,6 +73,11 @@ export LOG_IMAGE_STEPS="${LOG_IMAGE_STEPS:-100}"
 export LOG_GRAD_STEPS="${LOG_GRAD_STEPS:-100}"
 export CHECKPOINTS_TOTAL_LIMIT="${CHECKPOINTS_TOTAL_LIMIT:-}"   # 空=全留(None); 数字=留 N 个; ⚠️0=只留最新1个(非全留)
 RESUME="${RESUME:-}"                                 # 断点续训：填一个 04 的 checkpoint-N 目录
+# loss 权重(默认走 sd2_train_paired.yaml 的 lambda_gan=0.5/lpips=5/l2=1；设了才覆盖，
+# 抗 L2 坍缩越练越糊时可 up GAN / down L2)。留空=不覆盖。
+export LAMBDA_GAN="${LAMBDA_GAN:-}"
+export LAMBDA_LPIPS="${LAMBDA_LPIPS:-}"
+export LAMBDA_L2="${LAMBDA_L2:-}"
 
 echo "=== [04b] HYPIR-SD2 LoRA fine-tune on REAL paired faces ==="
 echo "  💎代码路径:      $HYPIR_DIR"
@@ -125,9 +130,17 @@ ctl = "$CHECKPOINTS_TOTAL_LIMIT"
 cfg.checkpoints_total_limit = int(ctl) if ctl.strip() else None   # 空=None(全留) / N(留N) / 0(只留最新1)
 res = "$RESUME"
 cfg.resume_from_checkpoint = res if res else None
+# loss 权重(设了才覆盖；抗 L2 坍缩用)
+lg = "$LAMBDA_GAN";   _lw = []
+if lg.strip():   cfg.lambda_gan = float(lg);   _lw.append("gan=" + lg)
+lp = "$LAMBDA_LPIPS"
+if lp.strip():   cfg.lambda_lpips = float(lp); _lw.append("lpips=" + lp)
+ll = "$LAMBDA_L2"
+if ll.strip():   cfg.lambda_l2 = float(ll);    _lw.append("l2=" + ll)
 OmegaConf.save(cfg, p)
 _ctl_desc = "全留(None)" if not ctl.strip() else ctl
-print(f"[*] patched hyperparams -> {p}  (checkpoints_total_limit={_ctl_desc})")
+_loss_desc = (" loss=" + "+".join(_lw)) if _lw else ""
+print(f"[*] patched hyperparams -> {p}  (checkpoints_total_limit={_ctl_desc}{_loss_desc})")
 PY
 
 # --- 6. 启动训练(把本目录与 HYPIR_DIR 都加进 PYTHONPATH，让 paired_face_plugin 和 HYPIR.* 都可 import) ---
