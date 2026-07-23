@@ -45,16 +45,14 @@ GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 b
 
 # ── 并行训练(04d) ── 越练越模糊是 L2 坍缩；扫 LR_G + loss 权重 + 真实退化配对 找最佳
 #   (04d 默认 steps=30000 / ckpt_every=100 / LR_D=LR_G / 后台；逐 ckpt 评找峰值，常在早期)
-# B 复原+美颜：多个 LR 并行（各占一卡）：
+# 复原+美颜：多个 LR 并行（各占一卡）：
 GPU=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 5e-6
 GPU=1 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 2e-6
 GPU=2 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 1e-5
 GPU=3 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LR_D=1e-5 SWEEP_TAG=disc1e5 bash hypir/04d_train_sweep.sh 5e-6
 # 真实退化配对(03b 的 360p 相机 LQ + RAW HQ——发布模型擅长的配方，纯高斯模糊 LQ 之外的对照)：
 #   先建 parquet(03b)，再扫 LR：
-HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq \
-LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq \
-  bash hypir/03b_build_paired_dataset.sh   # -> .../ppr10k_faces_20260703/hypir_paired.parquet
+HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh   # -> .../ppr10k_faces_20260703/hypir_paired.parquet
 GPU=4 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 5e-6
 GPU=5 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 2e-6
 # loss 权重调节(抗 L2 坍缩：up GAN、down L2；LAMBDA_GAN/LAMBDA_LPIPS/LAMBDA_L2 透传 04b，SWEEP_TAG 标注实验名)：
