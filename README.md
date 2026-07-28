@@ -18,3 +18,4 @@ Code used for work in the blue zone.
 - [`flux1/`](flux1/) — one-click FLUX.1 text-to-image (文生图) batch inference: prompts (single or per-line file) → PNGs via diffusers `FluxPipeline` (schnell default; dev gated). See its [README](flux1/README.md).
 - [`face_crop/`](face_crop/) — one-click batch face detection & cropping (MediaPipe BlazeFace): multi-face per image → `<stem>_faceN.jpg` sorted left-to-right, resumable CSV log. See its [README](face_crop/README.md).
 - [`retouchformer/`](retouchformer/) — one-click RetouchFormer (AAAI 2024) face retouching batch inference: folder of face images → retouched 512×512 PNGs (GPEN + VRT selective self-attention, single forward; Baidu-only weights). See its [README](retouchformer/README.md).
+- [`wan22/`](wan22/) — one-click Wan2.2-TI2V-5B (DiffSynth-Studio) text/image-to-video generation: T2V/I2V inference **and** LoRA fine-tuning on your own video dataset. See its [README](wan22/README.md).
