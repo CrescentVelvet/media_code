@@ -110,27 +110,34 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4).
-    # ⚠️ 必须带 --no-update-deps：否则 conda-forge 的 gxx_linux-64 依赖链会让 conda
-    #    把 env 的 python 实现掉包成 GraalPy（满足 python 槽位的另一个包），而
-    #    numpy/torch 是 CPython ABI 编译的——GraalPy 下 numpy import 直接失败，cp310
-    #    wheel 更是装不上。这正是 "NumPy 还是坏的" 的根因。永远不要去掉这个 flag。
+    # ⚠️ 显式 pin python=3.10 防止 conda-forge 把 python 换成 GraalPy：
+    #    --no-update-deps 不够，conda 仍会把 python 槽位换成 GraalPy（满足依赖）。
+    #    加 python=3.10 强制保持 CPython，GraalPy 进不来。
     echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
-    conda install -y -c conda-forge gxx_linux-64=12 --no-update-deps
-    # 双保险：确认 gxx 没把 python 掉包成 GraalPy（--no-update-deps 应已挡住）。
+    conda install -y -c conda-forge gxx_linux-64=12 python=3.10
+    # 校验：gxx 没把 python 掉包成 GraalPy
     impl2="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
     if [ "$impl2" != "CPython" ]; then
-        echo "ERROR: gxx install 把 python 掉包成 '$impl2'（GraalPy）！numpy/torch 会坏。" >&2
-        echo "       重建 env：conda env remove -n $CONDA_ENV" >&2
-        echo "                 conda create -n $CONDA_ENV python=3.10 -y && conda activate $CONDA_ENV" >&2
-        echo "       再跑 INSTALL_DEPS=1 bash $0（gxx 步骤带 --no-update-deps）" >&2
-        exit 1
+        echo "WARNING: gxx install 把 python 掉包成 '$impl2'，自动修复..." >&2
+        conda install -y -c defaults python=3.10 --force-reinstall
+        impl2="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
+        if [ "$impl2" != "CPython" ]; then
+            echo "ERROR: 无法恢复 CPython，请手动重建 env" >&2
+            echo "  conda env remove -n $CONDA_ENV && conda create -n $CONDA_ENV python=3.10 -y" >&2
+            exit 1
+        fi
+        echo "  [OK] 恢复为 CPython，重装 numpy/torch"
+        pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+        for w in "$WAN_MODEL_DIR"/torch-*.whl "$WAN_MODEL_DIR"/torchvision-*.whl; do
+            [ -f "$w" ] && pip install --force-reinstall --no-deps "$w"
+        done
     fi
     export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
     export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
     export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
-    # gxx 装完 numpy 可能被碰坏；import 失败就重装一次（CPython ABI）。
+    # gxx 装完 numpy 可能被碰坏；import 失败就重装一次
     if ! python -c "import numpy" 2>/dev/null; then
-        echo "--- numpy 装完后 import 失败，重装 numpy==1.26.4 ---"
+        echo "--- numpy import 失败，重装 numpy==1.26.4 ---"
         pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
     fi
 
