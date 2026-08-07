@@ -55,7 +55,7 @@ SAM3D_DIR="${SAM3D_DIR:-$REPO_DIR/../sam-3d-body}"
 SAM3D_MODEL_DIR="${SAM3D_MODEL_DIR:-$REPO_DIR/../../model/sam-3d-body}"
 
 # wan22 / DiffSynth-Studio (video generation, step 02)
-DIFFSYNTH_DIR="${DIFFSYNTH_DIR:-$REPO_DIR/../DiffSynth-Studio}"
+DIFFSYNTH_DIR="${DIFFSYNTH_DIR:-$REPO_DIR/../DiffSynth-Studio-Human}"
 WAN_MODEL_DIR="${WAN_MODEL_DIR:-$REPO_DIR/../../model}"
 export DIFFSYNTH_MODEL_BASE_PATH="$WAN_MODEL_DIR"
 export DIFFSYNTH_SKIP_DOWNLOAD="${DIFFSYNTH_SKIP_DOWNLOAD:-True}"

@@ -214,7 +214,7 @@ CRLF 行尾污染。`find wan22_rotate -name '*.sh' -exec sed -i 's/\r$//' {} +`
 │   ├── sam_3d_body/             # SAM 3D Body 推理脚本 (step 01 调用)
 │   └── wan22_rotate/            # ← 本目录（编排脚本）
 ├── sam-3d-body/                 # SAM 3D Body 官方代码
-├── DiffSynth-Studio/            # DiffSynth-Studio 官方代码
+├── DiffSynth-Studio-Human/     # DiffSynth-Studio 官方代码 (本流程专用, 00 clone)
 ├── wan22_experiments/           # LoRA 训练产物 (epoch-N.safetensors)
 └── wan22_rotate_results/        # 本流程输出
     ├── segmented_image.png      #   正面图 (人物保留, 背景白)

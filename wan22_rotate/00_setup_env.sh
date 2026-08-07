@@ -57,9 +57,9 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     echo "--- upgrading PyTorch to cu124 (match system CUDA 12.4) ---"
     pip install "${PIP_FLAGS[@]}" torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-    # 0b. DiffSynth-Studio (editable install)
+    # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
-        echo "--- installing diffsynth (editable) ---"
+        echo "--- installing diffsynth (editable) from $DIFFSYNTH_DIR ---"
         pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
     else
         echo "--- cloning DiffSynth-Studio -> $DIFFSYNTH_DIR ---"
