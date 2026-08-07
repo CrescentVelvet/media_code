@@ -77,6 +77,12 @@ export DIFFSYNTH_MODEL_BASE_PATH="$WAN_MODEL_DIR"
 export DIFFSYNTH_SKIP_DOWNLOAD="${DIFFSYNTH_SKIP_DOWNLOAD:-True}"
 export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 
+# ModelConfig looks for $WAN_MODEL_DIR/Wan-AI/Wan2.2-TI2V-5B/ — if only
+# $WAN_MODEL_DIR/Wan2.2-TI2V-5B/ exists (no org prefix), symlink Wan-AI -> .
+if [ ! -e "$WAN_MODEL_DIR/Wan-AI" ] && [ -d "$WAN_MODEL_DIR/Wan2.2-TI2V-5B" ]; then
+    ln -sfn . "$WAN_MODEL_DIR/Wan-AI"
+fi
+
 # Output dir (outside the repo, like wan22_results / wan22_experiments).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
