@@ -49,6 +49,14 @@ fi
 # Headless OpenGL for pyrender (used by sam_3d_body renderer in step 01).
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 
+# CUDA library paths (libcupti.so.12 etc.)
+for _cuda_lib in \
+    "/usr/local/cuda/extras/CUPTI/lib64" \
+    "/usr/local/cuda/lib64" \
+    "$CONDA_PREFIX/lib"; do
+    [ -d "$_cuda_lib" ] && export LD_LIBRARY_PATH="${_cuda_lib}:${LD_LIBRARY_PATH:-}"
+done
+
 # --- Paths ---
 # sam_3d_body (person detection + 3D pose + segmentation, step 01)
 SAM3D_DIR="${SAM3D_DIR:-$REPO_DIR/../sam-3d-body}"
