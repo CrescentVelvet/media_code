@@ -136,21 +136,15 @@ def segment_with_segmentor(human_segmentor, image_bgr, bboxes):
     if not bboxes:
         return None
 
-    print(f"    🔍 HumanSegmentor methods: {[m for m in dir(human_segmentor) if not m.startswith('_')]}")
-
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     np_bboxes = np.array(bboxes, dtype=np.float32)
 
-    # Try the most likely method names, with different arg patterns
+    # HumanSegmentor.run_sam(image, bboxes, ...) — try different arg patterns
     for desc, fn in [
-        ("run_segmentation(img, bboxes)", lambda: human_segmentor.run_segmentation(image_rgb, np_bboxes)),
-        ("run_segmentation(img, bboxes)", lambda: human_segmentor.run_segmentation(image_bgr, np_bboxes)),
-        ("segment(img, bboxes)", lambda: human_segmentor.segment(image_rgb, np_bboxes)),
-        ("segment(img, bboxes)", lambda: human_segmentor.segment(image_bgr, np_bboxes)),
-        ("predict_mask(img, bboxes)", lambda: human_segmentor.predict_mask(image_rgb, np_bboxes)),
-        ("predict_mask(img, bboxes)", lambda: human_segmentor.predict_mask(image_bgr, np_bboxes)),
-        ("__call__(img, bboxes)", lambda: human_segmentor(image_rgb, np_bboxes)),
-        ("__call__(img, bboxes)", lambda: human_segmentor(image_bgr, np_bboxes)),
+        ("run_sam(img_rgb, bboxes)", lambda: human_segmentor.run_sam(image_rgb, np_bboxes)),
+        ("run_sam(img_bgr, bboxes)", lambda: human_segmentor.run_sam(image_bgr, np_bboxes)),
+        ("run_sam(img_rgb, bboxes, dev)", lambda: human_segmentor.run_sam(image_rgb, np_bboxes, DEVICE)),
+        ("run_sam(img_bgr, bboxes, dev)", lambda: human_segmentor.run_sam(image_bgr, np_bboxes, DEVICE)),
     ]:
         try:
             result = fn()
@@ -158,9 +152,7 @@ def segment_with_segmentor(human_segmentor, image_bgr, bboxes):
             if mask is not None:
                 print(f"    ✅ segmentor OK via {desc}")
                 return mask
-            print(f"    ⚠️ {desc} returned {type(result).__name__}, no mask")
-        except (TypeError, AttributeError):
-            continue
+            print(f"    ⚠️ {desc} returned {type(result).__name__}, no mask extracted")
         except Exception as e:
             print(f"    ⚠️ {desc} failed: {e}")
     return None
