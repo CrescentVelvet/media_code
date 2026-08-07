@@ -29,7 +29,7 @@ NEGATIVE_PROMPT="${NEGATIVE_PROMPT:-色调艳丽，过曝，静态，细节模�
 # --- video params (portrait by default; person is taller than wide) ---
 HEIGHT="${HEIGHT:-1248}"
 WIDTH="${WIDTH:-704}"
-NUM_FRAMES="${NUM_FRAMES:-121}"
+NUM_FRAMES="${NUM_FRAMES:-81}"
 SEED="${SEED:-0}"
 TILED="${TILED:-1}"
 FPS="${FPS:-15}"
