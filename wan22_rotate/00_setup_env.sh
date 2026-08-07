@@ -53,33 +53,12 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Force PyTorch to cu124 via wget (pip SSL fails behind corporate proxy)
-    echo "--- downloading PyTorch cu124 wheels via wget ---"
-    WHEEL_DIR="/tmp/torch_cu124_wheels"
-    mkdir -p "$WHEEL_DIR"
-    BASE="https://download.pytorch.org/whl/cu124"
-    PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
-
-    for pkg in torch torchvision; do
-        page=$(wget -q --no-check-certificate -O - "$BASE/$pkg/" 2>/dev/null || true)
-        whl=$(echo "$page" | grep -oE "${pkg}-[0-9][^\"]*${PY_TAG}-${PY_TAG}-linux_x86_64\.whl" | sort -Vr | head -1 || true)
-        if [ -z "$whl" ]; then
-            echo "WARNING: no $pkg wheel found for $PY_TAG linux_x86_64" >&2
-            continue
-        fi
-        echo "  $pkg -> $whl"
-        if ! wget --no-check-certificate -O "$WHEEL_DIR/${pkg}.whl" "$BASE/$whl"; then
-            echo "WARNING: failed to download $pkg" >&2
-            continue
-        fi
-    done
-
-    if [ ! -f "$WHEEL_DIR/torch.whl" ] || [ ! -f "$WHEEL_DIR/torchvision.whl" ]; then
-        echo "ERROR: missing wheel files; cannot install PyTorch" >&2
-        exit 1
-    fi
-
-    pip install --force-reinstall --no-deps "$WHEEL_DIR/torch.whl" "$WHEEL_DIR/torchvision.whl"
+    # 0a. Force PyTorch to cu124 via Tsinghua mirror (download.pytorch.org blocked by proxy)
+    echo "--- installing PyTorch cu124 via Tsinghua mirror ---"
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps \
+        torch torchvision \
+        --index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch-wheels/cu124 \
+        --trusted-host mirrors.tuna.tsinghua.edu.cn
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
