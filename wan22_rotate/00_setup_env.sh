@@ -53,13 +53,18 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Install PyTorch cu124 from local wheels (download.pytorch.org blocked 403)
-    echo "--- installing PyTorch cu124 ---"
+    # 0a. Install PyTorch cu124 + cudnn from local wheels (download.pytorch.org blocked 403)
+    echo "--- installing PyTorch cu124 + cudnn ---"
     TORCH_WHL="$WAN_MODEL_DIR/torch-2.6.0+cu124-cp310-cp310-linux_x86_64.whl"
     TV_WHL="$WAN_MODEL_DIR/torchvision-0.21.0+cu124-cp310-cp310-linux_x86_64.whl"
-    if [ -f "$TORCH_WHL" ] && [ -f "$TV_WHL" ]; then
-        echo "  installing from local wheels: $WAN_MODEL_DIR"
-        pip install --force-reinstall --no-deps "$TORCH_WHL" "$TV_WHL"
+    CUDNN_WHL="$WAN_MODEL_DIR/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl"
+    LOCAL_WHEELS=()
+    for w in "$TORCH_WHL" "$TV_WHL" "$CUDNN_WHL"; do
+        [ -f "$w" ] && LOCAL_WHEELS+=("$w")
+    done
+    if [ ${#LOCAL_WHEELS[@]} -ge 2 ]; then
+        echo "  installing from local wheels: ${LOCAL_WHEELS[*]}"
+        pip install --force-reinstall --no-deps "${LOCAL_WHEELS[@]}"
     else
         echo "  local wheels not found in $WAN_MODEL_DIR, falling back to PyPI"
         pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
