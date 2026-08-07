@@ -84,7 +84,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         nvidia-cufft-cu12==11.2.1.3 \
         nvidia-curand-cu12==10.3.5.147 \
         nvidia-cusolver-cu12==11.6.1.9 \
-        nvidia-cusparse-cu12==12.3.1.106 \
+        nvidia-cusparse-cu12==12.3.1.170 \
         nvidia-cusparselt-cu12==0.6.2 \
         nvidia-nccl-cu12==2.21.5 \
         nvidia-nvtx-cu12==12.4.127 \
