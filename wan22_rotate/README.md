@@ -28,7 +28,8 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d
   bash wan22_rotate/01b_pick_and_segment.sh
 
 # 2) 只做视频生成（用上一步的分割图）
-GPU=0 WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
+GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
+  WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   OUTPUT_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/02_generate_video.sh
 
