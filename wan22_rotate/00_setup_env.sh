@@ -62,7 +62,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
     echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
-    conda install -y -c conda-forge gxx_linux-64=12
+    conda install -y -c conda-forge gxx_linux-64=12 --no-update-deps
     export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
     export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
     export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
