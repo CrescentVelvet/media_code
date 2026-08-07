@@ -2,9 +2,9 @@
 # 02_generate_video.sh — generate a 360-degree rotation video with Wan2.2-TI2V-5B
 # + your trained LoRA, using the segmented image (white background) as I2V input.
 #
-# Runs in the wan22_rotate conda env (same as step 01). Calls the existing
-# wan22/02_run_inference.sh which loads the DiffSynth-Studio pipeline, applies
-# the LoRA, and generates an mp4.
+# Runs in the wan22_rotate conda env (same as step 01). Directly calls
+# wan22/run_inference.py — not wan22/02_run_inference.sh, to avoid its set -euo
+# pipefail swallowing errors before Python prints the traceback.
 #
 # REQUIRED:
 #   WEIGHT_PATH=/path/to/epoch-N.safetensors   (trained LoRA)
@@ -23,18 +23,23 @@ source "$SCRIPT_DIR/_env.sh"
 SEGMENTED_IMAGE="${SEGMENTED_IMAGE:-$RESULTS_DIR/segmented_image.png}"
 WEIGHT_PATH="${WEIGHT_PATH:-}"
 PROMPT="${PROMPT:-人物360度旋转展示，高质量，细节清晰。}"
+NEGATIVE_PROMPT="${NEGATIVE_PROMPT:-色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走}"
 
 # --- video params (portrait by default; person is taller than wide) ---
 HEIGHT="${HEIGHT:-1248}"
 WIDTH="${WIDTH:-704}"
 NUM_FRAMES="${NUM_FRAMES:-121}"
+SEED="${SEED:-0}"
+TILED="${TILED:-1}"
 FPS="${FPS:-15}"
+QUALITY="${QUALITY:-5}"
+LOW_VRAM="${LOW_VRAM:-0}"
+VRAM_LIMIT="${VRAM_LIMIT:-}"
 OUTPUT_NAME="${OUTPUT_NAME:-rotate_360}"
 
 # --- checks ---
 if [ -z "$WEIGHT_PATH" ]; then
     echo "❌ ERROR: set WEIGHT_PATH=/path/to/epoch-N.safetensors (trained LoRA)" >&2
-    echo "  e.g. WEIGHT_PATH=../wan22_experiments/exp1/epoch-4.safetensors bash $0" >&2
     exit 1
 fi
 if [ ! -f "$WEIGHT_PATH" ]; then
@@ -42,12 +47,16 @@ if [ ! -f "$WEIGHT_PATH" ]; then
 fi
 if [ ! -f "$SEGMENTED_IMAGE" ]; then
     echo "❌ ERROR: segmented image not found: $SEGMENTED_IMAGE" >&2
-    echo "       Run step 01 first: INPUT_DIR=/path/to/subject bash $SCRIPT_DIR/01_pick_and_segment.sh" >&2
-    echo "       Or set SEGMENTED_IMAGE=/path/to/your_image.png" >&2
+    echo "       Run step 01 first, or set SEGMENTED_IMAGE=/path/to/your_image.png" >&2
     exit 1
 fi
 if [ ! -d "$DIFFSYNTH_DIR" ]; then
     echo "❌ ERROR: DiffSynth-Studio not found at $DIFFSYNTH_DIR." >&2
+    echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
+    exit 1
+fi
+if ! python -c "import diffsynth" 2>/dev/null; then
+    echo "❌ ERROR: diffsynth not importable in env '$CONDA_ENV'." >&2
     echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
     exit 1
 fi
@@ -64,22 +73,22 @@ else
     echo "  🎮 GPU:       default cuda:0  [set GPU=N to pin]"
 fi
 
-# --- delegate to wan22's inference script ---
-# wan22/_env.sh sees CONDA_ENV (exported by our _env.sh) and re-activates the
-# same env (no-op). We just pass through the inference params.
-export PROMPT
+mkdir -p "$RESULTS_DIR"
+
+export PROMPT NEGATIVE_PROMPT
 export INPUT_IMAGE="$SEGMENTED_IMAGE"
 export WEIGHT_PATH
 export OUTPUT_DIR="$RESULTS_DIR"
 export OUTPUT_NAME
-export HEIGHT WIDTH NUM_FRAMES FPS
+export HEIGHT WIDTH NUM_FRAMES SEED TILED FPS QUALITY
+export LOW_VRAM VRAM_LIMIT
 
-bash "$REPO_DIR/wan22/02_run_inference.sh"
-_exit_code=$?
+# --- directly call run_inference.py (not wan22/02_run_inference.sh) ---
+python "$REPO_DIR/wan22/run_inference.py"
 
-if [ "$_exit_code" -ne 0 ]; then
-    echo "❌ [02] FAILED (exit code $_exit_code). Video not generated." >&2
-    exit "$_exit_code"
+if [ $? -ne 0 ]; then
+    echo "❌ [02] FAILED. Video not generated." >&2
+    exit 1
 fi
 
 echo "🎉 [02] Done. Video: $RESULTS_DIR/${OUTPUT_NAME}.mp4"
