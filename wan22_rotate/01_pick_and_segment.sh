@@ -43,52 +43,52 @@ export PADDING="${PADDING:-0.1}"
 # --- I/O ---
 export INPUT_DIR="${INPUT_DIR:-}"
 if [ -z "$INPUT_DIR" ]; then
-    echo "ERROR: set INPUT_DIR=/path/to/subject_folder (must contain image/ subfolder)" >&2
+    echo "❌ ERROR: set INPUT_DIR=/path/to/subject_folder (must contain image/ subfolder)" >&2
     echo "  e.g. INPUT_DIR=/data/subject_001 bash $0" >&2
     exit 1
 fi
 if [ ! -d "$INPUT_DIR" ]; then
-    echo "ERROR: INPUT_DIR not found: $INPUT_DIR" >&2; exit 1
+    echo "❌ ERROR: INPUT_DIR not found: $INPUT_DIR" >&2; exit 1
 fi
 if [ ! -d "$INPUT_DIR/image" ]; then
-    echo "WARNING: no 'image' subfolder in $INPUT_DIR; will use $INPUT_DIR itself" >&2
+    echo "⚠️ WARNING: no 'image' subfolder in $INPUT_DIR; will use $INPUT_DIR itself" >&2
 fi
 
 export OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR}"
 
 # --- checks ---
 if [ ! -d "$SAM3D_DIR" ]; then
-    echo "ERROR: sam-3d-body code not found at $SAM3D_DIR." >&2
+    echo "❌ ERROR: sam-3d-body code not found at $SAM3D_DIR." >&2
     echo "       Run: INSTALL_DEPS=1 HF_TOKEN=hf_xxx bash $REPO_DIR/sam_3d_body/run_all.sh" >&2
     exit 1
 fi
 if [ ! -f "$CHECKPOINT_PATH" ]; then
-    echo "ERROR: model.ckpt not found at $CHECKPOINT_PATH." >&2
+    echo "❌ ERROR: model.ckpt not found at $CHECKPOINT_PATH." >&2
     echo "       Run: HF_TOKEN=hf_xxx bash $REPO_DIR/sam_3d_body/01_download_models.sh" >&2
     exit 1
 fi
 if ! python -c "import sam_3d_body, cv2" 2>/dev/null; then
-    echo "ERROR: sam_3d_body or cv2 not importable in env '$CONDA_ENV'." >&2
+    echo "❌ ERROR: sam_3d_body or cv2 not importable in env '$CONDA_ENV'." >&2
     echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
     exit 1
 fi
 
-echo "=== [01] Pick front-facing image + segment person ==="
-echo "  代码:      $SAM3D_DIR"
-echo "  ckpt:      $CHECKPOINT_PATH"
-echo "  输入:      $INPUT_DIR/image"
-echo "  输出:      $OUTPUT_DIR/segmented_image.png"
-echo "  detector:  $DETECTOR_NAME"
-echo "  segmentor: ${SEGMENTOR_NAME:-none} ${SEGMENTOR_PATH:+($SEGMENTOR_PATH)}"
-echo "  fov:       ${FOV_NAME:-none}"
-echo "  frontal_sign: $FRONTAL_SIGN  (set -1 if it picks the back-facing image)"
+echo "🚀 [01] Pick front-facing image + segment person"
+echo "  📁 代码:      $SAM3D_DIR"
+echo "  🏋️ ckpt:      $CHECKPOINT_PATH"
+echo "  📂 输入:      $INPUT_DIR/image"
+echo "  💾 输出:      $OUTPUT_DIR/segmented_image.png"
+echo "  🔍 detector:  $DETECTOR_NAME"
+echo "  ✂️  segmentor: ${SEGMENTOR_NAME:-none} ${SEGMENTOR_PATH:+($SEGMENTOR_PATH)}"
+echo "  📡 fov:       ${FOV_NAME:-none}"
+echo "  🎯 frontal_sign: $FRONTAL_SIGN  (set -1 if it picks the back-facing image)"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
-    echo "  GPU:       physical $CUDA_VISIBLE_DEVICES"
+    echo "  🎮 GPU:       physical $CUDA_VISIBLE_DEVICES"
 else
-    echo "  GPU:       default cuda:0  [set GPU=N to pin]"
+    echo "  🎮 GPU:       default cuda:0  [set GPU=N to pin]"
 fi
 
 cd "$SAM3D_DIR"
 python "$SCRIPT_DIR/pick_and_segment.py"
 
-echo "=== [01] Done. Segmented image: $OUTPUT_DIR/segmented_image.png ==="
+echo "🎉 [01] Done. Segmented image: $OUTPUT_DIR/segmented_image.png"

@@ -33,35 +33,35 @@ OUTPUT_NAME="${OUTPUT_NAME:-rotate_360}"
 
 # --- checks ---
 if [ -z "$WEIGHT_PATH" ]; then
-    echo "ERROR: set WEIGHT_PATH=/path/to/epoch-N.safetensors (trained LoRA)" >&2
+    echo "❌ ERROR: set WEIGHT_PATH=/path/to/epoch-N.safetensors (trained LoRA)" >&2
     echo "  e.g. WEIGHT_PATH=../wan22_experiments/exp1/epoch-4.safetensors bash $0" >&2
     exit 1
 fi
 if [ ! -f "$WEIGHT_PATH" ]; then
-    echo "ERROR: LoRA weight not found: $WEIGHT_PATH" >&2; exit 1
+    echo "❌ ERROR: LoRA weight not found: $WEIGHT_PATH" >&2; exit 1
 fi
 if [ ! -f "$SEGMENTED_IMAGE" ]; then
-    echo "ERROR: segmented image not found: $SEGMENTED_IMAGE" >&2
+    echo "❌ ERROR: segmented image not found: $SEGMENTED_IMAGE" >&2
     echo "       Run step 01 first: INPUT_DIR=/path/to/subject bash $SCRIPT_DIR/01_pick_and_segment.sh" >&2
     echo "       Or set SEGMENTED_IMAGE=/path/to/your_image.png" >&2
     exit 1
 fi
 if [ ! -d "$DIFFSYNTH_DIR" ]; then
-    echo "ERROR: DiffSynth-Studio not found at $DIFFSYNTH_DIR." >&2
+    echo "❌ ERROR: DiffSynth-Studio not found at $DIFFSYNTH_DIR." >&2
     echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
     exit 1
 fi
 
-echo "=== [02] Wan2.2-TI2V-5B I2V with LoRA (360 rotation) ==="
-echo "  LoRA:      $WEIGHT_PATH  (alpha=1)"
-echo "  输入图像:  $SEGMENTED_IMAGE"
-echo "  prompt:    $PROMPT"
-echo "  分辨率:    ${WIDTH}x${HEIGHT}  frames=$NUM_FRAMES  fps=$FPS"
-echo "  输出:      $RESULTS_DIR/${OUTPUT_NAME}.mp4"
+echo "🚀 [02] Wan2.2-TI2V-5B I2V with LoRA (360 rotation)"
+echo "  🏋️ LoRA:      $WEIGHT_PATH  (alpha=1)"
+echo "  🖼️  输入图像:  $SEGMENTED_IMAGE"
+echo "  📝 prompt:    $PROMPT"
+echo "  📐 分辨率:    ${WIDTH}x${HEIGHT}  frames=$NUM_FRAMES  fps=$FPS"
+echo "  💾 输出:      $RESULTS_DIR/${OUTPUT_NAME}.mp4"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
-    echo "  GPU:       physical $CUDA_VISIBLE_DEVICES"
+    echo "  🎮 GPU:       physical $CUDA_VISIBLE_DEVICES"
 else
-    echo "  GPU:       default cuda:0  [set GPU=N to pin]"
+    echo "  🎮 GPU:       default cuda:0  [set GPU=N to pin]"
 fi
 
 # --- delegate to wan22's inference script ---
@@ -76,4 +76,4 @@ export HEIGHT WIDTH NUM_FRAMES FPS
 
 bash "$REPO_DIR/wan22/02_run_inference.sh"
 
-echo "=== [02] Done. Video: $RESULTS_DIR/${OUTPUT_NAME}.mp4 ==="
+echo "🎉 [02] Done. Video: $RESULTS_DIR/${OUTPUT_NAME}.mp4"

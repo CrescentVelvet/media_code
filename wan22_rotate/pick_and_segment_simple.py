@@ -181,7 +181,7 @@ def main():
 
     if not images:
         sys.exit(f"ERROR: no images in {image_dir}")
-    print(f"[*] {len(images)} images in {image_dir}")
+    print(f"🔍 {len(images)} images in {image_dir}")
 
     human_detector, human_segmentor = build_tools()
 
@@ -194,13 +194,13 @@ def main():
         try:
             image_bgr = cv2.imread(str(fp))
             if image_bgr is None:
-                print(f"[{i}/{len(images)}] {fp.name}  ! cannot read")
+                print(f"[{i}/{len(images)}] {fp.name}  ⚠️ cannot read")
                 continue
             img_h, img_w = image_bgr.shape[:2]
 
             bboxes = detect_persons(human_detector, image_bgr)
             if not bboxes:
-                print(f"[{i}/{len(images)}] {fp.name}  | no person")
+                print(f"[{i}/{len(images)}] {fp.name}  ⚪ no person")
                 continue
 
             best_bbox = max(bboxes, key=lambda b: max(0, b[2]-b[0]) * max(0, b[3]-b[1]))
@@ -212,21 +212,21 @@ def main():
                 mask = bbox_to_mask(best_bbox, img_h, img_w, PADDING)
 
             if mask is None:
-                print(f"[{i}/{len(images)}] {fp.name}  | no mask")
+                print(f"[{i}/{len(images)}] {fp.name}  ⚪ no mask")
                 continue
 
             area = int(mask.sum())
             results.append({"path": str(fp), "rel": str(rel), "area": area, "mask": mask, "image": image_bgr})
-            print(f"[{i}/{len(images)}] {fp.name}  | area={area}  ({time.time()-t1:.2f}s)")
+            print(f"[{i}/{len(images)}] {fp.name}  ✂️ area={area}  ({time.time()-t1:.2f}s)")
         except Exception as e:
-            print(f"[{i}/{len(images)}] {fp.name}  ! {e}", file=sys.stderr)
+            print(f"[{i}/{len(images)}] {fp.name}  ❌ {e}", file=sys.stderr)
 
-    print(f"[*] processed {len(results)}/{len(images)} in {time.time()-t0:.1f}s")
+    print(f"⏱️ processed {len(results)}/{len(images)} in {time.time()-t0:.1f}s")
     if not results:
-        sys.exit("ERROR: no person detected in any image.")
+        sys.exit("❌ no person detected in any image.")
 
     best = max(results, key=lambda r: r["area"])
-    print(f"\n[*] picked: {best['rel']}  (area={best['area']})")
+    print(f"\n🎯 picked: {best['rel']}  (area={best['area']})")
 
     result_img = apply_mask(best["image"], best["mask"], white_bg=WHITE_BG)
 
@@ -235,7 +235,7 @@ def main():
 
     seg_path = out_dir / "segmented_image.png"
     cv2.imwrite(str(seg_path), result_img)
-    print(f"[*] saved: {seg_path}")
+    print(f"✅ saved: {seg_path}")
 
     cv2.imwrite(str(out_dir / "front_facing_original.jpg"), best["image"])
     cv2.imwrite(str(out_dir / "debug_mask.png"), best["mask"] * 255)
@@ -246,8 +246,8 @@ def main():
         for r in sorted(results, key=lambda x: -x["area"]):
             writer.writerow([r["rel"], r["area"]])
 
-    print(f"\n[*] Done. Next:")
-    print(f"    WEIGHT_PATH=<lora> bash {Path(__file__).resolve().parent}/02_generate_video.sh")
+    print(f"\n🎉 Done. Next:")
+    print(f"   WEIGHT_PATH=<lora> bash {Path(__file__).resolve().parent}/02_generate_video.sh")
 
 
 if __name__ == "__main__":

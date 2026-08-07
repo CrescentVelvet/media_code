@@ -17,13 +17,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-echo "=== [run_all] wan22_rotate: pick+segment -> 360 video ==="
+echo "🚀 [run_all] wan22_rotate: pick+segment -> 360 video"
 echo "  conda env: $CONDA_ENV"
 echo ""
 
 # --- step 01: pick + segment (01=full SAM 3D Body, 01b=simplified SAM only) ---
 if [ "${SKIP_SEGMENT:-0}" = "1" ]; then
-    echo "--- [skip 01] SKIP_SEGMENT=1, using existing segmented image ---"
+    echo "⏭️ [skip 01] SKIP_SEGMENT=1, using existing segmented image"
 else
     PICK_SCRIPT="${PICK_SCRIPT:-01_pick_and_segment.sh}"
     bash "$SCRIPT_DIR/$PICK_SCRIPT"
@@ -34,6 +34,6 @@ fi
 bash "$SCRIPT_DIR/02_generate_video.sh"
 
 echo ""
-echo "=== [run_all] Done. ==="
-echo "  Segmented image: $RESULTS_DIR/segmented_image.png"
-echo "  Video:           $RESULTS_DIR/${OUTPUT_NAME:-rotate_360}.mp4"
+echo "🎉 [run_all] Done."
+echo "  🖼️  Segmented image: $RESULTS_DIR/segmented_image.png"
+echo "  🎬 Video:           $RESULTS_DIR/${OUTPUT_NAME:-rotate_360}.mp4"
