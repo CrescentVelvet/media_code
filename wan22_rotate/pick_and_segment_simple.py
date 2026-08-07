@@ -130,25 +130,39 @@ def _extract_mask(result):
 
 
 def segment_with_segmentor(human_segmentor, image_bgr, bboxes):
-    if human_segmentor is None or not bboxes:
+    if human_segmentor is None:
+        print("    ⚠️ segmentor not loaded (SEGMENTOR_PATH not set?), using bbox fallback")
         return None
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    np_bboxes = np.array(bboxes, dtype=np.float32) if bboxes else None
+    if not bboxes:
+        return None
 
-    for img in (image_rgb, image_bgr):
-        for bboxes_arg in (bboxes, np_bboxes):
-            for desc, fn in [
-                ("__call__", lambda: human_segmentor(img, bboxes_arg)),
-                ("predict", lambda: human_segmentor.predict(img, bboxes_arg)),
-            ]:
-                try:
-                    result = fn()
-                except Exception:
-                    continue
-                mask = _extract_mask(result)
-                if mask is not None:
-                    print(f"    [segmentor] OK via {desc}")
-                    return mask
+    print(f"    🔍 HumanSegmentor methods: {[m for m in dir(human_segmentor) if not m.startswith('_')]}")
+
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    np_bboxes = np.array(bboxes, dtype=np.float32)
+
+    # Try the most likely method names, with different arg patterns
+    for desc, fn in [
+        ("run_segmentation(img, bboxes)", lambda: human_segmentor.run_segmentation(image_rgb, np_bboxes)),
+        ("run_segmentation(img, bboxes)", lambda: human_segmentor.run_segmentation(image_bgr, np_bboxes)),
+        ("segment(img, bboxes)", lambda: human_segmentor.segment(image_rgb, np_bboxes)),
+        ("segment(img, bboxes)", lambda: human_segmentor.segment(image_bgr, np_bboxes)),
+        ("predict_mask(img, bboxes)", lambda: human_segmentor.predict_mask(image_rgb, np_bboxes)),
+        ("predict_mask(img, bboxes)", lambda: human_segmentor.predict_mask(image_bgr, np_bboxes)),
+        ("__call__(img, bboxes)", lambda: human_segmentor(image_rgb, np_bboxes)),
+        ("__call__(img, bboxes)", lambda: human_segmentor(image_bgr, np_bboxes)),
+    ]:
+        try:
+            result = fn()
+            mask = _extract_mask(result)
+            if mask is not None:
+                print(f"    ✅ segmentor OK via {desc}")
+                return mask
+            print(f"    ⚠️ {desc} returned {type(result).__name__}, no mask")
+        except (TypeError, AttributeError):
+            continue
+        except Exception as e:
+            print(f"    ⚠️ {desc} failed: {e}")
     return None
 
 
