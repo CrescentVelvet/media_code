@@ -53,9 +53,12 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Force PyTorch to cu124 via conda (download.pytorch.org blocked by proxy)
-    echo "--- installing PyTorch cu124 via conda ---"
-    conda install -y -c pytorch nvidia::pytorch torchvision pytorch-cuda=12.4
+    # 0a. Install PyTorch from PyPI default index (download.pytorch.org blocked 403 by proxy,
+    #     but pypi.org works — proxy + SSL already OK for other deps). PyPI torch on Linux
+    #     bundles CUDA 12.x; verify version matches system after install.
+    echo "--- installing PyTorch via PyPI (default index) ---"
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
+    echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
