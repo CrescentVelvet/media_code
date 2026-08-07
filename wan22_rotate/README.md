@@ -10,17 +10,19 @@
 
 ```bash
 # ── 一键：选图+分割 → 生成视频 ──
-# REQUIRED: INPUT_DIR (含 image/ 子文件夹) + WEIGHT_PATH (训练好的 LoRA)
-GPU=0 INPUT_DIR=/data/subject_001 \
-  WEIGHT_PATH=../wan22_experiments/exp1/epoch-4.safetensors \
+# INPUT_DIR: 含 image/ 子文件夹的人物数据
+# WEIGHT_PATH: 训练好的 LoRA
+# OUTPUT_DIR: 可选，默认 ../wan22_rotate_results
+GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
+  WEIGHT_PATH=/data_3d/w00xxxxx/model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   bash wan22_rotate/run_all.sh
 
 # ── 分步 ──
-# 1) 只做选图+分割
-GPU=0 INPUT_DIR=/data/subject_001 \
+# 1) 只做选图+分割（输出 ../wan22_rotate_results/segmented_image.png）
+GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
   bash wan22_rotate/01_pick_and_segment.sh
 # 2) 只做视频生成（用上一步的分割图）
-GPU=0 WEIGHT_PATH=../wan22_experiments/exp1/epoch-4.safetensors \
+GPU=0 WEIGHT_PATH=/data_3d/w00xxxxx/model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   bash wan22_rotate/02_generate_video.sh
 
 # ── 自定义 ──
@@ -65,17 +67,19 @@ HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # SAM 3D Body（GATED�
 bash wan22/01_verify_models.sh                           # Wan2.2（确认权重在位）
 ```
 
-权重需已在 `$MODEL_DIR` 下（两个算法各自的 README 有详细布局）：
+权重需已在 `$MODEL_DIR`（默认 `../../model`，即 `/data_3d/w00xxxxx/model`）下：
 ```
 $MODEL_DIR/
-  Wan-AI/Wan2.2-TI2V-5B/          # DiT + T5 + VAE  (wan22 用)
-  Wan-AI/Wan2.1-T2V-1.3B/         # tokenizer
+  Wan2.2-TI2V-5B/                          # DiT + T5 + VAE (wan22 用, 01_verify_models.sh 自动建 Wan-AI 符号链接)
+  Wan2.1-T2V-1.3B/                         # tokenizer
+  Wan2.2-TI2V-5B_lora_add_data_reload/     # 训练好的 LoRA
+    step-66900.safetensors
   sam-3d-body/
-    sam-3d-body-dinov3/           # SAM 3D Body ckpt + mhr_model
-    moge-2-vitl-normal/            # MoGe2 FOV estimator
+    sam-3d-body-dinov3/                    # SAM 3D Body ckpt + mhr_model
+    moge-2-vitl-normal/                    # MoGe2 FOV estimator
 ```
 
-LoRA 权重（你已训练好的）：`../wan22_experiments/<exp>/epoch-N.safetensors`。
+LoRA 权重路径示例：`$MODEL_DIR/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors`。
 
 ---
 
