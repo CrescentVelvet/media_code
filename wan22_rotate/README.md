@@ -53,7 +53,7 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
 
 ## 首次准备
 
-本流程从 `doll` env 克隆一份 `wan22_rotate` env，把 sam_3d_body + diffsynth 两套依赖装在一起（detectron2 用 `--no-deps` 装，`networkx==3.2.1` 对 diffsynth 无影响）。
+本流程建一份独立的 `wan22_rotate` env（**CPython 3.10**，匹配本地 cp310 torch/triton 轮子——不要用 3.11 或 clone doll，cp310 轮子装不进 3.11），把 sam_3d_body + diffsynth 两套依赖装在一起（detectron2 用 `--no-deps` 装，`networkx==3.2.1` 对 diffsynth 无影响；gcc12 用 `conda install --no-update-deps` 装防 conda 把 python 掉包成 GraalPy，否则 numpy 全坏）。
 
 ```bash
 cd <your-code-dir>            # e.g. /data_3d/<uid>/code
@@ -62,12 +62,14 @@ cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 # ⚠️ 确认 proxy.env 中 http_proxy / https_proxy 两行已取消注释并填好地址，
 #    否则 pip 装依赖会报 "Network is unreachable"
 
-# 1. 确保有 doll env（如果已存在可跳过）
-conda create -n doll python=3.11 -y && conda activate doll
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# 1. 建 wan22_rotate env（⚠️ CPython 3.10，匹配本地 cp310 torch/triton 轮子；
+#    不要用 3.11 或 clone doll——cp310 轮子装不进 3.11）
+conda create -n wan22_rotate python=3.10 -y && conda activate wan22_rotate
 
-# 2. 克隆 doll → wan22_rotate，装两套依赖 + SAM2 + 验证
-#    INSTALL_DEPS=1 会自动 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt
+# 2. 装两套依赖 + SAM2 + 验证
+#    INSTALL_DEPS=1 会用本地 cp310 轮子装 torch 2.6.0+cu124 + nvidia 依赖，
+#    装 gcc12（--no-update-deps 防 GraalPy 掉包）、diffsynth、sam_3d_body、detectron2，
+#    并 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt
 INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 
 # 3. 下权重（两边各自的下载脚本）
@@ -217,6 +219,17 @@ SAM 3D Body 的 `global_rot` 旋转约定可能与你的人物数据相反。设
 
 **7. 跑 `.sh` 报 `syntax error near unexpected token ('`**
 CRLF 行尾污染。`find wan22_rotate -name '*.sh' -exec sed -i 's/\r$//' {} +` 或 `git checkout -- wan22_rotate/*.sh`（`.gitattributes` 强制 LF）。
+
+**8. NumPy 坏了 / `import numpy` 报 ABI 不兼容 / python 变成了 GraalPy**
+根因：`conda install -c conda-forge gxx_linux-64`（装 detectron2 编译要的 gcc12）**不带 `--no-update-deps`** 时，conda 求解器会把 env 的 python 实现掉包成 **GraalPy**（满足 python 槽位的另一个 conda-forge 包），而 numpy/torch 是 CPython ABI 编译的——GraalPy 下全坏；本地 cp310 torch/triton 轮子更直接装不上。本仓 `00_setup_env.sh` 的 gxx 步骤**已加 `--no-update-deps`** 防掉包，env 也强制 CPython 3.10（建完即校验 `platform.python_implementation()=="CPython"`，gxx 装完再校验一次）。若 env 已被掉包成 GraalPy，**重建即可**：
+```bash
+python -c "import platform; print(platform.python_implementation())"   # 输出 GraalPy 即中招
+conda env remove -n wan22_rotate
+conda create -n wan22_rotate python=3.10 -y && conda activate wan22_rotate   # CPython 3.10
+INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh                          # gxx 带 --no-update-deps
+python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 验证
+```
+> 铁律：往 `wan22_rotate` env 里 `conda install` 任何包都加 `--no-update-deps`，否则 GraalPy 会回来把 numpy 干掉。
 
 ## 目录布局
 ```

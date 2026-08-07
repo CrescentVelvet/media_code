@@ -18,17 +18,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 # _env.sh tolerated a missing env; create it now if needed.
+# NB: 本 env 必须 python=3.10 (CPython) —— 本地 torch/triton wheel 是 cp310
+# (torch-2.6.0+cu124-cp310-...、triton-3.2.0-cp310-...)，3.11 装不上。
+# 不能 `conda create --clone doll`（doll 是 3.11）。直接建 3.10。
 if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
-    echo "--- conda env '$CONDA_ENV' not found; cloning from doll ---"
-    if conda env list 2>/dev/null | grep -qw "doll"; then
-        conda create -n "$CONDA_ENV" --clone doll -y
-        conda activate "$CONDA_ENV"
-    else
-        echo "ERROR: neither '$CONDA_ENV' nor 'doll' exists." >&2
-        echo "       Create one first: conda create -n doll python=3.11 -y && conda activate doll" >&2
-        echo "                         && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124" >&2
+    echo "--- conda env '$CONDA_ENV' not found; creating python=3.10 (CPython) ---"
+    conda create -n "$CONDA_ENV" python=3.10 -y
+    conda activate "$CONDA_ENV"
+    # 防御：极少数情况下 conda solver 会塞 GraalPy 当 python 实现，那 cp310 wheel
+    # 和 numpy 全废。建完立刻校验是 CPython。
+    impl="$(python -c 'import platform,sys; print(platform.python_implementation())')"
+    if [ "$impl" != "CPython" ]; then
+        echo "ERROR: env '$CONDA_ENV' 的 python 实现是 $impl（应为 CPython）。" >&2
+        echo "       通常是 conda-forge 把 graalpy 当 python 塞了。删掉重建：" >&2
+        echo "         conda env remove -n $CONDA_ENV" >&2
+        echo "         conda create -n $CONDA_ENV python=3.10 -y --override-channels -c defaults" >&2
         exit 1
     fi
+    echo "  [OK] python=$(python --version 2>&1 | cut -d' ' -f2) ($impl)"
 fi
 
 HF_REPO_ID="${HF_REPO_ID:-facebook/sam-3d-body-dinov3}"
@@ -95,17 +102,37 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         sympy==1.13.1 \
         triton==3.2.0
 
-    echo "--- reinstalling numpy (may be broken by env rebuild) ---"
+    # numpy 1.26.4 是 sam_3d_body + diffsynth + detectron2 共同接受的版本；新 env 默认
+    # 装的较新 numpy 会和 detectron2 ABI 冲突，故显式钉 1.26.4。gxx 装完还会再校验一次。
+    echo "--- installing numpy==1.26.4 (pinned for detectron2/diffsynth) ---"
     pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
 
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
-    # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
+    # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4).
+    # ⚠️ 必须带 --no-update-deps：否则 conda-forge 的 gxx_linux-64 依赖链会让 conda
+    #    把 env 的 python 实现掉包成 GraalPy（满足 python 槽位的另一个包），而
+    #    numpy/torch 是 CPython ABI 编译的——GraalPy 下 numpy import 直接失败，cp310
+    #    wheel 更是装不上。这正是 "NumPy 还是坏的" 的根因。永远不要去掉这个 flag。
     echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
     conda install -y -c conda-forge gxx_linux-64=12 --no-update-deps
+    # 双保险：确认 gxx 没把 python 掉包成 GraalPy（--no-update-deps 应已挡住）。
+    impl2="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
+    if [ "$impl2" != "CPython" ]; then
+        echo "ERROR: gxx install 把 python 掉包成 '$impl2'（GraalPy）！numpy/torch 会坏。" >&2
+        echo "       重建 env：conda env remove -n $CONDA_ENV" >&2
+        echo "                 conda create -n $CONDA_ENV python=3.10 -y && conda activate $CONDA_ENV" >&2
+        echo "       再跑 INSTALL_DEPS=1 bash $0（gxx 步骤带 --no-update-deps）" >&2
+        exit 1
+    fi
     export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
     export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
     export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+    # gxx 装完 numpy 可能被碰坏；import 失败就重装一次（CPython ABI）。
+    if ! python -c "import numpy" 2>/dev/null; then
+        echo "--- numpy 装完后 import 失败，重装 numpy==1.26.4 ---"
+        pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+    fi
 
     # 0c. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then

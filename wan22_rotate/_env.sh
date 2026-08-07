@@ -1,6 +1,7 @@
 # _env.sh — shared setup: proxy + CA bundle + conda env activation + GPU + paths.
 # Sourced by 00/01/02/run_all. Expects SCRIPT_DIR (this dir) to be set by the caller.
-# Uses a SINGLE conda env (default wan22_rotate, cloned from doll) for both steps —
+# Uses a SINGLE conda env (default wan22_rotate, CPython 3.10 — NOT cloned from doll;
+# the local torch/triton wheels are cp310 so doll's 3.11 won't fit) for both steps —
 # sam_3d_body deps + diffsynth coexist (detectron2 installed --no-deps, networkx==3.2.1
 # is stable enough for diffsynth). Override with CONDA_ENV=xxx.
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -30,7 +31,7 @@ fi
 
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
-# Activate the conda env (cloned from doll; has both sam_3d_body + diffsynth deps).
+# Activate the conda env (CPython 3.10; has both sam_3d_body + diffsynth deps).
 CONDA_ENV="${CONDA_ENV:-wan22_rotate}"
 export CONDA_ENV
 if ! command -v conda >/dev/null 2>&1; then
