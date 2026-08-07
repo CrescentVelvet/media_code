@@ -13,17 +13,17 @@
 # INPUT_DIR: 含 image/ 子文件夹的人物数据
 # WEIGHT_PATH: 训练好的 LoRA
 # OUTPUT_DIR: 可选，默认 ../wan22_rotate_results
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   bash wan22_rotate/run_all.sh
 
 # ── 分步 ──
 # 1a) 选图+分割 完整版（SAM 3D Body: 3D 姿态估计选正面图 + SAM 分割）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   OUTPUT_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01_pick_and_segment.sh
 # 1b) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   OUTPUT_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01b_pick_and_segment.sh
 
