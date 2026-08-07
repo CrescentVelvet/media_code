@@ -62,6 +62,7 @@ if ! python -c "import diffsynth" 2>/dev/null; then
 fi
 
 echo "🚀 [02] Wan2.2-TI2V-5B I2V with LoRA (360 rotation)"
+echo "  🤖 模型:      Wan2.2-TI2V-5B ($DIFFSYNTH_MODEL_BASE_PATH/Wan-AI/Wan2.2-TI2V-5B/)"
 echo "  🏋️ LoRA:      $WEIGHT_PATH  (alpha=1)"
 echo "  🖼️  输入图像:  $SEGMENTED_IMAGE"
 echo "  📝 prompt:    $PROMPT"
