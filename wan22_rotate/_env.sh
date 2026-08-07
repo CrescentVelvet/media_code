@@ -31,7 +31,7 @@ fi
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 # Activate the conda env (cloned from doll; has both sam_3d_body + diffsynth deps).
-CONDA_ENV="${CONDA_ENV:-${CONDA_DEFAULT_ENV:-wan22_rotate}}"
+CONDA_ENV="${CONDA_ENV:-wan22_rotate}"
 export CONDA_ENV
 if ! command -v conda >/dev/null 2>&1; then
     echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
