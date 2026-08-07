@@ -72,7 +72,10 @@ def detect_persons(human_detector, image_bgr):
             bboxes = _extract_bboxes(result)
             if bboxes:
                 return bboxes
-        except Exception:
+            else:
+                print(f"    ⚠️ {desc} returned {type(result).__name__}, no bboxes extracted")
+        except Exception as e:
+            print(f"    ⚠️ {desc} failed: {e}")
             continue
     return []
 
@@ -80,6 +83,19 @@ def detect_persons(human_detector, image_bgr):
 def _extract_bboxes(result):
     if result is None:
         return []
+    # detectron2 DefaultPredictor returns dict {"instances": Instances(...)}
+    if isinstance(result, dict) and "instances" in result:
+        result = result["instances"]
+    # detectron2 Instances object
+    if hasattr(result, "pred_boxes") and hasattr(result, "scores"):
+        boxes = result.pred_boxes.tensor.cpu().numpy()
+        scores = result.scores.cpu().numpy() if hasattr(result.scores, "cpu") else np.asarray(result.scores)
+        classes = result.pred_classes.cpu().numpy() if hasattr(result, "pred_classes") and hasattr(result.pred_classes, "cpu") else \
+            (np.asarray(result.pred_classes) if hasattr(result, "pred_classes") else np.zeros(len(boxes)))
+        # COCO class 0 = person
+        person_mask = (classes == 0) & (scores >= BBOX_THRESH)
+        return boxes[person_mask].tolist() if person_mask.any() else []
+    # numpy array: (N, 5) [x1, y1, x2, y2, score] or (N, 4)
     if isinstance(result, np.ndarray):
         arr = result.squeeze()
         if arr.ndim == 1:
@@ -94,9 +110,6 @@ def _extract_bboxes(result):
                 if arr.shape[-1] >= 4:
                     bboxes.append(arr[:4].tolist())
         return bboxes
-    if hasattr(result, "pred_boxes"):
-        boxes = result.pred_boxes.tensor.cpu().numpy()
-        return boxes.tolist()
     return []
 
 
