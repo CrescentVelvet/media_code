@@ -57,7 +57,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     echo "--- installing PyTorch cu124 via Tsinghua mirror ---"
     pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps \
         torch torchvision \
-        --index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch-wheels/cu124 \
+        --index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl/cu124 \
         --trusted-host mirrors.tuna.tsinghua.edu.cn
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
