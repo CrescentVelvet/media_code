@@ -62,7 +62,7 @@ if ! python -c "import diffsynth" 2>/dev/null; then
 fi
 
 echo "🚀 [02] Wan2.2-TI2V-5B I2V with LoRA (360 rotation)"
-echo "  🤖 模型:      Wan2.2-TI2V-5B ($DIFFSYNTH_MODEL_BASE_PATH/Wan-AI/Wan2.2-TI2V-5B/)"
+echo "  🤖 模型:      Wan2.2-TI2V-5B ($WAN_MODEL_DIR/Wan2.2-TI2V-5B/)"
 echo "  🏋️ LoRA:      $WEIGHT_PATH  (alpha=1)"
 echo "  🖼️  输入图像:  $SEGMENTED_IMAGE"
 echo "  📝 prompt:    $PROMPT"
@@ -82,10 +82,10 @@ export WEIGHT_PATH
 export OUTPUT_DIR="$RESULTS_DIR"
 export OUTPUT_NAME
 export HEIGHT WIDTH NUM_FRAMES SEED TILED FPS QUALITY
-export LOW_VRAM VRAM_LIMIT
+export DEVICE WAN_MODEL_DIR
 
-# --- directly call run_inference.py (not wan22/02_run_inference.sh) ---
-python "$REPO_DIR/wan22/run_inference.py"
+# --- call generate_video.py (uses ModelConfig(path=...) to load model directly) ---
+python "$SCRIPT_DIR/generate_video.py"
 
 if [ $? -ne 0 ]; then
     echo "❌ [02] FAILED. Video not generated." >&2
