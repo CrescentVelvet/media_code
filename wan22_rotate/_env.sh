@@ -63,6 +63,9 @@ done
 SAM3D_DIR="${SAM3D_DIR:-$REPO_DIR/../sam-3d-body}"
 SAM3D_MODEL_DIR="${SAM3D_MODEL_DIR:-$REPO_DIR/../../model/sam-3d-body}"
 
+# ViTDet detector weights (detectron2 loads from here via os.path.join, avoids urllib SSL)
+export DETECTOR_PATH="${DETECTOR_PATH:-$REPO_DIR/../../model/ViTDet}"
+
 # SAM2 (person segmentation, step 01b simplified)
 SAM2_DIR="${SAM2_DIR:-$REPO_DIR/../sam2}"
 export SEGMENTOR_PATH="${SEGMENTOR_PATH:-$SAM2_DIR}"
