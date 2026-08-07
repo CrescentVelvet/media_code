@@ -71,6 +71,10 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     fi
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
+    # 0a2. nvidia-cuda-cupti-cu12 (libcupti.so.12, torch profiling needs it)
+    echo "--- installing nvidia-cuda-cupti-cu12 ---"
+    pip install "${PIP_FLAGS[@]}" nvidia-cuda-cupti-cu12
+
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
     echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
     conda install -y -c conda-forge gxx_linux-64=12 --no-update-deps
