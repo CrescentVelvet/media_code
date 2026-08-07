@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Generate a 360-degree rotation video with Wan2.2-TI2V-5B + LoRA.
 
-Uses ModelConfig(path=...) to load model files directly, avoiding the
-model_id / DIFFSYNTH_MODEL_BASE_PATH / Wan-AI symlink lookup.
+Uses ModelConfig(path=...) to load model files directly.
+Height/width auto-calculated from input image aspect ratio (aligned to mod_value=16).
 
 Env vars (set by 02_generate_video.sh):
   WAN_MODEL_PATH, WEIGHT_PATH, PROMPT, NEGATIVE_PROMPT, INPUT_IMAGE,
-  OUTPUT_DIR, OUTPUT_NAME, HEIGHT, WIDTH, NUM_FRAMES, SEED, TILED,
-  FPS, QUALITY, DEVICE
+  OUTPUT_DIR, OUTPUT_NAME, NUM_FRAMES, SEED, TILED, FPS, QUALITY,
+  DEVICE, MAX_AREA, NUM_INFERENCE_STEPS, CFG_SCALE
 """
 import os
 import sys
 import time
 import glob
 
+import numpy as np
 import torch
 from PIL import Image
 from diffsynth.utils.data import save_video
@@ -25,15 +26,16 @@ input_image_path = os.environ.get("INPUT_IMAGE", "")
 weight_path = os.environ.get("WEIGHT_PATH", "")
 output_dir = os.environ["OUTPUT_DIR"]
 output_name = os.environ["OUTPUT_NAME"]
-height = int(os.environ["HEIGHT"])
-width = int(os.environ["WIDTH"])
 num_frames = int(os.environ["NUM_FRAMES"])
-seed = int(os.environ.get("SEED", "0"))
+seed = int(os.environ.get("SEED", "42"))
 tiled = os.environ.get("TILED", "1") == "1"
 fps = int(os.environ.get("FPS", "15"))
 quality = int(os.environ.get("QUALITY", "5"))
 device = os.environ.get("DEVICE", "cuda")
 model_path = os.environ.get("WAN_MODEL_PATH", "")
+max_area = int(os.environ.get("MAX_AREA", "399360"))  # 480*832
+num_inference_steps = int(os.environ.get("NUM_INFERENCE_STEPS", "15"))
+cfg_scale = float(os.environ.get("CFG_SCALE", "1"))
 
 if not model_path:
     wan_model_dir = os.environ.get("WAN_MODEL_DIR", "../../model")
@@ -68,14 +70,23 @@ if weight_path:
     pipe.load_lora(pipe.dit, weight_path, alpha=1)
     print("✅ LoRA loaded")
 
-# --- generate ---
+# --- prepare input image + auto height/width ---
 input_image = None
 if input_image_path:
     print(f"🖼️ I2V mode: {input_image_path}")
-    input_image = Image.open(input_image_path).resize((width, height))
+    input_image = Image.open(input_image_path)
+    aspect_ratio = input_image.height / input_image.width
+    mod_value = 8 * 2  # vae_scale_factor_spatial * patch_size
+    height = round(np.sqrt(max_area * aspect_ratio)) // mod_value * mod_value
+    width = round(np.sqrt(max_area / aspect_ratio)) // mod_value * mod_value
+    input_image = input_image.resize((width, height))
+    print(f"📐 aspect={aspect_ratio:.3f} -> {width}x{height} (max_area={max_area})")
 else:
     print("📝 T2V mode")
+    height = int(os.environ.get("HEIGHT", "480"))
+    width = int(os.environ.get("WIDTH", "832"))
 
+# --- generate ---
 t1 = time.time()
 pipe_kwargs = dict(
     prompt=prompt,
@@ -85,6 +96,8 @@ pipe_kwargs = dict(
     height=height,
     width=width,
     num_frames=num_frames,
+    num_inference_steps=num_inference_steps,
+    cfg_scale=cfg_scale,
 )
 if input_image is not None:
     pipe_kwargs["input_image"] = input_image
