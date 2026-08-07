@@ -94,6 +94,9 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         sympy==1.13.1 \
         triton==3.2.0
 
+    echo "--- reinstalling numpy (may be broken by env rebuild) ---"
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
