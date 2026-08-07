@@ -50,6 +50,8 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
 cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
+# ⚠️ 确认 proxy.env 中 http_proxy / https_proxy 两行已取消注释并填好地址，
+#    否则 pip 装依赖会报 "Network is unreachable"
 
 # 1. 确保有 doll env（如果已存在可跳过）
 conda create -n doll python=3.11 -y && conda activate doll
