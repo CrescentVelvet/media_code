@@ -17,9 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-# After sourcing _env.sh, CONDA_ENV is set and the env is activated.
-# But if the env doesn't exist yet, _env.sh's conda activate would have failed.
-# Re-check and create if needed.
+# _env.sh tolerated a missing env; create it now if needed.
 if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     echo "--- conda env '$CONDA_ENV' not found; cloning from doll ---"
     if conda env list 2>/dev/null | grep -qw "doll"; then
@@ -46,6 +44,14 @@ echo ""
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
+    _proxy="${https_proxy:-${http_proxy:-}}"
+    if [ -n "$_proxy" ]; then
+        PIP_FLAGS+=(--proxy "$_proxy")
+        echo "--- using proxy: $_proxy ---"
+    else
+        echo "WARNING: no proxy set (http_proxy/https_proxy); pip may fail if no direct internet." >&2
+        echo "         Create proxy.env at repo root: see proxy.env.example" >&2
+    fi
 
     # 0a. DiffSynth-Studio (editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then

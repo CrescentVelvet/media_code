@@ -39,7 +39,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
+conda activate "$CONDA_ENV" 2>/dev/null || true  # may not exist yet (00 creates it)
 
 # Pin GPU (0-indexed) via GPU=N.
 if [ -n "${GPU:-}" ]; then
