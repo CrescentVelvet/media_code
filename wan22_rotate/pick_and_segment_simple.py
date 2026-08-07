@@ -178,6 +178,35 @@ def apply_mask(image_bgr, mask, white_bg=True):
     return result
 
 
+def center_person(image_bgr, mask, white_bg=True):
+    """Shift the person to the image center, fill gaps with background color."""
+    h, w = image_bgr.shape[:2]
+    ys, xs = np.where(mask > 0)
+    if len(ys) == 0:
+        return image_bgr
+
+    person_cx = (xs.min() + xs.max()) / 2
+    person_cy = (ys.min() + ys.max()) / 2
+    dx = int(w / 2 - person_cx)
+    dy = int(h / 2 - person_cy)
+
+    if dx == 0 and dy == 0:
+        return image_bgr
+
+    bg_color = (255, 255, 255) if white_bg else (0, 0, 0)
+    result = np.full_like(image_bgr, bg_color)
+
+    src_x1, src_y1 = max(0, -dx), max(0, -dy)
+    src_x2, src_y2 = min(w, w - dx), min(h, h - dy)
+    dst_x1, dst_y1 = max(0, dx), max(0, dy)
+    dst_x2 = dst_x1 + (src_x2 - src_x1)
+    dst_y2 = dst_y1 + (src_y2 - src_y1)
+
+    result[dst_y1:dst_y2, dst_x1:dst_x2] = image_bgr[src_y1:src_y2, src_x1:src_x2]
+    print(f"    📐 centered: shift dx={dx} dy={dy}")
+    return result
+
+
 def main():
     if not INPUT_DIR:
         sys.exit("ERROR: INPUT_DIR not set.")
@@ -247,6 +276,7 @@ def main():
     print(f"\n🎯 picked: {best['rel']}  (area={best['area']})")
 
     result_img = apply_mask(best["image"], best["mask"], white_bg=WHITE_BG)
+    centered_img = center_person(result_img, best["mask"], white_bg=WHITE_BG)
 
     out_dir = Path(OUTPUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -254,6 +284,10 @@ def main():
     seg_path = out_dir / "segmented_image.png"
     cv2.imwrite(str(seg_path), result_img)
     print(f"✅ saved: {seg_path}")
+
+    seg_centered_path = out_dir / "segmented_image_centered.png"
+    cv2.imwrite(str(seg_centered_path), centered_img)
+    print(f"✅ saved: {seg_centered_path} (person centered)")
 
     cv2.imwrite(str(out_dir / "front_facing_original.jpg"), best["image"])
     cv2.imwrite(str(out_dir / "debug_mask.png"), best["mask"] * 255)
