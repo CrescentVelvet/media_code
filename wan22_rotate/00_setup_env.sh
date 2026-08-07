@@ -142,18 +142,15 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     fi
 
     # 0c. DiffSynth-Studio-Human (fresh clone, editable install)
-    if [ -d "$DIFFSYNTH_DIR" ]; then
-        echo "--- installing diffsynth (editable) from $DIFFSYNTH_DIR ---"
-        pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
-    else
+    if [ ! -d "$DIFFSYNTH_DIR/setup.py" ] && [ ! -d "$DIFFSYNTH_DIR/pyproject.toml" ]; then
         echo "--- cloning DiffSynth-Studio -> $DIFFSYNTH_DIR ---"
         mkdir -p "$(dirname "$DIFFSYNTH_DIR")"
-        git clone https://github.com/modelscope/DiffSynth-Studio.git "$DIFFSYNTH_DIR" || \
-            git -c http.sslVerify=false clone https://github.com/modelscope/DiffSynth-Studio.git "$DIFFSYNTH_DIR"
-        pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
+        LD_LIBRARY_PATH= git clone https://github.com/modelscope/DiffSynth-Studio.git "$DIFFSYNTH_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/modelscope/DiffSynth-Studio.git "$DIFFSYNTH_DIR"
     fi
+    pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
 
-    # 0b. sam_3d_body core deps (from INSTALL.md, minus torch which doll already has)
+    # 0d. sam_3d_body core deps (from INSTALL.md, minus torch which env already has)
     echo "--- installing sam_3d_body core deps ---"
     pip install "${PIP_FLAGS[@]}" \
         pytorch-lightning pyrender opencv-python yacs scikit-image einops \
@@ -163,23 +160,34 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         xtcocotools loguru optree fvcore black pycocotools tensorboard \
         huggingface_hub
 
-    # 0c. detectron2 (@a1ce2f9, --no-deps to avoid pin clash)
-    echo "--- installing detectron2 @a1ce2f9 (--no-build-isolation --no-deps) ---"
-    pip install "${PIP_FLAGS[@]}" \
-        'git+https://github.com/facebookresearch/detectron2.git@a1ce2f9' \
-        --no-build-isolation --no-deps
+    # 0e. detectron2 (@a1ce2f9, --no-deps to avoid pin clash)
+    # 手动 clone 后本地 install——LD_LIBRARY_PATH= 防 conda libffi 和系统 libp11-kit 冲突
+    echo "--- installing detectron2 @a1ce2f9 ---"
+    DETECTRON2_DIR="${DETECTRON2_DIR:-$REPO_DIR/../detectron2}"
+    if [ ! -d "$DETECTRON2_DIR/.git" ]; then
+        LD_LIBRARY_PATH= git clone https://github.com/facebookresearch/detectron2.git "$DETECTRON2_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/facebookresearch/detectron2.git "$DETECTRON2_DIR"
+    fi
+    (cd "$DETECTRON2_DIR" && git checkout a1ce2f9)
+    pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps -e "$DETECTRON2_DIR"
 
-    # 0d. MoGe (FOV estimator, only needed by full 01, not 01b)
-    echo "--- installing MoGe (microsoft/MoGe) ---"
-    pip install "${PIP_FLAGS[@]}" 'git+https://github.com/microsoft/MoGe.git'
+    # 0f. MoGe (FOV estimator, only needed by full 01, not 01b)
+    echo "--- installing MoGe ---"
+    MOGE_DIR="${MOGE_DIR:-$REPO_DIR/../MoGe}"
+    if [ ! -d "$MOGE_DIR/.git" ]; then
+        LD_LIBRARY_PATH= git clone https://github.com/microsoft/MoGe.git "$MOGE_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/microsoft/MoGe.git "$MOGE_DIR"
+    fi
+    pip install "${PIP_FLAGS[@]}" -e "$MOGE_DIR"
 
-    # 0e. SAM2 (person segmentation, needed by 01b simplified)
+    # 0g. SAM2 (person segmentation, needed by 01b simplified)
     echo "--- setting up SAM2 ---"
-    if [ ! -d "$SAM2_DIR" ]; then
+    if [ ! -d "$SAM2_DIR/.git" ]; then
+        rm -rf "$SAM2_DIR"
         echo "--- cloning SAM2 -> $SAM2_DIR ---"
         mkdir -p "$(dirname "$SAM2_DIR")"
-        git clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR" || \
-            git -c http.sslVerify=false clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR"
+        LD_LIBRARY_PATH= git clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR"
     fi
     pip install "${PIP_FLAGS[@]}" -e "$SAM2_DIR"
     CKPT_DIR="$SAM2_DIR/checkpoints"
