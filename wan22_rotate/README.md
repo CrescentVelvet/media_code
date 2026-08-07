@@ -18,10 +18,17 @@ GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_
   bash wan22_rotate/run_all.sh
 
 # ── 分步 ──
-# 1) 只做选图+分割（OUTPUT_DIR 可选，默认 ../wan22_rotate_results）
+# 1a) 选图+分割 完整版（SAM 3D Body: 3D 姿态估计选正面图 + SAM 分割）
 GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
   OUTPUT_DIR=/data_3d/w00xxxxx/output/wan22_rotate_results \
   bash wan22_rotate/01_pick_and_segment.sh
+# 1b) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
+GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
+  OUTPUT_DIR=/data_3d/w00xxxxx/output/wan22_rotate_results \
+  bash wan22_rotate/01b_pick_and_segment.sh
+# 一键用简化版: PICK_SCRIPT=01b_pick_and_segment.sh
+GPU=0 INPUT_DIR=... WEIGHT_PATH=... PICK_SCRIPT=01b_pick_and_segment.sh \
+  bash wan22_rotate/run_all.sh
 # 2) 只做视频生成（用上一步的分割图）
 GPU=0 WEIGHT_PATH=/data_3d/w00xxxxx/model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   OUTPUT_DIR=/data_3d/w00xxxxx/output/wan22_rotate_results \

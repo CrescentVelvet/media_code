@@ -21,11 +21,12 @@ echo "=== [run_all] wan22_rotate: pick+segment -> 360 video ==="
 echo "  conda env: $CONDA_ENV"
 echo ""
 
-# --- step 01: pick front-facing image + segment ---
+# --- step 01: pick + segment (01=full SAM 3D Body, 01b=simplified SAM only) ---
 if [ "${SKIP_SEGMENT:-0}" = "1" ]; then
     echo "--- [skip 01] SKIP_SEGMENT=1, using existing segmented image ---"
 else
-    bash "$SCRIPT_DIR/01_pick_and_segment.sh"
+    PICK_SCRIPT="${PICK_SCRIPT:-01_pick_and_segment.sh}"
+    bash "$SCRIPT_DIR/$PICK_SCRIPT"
     echo ""
 fi
 
