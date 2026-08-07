@@ -60,7 +60,14 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
-    # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
+    # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
+    echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
+    conda install -y -c conda-forge gxx_linux-64=12
+    export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
+    export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+    export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+
+    # 0c. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
         echo "--- installing diffsynth (editable) from $DIFFSYNTH_DIR ---"
         pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
