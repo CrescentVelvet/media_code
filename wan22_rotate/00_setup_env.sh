@@ -53,11 +53,25 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Force PyTorch to cu124 (doll may have cu118; same version number → pip skips)
-    echo "--- force-reinstall PyTorch to cu124 (match system CUDA 12.4) ---"
-    pip install "${PIP_FLAGS[@]}" --trusted-host download.pytorch.org \
-        --force-reinstall --no-deps --no-cache-dir \
-        torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    # 0a. Force PyTorch to cu124 via wget (pip SSL fails behind corporate proxy)
+    echo "--- downloading PyTorch cu124 wheels via wget ---"
+    WHEEL_DIR="/tmp/torch_cu124_wheels"
+    mkdir -p "$WHEEL_DIR"
+    BASE="https://download.pytorch.org/whl/cu124"
+    PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
+
+    for pkg in torch torchvision; do
+        page=$(wget -q --no-check-certificate -O - "$BASE/$pkg/" 2>/dev/null)
+        whl=$(echo "$page" | grep -oE "${pkg}-[0-9][^\"]*${PY_TAG}-${PY_TAG}-linux_x86_64\.whl" | sort -Vr | head -1)
+        if [ -z "$whl" ]; then
+            echo "WARNING: no $pkg wheel found for $PY_TAG linux_x86_64" >&2
+            continue
+        fi
+        echo "  $pkg -> $whl"
+        wget --no-check-certificate -q -O "$WHEEL_DIR/${pkg}.whl" "$BASE/$whl"
+    done
+
+    pip install --force-reinstall --no-deps "$WHEEL_DIR/torch.whl" "$WHEEL_DIR/torchvision.whl"
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
