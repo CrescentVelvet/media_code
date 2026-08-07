@@ -60,11 +60,9 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     echo "--- installing PyTorch cu124 local wheels ---"
     LOCAL_WHEELS=()
     for w in \
-        "$WAN_MODEL_DIR/torch-2.6.0+cu124-cp310-cp310-linux_x86_64.whl" \
-        "$WAN_MODEL_DIR/torchvision-0.21.0+cu124-cp310-cp310-linux_x86_64.whl" \
-        "$WAN_MODEL_DIR/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl" \
-        "$WAN_MODEL_DIR/nvidia_cublas_cu12-12.4.5.8-py3-none-manylinux2014_x86_64.whl" \
-        "$WAN_MODEL_DIR/nvidia_cuda_cupti_cu12-"*.whl \
+        "$WAN_MODEL_DIR/torch-"*.whl \
+        "$WAN_MODEL_DIR/torchvision-"*.whl \
+        "$WAN_MODEL_DIR/nvidia_"*.whl \
         ; do
         [ -f "$w" ] && LOCAL_WHEELS+=("$w")
     done
