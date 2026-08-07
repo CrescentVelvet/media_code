@@ -173,12 +173,16 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
     # 预下载 ViTDet 权重——detectron2 运行时用 urllib 自动下, SSL 被代理拦截
     VITDET_CACHE="$HOME/.cache/torch/hub/checkpoints"
+    VITDET_LOCAL="$WAN_MODEL_DIR/ViTDet/model_final_f05665.pkl"
     mkdir -p "$VITDET_CACHE"
-    if [ ! -f "$VITDET_CACHE/model_final_f05665.pkl" ]; then
+    if [ -f "$VITDET_LOCAL" ]; then
+        echo "--- using local ViTDet weights: $VITDET_LOCAL ---"
+        cp -f "$VITDET_LOCAL" "$VITDET_CACHE/model_final_f05665.pkl"
+    elif [ ! -f "$VITDET_CACHE/model_final_f05665.pkl" ]; then
         echo "--- downloading ViTDet weights (model_final_f05665.pkl) ---"
         wget --no-check-certificate -q -O "$VITDET_CACHE/model_final_f05665.pkl" \
             "https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl" || \
-            echo "WARNING: ViTDet download failed; run 01b 时 detectron2 会尝试下载, 可能 SSL 报错" >&2
+            echo "WARNING: ViTDet download failed; 放到 $WAN_MODEL_DIR/ViTDet/ 或 ~/.cache/torch/hub/checkpoints/" >&2
     fi
 
     # 0f. MoGe (FOV estimator, only needed by full 01, not 01b)
