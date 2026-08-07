@@ -13,7 +13,7 @@
 #   7. Saves: $OUTPUT_DIR/segmented_image.png
 #
 # REQUIRED:  INPUT_DIR=/path/to/subject_folder  (must contain image/ subfolder)
-set -uo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

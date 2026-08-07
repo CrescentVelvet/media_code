@@ -11,7 +11,7 @@
 # For weights, run the respective download scripts first:
 #   sam_3d_body: HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh
 #   wan22:       bash wan22/01_verify_models.sh
-set -uo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

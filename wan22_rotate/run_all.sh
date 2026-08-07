@@ -11,7 +11,7 @@
 #
 # Common overrides (all optional):
 #   GPU=0 PROMPT="..." HEIGHT=1248 WIDTH=706 NUM_FRAMES=121
-set -uo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
