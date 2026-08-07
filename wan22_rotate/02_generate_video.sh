@@ -75,5 +75,11 @@ export OUTPUT_NAME
 export HEIGHT WIDTH NUM_FRAMES FPS
 
 bash "$REPO_DIR/wan22/02_run_inference.sh"
+_exit_code=$?
+
+if [ "$_exit_code" -ne 0 ]; then
+    echo "❌ [02] FAILED (exit code $_exit_code). Video not generated." >&2
+    exit "$_exit_code"
+fi
 
 echo "🎉 [02] Done. Video: $RESULTS_DIR/${OUTPUT_NAME}.mp4"
