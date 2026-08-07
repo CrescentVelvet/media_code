@@ -53,11 +53,17 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Install PyTorch from PyPI default index (download.pytorch.org blocked 403 by proxy,
-    #     but pypi.org works — proxy + SSL already OK for other deps). PyPI torch on Linux
-    #     bundles CUDA 12.x; verify version matches system after install.
-    echo "--- installing PyTorch via PyPI (default index) ---"
-    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
+    # 0a. Install PyTorch cu124 from local wheels (download.pytorch.org blocked 403)
+    echo "--- installing PyTorch cu124 ---"
+    TORCH_WHL="$WAN_MODEL_DIR/torch-2.6.0+cu124-cp310-cp310-linux_x86_64.whl"
+    TV_WHL="$WAN_MODEL_DIR/torchvision-0.21.0+cu124-cp310-cp310-linux_x86_64.whl"
+    if [ -f "$TORCH_WHL" ] && [ -f "$TV_WHL" ]; then
+        echo "  installing from local wheels: $WAN_MODEL_DIR"
+        pip install --force-reinstall --no-deps "$TORCH_WHL" "$TV_WHL"
+    else
+        echo "  local wheels not found in $WAN_MODEL_DIR, falling back to PyPI"
+        pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
+    fi
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
