@@ -53,8 +53,11 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Install PyTorch cu124 + nvidia deps from local wheels (download.pytorch.org blocked 403)
-    echo "--- installing PyTorch cu124 + nvidia libs ---"
+    # 0a. Uninstall torchaudio + install PyTorch cu124 + all nvidia deps
+    echo "--- uninstalling torchaudio (version conflict) ---"
+    pip uninstall -y torchaudio 2>/dev/null || true
+
+    echo "--- installing PyTorch cu124 local wheels ---"
     LOCAL_WHEELS=()
     for w in \
         "$WAN_MODEL_DIR/torch-2.6.0+cu124-cp310-cp310-linux_x86_64.whl" \
@@ -65,18 +68,30 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         ; do
         [ -f "$w" ] && LOCAL_WHEELS+=("$w")
     done
-    if [ ${#LOCAL_WHEELS[@]} -ge 2 ]; then
-        echo "  installing from local wheels: ${LOCAL_WHEELS[*]}"
+    if [ ${#LOCAL_WHEELS[@]} -ge 1 ]; then
+        echo "  installing local wheels: ${LOCAL_WHEELS[*]}"
         pip install --force-reinstall --no-deps "${LOCAL_WHEELS[@]}"
-    else
-        echo "  local wheels not found in $WAN_MODEL_DIR, falling back to PyPI"
-        pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps torch torchvision
     fi
-    echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
-    # 0a2. nvidia-cuda-cupti-cu12 (libcupti.so.12, torch profiling needs it)
-    echo "--- installing nvidia-cuda-cupti-cu12 ---"
-    pip install "${PIP_FLAGS[@]}" nvidia-cuda-cupti-cu12
+    echo "--- installing nvidia deps + sympy + triton (torch 2.6.0+cu124 pins) ---"
+    pip install "${PIP_FLAGS[@]}" \
+        nvidia-cuda-nvrtc-cu12==12.4.127 \
+        nvidia-cuda-runtime-cu12==12.4.127 \
+        nvidia-cuda-cupti-cu12==12.4.127 \
+        nvidia-cudnn-cu12==9.1.0.70 \
+        nvidia-cublas-cu12==12.4.5.8 \
+        nvidia-cufft-cu12==11.2.1.3 \
+        nvidia-curand-cu12==10.3.5.147 \
+        nvidia-cusolver-cu12==11.6.1.9 \
+        nvidia-cusparse-cu12==12.3.1.106 \
+        nvidia-cusparselt-cu12==0.6.2 \
+        nvidia-nccl-cu12==2.21.5 \
+        nvidia-nvtx-cu12==12.4.127 \
+        nvidia-nvjitlink-cu12==12.4.127 \
+        sympy==1.13.1 \
+        triton==3.2.0
+
+    echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)')"
 
     # 0b. Install gcc 12 into the conda env (system gcc too old for CUDA 12.4)
     echo "--- installing gcc 12 into conda env (for detectron2 compilation) ---"
