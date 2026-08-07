@@ -55,7 +55,8 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
     # 0a. Force PyTorch to cu124 (doll may have cu118; same version number → pip skips)
     echo "--- force-reinstall PyTorch to cu124 (match system CUDA 12.4) ---"
-    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps --no-cache-dir \
+    pip install "${PIP_FLAGS[@]}" --trusted-host download.pytorch.org \
+        --force-reinstall --no-deps --no-cache-dir \
         torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
