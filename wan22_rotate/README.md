@@ -2,11 +2,11 @@
 
 从一组环绕人物拍摄的图像中，自动挑选人物面向相机的正面图像，用 SAM 3D Body 识别并分割人物（背景置白），再用 Wan2.2-TI2V-5B + 已训练的 LoRA 生成 360° 旋转视频。
 
-本目录只含编排脚本——SAM 3D Body 官方代码在 `../sam-3d-body`、DiffSynth-Studio 在 `../DiffSynth-Studio`，权重在各算法的 `$MODEL_DIR` 下。步骤 01 在 `sam_3d_body` conda env 跑（有 detectron2 pin），步骤 02 在 `wan22` conda env 跑（有 diffsynth），两个 env 冲突所以必须分开。
+本目录只含编排脚本——SAM 3D Body 官方代码在 `../sam-3d-body`、DiffSynth-Studio 在 `../DiffSynth-Studio`，权重在各算法的 `$MODEL_DIR` 下。两步共用同一个 conda env（从 `doll` 克隆，装两套依赖）。
 
 ## 常用命令
 
-> 假设已进入容器并 `conda activate` 无关 env（脚本自己切 env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> 假设已进入容器（脚本自动激活 `wan22_rotate` env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
 
 ```bash
 # ── 一键：选图+分割 → 生成视频 ──
@@ -16,10 +16,10 @@ GPU=0 INPUT_DIR=/data/subject_001 \
   bash wan22_rotate/run_all.sh
 
 # ── 分步 ──
-# 1) 只做选图+分割（sam_3d_body env）
+# 1) 只做选图+分割
 GPU=0 INPUT_DIR=/data/subject_001 \
   bash wan22_rotate/01_pick_and_segment.sh
-# 2) 只做视频生成（wan22 env，用上一步的分割图）
+# 2) 只做视频生成（用上一步的分割图）
 GPU=0 WEIGHT_PATH=../wan22_experiments/exp1/epoch-4.safetensors \
   bash wan22_rotate/02_generate_video.sh
 
@@ -44,27 +44,23 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
 
 ## 首次准备
 
-本流程依赖两个已有工具链，需先各自安装好：
+本流程从 `doll` env 克隆一份 `wan22_rotate` env，把 sam_3d_body + diffsynth 两套依赖装在一起（detectron2 用 `--no-deps` 装，`networkx==3.2.1` 对 diffsynth 无影响）。
 
 ```bash
 cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 
-# 1. SAM 3D Body（代码 + 权重，step 01 用）
-conda create -n sam_3d_body python=3.11 -y && conda activate sam_3d_body
+# 1. 确保有 doll env（如果已存在可跳过）
+conda create -n doll python=3.11 -y && conda activate doll
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-INSTALL_DEPS=1 bash sam_3d_body/00_setup_env.sh
-HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # GATED，需先 Request access
 
-# 2. Wan2.2 / DiffSynth-Studio（代码 + 权重，step 02 用）
-conda create -n wan22 python=3.10 -y && conda activate wan22
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-INSTALL_DEPS=1 bash wan22/00_setup_env.sh
-bash wan22/01_verify_models.sh
+# 2. 克隆 doll → wan22_rotate，装两套依赖 + 验证
+INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 
-# 3. 验证两边都就绪
-bash wan22_rotate/00_setup_env.sh
+# 3. 下权重（两边各自的下载脚本）
+HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # SAM 3D Body（GATED，需先 Request access）
+bash wan22/01_verify_models.sh                           # Wan2.2（确认权重在位）
 ```
 
 权重需已在 `$MODEL_DIR` 下（两个算法各自的 README 有详细布局）：
@@ -142,8 +138,7 @@ $RESULTS_DIR/rotate_360.mp4
 | `INPUT_DIR` | _(required)_ | 人物文件夹（含 `image/` 子文件夹） |
 | `WEIGHT_PATH` | _(required for 02)_ | 训练好的 LoRA `.safetensors` |
 | `GPU` | _(unset)_ | physical GPU id，e.g. `GPU=0` |
-| `SAM3D_ENV` | `sam_3d_body` | step 01 conda env |
-| `WAN_ENV` | `wan22` | step 02 conda env |
+| `CONDA_ENV` | `wan22_rotate` | conda env（从 doll 克隆，装两套依赖） |
 | `SAM3D_DIR` | `../sam-3d-body` | SAM 3D Body 官方代码 |
 | `SAM3D_MODEL_DIR` | `../../model/sam-3d-body` | SAM 3D Body 权重 |
 | `DIFFSYNTH_DIR` | `../DiffSynth-Studio` | DiffSynth-Studio 代码 |
@@ -192,10 +187,10 @@ SAM 3D Body 的 `global_rot` 旋转约定可能与你的人物数据相反。设
 - mesh silhouette 失败通常是 pyrender OpenGL 问题：确认 `PYOPENGL_PLATFORM=egl`（`_env.sh` 默认设了），或试 `PYOPENGL_PLATFORM=osmesa`（需 `apt install libosmesa6-dev` + 重装 PyOpenGL）。
 
 **3. step 01 报 `import sam_3d_body` / `cv2` 失败**
-在 `sam_3d_body` env 没装依赖。`conda activate sam_3d_body && INSTALL_DEPS=1 bash sam_3d_body/00_setup_env.sh`。
+`wan22_rotate` env 缺 sam_3d_body 依赖。`INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh` 重装。
 
 **4. step 02 报 `import diffsynth` 失败**
-在 `wan22` env 没装 DiffSynth-Studio。`conda activate wan22 && INSTALL_DEPS=1 bash wan22/00_setup_env.sh`。
+`wan22_rotate` env 缺 diffsynth。`INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh` 重装。
 
 **5. 视频生成 OOM**
 - 降分辨率 / 帧数：`HEIGHT=480 WIDTH=832 NUM_FRAMES=49`。

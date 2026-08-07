@@ -2,8 +2,9 @@
 # 02_generate_video.sh — generate a 360-degree rotation video with Wan2.2-TI2V-5B
 # + your trained LoRA, using the segmented image (white background) as I2V input.
 #
-# Runs in the wan22 conda env. Calls the existing wan22/02_run_inference.sh which
-# loads the DiffSynth-Studio pipeline, applies the LoRA, and generates an mp4.
+# Runs in the wan22_rotate conda env (same as step 01). Calls the existing
+# wan22/02_run_inference.sh which loads the DiffSynth-Studio pipeline, applies
+# the LoRA, and generates an mp4.
 #
 # REQUIRED:
 #   WEIGHT_PATH=/path/to/epoch-N.safetensors   (trained LoRA)
@@ -47,7 +48,7 @@ if [ ! -f "$SEGMENTED_IMAGE" ]; then
 fi
 if [ ! -d "$DIFFSYNTH_DIR" ]; then
     echo "ERROR: DiffSynth-Studio not found at $DIFFSYNTH_DIR." >&2
-    echo "       Run: INSTALL_DEPS=1 bash $REPO_DIR/wan22/00_setup_env.sh" >&2
+    echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
     exit 1
 fi
 
@@ -63,10 +64,9 @@ else
     echo "  GPU:       default cuda:0  [set GPU=N to pin]"
 fi
 
-# --- delegate to wan22's inference script (it handles env activation) ---
-# wan22/_env.sh sees CONDA_ENV and activates the wan22 env.
-export CONDA_ENV="${WAN_ENV:-wan22}"
-
+# --- delegate to wan22's inference script ---
+# wan22/_env.sh sees CONDA_ENV (exported by our _env.sh) and re-activates the
+# same env (no-op). We just pass through the inference params.
 export PROMPT
 export INPUT_IMAGE="$SEGMENTED_IMAGE"
 export WEIGHT_PATH

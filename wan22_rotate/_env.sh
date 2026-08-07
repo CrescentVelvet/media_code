@@ -1,8 +1,8 @@
-# _env.sh — shared setup: proxy + CA bundle + GPU pinning + paths + conda helper.
+# _env.sh — shared setup: proxy + CA bundle + conda env activation + GPU + paths.
 # Sourced by 00/01/02/run_all. Expects SCRIPT_DIR (this dir) to be set by the caller.
-# Does NOT activate any conda env — each step calls conda_activate <env> because
-# step 01 needs the sam_3d_body env and step 02 needs the wan22 env (they have
-# conflicting pins: detectron2 / networkx==3.2.1 vs diffsynth).
+# Uses a SINGLE conda env (default wan22_rotate, cloned from doll) for both steps —
+# sam_3d_body deps + diffsynth coexist (detectron2 installed --no-deps, networkx==3.2.1
+# is stable enough for diffsynth). Override with CONDA_ENV=xxx.
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Optional proxy (gitignored proxy.env at repo root; see proxy.env.example).
@@ -30,6 +30,17 @@ fi
 
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
+# Activate the conda env (cloned from doll; has both sam_3d_body + diffsynth deps).
+CONDA_ENV="${CONDA_ENV:-${CONDA_DEFAULT_ENV:-wan22_rotate}}"
+export CONDA_ENV
+if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
+
 # Pin GPU (0-indexed) via GPU=N.
 if [ -n "${GPU:-}" ]; then
     export CUDA_VISIBLE_DEVICES="$GPU"
@@ -54,16 +65,3 @@ export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
 export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR DIFFSYNTH_DIR WAN_MODEL_DIR RESULTS_DIR
-
-# --- conda helper: each step activates its own env ---
-# Step 01 (pick+segment) runs in sam_3d_body env; step 02 (video gen) in wan22 env.
-conda_activate() {
-    local env_name="$1"
-    if ! command -v conda >/dev/null 2>&1; then
-        echo "ERROR: conda not found on PATH (need env '$env_name')." >&2
-        exit 1
-    fi
-    # shellcheck disable=SC1091
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate "$env_name"
-}

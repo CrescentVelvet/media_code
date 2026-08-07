@@ -2,7 +2,8 @@
 # 01_pick_and_segment.sh — pick the front-facing image from an orbit shoot
 # and segment the person (background -> white).
 #
-# Runs in the sam_3d_body conda env. Calls pick_and_segment.py which:
+# Runs in the wan22_rotate conda env (cloned from doll; has both sam_3d_body +
+# diffsynth deps). Calls pick_and_segment.py which:
 #   1. Loads SAM 3D Body (model + detector + segmentor + FOV estimator)
 #   2. Processes every image in INPUT_DIR/image/ (recursive walk)
 #   3. For each: 3D body estimation -> global_rot -> front-facing score
@@ -17,10 +18,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
-
-# --- activate the sam_3d_body env (has detectron2 + sam_3d_body deps) ---
-SAM3D_ENV="${SAM3D_ENV:-sam_3d_body}"
-conda_activate "$SAM3D_ENV"
 
 # --- sam_3d_body model config ---
 HF_REPO_ID="${HF_REPO_ID:-facebook/sam-3d-body-dinov3}"
@@ -71,8 +68,8 @@ if [ ! -f "$CHECKPOINT_PATH" ]; then
     exit 1
 fi
 if ! python -c "import sam_3d_body, cv2" 2>/dev/null; then
-    echo "ERROR: sam_3d_body or cv2 not importable in env '$SAM3D_ENV'." >&2
-    echo "       Run: INSTALL_DEPS=1 bash $REPO_DIR/sam_3d_body/00_setup_env.sh" >&2
+    echo "ERROR: sam_3d_body or cv2 not importable in env '$CONDA_ENV'." >&2
+    echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
     exit 1
 fi
 

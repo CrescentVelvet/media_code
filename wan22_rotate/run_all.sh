@@ -2,9 +2,8 @@
 # run_all.sh — one-click: pick front-facing image + segment person -> generate
 # 360 rotation video with Wan2.2-TI2V-5B + your LoRA.
 #
-# Step 01 runs in the sam_3d_body env (detection + 3D pose + segmentation).
-# Step 02 runs in the wan22 env (DiffSynth-Studio video generation).
-# They have conflicting pins so they MUST use separate conda envs.
+# Step 01 and step 02 both run in the same conda env (wan22_rotate, cloned from
+# doll; has sam_3d_body + diffsynth deps installed together).
 #
 # REQUIRED:
 #   INPUT_DIR=/path/to/subject_folder     (contains image/ subfolder)
@@ -19,8 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 echo "=== [run_all] wan22_rotate: pick+segment -> 360 video ==="
-echo "  step 01 env: ${SAM3D_ENV:-sam_3d_body}"
-echo "  step 02 env: ${WAN_ENV:-wan22}"
+echo "  conda env: $CONDA_ENV"
 echo ""
 
 # --- step 01: pick front-facing image + segment ---
