@@ -95,9 +95,29 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         'git+https://github.com/facebookresearch/detectron2.git@a1ce2f9' \
         --no-build-isolation --no-deps
 
-    # 0d. MoGe (FOV estimator)
+    # 0d. MoGe (FOV estimator, only needed by full 01, not 01b)
     echo "--- installing MoGe (microsoft/MoGe) ---"
     pip install "${PIP_FLAGS[@]}" 'git+https://github.com/microsoft/MoGe.git'
+
+    # 0e. SAM2 (person segmentation, needed by 01b simplified)
+    echo "--- setting up SAM2 ---"
+    if [ ! -d "$SAM2_DIR" ]; then
+        echo "--- cloning SAM2 -> $SAM2_DIR ---"
+        mkdir -p "$(dirname "$SAM2_DIR")"
+        git clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR" || \
+            git -c http.sslVerify=false clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR"
+    fi
+    pip install "${PIP_FLAGS[@]}" -e "$SAM2_DIR"
+    CKPT_DIR="$SAM2_DIR/checkpoints"
+    mkdir -p "$CKPT_DIR"
+    if [ ! -f "$CKPT_DIR/sam2.1_hiera_large.pt" ]; then
+        echo "--- downloading SAM2 checkpoint (sam2.1_hiera_large) ---"
+        wget --no-check-certificate -q -O "$CKPT_DIR/sam2.1_hiera_large.pt" \
+            "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2.1_hiera_large.pt" || \
+            echo "WARNING: SAM2 checkpoint download failed (dl.fbaipublicfiles.com may be blocked)." >&2
+            echo "         Download manually from https://github.com/facebookresearch/sam2#segment-anything-2-checkpoints" >&2
+            echo "         Place at: $CKPT_DIR/sam2.1_hiera_large.pt" >&2
+    fi
 
     echo "--- deps installed ---"
 fi

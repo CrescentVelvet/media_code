@@ -26,9 +26,7 @@ GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_
 GPU=0 INPUT_DIR=/data_3d/w00xxxxx/code/Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d96a34a9df848b2ba80b194df0ae99b \
   OUTPUT_DIR=/data_3d/w00xxxxx/output/wan22_rotate_results \
   bash wan22_rotate/01b_pick_and_segment.sh
-# 一键用简化版: PICK_SCRIPT=01b_pick_and_segment.sh
-GPU=0 INPUT_DIR=... WEIGHT_PATH=... PICK_SCRIPT=01b_pick_and_segment.sh \
-  bash wan22_rotate/run_all.sh
+
 # 2) 只做视频生成（用上一步的分割图）
 GPU=0 WEIGHT_PATH=/data_3d/w00xxxxx/model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   OUTPUT_DIR=/data_3d/w00xxxxx/output/wan22_rotate_results \
@@ -68,10 +66,12 @@ cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 conda create -n doll python=3.11 -y && conda activate doll
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-# 2. 克隆 doll → wan22_rotate，装两套依赖 + 验证
+# 2. 克隆 doll → wan22_rotate，装两套依赖 + SAM2 + 验证
+#    INSTALL_DEPS=1 会自动 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt
 INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 
 # 3. 下权重（两边各自的下载脚本）
+#    完整版 01 需要 SAM 3D Body 权重（GATED）；简化版 01b 不需要
 HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # SAM 3D Body（GATED，需先 Request access）
 bash wan22/01_verify_models.sh                           # Wan2.2（确认权重在位）
 ```
@@ -227,6 +227,9 @@ CRLF 行尾污染。`find wan22_rotate -name '*.sh' -exec sed -i 's/\r$//' {} +`
 │   ├── sam_3d_body/             # SAM 3D Body 推理脚本 (step 01 调用)
 │   └── wan22_rotate/            # ← 本目录（编排脚本）
 ├── sam-3d-body/                 # SAM 3D Body 官方代码
+├── sam2/                        # SAM2 官方代码 + checkpoints (00 clone, 01b 分割用)
+│   └── checkpoints/
+│       └── sam2.1_hiera_large.pt
 ├── DiffSynth-Studio-Human/     # DiffSynth-Studio 官方代码 (本流程专用, 00 clone)
 ├── wan22_experiments/           # LoRA 训练产物 (epoch-N.safetensors)
 └── wan22_rotate_results/        # 本流程输出

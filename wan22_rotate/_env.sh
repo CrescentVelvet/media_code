@@ -54,6 +54,10 @@ export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 SAM3D_DIR="${SAM3D_DIR:-$REPO_DIR/../sam-3d-body}"
 SAM3D_MODEL_DIR="${SAM3D_MODEL_DIR:-$REPO_DIR/../../model/sam-3d-body}"
 
+# SAM2 (person segmentation, step 01b simplified)
+SAM2_DIR="${SAM2_DIR:-$REPO_DIR/../sam2}"
+export SEGMENTOR_PATH="${SEGMENTOR_PATH:-$SAM2_DIR}"
+
 # wan22 / DiffSynth-Studio (video generation, step 02)
 DIFFSYNTH_DIR="${DIFFSYNTH_DIR:-$REPO_DIR/../DiffSynth-Studio-Human}"
 WAN_MODEL_DIR="${WAN_MODEL_DIR:-$REPO_DIR/../../model}"
@@ -64,4 +68,4 @@ export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 # Output dir (outside the repo, like wan22_results / wan22_experiments).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
-export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR DIFFSYNTH_DIR WAN_MODEL_DIR RESULTS_DIR
+export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR RESULTS_DIR
