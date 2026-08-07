@@ -53,12 +53,9 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Force PyTorch to cu124 via Tsinghua mirror (download.pytorch.org blocked by proxy)
-    echo "--- installing PyTorch cu124 via Tsinghua mirror ---"
-    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps \
-        torch torchvision \
-        --index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl/cu124 \
-        --trusted-host mirrors.tuna.tsinghua.edu.cn
+    # 0a. Force PyTorch to cu124 via conda (download.pytorch.org blocked by proxy)
+    echo "--- installing PyTorch cu124 via conda ---"
+    conda install -y -c pytorch nvidia::pytorch torchvision pytorch-cuda=12.4
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
