@@ -8,7 +8,7 @@
 #
 # Default model is the public FLUX.1-schnell (no token). To use the gated
 # FLUX.1-dev instead: HF_REPO_ID=black-forest-labs/FLUX.1-dev HF_TOKEN=<tok> bash ...
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

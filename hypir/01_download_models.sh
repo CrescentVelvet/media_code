@@ -13,7 +13,7 @@
 # duplicates and the root .ckpt/.safetensors single-file checkpoints — saves ~9GB).
 # The LoRA repo is small, fetched in full. Both fall back to an SSL-bypass
 # downloader if the CDN MITM cert can't be verified.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

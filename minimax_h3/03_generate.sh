@@ -16,7 +16,7 @@
 #   SERVER_URL=http://localhost:30011 TASK=ref2va \
 #     REF_IMAGES=/data/refs/subject.png,REF_AUDIOS=/data/refs/voice.mp3 \
 #     PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." bash minimax_h3/03_generate.sh
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # _env.sh gives proxy + CA bundle + conda env. The client itself only needs

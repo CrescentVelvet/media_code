@@ -5,7 +5,7 @@
 # own access / extra repos.
 # Uses the existing conda env (torch preinstalled); set INSTALL_DEPS=1 once to
 # install the official dependencies from INSTALL.md.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

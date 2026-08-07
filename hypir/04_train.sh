@@ -16,7 +16,7 @@
 #   OUT_SIZE=512
 #   MAX_TRAIN_STEPS=30000  BATCH_SIZE=6  LR_G=1e-5
 #   RESUME=/path/to/checkpoint-N
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

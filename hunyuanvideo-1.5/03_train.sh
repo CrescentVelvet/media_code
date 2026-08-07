@@ -15,7 +15,7 @@
 #   TRAIN_VIDEO_LENGTH=41 (4n+1)  TRAIN_RESOLUTION=480p  TRAIN_HEIGHT/TRAIN_WIDTH
 #   OUTPUT_DIR=...  SAVE_INTERVAL=1000  LOG_INTERVAL=10  VALIDATION_INTERVAL=100
 #   RESUME=/path/to/checkpoint-N
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

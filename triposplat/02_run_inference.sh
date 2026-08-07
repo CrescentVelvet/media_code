@@ -2,7 +2,7 @@
 # 02_run_inference.sh — batch TripoSplat inference over a folder of images.
 # Loads the pipeline once (in run_batch.py) and loops; only NUM_GAUSSIANS density.
 # Outputs are named after each input image (<stem>.ply / <stem>.splat).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -10,7 +10,7 @@
 #
 # 必填：HQ_DIR=/.../hq
 # 常用：LQ_OUT=/.../lq_preview  NUM_PER_IMAGE=4(每张 HQ 出 4 种随机退化)  DEVICE=cuda
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

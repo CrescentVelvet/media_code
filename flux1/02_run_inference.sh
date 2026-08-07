@@ -12,7 +12,7 @@
 #
 # Defaults target FLUX.1-schnell (4-step, guidance 0.0). For FLUX.1-dev set
 # NUM_INFERENCE_STEPS=28 GUIDANCE_SCALE=3.5 (and download dev with HF_TOKEN).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

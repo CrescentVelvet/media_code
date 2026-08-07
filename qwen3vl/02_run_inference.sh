@@ -12,7 +12,7 @@
 # answers the PROMPT (default: a detailed captioning instruction). For VQA,
 # set PROMPT to your question, or pass TXT_DIR (a folder mirroring IMAGE_DIR's
 # structure, .txt per image) to ask a different question per image.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

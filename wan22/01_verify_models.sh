@@ -10,7 +10,7 @@
 # prefix (e.g. $MODEL_DIR/Wan2.2-TI2V-5B/ instead of $MODEL_DIR/Wan-AI/Wan2.2-TI2V-5B/).
 # This script detects both layouts and creates a symlink $MODEL_DIR/Wan-AI -> .
 # so the org-prefixed path resolves either way.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

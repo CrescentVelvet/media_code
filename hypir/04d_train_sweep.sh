@@ -25,7 +25,7 @@
 #   SWEEP_TAG           可选，加到实验名后(如 disc1e5 / bs8)
 #
 # 实验名自动 = experiments/<parquet名>_lrg<LR_G>[_<SWEEP_TAG>]，如 rest_lrg5e-6、rest_beauty_lrg2e-6_disc1e5
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

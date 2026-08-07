@@ -46,7 +46,7 @@
 #   # 多卡加速(4 卡，不设 GPU 用全部可见卡)：
 #   NPROC=4 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 \
 #     SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

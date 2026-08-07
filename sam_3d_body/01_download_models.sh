@@ -17,7 +17,7 @@
 # The default dinov3 backbone (DINOv3-H+, 840M) is the recommended/best one.
 # Set SKIP_FOV=1 to skip the MoGe2 FOV download (then inference falls back to
 # runtime download, or set FOV_NAME= to disable the FOV estimator entirely).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

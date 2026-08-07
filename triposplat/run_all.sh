@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_all.sh — one-click: clone official repo -> verify env -> weights -> inference.
 # Uses the existing conda env (torch preinstalled); no venv, no torch download.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

@@ -23,7 +23,7 @@
 # torch.utils.cpp_extension, which needs `nvcc` (CUDA toolkit). The toolkit's
 # major version MUST match torch's CUDA build (torch==1.13.1+cu116 -> CUDA 11.6
 # toolkit). Set CUDA_HOME if nvcc isn't auto-detected (default /usr/local/cuda).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

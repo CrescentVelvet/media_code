@@ -6,7 +6,7 @@
 # CUDA-enabled torch — no torch download. Set CREATE_ENV=1 to let the official
 # setup.sh create the `trellis2` env fresh (with torch 2.6.0 + cu124) and install
 # everything in one shot. Set INSTALL_DEPS=0 to skip the dep install.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

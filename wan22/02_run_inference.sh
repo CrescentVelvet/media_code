@@ -9,7 +9,7 @@
 #
 # Load a trained LoRA with WEIGHT_PATH=/path/to/epoch-N.safetensors.
 # Low VRAM (disk offload, ~X GB) with LOW_VRAM=1.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -7,7 +7,7 @@
 #   conda activate wan22
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 #   INSTALL_DEPS=1 bash wan22/00_setup_env.sh
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

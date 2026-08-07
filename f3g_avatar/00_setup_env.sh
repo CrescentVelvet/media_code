@@ -22,7 +22,7 @@
 # from the bare PyPI pins. INSTALL_DEPS=1 installs the rest of requirements.txt
 # then attempts a best-effort install of pytorch3d (conda) + torch-scatter
 # (pyG wheels). See README "可能遇到的问题" #2 if these fail.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

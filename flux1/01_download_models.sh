@@ -18,7 +18,7 @@
 # Falls back to an SSL-bypass downloader if the CDN MITM cert can't be verified.
 # Use INCLUDE_PATTERNS to fetch only a subset (glob, comma-sep) — e.g. only the
 # transformer fp8 weights: INCLUDE_PATTERNS="transformer/*,*.json,*.txt" .
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

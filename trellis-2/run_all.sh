@@ -2,7 +2,7 @@
 # run_all.sh — one-click: clone official repo -> verify env / install deps ->
 # download weights -> run inference. Uses an existing conda env (torch
 # preinstalled) by default; set CREATE_ENV=1 to create the `trellis2` env fresh.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

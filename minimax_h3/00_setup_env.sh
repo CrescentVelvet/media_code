@@ -14,7 +14,7 @@
 # hypir pins diffusers 0.32 / transformers 4.49). Use a DEDICATED env:
 #   conda create -n minimax_h3 python=3.11 -y
 #   CONDA_ENV=minimax_h3 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

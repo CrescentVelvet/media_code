@@ -19,7 +19,7 @@
 #
 # 日志：默认后台运行(BG=1)，stdout/stderr 写入
 #       $OUTPUT_DIR/${MODEL}-${DATASET}-LoRA_<时间>.log；BG=0 改前台(tee 同步存日志)。
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

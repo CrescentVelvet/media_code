@@ -15,7 +15,7 @@
 #     images don't crash the model (VRT hardcodes 512x512). On the FFHQR test
 #     set (already 512x512) it is identical to the official. Set
 #     RESIZE_MODE=smallest to reproduce wildDataset exactly.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

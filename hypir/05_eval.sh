@@ -12,7 +12,7 @@
 #
 # 注：默认数据即训练集——指标反映"训练拟合"程度；要客观评测请把
 #     TEST_LQ_DIR/TEST_HQ_DIR 指向留出的测试集。EVAL_LIMIT 控制评测张数。
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

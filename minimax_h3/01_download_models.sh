@@ -12,7 +12,7 @@
 #   2) create a read token at https://huggingface.co/settings/tokens;
 #   3) HF_TOKEN=<token> bash minimax_h3/01_download_models.sh
 # (the script forwards HF_TOKEN to `hf download` and the SSL-bypass downloader).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

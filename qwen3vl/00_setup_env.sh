@@ -11,7 +11,7 @@
 # `pip install -U transformers` or use a dedicated env (CONDA_ENV=qwen3vl).
 #
 # SKIP_TORCH=1 is a no-op here (we don't pin torch) but kept for consistency.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -3,7 +3,7 @@
 # Reuses an existing env to avoid re-downloading torch. No venv is created.
 # The vggt_omega package is imported via sys.path (run_batch.py adds VGGT_DIR),
 # so `pip install -e .` is NOT required (but still works if you prefer it).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

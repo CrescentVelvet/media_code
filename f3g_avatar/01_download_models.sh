@@ -20,7 +20,7 @@
 # SMPL-X is GATED (https://smpl-x.is.tue.mpg.de/download.php, license login) —
 # there is NO public scriptable mirror, so this script CANNOT auto-download it.
 # It checks for the expected file and prints manual instructions if missing.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

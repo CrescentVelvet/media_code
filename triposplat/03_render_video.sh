@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 03_render_video.sh — render .ply to mp4 along a spiral trajectory (gsplat).
 # Output path mirrors 02: VIDEOS_DIR/<input_folder_name>/<stem>.mp4
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

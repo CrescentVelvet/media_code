@@ -10,7 +10,7 @@
 #
 # Uses the existing conda env (torch preinstalled); set INSTALL_DEPS=1 once to
 # install SGLang. Pass through parallelism env (NUM_GPUS / USE_FSDP / ...).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

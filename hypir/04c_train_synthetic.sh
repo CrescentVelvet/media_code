@@ -12,7 +12,7 @@
 #       lora_weight_path + resume_ema=false + 标量超参 -> accelerate launch train_paired.py
 #
 # 必填(二选一)：PARQUET_PATH=.../hypir_synthetic.parquet  或  HQ_DIR=.../hq(自动先跑 03c)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

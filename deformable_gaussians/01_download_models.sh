@@ -22,7 +22,7 @@
 #
 # NeRF-DS / HyperNeRF (real-world) are NOT auto-downloaded (no scriptable,
 # license-clear mirror). See README "Datasets" for manual placement.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

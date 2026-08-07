@@ -2,7 +2,7 @@
 # 01_download_models.sh — pull TRELLIS.2-4B weights from HuggingFace into the
 # shared model store. The pipeline loads them via from_pretrained(<local path>),
 # so no symlink into the official repo is needed.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -2,7 +2,7 @@
 # run_t2va.sh — reproduce the official "reproducible-768p T2VA" case.
 # Prereq: FL2VA server running (bash minimax_h3/02_serve.sh, default :30010).
 # Output: ../MiniMax-H3/results/t2va/t2va.mp4
-set -euo pipefail
+set -o pipefail
 EX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TASK=t2va \

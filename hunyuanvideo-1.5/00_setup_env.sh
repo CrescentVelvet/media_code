@@ -3,7 +3,7 @@
 # Reuses an existing env to avoid re-downloading torch from a torch-specific
 # index. Set INSTALL_DEPS=1 to install the official requirements.txt (this
 # WILL pull/upgrade torch to >=2.6 + CUDA 12.x as the repo requires).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

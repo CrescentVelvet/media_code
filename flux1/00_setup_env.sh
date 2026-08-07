@@ -9,7 +9,7 @@
 # (hunyuanvideo-1.5 pulls diffusers==0.35.0 / transformers==4.57.1) already
 # satisfies this. If your env has an OLDER diffusers, use a dedicated env:
 #   conda create -n flux1 python=3.10 -y && CONDA_ENV=flux1 INSTALL_DEPS=1 bash ...
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

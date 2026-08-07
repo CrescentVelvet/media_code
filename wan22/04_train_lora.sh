@@ -18,7 +18,7 @@
 #   GRAD_ACCUM=1                        (increase for bigger effective batch)
 #   SAVE_STEPS=500                      (save every N steps; empty = every epoch)
 #   LOW_VRAM_TRAIN=1                    (enable CPU offload training on small GPUs)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

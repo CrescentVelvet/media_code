@@ -19,7 +19,7 @@
 #   - a trained checkpoint dir containing net.pt  (PREV_CKPT)
 #   - SMPL-X models in $F3G_DIR/smpl_files/smplx/
 #   - the two CUDA extensions built (BUILD_CUDA=1 in 00)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

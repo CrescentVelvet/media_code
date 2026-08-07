@@ -15,7 +15,7 @@
 #   SAM3=0       (default) — install facebookresearch/sam3 (only needed if you
 #                            pass --detector_name sam3 / --segmentor_name sam3)
 #   SKIP_CORE=0            — skip the big core pip list (already installed it)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

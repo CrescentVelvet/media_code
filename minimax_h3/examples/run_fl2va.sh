@@ -4,7 +4,7 @@
 # Uses the official remote first-frame image URL (public CDN). To use your own
 # image, set FIRST_FRAME=/path/to/your.png (local paths are auto file://-prefixed).
 # Output: ../MiniMax-H3/results/fl2va/fl2va.mp4
-set -euo pipefail
+set -o pipefail
 EX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Official first-frame image (ramen bowl), from the H3 I2VA demo testset.

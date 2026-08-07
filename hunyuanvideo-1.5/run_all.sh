@@ -3,7 +3,7 @@
 # inference. Training (03_train.sh) is separate because it needs a dataset.
 # Uses the existing conda env (torch preinstalled); set INSTALL_DEPS=1 once to
 # install the official requirements.txt (upgrades torch to >=2.6).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

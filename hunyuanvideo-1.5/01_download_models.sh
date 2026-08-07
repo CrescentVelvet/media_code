@@ -8,7 +8,7 @@
 #   3. google/byt5-small                 -> $MODEL_DIR/text_encoder/byt5-small  (byT5 tokenizer)
 #   4. AI-ModelScope/Glyph-SDXL-v2       -> $MODEL_DIR/text_encoder/Glyph-SDXL-v2 (byT5 weights; via modelscope)
 #   5. black-forest-labs/FLUX.1-Redux-dev -> $MODEL_DIR/vision_encoder/siglip (gated; needs HF_TOKEN — i2v only)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

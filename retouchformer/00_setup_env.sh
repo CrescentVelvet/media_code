@@ -13,7 +13,7 @@
 #
 # SKIP_TORCH=1 keeps the already-installed torch (this file already excludes
 # torch from requirements, so it's mostly a no-op; kept for parity with hypir).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

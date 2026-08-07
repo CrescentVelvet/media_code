@@ -3,7 +3,7 @@
 # cert chain, so pip/hf/git trust the proxy's MITM certs. Run once on the
 # server when 01_download_models.sh fails with SSLCertVerificationError.
 # After this, _env.sh auto-uses ~/.ca-bundle.crt — no proxy.env edit needed.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -5,7 +5,7 @@
 # verbatim conditions JSON (video first, then audio — the prompt numbers the
 # video's own soundtrack as <Audio 1> and the audio file as <Audio 2>).
 # Output: ../MiniMax-H3/results/ref2va/ref2va.mp4
-set -euo pipefail
+set -o pipefail
 EX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SERVER_URL="${SERVER_URL:-http://localhost:30011}" \

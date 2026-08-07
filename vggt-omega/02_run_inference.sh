@@ -9,7 +9,7 @@
 # Each scene's images (copied/extracted) live under <out>/frames/.
 #
 # The model is loaded ONCE (run_batch.py) and reused across scenes.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

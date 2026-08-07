@@ -3,7 +3,7 @@
 # VGGT-Omega outputs plain XYZ+RGB point clouds (no gaussian attributes); each
 # point is splatted as a small isotropic gaussian. Output path mirrors 02:
 # VIDEOS_DIR/<scene_name>/<stem>.mp4
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

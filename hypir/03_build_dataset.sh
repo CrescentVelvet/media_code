@@ -9,7 +9,7 @@
 #
 # Output: a parquet (columns: image_path[absolute], prompt) consumed by
 # configs/sd2_train.yaml's file_meta. No official code is modified.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

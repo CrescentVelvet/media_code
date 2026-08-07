@@ -10,7 +10,7 @@
 #
 # 必填：HQ_DIR=/.../hq
 # 常用：PARQUET_OUT=/.../synthetic.parquet  PROMPT=""  (空文本训练, HYPIR 默认)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

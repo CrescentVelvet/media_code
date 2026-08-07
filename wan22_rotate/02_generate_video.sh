@@ -3,7 +3,7 @@
 # + your trained LoRA, using the segmented image (white background) as I2V input.
 #
 # Runs in the wan22_rotate conda env (same as step 01). Directly calls
-# wan22/run_inference.py — not wan22/02_run_inference.sh, to avoid its set -euo
+# wan22/run_inference.py — not wan22/02_run_inference.sh, to avoid its set -o
 # pipefail swallowing errors before Python prints the traceback.
 #
 # REQUIRED:

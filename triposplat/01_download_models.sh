@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 01_download_models.sh — pull TripoSplat weights from HuggingFace into the
 # shared model store, then symlink the official repo's ckpts/ to it.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

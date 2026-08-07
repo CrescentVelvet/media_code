@@ -13,7 +13,7 @@
 # Expected layout after success (matches the official img_retouching.py
 # `-c release_model` default — weights live UNDER release_model/):
 #   $MODEL_DIR/release_model/gen_best.pth
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

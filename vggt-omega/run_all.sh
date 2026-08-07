@@ -5,7 +5,7 @@
 # request access (https://huggingface.co/facebook/VGGT-Omega) and put
 # `export HF_TOKEN=hf_xxx` in proxy.env. run_all.sh will stop at 01 if the
 # token is missing; run 01 again after adding it.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

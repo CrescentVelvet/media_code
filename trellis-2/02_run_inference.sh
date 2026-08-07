@@ -3,7 +3,7 @@
 # images. Loads the pipeline once (in run_batch.py) and loops; for each image
 # produces a GLB + a latent cache (.latent.npz) for 03_render_video.sh. Set
 # RENDER_VIDEO=1 to also write a quick shaded turntable mp4 in the same pass.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

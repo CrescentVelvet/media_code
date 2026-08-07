@@ -11,7 +11,7 @@
 # For TI2V training, the first frame of each training video is used as the image
 # condition (--extra_inputs "input_image" in 04_train_lora.sh), so no separate
 # image column is needed.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

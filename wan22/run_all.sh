@@ -4,7 +4,7 @@
 # are separate because they need your own data.
 # Uses the existing conda env (torch preinstalled); set INSTALL_DEPS=1 once to
 # install the diffsynth package.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

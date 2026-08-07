@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 00_setup_env.sh — activate conda env (torch preinstalled) & verify torch+CUDA.
 # Reuses an existing env to avoid re-downloading torch. No venv is created.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

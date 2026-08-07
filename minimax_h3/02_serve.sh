@@ -24,7 +24,7 @@
 #   BG=1               bash minimax_h3/02_serve.sh              # background + wait for /health ready
 #   MODEL_VARIANT=ref2va bash minimax_h3/02_serve.sh           # Ref2VA server on :30011
 #   NUM_GPUS=4 USE_FSDP=1 bash minimax_h3/02_serve.sh          # A100 capacity path
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -10,7 +10,7 @@
 #   $OUTPUT_DIR/result/<rel>.jpg                 (rendered overlay)
 #   $OUTPUT_DIR/mesh/<rel stem>_mesh_<pid>.ply   (per-person 3D mesh)
 #   $OUTPUT_DIR/npz/<rel>.npz                    (per-person numeric outputs)
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

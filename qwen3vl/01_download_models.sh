@@ -16,7 +16,7 @@
 #
 # Use INCLUDE_PATTERNS to fetch only a subset (glob, comma-sep) — e.g. only
 # bf16 weights to save disk: INCLUDE_PATTERNS="*.json,*.txt,*.safetensors" .
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

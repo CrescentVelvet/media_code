@@ -11,7 +11,7 @@
 #   PARQUET_OUT=/.../paired.parquet   输出路径（默认放在 HQ_DIR 同级）
 #   PROMPT=""                         每张图的文本提示（""=空文本训练，HYPIR 默认）
 #   MIN_SIDE=0                        丢弃 LQ 短边小于该像素数的配对（0=不丢弃）
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

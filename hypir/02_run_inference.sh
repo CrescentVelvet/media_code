@@ -11,7 +11,7 @@
 #
 # Prompts: pass TXT_DIR (a folder mirroring LQ_DIR's structure, .txt per image)
 # to use per-image captions; otherwise an empty captioner is used.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

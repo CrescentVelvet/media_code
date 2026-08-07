@@ -5,7 +5,7 @@
 # No 3-stage generation is repeated — this decodes cached latents, like the
 # official app.py preview -> extract flow.
 # Output path mirrors 02: VIDEOS_DIR/<input_folder_name>/<stem>.mp4
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

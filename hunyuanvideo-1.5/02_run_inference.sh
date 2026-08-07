@@ -2,7 +2,7 @@
 # 02_run_inference.sh — run HunyuanVideo-1.5 generate.py (T2V or I2V) via
 # torchrun. One prompt per run; output is a single .mp4.
 # Set IMAGE_PATH=none (default) for text-to-video, or a real image path for i2v.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

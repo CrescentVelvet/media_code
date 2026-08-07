@@ -6,7 +6,7 @@
 #   2. Create a read token: https://huggingface.co/settings/tokens
 #   3. Put `export HF_TOKEN=hf_xxx` in proxy.env (repo root, gitignored).
 # Only the requested checkpoint file is downloaded (saves bandwidth).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

@@ -13,7 +13,7 @@
 # SKIP_TORCH=1 keeps the already-installed torch (filters the torch/torchvision
 # pins out of requirements.txt) — useful if your env already has a CUDA torch you
 # don't want to disturb.
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

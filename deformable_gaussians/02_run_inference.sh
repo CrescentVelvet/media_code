@@ -17,7 +17,7 @@
 #   renders/%05d.png  gt/%05d.png  depth/%05d.png   (+ video.mp4 for the
 # interpolate_* modes). metrics.py writes <model_path>/test/results.json +
 # per_view.json (PSNR / SSIM / LPIPS over the TEST split).
-set -euo pipefail
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
