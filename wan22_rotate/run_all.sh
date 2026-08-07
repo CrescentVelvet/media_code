@@ -12,6 +12,7 @@
 # Common overrides (all optional):
 #   GPU=0 PROMPT="..." HEIGHT=1248 WIDTH=706 NUM_FRAMES=121
 set -euo pipefail
+trap 'echo "ERROR: $SCRIPT_DIR/$(basename "$0") line $LINENO: $BASH_COMMAND" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

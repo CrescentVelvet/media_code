@@ -14,6 +14,7 @@
 #   PROMPT="人物360度旋转展示，高质量，细节清晰。"
 #   HEIGHT=1248 WIDTH=704 NUM_FRAMES=121       (portrait; use 704 1248 for landscape)
 set -euo pipefail
+trap 'echo "ERROR: $SCRIPT_DIR/$(basename "$0") line $LINENO: $BASH_COMMAND" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

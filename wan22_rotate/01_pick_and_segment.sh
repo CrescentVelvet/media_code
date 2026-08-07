@@ -14,6 +14,7 @@
 #
 # REQUIRED:  INPUT_DIR=/path/to/subject_folder  (must contain image/ subfolder)
 set -euo pipefail
+trap 'echo "ERROR: $SCRIPT_DIR/$(basename "$0") line $LINENO: $BASH_COMMAND" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
