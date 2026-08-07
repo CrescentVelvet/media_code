@@ -201,6 +201,12 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             echo "         Place at: $CKPT_DIR/sam2.1_hiera_large.pt" >&2
     fi
 
+    # 最后钉 numpy==1.26.4——前面装的 sam_3d_body/diffsynth/detectron2/MoGe/SAM2 依赖
+    # 会把 numpy 升到 2.x，detectron2 编译的 C 扩展和 2.x 不兼容
+    echo "--- pinning numpy==1.26.4 (last, overrides 2.x pulled by deps) ---"
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+    echo "  numpy=$(python -c 'import numpy; print(numpy.__version__)')"
+
     echo "--- deps installed ---"
 fi
 
