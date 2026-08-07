@@ -19,3 +19,4 @@ Code used for work in the blue zone.
 - [`face_crop/`](face_crop/) — one-click batch face detection & cropping (MediaPipe BlazeFace): multi-face per image → `<stem>_faceN.jpg` sorted left-to-right, resumable CSV log. See its [README](face_crop/README.md).
 - [`retouchformer/`](retouchformer/) — one-click RetouchFormer (AAAI 2024) face retouching batch inference: folder of face images → retouched 512×512 PNGs (GPEN + VRT selective self-attention, single forward; Baidu-only weights). See its [README](retouchformer/README.md).
 - [`wan22/`](wan22/) — one-click Wan2.2-TI2V-5B (DiffSynth-Studio) text/image-to-video generation: T2V/I2V inference **and** LoRA fine-tuning on your own video dataset. See its [README](wan22/README.md).
+- [`wan22_rotate/`](wan22_rotate/) — orbit images → 360° rotation video: SAM 3D Body picks the front-facing image & segments the person (white bg) → Wan2.2 I2V + LoRA generates a 360° rotation video. See its [README](wan22_rotate/README.md).
