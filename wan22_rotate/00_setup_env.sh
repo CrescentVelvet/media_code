@@ -64,6 +64,8 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         "$WAN_MODEL_DIR/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl" \
         "$WAN_MODEL_DIR/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_x86_64.whl" \
         "$WAN_MODEL_DIR/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_x86_64.whl" \
+        "$WAN_MODEL_DIR/nvidia_cusparselt_cu12-0.6.2-py3-none-manylinux2014_x86_64.whl" \
+        "$WAN_MODEL_DIR/nvidia_nccl_cu12-2.21.5-py3-none-manylinux2014_x86_64.whl" \
         "$WAN_MODEL_DIR/torch-2.6.0+cu124-cp310-cp310-linux_x86_64.whl" \
         "$WAN_MODEL_DIR/torchvision-0.21.0+cu124-cp310-cp310-linux_x86_64.whl" \
         ; do
