@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/_env.sh"
 
 # --- sam_3d_body detector + segmentor (no 3D body model) ---
 export DETECTOR_NAME="${DETECTOR_NAME:-vitdet}"
-export DETECTOR_PATH="${DETECTOR_PATH:-}"
+export DETECTOR_PATH="${DETECTOR_PATH:-$WAN_MODEL_DIR/ViTDet}"
 export SEGMENTOR_NAME="${SEGMENTOR_NAME:-sam2}"
 export SEGMENTOR_PATH="${SEGMENTOR_PATH:-}"
 export DEVICE="${DEVICE:-cuda}"
