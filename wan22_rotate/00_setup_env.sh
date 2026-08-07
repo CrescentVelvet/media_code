@@ -53,7 +53,11 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. DiffSynth-Studio (editable install)
+    # 0a. Ensure PyTorch matches system CUDA (doll may have older cu118 torch)
+    echo "--- upgrading PyTorch to cu124 (match system CUDA 12.4) ---"
+    pip install "${PIP_FLAGS[@]}" torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+    # 0b. DiffSynth-Studio (editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
         echo "--- installing diffsynth (editable) ---"
         pip install "${PIP_FLAGS[@]}" -e "$DIFFSYNTH_DIR"
