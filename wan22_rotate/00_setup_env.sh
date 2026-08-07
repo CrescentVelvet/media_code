@@ -61,15 +61,23 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     PY_TAG="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
 
     for pkg in torch torchvision; do
-        page=$(wget -q --no-check-certificate -O - "$BASE/$pkg/" 2>/dev/null)
-        whl=$(echo "$page" | grep -oE "${pkg}-[0-9][^\"]*${PY_TAG}-${PY_TAG}-linux_x86_64\.whl" | sort -Vr | head -1)
+        page=$(wget -q --no-check-certificate -O - "$BASE/$pkg/" 2>/dev/null || true)
+        whl=$(echo "$page" | grep -oE "${pkg}-[0-9][^\"]*${PY_TAG}-${PY_TAG}-linux_x86_64\.whl" | sort -Vr | head -1 || true)
         if [ -z "$whl" ]; then
             echo "WARNING: no $pkg wheel found for $PY_TAG linux_x86_64" >&2
             continue
         fi
         echo "  $pkg -> $whl"
-        wget --no-check-certificate -q -O "$WHEEL_DIR/${pkg}.whl" "$BASE/$whl"
+        if ! wget --no-check-certificate -O "$WHEEL_DIR/${pkg}.whl" "$BASE/$whl"; then
+            echo "WARNING: failed to download $pkg" >&2
+            continue
+        fi
     done
+
+    if [ ! -f "$WHEEL_DIR/torch.whl" ] || [ ! -f "$WHEEL_DIR/torchvision.whl" ]; then
+        echo "ERROR: missing wheel files; cannot install PyTorch" >&2
+        exit 1
+    fi
 
     pip install --force-reinstall --no-deps "$WHEEL_DIR/torch.whl" "$WHEEL_DIR/torchvision.whl"
 
