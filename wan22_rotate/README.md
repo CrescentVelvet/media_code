@@ -28,10 +28,10 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_2d
   bash wan22_rotate/01b_pick_and_segment.sh
 
 # 2) 只做视频生成（用上一步的分割图）
-#    模型: Wan2.2-TI2V-5B, 从 $DIFFSYNTH_MODEL_BASE_PATH/Wan-AI/Wan2.2-TI2V-5B/ 加载
+#    模型: Wan2.2-TI2V-5B, 从 WAN_MODEL_PATH 直接加载 (ModelConfig(path=...))
 GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
   WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
-  DIFFSYNTH_MODEL_BASE_PATH=../../model \
+  WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
   OUTPUT_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/02_generate_video.sh
 

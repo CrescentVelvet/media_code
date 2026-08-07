@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/_env.sh"
 # --- inputs ---
 SEGMENTED_IMAGE="${SEGMENTED_IMAGE:-$RESULTS_DIR/segmented_image.png}"
 WEIGHT_PATH="${WEIGHT_PATH:-}"
+WAN_MODEL_PATH="${WAN_MODEL_PATH:-$WAN_MODEL_DIR/Wan2.2-TI2V-5B}"
 PROMPT="${PROMPT:-人物360度旋转展示，高质量，细节清晰。}"
 NEGATIVE_PROMPT="${NEGATIVE_PROMPT:-色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走}"
 
@@ -82,7 +83,7 @@ export WEIGHT_PATH
 export OUTPUT_DIR="$RESULTS_DIR"
 export OUTPUT_NAME
 export HEIGHT WIDTH NUM_FRAMES SEED TILED FPS QUALITY
-export DEVICE WAN_MODEL_DIR
+export DEVICE WAN_MODEL_DIR WAN_MODEL_PATH
 
 # --- call generate_video.py (uses ModelConfig(path=...) to load model directly) ---
 python "$SCRIPT_DIR/generate_video.py"
