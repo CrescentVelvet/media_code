@@ -62,26 +62,11 @@ def detect_persons(human_detector, image_bgr):
         h, w = image_bgr.shape[:2]
         return [[0, 0, w, h]]
 
-    # Introspect: find callable attributes + internal predictor
-    print(f"    🔍 HumanDetector methods: {[m for m in dir(human_detector) if not m.startswith('_')]}")
-    for attr in ["detector", "predictor", "model"]:
-        inner = getattr(human_detector, attr, None)
-        if callable(inner):
-            print(f"    🔍 trying human_detector.{attr}(image) ...")
-            try:
-                result = inner(image_bgr)
-                bboxes = _extract_bboxes(result)
-                if bboxes:
-                    return bboxes
-                print(f"    ⚠️ .{attr}() returned {type(result).__name__}, no bboxes")
-            except Exception as e:
-                print(f"    ⚠️ .{attr}() failed: {e}")
-
-    # Also try direct call on the object itself
+    # HumanDetector.run_human_detection(image, score_threshold, device)
     for desc, fn in [
-        ("__call__", lambda: human_detector(image_bgr)),
-        ("inference", lambda: human_detector.inference(image_bgr)),
-        ("run", lambda: human_detector.run(image_bgr)),
+        ("run_human_detection(img)", lambda: human_detector.run_human_detection(image_bgr)),
+        ("run_human_detection(img, thr)", lambda: human_detector.run_human_detection(image_bgr, BBOX_THRESH)),
+        ("run_human_detection(img, thr, dev)", lambda: human_detector.run_human_detection(image_bgr, BBOX_THRESH, DEVICE)),
     ]:
         try:
             result = fn()
@@ -89,8 +74,6 @@ def detect_persons(human_detector, image_bgr):
             if bboxes:
                 return bboxes
             print(f"    ⚠️ {desc} returned {type(result).__name__}, no bboxes")
-        except (TypeError, AttributeError) as e:
-            continue
         except Exception as e:
             print(f"    ⚠️ {desc} failed: {e}")
     return []
