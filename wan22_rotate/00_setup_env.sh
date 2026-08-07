@@ -53,9 +53,10 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
-    # 0a. Ensure PyTorch matches system CUDA (doll may have older cu118 torch)
-    echo "--- upgrading PyTorch to cu124 (match system CUDA 12.4) ---"
-    pip install "${PIP_FLAGS[@]}" torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    # 0a. Force PyTorch to cu124 (doll may have cu118; same version number → pip skips)
+    echo "--- force-reinstall PyTorch to cu124 (match system CUDA 12.4) ---"
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps --no-cache-dir \
+        torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
     # 0b. DiffSynth-Studio-Human (fresh clone, editable install)
     if [ -d "$DIFFSYNTH_DIR" ]; then
