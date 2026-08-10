@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HYPIR 美颜退化路径 · 算法原理框图</title>
+<style>
+  :root{
+    --c-input:#6b7280;     /* 输入 灰 */
+    --c-src:#0f766e;       /* src 张量 青绿 */
+    --c-model:#7c3aed;     /* RetouchFormer 紫 */
+    --c-hqorig:#2563eb;    /* hq_orig 蓝 */
+    --c-hqbeauty:#db2777;  /* hq_beauty 粉红 */
+    --c-lq:#ea580c;        /* lq_gauss 橙红(退化) */
+    --c-pq:#475569;        /* parquet 深灰 */
+    --c-trainA:#2563eb;
+    --c-trainB:#db2777;
+    --c-eval:#059669;
+    --bg:#f8fafc;
+    --line:#94a3b8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:40px 20px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:#0f172a;line-height:1.5;
+  }
+  .wrap{max-width:1000px;margin:0 auto;}
+  h1{font-size:1.5rem;margin:0 0 6px;text-align:center;letter-spacing:.5px;}
+  .subtitle{text-align:center;color:#64748b;font-size:.92rem;margin-bottom:28px;}
+  .subtitle code{background:#e2e8f0;padding:1px 6px;border-radius:4px;font-size:.85em;}
+
+  /* 核心思路 callout */
+  .insight{
+    background:linear-gradient(90deg,#fef3c7,#fde68a);
+    border:1px solid #f59e0b;border-left:6px solid #f59e0b;
+    border-radius:8px;padding:16px 20px;margin-bottom:36px;
+  }
+  .insight h2{margin:0 0 8px;font-size:1.05rem;color:#92400e;display:flex;align-items:center;gap:8px;}
+  .insight p{margin:4px 0;font-size:.9rem;color:#78350f;}
+  .insight .key{font-weight:700;color:#7c2d12;}
+
+  /* 框图容器 */
+  .diagram{display:flex;flex-direction:column;align-items:center;gap:0;}
+
+  /* 节点通用样式 */
+  .node{
+    position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;
+    padding:12px 18px;min-width:220px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  .node .title{font-weight:700;font-size:.95rem;}
+  .node .desc{font-size:.78rem;color:#64748b;margin-top:3px;}
+  .node .tag{position:absolute;top:-10px;right:10px;font-size:.65rem;background:#334155;color:#fff;padding:1px 8px;border-radius:10px;font-weight:600;}
+
+  /* 颜色变体：左边框着色 */
+  .n-input{border-left:6px solid var(--c-input);}
+  .n-src{border-left:6px solid var(--c-src);background:#ecfdf5;}
+  .n-src .title{color:var(--c-src);}
+  .n-model{border-left:6px solid var(--c-model);background:#f5f3ff;}
+  .n-model .title{color:var(--c-model);}
+  .n-hqorig{border-left:6px solid var(--c-hqorig);background:#eff6ff;}
+  .n-hqorig .title{color:var(--c-hqorig);}
+  .n-hqbeauty{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;}
+  .n-hqbeauty .title{color:var(--c-hqbeauty);}
+  .n-lq{border-left:6px solid var(--c-lq);background:#fff7ed;}
+  .n-lq .title{color:var(--c-lq);}
+  .n-pq{border-left:6px solid var(--c-pq);background:#f1f5f9;}
+  .n-pq .title{color:var(--c-pq);}
+  .n-trainA{border-left:6px solid var(--c-trainA);background:#eff6ff;}
+  .n-trainA .title{color:var(--c-trainA);}
+  .n-trainB{border-left:6px solid var(--c-trainB);background:#fdf2f8;}
+  .n-trainB .title{color:var(--c-trainB);}
+  .n-eval{border-left:6px solid var(--c-eval);background:#ecfdf5;}
+  .n-eval .title{color:var(--c-eval);}
+
+  /* 连接线 */
+  .arrow{display:flex;flex-direction:column;align-items:center;}
+  .arrow .line{width:3px;height:22px;background:var(--line);}
+  .arrow .head{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid var(--line);}
+  .arrow.short .line{height:14px;}
+  .arrow.tall .line{height:30px;}
+
+  /* 分支：横线 + 多列 */
+  .branch{display:flex;flex-direction:column;align-items:center;width:100%;}
+  .branch .hbar{height:3px;background:var(--line);width:100%;}
+  .branch .cols{display:flex;justify-content:center;gap:60px;align-items:flex-start;flex-wrap:wrap;}
+  .branch .col{display:flex;flex-direction:column;align-items:center;}
+  .branch .stub{width:3px;height:18px;background:var(--line);}
+  .branch-label{font-size:.72rem;color:#64748b;background:var(--bg);padding:0 8px;margin-top:-9px;position:relative;z-index:1;}
+
+  /* A/B 训练对照 */
+  .ab-cols{display:flex;gap:0;justify-content:center;align-items:stretch;}
+  .ab-col{display:flex;flex-direction:column;align-items:center;}
+  .ab-gap{width:60px;}
+
+  /* 评估对照盒 */
+  .eval-box{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-top:4px;}
+  .eval-card{border:1.5px solid;border-radius:8px;padding:10px 16px;font-size:.85rem;min-width:180px;text-align:center;}
+  .eval-a{border-color:var(--c-trainA);background:#eff6ff;color:#1e3a8a;}
+  .eval-b{border-color:var(--c-trainB);background:#fdf2f8;color:#831843;}
+  .eval-card .q{font-weight:700;}
+  .eval-card .ans{font-size:.78rem;margin-top:2px;}
+  .eval-b .ans{color:#be185d;}
+  .eval-a .ans{color:#1d4ed8;}
+
+  /* 图例 */
+  .legend{margin-top:40px;border-top:1px solid #e2e8f0;padding-top:18px;}
+  .legend h3{font-size:.9rem;margin:0 0 10px;color:#334155;}
+  .legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:.82rem;color:#475569;}
+  .swatch{width:16px;height:16px;border-radius:4px;flex-shrink:0;}
+
+  /* 注释 */
+  .notes{margin-top:28px;font-size:.8rem;color:#475569;}
+  .notes h3{font-size:.9rem;color:#334155;margin:0 0 8px;}
+  .notes ul{margin:0;padding-left:20px;}
+  .notes li{margin:4px 0;}
+  .notes code{background:#e2e8f0;padding:1px 5px;border-radius:3px;font-size:.85em;}
+
+  .file-ref{font-size:.72rem;color:#94a3b8;}
+  .file-ref a{color:#64748b;text-decoration:none;border-bottom:1px dotted #94a3b8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>HYPIR 美颜退化路径 · 算法原理框图</h1>
+  <div class="subtitle">
+    只输入原图人脸 → 同一 <code>src</code> 张量派生三张像素级对齐 512×512：
+    <code>hq_orig</code>(原图) / <code>hq_beauty</code>(美颜) / <code>lq_gauss</code>(高斯模糊)
+    · 共用 LQ 换 HQ 目标做 A/B 单变量对比
+  </div>
+
+  <!-- 核心思路 -->
+  <div class="insight">
+    <h2>💡 核心思路：换 HQ 目标，修掉「长痘变丑」</h2>
+    <p>现有 <code>03c/04c</code> 在线退化路径（LQ=高斯模糊、HQ=原图）虽能复原模糊，但模型过度增强会<span class="key">凭空长出皮肤瑕疵</span>（"长痘变丑"）。</p>
+    <p>解法：<span class="key">LQ 保持同样的模糊</span>，把 HQ 目标换成 RetouchFormer 的美颜版（已去瑕疵+磨皮、保结构）。模型仍学去模糊（增强不失），但目标变成干净光滑皮肤 → <span class="key">不再 invent 瑕疵</span>。</p>
+    <p>同时建两套数据做 <span class="key">A/B 单变量对比</span>：两者共用同一 <code>lq_gauss</code>，仅 HQ 目标不同。</p>
+  </div>
+
+  <!-- 框图 -->
+  <div class="diagram">
+
+    <!-- 1. 输入 -->
+    <div class="node n-input">
+      <div class="title">🖼️ 原始人脸图像文件夹</div>
+      <div class="desc"><code>INPUT_DIR</code> · 任意尺寸/宽高比 · 可含子目录</div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- 2. 对齐变换 -->
+    <div class="node n-src">
+      <div class="title">📐 Resize(512) → CenterCrop(512) → Normalize(±0.5)</div>
+      <div class="desc">对齐 crop · 与官方 <code>wildDataset</code> 一致 · 输出 ∈[-1,1]</div>
+      <div class="file-ref" style="margin-top:4px;">build_beauty_dataset.py · build_transform()</div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- 3. src 张量 -->
+    <div class="node n-src">
+      <div class="title">⬛ src 张量 [1,3,512,512] ∈[-1,1]</div>
+      <div class="desc">模型输入 · 以下三者皆派生自此 → 像素级对齐</div>
+    </div>
+    <div class="arrow short"><div class="line"></div></div>
+
+    <!-- 分支说明 -->
+    <div class="branch-label">▼ 同一 src 三路派生（像素级对齐，任意输入尺寸都安全）</div>
+
+    <!-- 三路分支 -->
+    <div class="branch">
+      <div class="hbar"></div>
+      <div class="cols">
+
+        <!-- hq_orig -->
+        <div class="col">
+          <div class="stub"></div>
+          <div class="node n-hqorig">
+            <span class="tag">HQ·A</span>
+            <div class="title">hq_orig</div>
+            <div class="desc">原图对齐 crop（直接存 src）<br>复原实验的 HQ 目标</div>
+          </div>
+        </div>
+
+        <!-- 中间：RetouchFormer + hq_beauty -->
+        <div class="col">
+          <div class="stub"></div>
+          <div class="node n-model">
+            <div class="title">💎 RetouchFormer 模型</div>
+            <div class="desc"><code>pred,_ = model(src)</code><br>美颜 · 去瑕疵 · 磨皮 · 保结构</div>
+            <div class="file-ref" style="margin-top:4px;">InpaintGenerator · gen_best.pth</div>
+          </div>
+          <div class="arrow short"><div class="line"></div><div class="head"></div></div>
+          <div class="node n-hqbeauty">
+            <span class="tag">HQ·B</span>
+            <div class="title">hq_beauty</div>
+            <div class="desc">RetouchFormer 美颜结果<br>复原+美颜实验的 HQ 目标</div>
+          </div>
+        </div>
+
+        <!-- lq_gauss -->
+        <div class="col">
+          <div class="stub"></div>
+          <div class="node n-lq">
+            <span class="tag">LQ·共用</span>
+            <div class="title">lq_gauss</div>
+            <div class="desc">高斯模糊退化（作用于同一 crop）<br>
+              kernel ∈ {3,5,7,9,11} · σ∈[1,2] · 重复 1–5 次<br>
+              每图一个 FIXED seeded 实现（离线）</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="height:20px;"></div>
+
+    <!-- 汇合：lq_gauss 作为共用 LQ -->
+    <div class="branch-label">▼ Phase B：建两张配对 parquet（共用同一 lq_gauss 作 LQ，仅 HQ 目标不同）</div>
+    <div class="branch">
+      <div class="hbar"></div>
+      <div class="cols">
+
+        <div class="col">
+          <div class="stub"></div>
+          <div class="node n-pq">
+            <span class="tag">A</span>
+            <div class="title">rest.parquet</div>
+            <div class="desc">LQ = lq_gauss → HQ = hq_orig<br>基线复原（= 现有 03c 风格）</div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="stub"></div>
+          <div class="node n-pq">
+            <span class="tag">B</span>
+            <div class="title">rest_beauty.parquet</div>
+            <div class="desc">LQ = lq_gauss → HQ = hq_beauty<br>复原 + 美颜（修掉长痘）</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="height:6px;"></div>
+    <div class="branch-label">▼ 04b 各自训一个 HYPIR-SD2 LoRA（OUTPUT_DIR 分开）</div>
+
+    <!-- A/B 训练 -->
+    <div class="ab-cols">
+      <div class="ab-col">
+        <div class="arrow"><div class="line"></div><div class="head"></div></div>
+        <div class="node n-trainA">
+          <span class="tag">训练 A</span>
+          <div class="title">FineTuneSD2Trainer</div>
+          <div class="desc">暖启动 LoRA: <code>HYPIR_sd2.pth</code><br>parquet = rest.parquet<br>输出: <code>exp_rest</code></div>
+        </div>
+      </div>
+      <div class="ab-gap"></div>
+      <div class="ab-col">
+        <div class="arrow"><div class="line"></div><div class="head"></div></div>
+        <div class="node n-trainB">
+          <span class="tag">训练 B</span>
+          <div class="title">FineTuneSD2Trainer</div>
+          <div class="desc">暖启动 LoRA: <code>HYPIR_sd2.pth</code><br>parquet = rest_beauty.parquet<br>输出: <code>exp_rest_beauty</code></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- 评估对照 -->
+    <div class="node n-eval">
+      <div class="title">🔬 05 评估 / 02 推理 对比</div>
+      <div class="desc">同一组测试图，分别加载 A / B 的 checkpoint，对比复原图</div>
+    </div>
+
+    <div class="eval-box">
+      <div class="eval-card eval-a">
+        <div class="q">A · 基线复原</div>
+        <div class="ans">去模糊 ✓ · 但「长痘变丑」？✗</div>
+      </div>
+      <div class="eval-card eval-b">
+        <div class="q">B · 复原 + 美颜</div>
+        <div class="ans">去模糊 ✓ · 不毁脸 ✓</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 图例 -->
+  <div class="legend">
+    <h3>图例</h3>
+    <div class="legend-grid">
+      <div class="legend-item"><span class="swatch" style="background:var(--c-input)"></span>输入原图</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-src)"></span>对齐 src 张量</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-model)"></span>RetouchFormer 美颜模型</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-hqorig)"></span>hq_orig（原图 HQ）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-hqbeauty)"></span>hq_beauty（美颜 HQ）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-lq)"></span>lq_gauss（共用退化 LQ）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-pq)"></span>配对 parquet</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-eval)"></span>评估对照</div>
+    </div>
+  </div>
+
+  <!-- 注释 -->
+  <div class="notes">
+    <h3>关键设计要点</h3>
+    <ul>
+      <li><b>像素级对齐</b>：三者皆派生自同一 <code>src</code> 张量，故任意尺寸/宽高比输入都安全（模型 VRT 写死 512×512，非方形会被 CenterCrop，而 hq_orig / lq_gauss 存的正是这个 crop 版本）。</li>
+      <li><b>单变量 A/B</b>：A 与 B 共用同一 <code>lq_gauss</code>，仅 HQ 目标不同 → 对比纯粹反映「HQ 美颜 vs 原图」对长痘问题的影响。<code>BLUR_SEED</code> 可复现地重随机。</li>
+      <li><b>高斯模糊复现</b>本仓 HYPIR clone 里简化版 <code>batch_transform.py</code>：随机 kernel 3/5/7/9/11、σ∈[1,2]、重复 1–5 次，每图一个 FIXED seeded 实现（离线，非每 epoch 重随机）。作用于 raw 对齐 crop（非 <code>USM(orig)</code>）——与 03c 略有偏差，但 A/B 共用同一 lq_gauss，对比仍是单变量。</li>
+      <li><b>训练暖启动</b>：从发布 <code>HYPIR_sd2.pth</code> LoRA 继续练、适配人脸域，而非从零重学（7k 张从零不够；发布模型是 bs1024 大数据训出来的）。</li>
+      <li><b>对应脚本</b>：Phase A = <code>03d_build_beauty_dataset.sh</code> + <code>build_beauty_dataset.py</code>；Phase B = 复用 <code>03b_build_paired_dataset.sh</code>；训练 = <code>04b_train_paired.sh</code>（A/B 各跑一次，OUTPUT_DIR 分开）。</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
