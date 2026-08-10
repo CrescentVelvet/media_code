@@ -57,6 +57,10 @@ cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env      # 填 http_proxy / https_proxy（公司代理用）
 conda create -n minimax_h3 python=3.11 -y && conda activate minimax_h3
+# 若上一行报 HTTP 403 FORBIDDEN（.condarc 配了清华 TUNA 镜像且失效），加 --override-channels 直连官方源绕开：
+#   conda create -n minimax_h3 python=3.11 -y --override-channels \
+#     -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main && conda activate minimax_h3
+# 详见下方「可能遇到的问题」第 2 条。
 pip install torch --index-url https://download.pytorch.org/whl/cu124   # 先装 CUDA torch
 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh       # 装 sglang[all]（含 diffusion 支持）
 HF_DISABLE_SSL=1 bash minimax_h3/01_download_models.sh  # 下 MiniMaxAI/MiniMax-H3 权重快照
@@ -171,7 +175,17 @@ API 文档：Global `platform.minimax.io` / CN `platform.minimaxi.com`（`/video
   ```
 - `No route to host` 连代理都不通：多为 docker 网桥网段和代理 IP 冲突。查 `getent hosts <proxy>` + `ip route | grep <网段>`，加主机路由 `sudo ip route add <代理IP> via <默认网关> dev <物理网卡>`，或改 `/etc/docker/daemon.json` 的 `default-address-pools` 给 docker 分不冲突的子网。
 
-**2. `pip install sglang[all]` 报 SSL/超时**
+**2. `conda create` 报 `HTTP 403 FORBIDDEN for channel conda-forge`**
+`~/.condarc` 把 `custom_channels` / `default_channels` 指向了清华 TUNA 镜像（`mirrors.tuna.tsinghua.edu.cn/anaconda/...`），该镜像偶发限流/抽风返回 403。`conda config --show channels` 只显示逻辑通道名（`conda-forge` / `defaults`），镜像重定向藏在 `custom_channels` / `default_channels` 里，要用 `conda config --show-sources` 才看得到（并标出是哪个 `.condarc` 文件设的）。两种修法：
+- 临时绕开（只影响当条命令，推荐先试）——直连官方源，公司代理下 `conda.anaconda.org` / `repo.anaconda.com` 走 `http_proxy`/`https_proxy`（和 clone 本仓同一条路）：
+  ```bash
+  conda create -n minimax_h3 python=3.11 -y --override-channels \
+    -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main
+  ```
+  若报 SSL（代理根 CA 不被信任）：先 `bash minimax_h3/setup_ca_bundle.sh` 建 `~/.ca-bundle.crt` 再重试。官方源也被代理挡时，把上面两个 `-c` 换成 BFSU 同源镜像（`https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge`、`https://mirrors.bfsu.edu.cn/anaconda/pkgs/main`）。
+- 永久修 `~/.condarc`（影响所有 conda 命令）：编辑 `~/.condarc`，把 TUNA 域名（`mirrors.tuna.tsinghua.edu.cn/anaconda`）整体替换成 BFSU（`mirrors.bfsu.edu.cn/anaconda`，同源更稳），或直接删掉 `custom_channels` / `default_channels` 两段回退到 conda 官方源。
+
+**3. `pip install sglang[all]` 报 SSL/超时**
 ```bash
 pip config set global.trusted-host "pypi.org pypi.python.org files.pythonhosted.org download.pytorch.org"
 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
@@ -179,16 +193,16 @@ INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 torch 大文件超时：先单独 `pip install --timeout 600 --retries 10 torch --index-url https://download.pytorch.org/whl/cu124`，再 `INSTALL_DEPS=1`。
 > flashinfer（SGLang 默认注意力后端依赖）走自建下载源，代理下易失败：先 `bash minimax_h3/setup_ca_bundle.sh` 建 CA 包；仍失败可 `pip install flashinfer -f https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python` 或换 `EXTRA_SGLANG_FLAGS="--attention-backend triton"`。
 
-**3. `hf download` 报 `CAS service error : ReqwestMiddleware`**
+**4. `hf download` 报 `CAS service error : ReqwestMiddleware`**
 HF 的 Xet/Rust 通道不认代理。`_env.sh` 已设 `HF_HUB_DISABLE_XET=1`；仍报就 `pip uninstall -y hf_xet` 后重跑 `01`。
 
-**4. `hf download` 报 `SSLCertVerificationError`**
+**5. `hf download` 报 `SSLCertVerificationError`**
 代理根 CA 不在系统证书包。先 `bash minimax_h3/setup_ca_bundle.sh`（抓代理证书链→`~/.ca-bundle.crt` 并自检）；自检 `[OK]` 重跑 `01`，`[FAIL]` 把公司根 CA 追加到 `~/.ca-bundle.crt`；仍不行 `HF_DISABLE_SSL=1 bash minimax_h3/01_download_models.sh`（走 SSL 免校验兜底下载器 `_hf_download.py`）。
 
-**5. `hf download` 报 401 / `repository not found`（MiniMax-H3 gated）**
+**6. `hf download` 报 401 / `repository not found`（MiniMax-H3 gated）**
 HF 上 MiniMax-H3 是 Community License，可能需接受协议。去 https://huggingface.co/MiniMaxAI/MiniMax-H3 点 Accept，建 read token，再 `HF_TOKEN=<token> bash minimax_h3/01_download_models.sh`（脚本会透传给 `hf download` 和兜底下载器）。
 
-**6. serve 报 OOM / CUDA out of memory（4× A100 80GB）**
+**7. serve 报 OOM / CUDA out of memory（4× A100 80GB）**
 默认 `NUM_GPUS=4 ULYSSES_DEGREE=4`（resident）在 80GB 卡上可能不够。按顺序试：
 ```bash
 # a) FSDP 容量配方（verified on H100 80GB，同显存）
@@ -200,19 +214,19 @@ NUM_GPUS=4 EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-com
 # 还可加 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
-**7. serve 起不来：`sglang: command not found` / `import sglang` 失败**
+**8. serve 起不来：`sglang: command not found` / `import sglang` 失败**
 没装 SGLang：`INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh`。装了还是 `command not found` 多半没 `conda activate minimax_h3`（脚本默认沿用当前 env）。`[diffusion]` extra 没带上时（模型类找不到）补 `pip install "sglang[diffusion]"`。
 
-**8. `02_serve.sh` 后台模式一直 `not ready`**
+**9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。
 
-**9. generate 报 `connection refused` / `submit failed HTTP 5xx`**
+**10. generate 报 `connection refused` / `submit failed HTTP 5xx`**
 服务没起好或挂在别的端口。`curl -s http://localhost:30010/health` 验证；FL2VA 用 30010、Ref2VA 用 30011，`SERVER_URL` 要对上。5xx 多为请求体不合法（task/conditions 拼错）——看服务日志里的 traceback。
 
-**10. Ref2VA 用本地参料，`file://` 路径服务读不到**
+**11. Ref2VA 用本地参料，`file://` 路径服务读不到**
 本地直装 SGLang 时 `file://` 用服务进程能读的绝对路径即可；若 SGLang 跑在 **docker** 里，容器看不到宿主机路径——需 `-v /data/minimax-h3:/data/minimax-h3:ro` 挂卷，参考素材放挂载目录下并用 `file:///data/minimax-h3/xxx`。最省事：把参料传到公网 URL，用 http URL。
 
-**11. 跑 `.sh` 报 `syntax error near unexpected token ('`（CRLF 行尾）**
+**12. 跑 `.sh` 报 `syntax error near unexpected token ('`（CRLF 行尾）**
 Windows→服务器用 scp/zip 等非 git 方式同步带过去。本仓 `.gitattributes` 强制 LF，但只有 `git checkout/pull` 才落 LF，非 git 传输不会转。
 ```bash
 file minimax_h3/02_serve.sh           # 出现 "CRLF line terminators" 即中招
