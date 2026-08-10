@@ -57,8 +57,9 @@ cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env      # 填 http_proxy / https_proxy（公司代理用）
 conda create -n minimax_h3 --clone doll -y && conda activate minimax_h3
-# 克隆现有 doll env（python 3.11，本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL）。
-# sglang[all] 会自带 torch/flashinfer，不依赖 doll 的 torch，只是借 doll 的 python 3.11 起个壳。
+# 克隆现有 doll env（本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL；
+# sglang 支持 py3.10/3.11，doll 是哪个都能用）。
+# sglang[all] 会自带 torch/flashinfer，不依赖 doll 的 torch，只是借 doll 的 python 起个壳。
 # doll 不在/想新建（会走 conda 通道，公司代理下易 403/SSL，修法见下方「可能遇到的问题」第 2 条）：
 #   conda create -n minimax_h3 python=3.11 -y
 pip install torch --index-url https://download.pytorch.org/whl/cu124   # 先装 CUDA torch
@@ -222,6 +223,11 @@ NUM_GPUS=4 EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-com
 
 **8. serve 起不来：`sglang: command not found` / `import sglang` 失败**
 没装 SGLang：`INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh`。装了还是 `command not found` 多半没 `conda activate minimax_h3`（脚本默认沿用当前 env）。`[diffusion]` extra 没带上时（模型类找不到）补 `pip install "sglang[diffusion]"`。
+> 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块末尾已加 `-U diffusers peft transformers` 对齐；若已装过没跑那步，手动补：
+> ```bash
+> pip install -U diffusers peft transformers
+> python -c "import sglang; from transformers import HybridCache; print('ok')"
+> ```
 
 **9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。

@@ -12,7 +12,7 @@
 # SGLang pulls its own torch + flashinfer + CUDA kernels; its version pins may
 # CONFLICT with other algos in this repo (hunyuanvideo wants diffusers 0.35,
 # hypir pins diffusers 0.32 / transformers 4.49). Use a DEDICATED env:
-#   conda create -n minimax_h3 --clone doll -y   # 克隆现有 doll(python 3.11)，本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL
+#   conda create -n minimax_h3 --clone doll -y   # 克隆现有 doll，本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL
 #   conda activate minimax_h3
 #   CONDA_ENV=minimax_h3 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 # doll 不在时新建见 README「可能遇到的问题」第 2 条（--override-channels + conda config ssl_verify）。
@@ -50,6 +50,13 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # no-op-ish safety net in case [all] didn't pin the diffusion deps.
     python -m pip install "${PIP_FLAGS[@]}" "sglang[diffusion]" || \
         echo "    (sglang[diffusion] extra not separately installable — assume [all] covers it)"
+    # sglang diffusion 链路 diffusers→peft→transformers 三者版本须一致。克隆 doll
+    # 这类已有 env 时，pip 可能不升级里面旧的 transformers（满足 sglang 下界就跳过），
+    # 但新 peft 要 transformers>=4.42 的 HybridCache，于是 import sglang 报
+    # `cannot import name 'HybridCache' from 'transformers'`。显式 -U 让 pip 在
+    # sglang 声明的约束内重解到一致版本组（pip 新 resolver 会尊重 sglang 的上界）。
+    echo "📦 aligning diffusers/peft/transformers (fix HybridCache mismatch from cloned-stale deps) ---"
+    python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
     echo "📦 installed. Verify with: python -c 'import sglang; print(sglang.__version__)'"
 fi
 
