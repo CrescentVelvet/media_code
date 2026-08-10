@@ -35,6 +35,16 @@ GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered
   OUTPUT_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/02_generate_video.sh
 
+# 3) 拆分视频为 JPG 帧（输出到 <视频同名>/image/，匹配 INPUT_DIR/image/ 模式）
+#    默认抽每一帧（FPS=0）；指定 FPS 则按该 fps 采样
+GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
+  bash wan22_rotate/03_extract_frames.sh
+# 输出结构：
+#   rotate_360.mp4
+#   rotate_360/                 # 同名目录
+#     image/
+#       00000.jpg, 00001.jpg, ...
+
 # ── 自定义 ──
 # 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
 GPU=0 INPUT_DIR=... WEIGHT_PATH=... \
@@ -52,16 +62,19 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
   INPUT_DIR=... bash wan22_rotate/01_pick_and_segment.sh
 ```
 
-- 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
+- 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
 
 ## → 接入三维重建（Pi3 + 2D Gaussian Splatting）
 
-生成的 `rotate_360.mp4` 可直接喂给本仓的 [`pi3_3dgs/`](../pi3_3dgs/) 流水线做三维重建：[π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈出位姿 + 稠密点云，[2D Gaussian Splatting](https://github.com/hbb1/2d-gaussian-splatting)（SIGGRAPH 2024）训练 + TSDF 提网格。详见 [pi3_3dgs/README.md](../pi3_3dgs/README.md)。
+生成的 `rotate_360.mp4`（或步骤 03 拆出的 JPG 帧）可直接喂给本仓的 [`pi3_3dgs/`](../pi3_3dgs/) 流水线做三维重建：[π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈出位姿 + 稠密点云，[2D Gaussian Splatting](https://github.com/hbb1/2d-gaussian-splatting)（SIGGRAPH 2024）训练 + TSDF 提网格。详见 [pi3_3dgs/README.md](../pi3_3dgs/README.md)。
 
 ```bash
 # 一键：rotate_360.mp4 → Pi3 位姿估计 → 2DGS 训练 → 渲染 + 网格
 #       （默认 INPUT 就指向 ../wan22_rotate_results/rotate_360.mp4，可不传）
 GPU=0 bash pi3_3dgs/run_all.sh
+
+# 也可喂步骤 03 拆出的 JPG 帧文件夹（匹配 INPUT_DIR/image/ 模式）
+GPU=0 INPUT=../wan22_rotate_results/rotate_360 bash pi3_3dgs/run_all.sh
 
 # 因输入是白底分割视频，建议训推用白底 + 无界 TSDF：
 GPU=0 WHITE_BG=1 bash pi3_3dgs/run_all.sh            # 训练阶段白底
@@ -141,6 +154,15 @@ $RESULTS_DIR/segmented_image.png   (人物保留, 背景白色)
     │  └─ I2V 生成 (分割图作首帧 → 360° 旋转视频)
     ▼
 $RESULTS_DIR/rotate_360.mp4
+    │
+    ▼
+[03] 拆帧 → JPG  (opencv)
+    │  └─ cv2.VideoCapture + imwrite(.jpg, quality=95)
+    │       ├─ FPS=0 (默认): 抽每一帧 (源 fps, 约 81 张 @ 15fps×5.4s)
+    │       └─ FPS=N: 按 N fps 采样 (step=round(src_fps/N))
+    ▼
+$RESULTS_DIR/rotate_360/image/*.jpg   (同名目录下的 image/ 文件夹)
+                                      (匹配 INPUT_DIR/image/ 模式, 可喂回 01 或 pi3_3dgs)
 ```
 
 ### Step 01 — 选图 + 分割 (`01_pick_and_segment.sh` → `pick_and_segment.py`)
@@ -165,7 +187,28 @@ $RESULTS_DIR/rotate_360.mp4
 - `WEIGHT_PATH=<lora>.safetensors`（`pipe.load_lora(dit, weight, alpha=1)`）
 - `PROMPT`、`HEIGHT`/`WIDTH`/`NUM_FRAMES` 等
 
-默认 portrait（1248×704），121 帧 @ 15fps ≈ 8 秒，足够一圈 360° 旋转。更多参数见 `wan22/README.md` 的 inference 部分。
+默认 portrait（1248×704），81 帧 @ 15fps ≈ 5.4 秒，足够一圈 360° 旋转。更多参数见 `wan22/README.md` 的 inference 部分。
+
+### Step 03 — 拆帧 (`03_extract_frames.sh` → `extract_frames.py`)
+
+把 step 02 生成的 `rotate_360.mp4` 拆成与视频同名的目录下的 `image/` 文件夹里的多张 JPG：
+
+```
+$RESULTS_DIR/
+  rotate_360.mp4               # 源视频（不变）
+  rotate_360/                  # 新增：同名目录
+    image/
+      00000.jpg
+      00001.jpg
+      ...
+```
+
+这样 `rotate_360/` 文件夹本身就是合法的 `INPUT_DIR`（含 `image/` 子文件夹），可：
+- 喂回 step 01 重新选图 + 分割（`INPUT_DIR=$RESULTS_DIR/rotate_360`）
+- 喂给 pi3_3dgs 做三维重建（`INPUT=$RESULTS_DIR/rotate_360`）
+- 或任何接受 `INPUT_DIR/image/` 模式的算法
+
+默认 `FPS=0` 抽每一帧（按源视频 fps，~81 张）；设 `FPS=N` 按 N fps 采样。`JPG_QUALITY=95`（视觉无损）。
 
 ## Config (env vars, all optional)
 
@@ -212,6 +255,16 @@ $RESULTS_DIR/rotate_360.mp4
 | `OUTPUT_NAME` | `rotate_360` | 输出文件名（不含扩展名） |
 | `SKIP_SEGMENT` | `0` | `1` = 跳过 step 01（run_all.sh 用） |
 | `LOW_VRAM` | `0` | `1` = 磁盘 offload（慢但省显存，详见 wan22 README） |
+
+### Step 03 params
+| var | default | note |
+| --- | --- | --- |
+| `VIDEO_PATH` | `$RESULTS_DIR/${OUTPUT_NAME:-rotate_360}.mp4` | 源视频路径 |
+| `FPS` | `0` | `0` = 抽每一帧（按源 fps）；`N` = 按 N fps 采样 |
+| `JPG_QUALITY` | `95` | JPG 质量 1-100（95 ≈ 视觉无损） |
+| `START_FRAME` | `0` | 起始帧（跳过开头几帧） |
+| `END_FRAME` | `-1` | 结束帧，`-1` = 到末尾 |
+| `SKIP_EXTRACT` | `0` | `1` = 跳过 step 03（run_all.sh 用） |
 
 ## 可能遇到的问题
 
@@ -270,7 +323,9 @@ python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 
     ├── front_facing_original.jpg#   原始正面图
     ├── frontal_scores.csv       #   各图正面评分
     ├── debug_mask.png           #   分割掩码 (调试)
-    └── rotate_360.mp4           #   360° 旋转视频
+    ├── rotate_360.mp4           #   360° 旋转视频 (step 02)
+    └── rotate_360/              #   同名目录 (step 03)
+        └── image/               #     拆出的 JPG 帧 (00000.jpg, 00001.jpg, ...)
 ```
 
 ## Notes
