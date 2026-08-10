@@ -54,6 +54,23 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
 
 - 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
 
+## → 接入三维重建（Pi3 + 2D Gaussian Splatting）
+
+生成的 `rotate_360.mp4` 可直接喂给本仓的 [`pi3_3dgs/`](../pi3_3dgs/) 流水线做三维重建：[π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈出位姿 + 稠密点云，[2D Gaussian Splatting](https://github.com/hbb1/2d-gaussian-splatting)（SIGGRAPH 2024）训练 + TSDF 提网格。详见 [pi3_3dgs/README.md](../pi3_3dgs/README.md)。
+
+```bash
+# 一键：rotate_360.mp4 → Pi3 位姿估计 → 2DGS 训练 → 渲染 + 网格
+#       （默认 INPUT 就指向 ../wan22_rotate_results/rotate_360.mp4，可不传）
+GPU=0 bash pi3_3dgs/run_all.sh
+
+# 因输入是白底分割视频，建议训推用白底 + 无界 TSDF：
+GPU=0 WHITE_BG=1 bash pi3_3dgs/run_all.sh            # 训练阶段白底
+GPU=0 UNBOUNDED=1 MESH_RES=2048 bash pi3_3dgs/03_render_2dgs.sh   # 提网格
+
+# 首次跑前先做 pi3_3dgs 的「首次准备」（建 env + clone 仓 + 编 CUDA ext + 下 Pi3 权重）
+INSTALL_DEPS=1 BUILD_CUDA=1 bash pi3_3dgs/00_setup_env.sh
+```
+
 ## 首次准备
 
 本流程建一份独立的 `wan22_rotate` env（**CPython 3.10**，匹配本地 cp310 torch/triton 轮子——不要用 3.11 或 clone doll，cp310 轮子装不进 3.11），把 sam_3d_body + diffsynth 两套依赖装在一起（detectron2 用 `--no-deps` 装，`networkx==3.2.1` 对 diffsynth 无影响；gcc12 用 `conda install --no-update-deps` 装防 conda 把 python 掉包成 GraalPy，否则 numpy 全坏）。
