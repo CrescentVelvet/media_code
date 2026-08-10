@@ -119,16 +119,60 @@
 
   .file-ref{font-size:.72rem;color:#94a3b8;}
   .file-ref a{color:#64748b;text-decoration:none;border-bottom:1px dotted #94a3b8;}
+
+  /* ============ 第二部分：章节分隔 + 阶段盒 ============ */
+  .section-divider{margin:48px 0 20px;text-align:center;}
+  .section-divider h2{font-size:1.15rem;margin:0 0 6px;color:#0f172a;display:inline-block;padding:0 6px 6px;border-bottom:3px solid var(--c-model);}
+  .section-divider .sub{color:#64748b;font-size:.85rem;max-width:780px;margin:6px auto 0;}
+
+  /* 编号阶段盒 */
+  .stage{position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:12px;padding:20px 22px 16px;width:100%;max-width:780px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .stage .badge{position:absolute;top:-14px;left:22px;width:30px;height:30px;border-radius:50%;background:#334155;color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.15);}
+  .stage .stitle{font-weight:700;font-size:1rem;color:#1e293b;margin-bottom:2px;}
+  .stage .sdesc{font-size:.82rem;color:#64748b;margin-bottom:10px;}
+
+  /* 双时机模式两列 */
+  .mode-cols{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;}
+  .mode-card{flex:1;min-width:220px;max-width:300px;border:1.5px solid #cbd5e1;border-radius:10px;padding:12px 16px;background:#fff;}
+  .mode-card .mtitle{font-weight:700;font-size:.92rem;display:flex;align-items:center;gap:6px;}
+  .mode-card.pre{border-left:6px solid var(--c-hqorig);background:#eff6ff;}
+  .mode-card.pre .mtitle{color:var(--c-hqorig);}
+  .mode-card.post{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;}
+  .mode-card.post .mtitle{color:var(--c-hqbeauty);}
+  .mode-card .mdesc{font-size:.78rem;color:#64748b;margin-top:4px;}
+
+  /* 子步骤行 */
+  .steps{display:flex;flex-direction:column;gap:8px;}
+  .step-row{display:flex;align-items:center;gap:10px;font-size:.82rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;}
+  .step-row .dot{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#475569;color:#fff;font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;}
+  .step-row .arrow-r{color:#94a3b8;font-weight:700;margin:0 4px;}
+  .step-row b{color:#1e293b;}
+
+  /* 可选分支 */
+  .opt-branch{display:flex;gap:24px;justify-content:center;align-items:stretch;flex-wrap:wrap;}
+  .opt-card{border:1.5px dashed var(--c-model);border-radius:10px;padding:12px 16px;background:#f5f3ff;text-align:center;min-width:220px;max-width:280px;}
+  .opt-card .otitle{font-weight:700;font-size:.9rem;color:var(--c-model);}
+  .opt-card .odesc{font-size:.76rem;color:#64748b;margin-top:3px;}
+
+  /* 终点盒 */
+  .endpoint{border-left:6px solid var(--c-eval);background:#ecfdf5;}
+  .endpoint .title{color:var(--c-eval);}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <h1>HYPIR 美颜退化路径 · 算法原理框图</h1>
+  <h1>人脸增强模块 · 算法原理框图</h1>
   <div class="subtitle">
-    只输入原图人脸 → 同一 <code>src</code> 张量派生三张像素级对齐 512×512：
+    一、HYPIR 美颜退化路径（数据集构建 03d/04b）&nbsp;&nbsp;·&nbsp;&nbsp;二、三维人体重建中的人脸增强（双时机增强）
+  </div>
+
+  <!-- ============ 一、HYPIR 美颜退化路径（数据集构建 03d/04b）============ -->
+  <div class="section-divider">
+    <h2>🧪 一、HYPIR 美颜退化路径（数据集构建 03d/04b）</h2>
+    <div class="sub">只输入原图人脸 → 同一 <code>src</code> 张量派生三张像素级对齐 512×512：
     <code>hq_orig</code>(原图) / <code>hq_beauty</code>(美颜) / <code>lq_gauss</code>(高斯模糊)
-    · 共用 LQ 换 HQ 目标做 A/B 单变量对比
+    · 共用 LQ 换 HQ 目标做 A/B 单变量对比</div>
   </div>
 
   <!-- 核心思路 -->
@@ -311,6 +355,113 @@
       <li><b>高斯模糊复现</b>本仓 HYPIR clone 里简化版 <code>batch_transform.py</code>：随机 kernel 3/5/7/9/11、σ∈[1,2]、重复 1–5 次，每图一个 FIXED seeded 实现（离线，非每 epoch 重随机）。作用于 raw 对齐 crop（非 <code>USM(orig)</code>）——与 03c 略有偏差，但 A/B 共用同一 lq_gauss，对比仍是单变量。</li>
       <li><b>训练暖启动</b>：从发布 <code>HYPIR_sd2.pth</code> LoRA 继续练、适配人脸域，而非从零重学（7k 张从零不够；发布模型是 bs1024 大数据训出来的）。</li>
       <li><b>对应脚本</b>：Phase A = <code>03d_build_beauty_dataset.sh</code> + <code>build_beauty_dataset.py</code>；Phase B = 复用 <code>03b_build_paired_dataset.sh</code>；训练 = <code>04b_train_paired.sh</code>（A/B 各跑一次，OUTPUT_DIR 分开）。</li>
+    </ul>
+  </div>
+
+  <!-- ============ 二、三维人体重建中的人脸增强模块 ============ -->
+  <div class="section-divider">
+    <h2>🧍 二、三维人体重建中的人脸增强模块</h2>
+    <div class="sub">双时机增强（前处理 / 后处理）→ 人脸定位 → 区域增强 → 渐变融合 →（可选）美颜后处理</div>
+  </div>
+
+  <!-- 模块定位 -->
+  <div class="insight" style="background:linear-gradient(90deg,#ede9fe,#ddd6fe);border-color:#7c3aed;border-left-color:#7c3aed;">
+    <h2 style="color:#5b21b6;">⚙️ 模块定位：训练循环里的人脸质量提升</h2>
+    <p>在人体重建（SMPLX / 3DGS / NeRF 训练）中，人脸区域常因分辨率低、模糊而细节丢失。该模块在<span style="font-weight:700;color:#5b21b6;">训练前（前处理）</span>或<span style="font-weight:700;color:#5b21b6;">训练中特定 epoch（后处理）</span>对 GT 人脸做增强，让监督目标更清晰，从而获得更高质量的人体重建结果。</p>
+    <p>关键点：用「<span style="font-weight:700;color:#5b21b6;">人脸框 ∩ 身体 Mask 重叠率</span>」把人脸框关联到人体 tracking ID，解决多人场景的人脸归属问题。</p>
+  </div>
+
+  <div class="diagram">
+
+    <!-- Stage 1: 双时机增强 -->
+    <div class="stage">
+      <div class="badge">1</div>
+      <div class="stitle">双时机增强（调用时机）</div>
+      <div class="sdesc">两种时机共用同一套增强流程（下方 Stage 2–5）</div>
+      <div class="mode-cols">
+        <div class="mode-card pre">
+          <div class="mtitle">🟦 前处理增强</div>
+          <div class="mdesc">训练<b>前</b>增强 GT 图像<br>→ 增强后的图作为训练监督目标</div>
+        </div>
+        <div class="mode-card post">
+          <div class="mtitle">🟪 后处理增强</div>
+          <div class="mdesc">训练<b>中</b>特定 epoch：用<b>渲染图</b>增强<br>→ 再回写 GT（迭代精修监督目标）</div>
+        </div>
+      </div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- Stage 2: 人脸定位 -->
+    <div class="stage">
+      <div class="badge">2</div>
+      <div class="stitle">人脸定位（多帧关联到人体）</div>
+      <div class="sdesc">把每帧的人脸框关联到对应的人体 tracking ID</div>
+      <div class="steps">
+        <div class="step-row"><span class="dot">a</span><b>RetinaFace 检测</b> → 每帧人脸框</div>
+        <div class="step-row"><span class="dot">b</span><b>SAM3 多人追踪</b> → 人体 tracking ID + 身体 Mask</div>
+        <div class="step-row"><span class="dot">c</span>人脸框 ∩ 身体 Mask <b>重叠率匹配</b> → 人脸框关联到 tracking ID</div>
+      </div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- Stage 3: 区域增强 -->
+    <div class="stage">
+      <div class="badge">3</div>
+      <div class="stitle">区域增强（每个 tracked 人脸）</div>
+      <div class="sdesc">EnhModel 固定 512×512 输入，故需缩放对齐</div>
+      <div class="steps">
+        <div class="step-row"><span class="dot">a</span>裁剪人脸区域</div>
+        <div class="step-row"><span class="dot">b</span>扩展 bbox（upscale，留余量）</div>
+        <div class="step-row"><span class="dot">c</span>缩放至 <b>512×512</b></div>
+        <div class="step-row"><span class="dot">d</span><b>EnhModel 推理</b>（人脸增强）</div>
+        <div class="step-row"><span class="dot">e</span>缩放回原尺寸</div>
+      </div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- Stage 4: 渐变融合 -->
+    <div class="stage">
+      <div class="badge">4</div>
+      <div class="stitle">渐变融合（避免接缝）</div>
+      <div class="sdesc">中心保留增强结果，边缘渐变过渡回原图</div>
+      <div class="steps">
+        <div class="step-row"><span class="dot">a</span><b>54px 边界渐变掩码</b>：中心保留增强、边缘渐变过渡</div>
+        <div class="step-row"><span class="dot">b</span>后处理模式<b>额外叠加 alpha 掩码</b>融合（渲染图与增强图按 alpha 混合）</div>
+      </div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- Stage 5: 美颜后处理（可选） -->
+    <div class="stage">
+      <div class="badge">5</div>
+      <div class="stitle">美颜后处理（可选 · 二次增强）</div>
+      <div class="sdesc">接口与 EnhModel 一致，可作为第二 pass 串联在 Stage 3 之后</div>
+      <div class="opt-branch">
+        <div class="opt-card">
+          <div class="otitle">💎 RetouchFormer 二次增强</div>
+          <div class="odesc">去瑕疵 / 磨皮 / 保结构<br>接口同 EnhModel：crop→512→推理→回缩→渐变融合</div>
+        </div>
+      </div>
+    </div>
+    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+    <!-- 终点 -->
+    <div class="node endpoint">
+      <div class="title">✅ 增强图像回写 GT / 继续训练</div>
+      <div class="desc">前处理：直接作为训练监督目标 · 后处理：回写 GT 供后续 epoch 迭代精修</div>
+    </div>
+
+  </div>
+
+  <!-- 注释 -->
+  <div class="notes" style="margin-top:36px;">
+    <h3>设计要点</h3>
+    <ul>
+      <li><b>双时机</b>：前处理静态提升 GT 质量；后处理随训练迭代——特定 epoch 用<b>当前渲染图</b>（而非原始 GT）做增强再回写，让监督目标随模型能力动态精修。</li>
+      <li><b>人脸定位靠重叠率</b>：RetinaFace 只给框、SAM3 只给追踪 ID + 身体 Mask，二者不直接关联；用「人脸框落在哪个身体 Mask 内的重叠率最大」把人脸框绑定到 tracking ID，解决多人场景的人脸归属。</li>
+      <li><b>512×512 缩放对齐</b>：EnhModel 与 RetouchFormer 都写死 512×512 输入，故 crop → upscale bbox → 缩放 512 → 推理 → 缩放回原尺寸，保证增强后人脸与原图像素对齐、可无缝贴回。</li>
+      <li><b>54px 渐变掩码</b>：硬接缝会留下可见边界；54px 宽渐变带让增强区从中心到边缘平滑过渡到原图，后处理模式再叠一层 alpha 掩码融合渲染图与增强图。</li>
+      <li><b>美颜后处理可选串联</b>：RetouchFormer 接口与 EnhModel 一致（同样的 crop → 512 → 推理 → 回缩 → 渐变融合流程），可在 EnhModel 之后作为第二 pass 串联，进一步去瑕疵磨皮。</li>
     </ul>
   </div>
 
