@@ -3,346 +3,373 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HYPIR 美颜退化路径 · 算法原理框图</title>
+<title>人脸增强模块 · 整体算法框图</title>
 <style>
   :root{
-    --c-input:#6b7280;     /* 输入 灰 */
-    --c-src:#0f766e;       /* src 张量 青绿 */
-    --c-model:#7c3aed;     /* RetouchFormer 紫 */
-    --c-hqorig:#2563eb;    /* hq_orig 蓝 */
-    --c-hqbeauty:#db2777;  /* hq_beauty 粉红 */
-    --c-lq:#ea580c;        /* lq_gauss 橙红(退化) */
-    --c-pq:#475569;        /* parquet 深灰 */
-    --c-trainA:#2563eb;
-    --c-trainB:#db2777;
-    --c-eval:#059669;
-    --bg:#f8fafc;
-    --line:#94a3b8;
+    --c-input:#6b7280; --c-src:#0f766e; --c-model:#7c3aed;
+    --c-hqorig:#2563eb; --c-hqbeauty:#db2777; --c-lq:#ea580c;
+    --c-pq:#475569; --c-eval:#059669;
+    --bg:#f8fafc; --line:#94a3b8;
   }
   *{box-sizing:border-box}
-  body{
-    margin:0;padding:40px 20px;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
-    background:var(--bg);color:#0f172a;line-height:1.5;
-  }
-  .wrap{max-width:1000px;margin:0 auto;}
-  h1{font-size:1.5rem;margin:0 0 6px;text-align:center;letter-spacing:.5px;}
-  .subtitle{text-align:center;color:#64748b;font-size:.92rem;margin-bottom:28px;}
+  body{margin:0;padding:36px 18px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#0f172a;line-height:1.5;}
+  .wrap{max-width:980px;margin:0 auto;}
+  h1{font-size:1.45rem;margin:0 0 6px;text-align:center;}
+  .subtitle{text-align:center;color:#64748b;font-size:.88rem;margin-bottom:30px;}
   .subtitle code{background:#e2e8f0;padding:1px 6px;border-radius:4px;font-size:.85em;}
 
-  /* 核心思路 callout */
-  .insight{
-    background:linear-gradient(90deg,#fef3c7,#fde68a);
-    border:1px solid #f59e0b;border-left:6px solid #f59e0b;
-    border-radius:8px;padding:16px 20px;margin-bottom:36px;
-  }
-  .insight h2{margin:0 0 8px;font-size:1.05rem;color:#92400e;display:flex;align-items:center;gap:8px;}
-  .insight p{margin:4px 0;font-size:.9rem;color:#78350f;}
-  .insight .key{font-weight:700;color:#7c2d12;}
+  /* ===== 阶段带（Phase A / B）===== */
+  .phase{border-radius:16px;padding:26px 20px 22px;margin-bottom:14px;}
+  .phase-a{background:linear-gradient(180deg,#eff6ff 0,#f8fafc 120px);border:1.5px solid #bfdbfe;}
+  .phase-b{background:linear-gradient(180deg,#fdf2f8 0,#f8fafc 120px);border:1.5px solid #fbcfe8;}
+  .phase-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
+  .plabel{font-weight:700;font-size:.78rem;color:#fff;padding:3px 12px;border-radius:12px;letter-spacing:.5px;}
+  .phase-a .plabel{background:var(--c-hqorig);}
+  .phase-b .plabel{background:var(--c-hqbeauty);}
+  .ptitle{font-weight:700;font-size:1.05rem;color:#1e293b;}
+  .pdesc{font-size:.8rem;color:#64748b;}
 
-  /* 框图容器 */
+  /* ===== 框图容器 ===== */
   .diagram{display:flex;flex-direction:column;align-items:center;gap:0;}
 
-  /* 节点通用样式 */
-  .node{
-    position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;
-    padding:12px 18px;min-width:220px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);
-  }
-  .node .title{font-weight:700;font-size:.95rem;}
-  .node .desc{font-size:.78rem;color:#64748b;margin-top:3px;}
+  /* 节点 */
+  .node{position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;padding:11px 17px;min-width:230px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .node .title{font-weight:700;font-size:.94rem;}
+  .node .desc{font-size:.77rem;color:#64748b;margin-top:3px;}
   .node .tag{position:absolute;top:-10px;right:10px;font-size:.65rem;background:#334155;color:#fff;padding:1px 8px;border-radius:10px;font-weight:600;}
 
-  /* 颜色变体：左边框着色 */
   .n-input{border-left:6px solid var(--c-input);}
-  .n-src{border-left:6px solid var(--c-src);background:#ecfdf5;}
-  .n-src .title{color:var(--c-src);}
-  .n-model{border-left:6px solid var(--c-model);background:#f5f3ff;}
-  .n-model .title{color:var(--c-model);}
-  .n-hqorig{border-left:6px solid var(--c-hqorig);background:#eff6ff;}
-  .n-hqorig .title{color:var(--c-hqorig);}
-  .n-hqbeauty{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;}
-  .n-hqbeauty .title{color:var(--c-hqbeauty);}
-  .n-lq{border-left:6px solid var(--c-lq);background:#fff7ed;}
-  .n-lq .title{color:var(--c-lq);}
-  .n-pq{border-left:6px solid var(--c-pq);background:#f1f5f9;}
-  .n-pq .title{color:var(--c-pq);}
-  .n-trainA{border-left:6px solid var(--c-trainA);background:#eff6ff;}
-  .n-trainA .title{color:var(--c-trainA);}
-  .n-trainB{border-left:6px solid var(--c-trainB);background:#fdf2f8;}
-  .n-trainB .title{color:var(--c-trainB);}
-  .n-eval{border-left:6px solid var(--c-eval);background:#ecfdf5;}
-  .n-eval .title{color:var(--c-eval);}
+  .n-src{border-left:6px solid var(--c-src);background:#ecfdf5;} .n-src .title{color:var(--c-src);}
+  .n-model{border-left:6px solid var(--c-model);background:#f5f3ff;} .n-model .title{color:var(--c-model);}
+  .n-hqorig{border-left:6px solid var(--c-hqorig);background:#eff6ff;} .n-hqorig .title{color:var(--c-hqorig);}
+  .n-hqbeauty{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;} .n-hqbeauty .title{color:var(--c-hqbeauty);}
+  .n-lq{border-left:6px solid var(--c-lq);background:#fff7ed;} .n-lq .title{color:var(--c-lq);}
+  .n-pq{border-left:6px solid var(--c-pq);background:#f1f5f9;} .n-pq .title{color:var(--c-pq);}
+  .n-trainA{border-left:6px solid var(--c-hqorig);background:#eff6ff;} .n-trainA .title{color:var(--c-hqorig);}
+  .n-trainB{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;} .n-trainB .title{color:var(--c-hqbeauty);}
+  .n-end{border-left:6px solid var(--c-eval);background:#ecfdf5;} .n-end .title{color:var(--c-eval);}
 
-  /* 连接线 */
+  /* 箭头 */
   .arrow{display:flex;flex-direction:column;align-items:center;}
-  .arrow .line{width:3px;height:22px;background:var(--line);}
+  .arrow .line{width:3px;height:20px;background:var(--line);}
   .arrow .head{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid var(--line);}
-  .arrow.short .line{height:14px;}
-  .arrow.tall .line{height:30px;}
+  .arrow.short .line{height:12px;}
 
-  /* 分支：横线 + 多列 */
+  /* 分支 */
   .branch{display:flex;flex-direction:column;align-items:center;width:100%;}
   .branch .hbar{height:3px;background:var(--line);width:100%;}
-  .branch .cols{display:flex;justify-content:center;gap:60px;align-items:flex-start;flex-wrap:wrap;}
+  .branch .cols{display:flex;justify-content:center;gap:50px;align-items:flex-start;flex-wrap:wrap;width:100%;}
   .branch .col{display:flex;flex-direction:column;align-items:center;}
-  .branch .stub{width:3px;height:18px;background:var(--line);}
-  .branch-label{font-size:.72rem;color:#64748b;background:var(--bg);padding:0 8px;margin-top:-9px;position:relative;z-index:1;}
+  .branch .stub{width:3px;height:16px;background:var(--line);}
+  .branch-label{font-size:.72rem;color:#64748b;background:var(--bg);padding:0 8px;margin:-8px 0 8px;position:relative;z-index:1;}
 
-  /* A/B 训练对照 */
-  .ab-cols{display:flex;gap:0;justify-content:center;align-items:stretch;}
+  /* A/B 两列 */
+  .ab-cols{display:flex;gap:0;justify-content:center;align-items:flex-start;}
   .ab-col{display:flex;flex-direction:column;align-items:center;}
   .ab-gap{width:60px;}
 
-  /* 评估对照盒 */
-  .eval-box{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-top:4px;}
-  .eval-card{border:1.5px solid;border-radius:8px;padding:10px 16px;font-size:.85rem;min-width:180px;text-align:center;}
-  .eval-a{border-color:var(--c-trainA);background:#eff6ff;color:#1e3a8a;}
-  .eval-b{border-color:var(--c-trainB);background:#fdf2f8;color:#831843;}
-  .eval-card .q{font-weight:700;}
-  .eval-card .ans{font-size:.78rem;margin-top:2px;}
-  .eval-b .ans{color:#be185d;}
-  .eval-a .ans{color:#1d4ed8;}
+  /* 编号阶段盒 */
+  .stage{position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:12px;padding:18px 20px 14px;width:100%;max-width:760px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .stage .badge{position:absolute;top:-14px;left:20px;width:28px;height:28px;border-radius:50%;background:#334155;color:#fff;font-weight:700;font-size:.85rem;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.15);}
+  .stage .stitle{font-weight:700;font-size:.96rem;color:#1e293b;margin-bottom:1px;}
+  .stage .sdesc{font-size:.78rem;color:#64748b;margin-bottom:8px;}
+  .steps{display:flex;flex-direction:column;gap:6px;}
+  .step-row{display:flex;align-items:center;gap:10px;font-size:.8rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 11px;}
+  .step-row .dot{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:#475569;color:#fff;font-size:.68rem;font-weight:700;display:flex;align-items:center;justify-content:center;}
+  .step-row .arrow-r{color:#94a3b8;font-weight:700;margin:0 3px;}
+  .step-row b{color:#1e293b;}
+
+  /* 双时机模式两列 */
+  .mode-cols{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;}
+  .mode-card{flex:1;min-width:220px;max-width:290px;border:1.5px solid #cbd5e1;border-radius:10px;padding:11px 15px;background:#fff;}
+  .mode-card .mtitle{font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:6px;}
+  .mode-card.pre{border-left:6px solid var(--c-hqorig);background:#eff6ff;} .mode-card.pre .mtitle{color:var(--c-hqorig);}
+  .mode-card.post{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;} .mode-card.post .mtitle{color:var(--c-hqbeauty);}
+  .mode-card .mdesc{font-size:.76rem;color:#64748b;margin-top:3px;}
+
+  /* 可选分支 */
+  .opt-branch{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;}
+  .opt-card{border:1.5px dashed var(--c-model);border-radius:10px;padding:10px 14px;background:#f5f3ff;text-align:center;min-width:220px;max-width:280px;}
+  .opt-card .otitle{font-weight:700;font-size:.88rem;color:var(--c-model);}
+  .opt-card .odesc{font-size:.74rem;color:#64748b;margin-top:3px;}
+
+  /* 桥接节点（A→B）*/
+  .bridge{border:2.5px solid #d97706;background:linear-gradient(180deg,#fef3c7,#fde68a);box-shadow:0 2px 8px rgba(217,119,6,.18);min-width:360px;max-width:560px;}
+  .bridge .title{color:#92400e;font-size:1rem;}
+  .bridge .desc{color:#78350f;}
 
   /* 图例 */
-  .legend{margin-top:40px;border-top:1px solid #e2e8f0;padding-top:18px;}
-  .legend h3{font-size:.9rem;margin:0 0 10px;color:#334155;}
-  .legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;}
-  .legend-item{display:flex;align-items:center;gap:8px;font-size:.82rem;color:#475569;}
-  .swatch{width:16px;height:16px;border-radius:4px;flex-shrink:0;}
+  .legend{margin-top:36px;border-top:1px solid #e2e8f0;padding-top:16px;}
+  .legend h3{font-size:.88rem;margin:0 0 10px;color:#334155;}
+  .legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:7px;}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:.8rem;color:#475569;}
+  .swatch{width:15px;height:15px;border-radius:4px;flex-shrink:0;}
 
   /* 注释 */
-  .notes{margin-top:28px;font-size:.8rem;color:#475569;}
-  .notes h3{font-size:.9rem;color:#334155;margin:0 0 8px;}
+  .notes{margin-top:24px;font-size:.8rem;color:#475569;}
+  .notes h3{font-size:.88rem;color:#334155;margin:0 0 8px;}
   .notes ul{margin:0;padding-left:20px;}
   .notes li{margin:4px 0;}
   .notes code{background:#e2e8f0;padding:1px 5px;border-radius:3px;font-size:.85em;}
-
-  .file-ref{font-size:.72rem;color:#94a3b8;}
-  .file-ref a{color:#64748b;text-decoration:none;border-bottom:1px dotted #94a3b8;}
-
-  /* ============ 第二部分：章节分隔 + 阶段盒 ============ */
-  .section-divider{margin:48px 0 20px;text-align:center;}
-  .section-divider h2{font-size:1.15rem;margin:0 0 6px;color:#0f172a;display:inline-block;padding:0 6px 6px;border-bottom:3px solid var(--c-model);}
-  .section-divider .sub{color:#64748b;font-size:.85rem;max-width:780px;margin:6px auto 0;}
-
-  /* 编号阶段盒 */
-  .stage{position:relative;border:1.5px solid #cbd5e1;background:#fff;border-radius:12px;padding:20px 22px 16px;width:100%;max-width:780px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
-  .stage .badge{position:absolute;top:-14px;left:22px;width:30px;height:30px;border-radius:50%;background:#334155;color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.15);}
-  .stage .stitle{font-weight:700;font-size:1rem;color:#1e293b;margin-bottom:2px;}
-  .stage .sdesc{font-size:.82rem;color:#64748b;margin-bottom:10px;}
-
-  /* 双时机模式两列 */
-  .mode-cols{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;}
-  .mode-card{flex:1;min-width:220px;max-width:300px;border:1.5px solid #cbd5e1;border-radius:10px;padding:12px 16px;background:#fff;}
-  .mode-card .mtitle{font-weight:700;font-size:.92rem;display:flex;align-items:center;gap:6px;}
-  .mode-card.pre{border-left:6px solid var(--c-hqorig);background:#eff6ff;}
-  .mode-card.pre .mtitle{color:var(--c-hqorig);}
-  .mode-card.post{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;}
-  .mode-card.post .mtitle{color:var(--c-hqbeauty);}
-  .mode-card .mdesc{font-size:.78rem;color:#64748b;margin-top:4px;}
-
-  /* 子步骤行 */
-  .steps{display:flex;flex-direction:column;gap:8px;}
-  .step-row{display:flex;align-items:center;gap:10px;font-size:.82rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;}
-  .step-row .dot{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#475569;color:#fff;font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;}
-  .step-row .arrow-r{color:#94a3b8;font-weight:700;margin:0 4px;}
-  .step-row b{color:#1e293b;}
-
-  /* 可选分支 */
-  .opt-branch{display:flex;gap:24px;justify-content:center;align-items:stretch;flex-wrap:wrap;}
-  .opt-card{border:1.5px dashed var(--c-model);border-radius:10px;padding:12px 16px;background:#f5f3ff;text-align:center;min-width:220px;max-width:280px;}
-  .opt-card .otitle{font-weight:700;font-size:.9rem;color:var(--c-model);}
-  .opt-card .odesc{font-size:.76rem;color:#64748b;margin-top:3px;}
-
-  /* 终点盒 */
-  .endpoint{border-left:6px solid var(--c-eval);background:#ecfdf5;}
-  .endpoint .title{color:var(--c-eval);}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <h1>人脸增强模块 · 算法原理框图</h1>
+  <h1>人脸增强模块 · 整体算法框图</h1>
   <div class="subtitle">
-    一、HYPIR 美颜退化路径（数据集构建 03d/04b）&nbsp;&nbsp;·&nbsp;&nbsp;二、三维人体重建中的人脸增强（双时机增强）
+    Phase A 离线准备（<code>03d</code> 美颜退化数据集 + <code>04b</code> 训练）→ 人脸增强模型 → Phase B 在线应用（3D 人体重建双时机人脸增强）
   </div>
 
-  <!-- ============ 一、HYPIR 美颜退化路径（数据集构建 03d/04b）============ -->
-  <div class="section-divider">
-    <h2>🧪 一、HYPIR 美颜退化路径（数据集构建 03d/04b）</h2>
-    <div class="sub">只输入原图人脸 → 同一 <code>src</code> 张量派生三张像素级对齐 512×512：
-    <code>hq_orig</code>(原图) / <code>hq_beauty</code>(美颜) / <code>lq_gauss</code>(高斯模糊)
-    · 共用 LQ 换 HQ 目标做 A/B 单变量对比</div>
+  <!-- ============================================================ -->
+  <!-- Phase A：离线 · 人脸增强模型准备 -->
+  <!-- ============================================================ -->
+  <div class="phase phase-a">
+    <div class="phase-head">
+      <span class="plabel">PHASE A · 离线</span>
+      <span class="ptitle">人脸增强模型准备</span>
+      <span class="pdesc">数据集构建（03d）+ LoRA 训练（04b）· 只输入原图人脸，合成 LQ 退化 + 美颜 HQ</span>
+    </div>
+
+    <div class="diagram">
+
+      <!-- A1 输入 -->
+      <div class="node n-input">
+        <div class="title">🖼️ 原始人脸图像文件夹</div>
+        <div class="desc"><code>INPUT_DIR</code> · 任意尺寸/宽高比 · 可含子目录</div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+      <!-- A2 对齐 -->
+      <div class="node n-src">
+        <div class="title">📐 Resize(512) → CenterCrop(512) → Normalize(±0.5)</div>
+        <div class="desc">与官方 <code>wildDataset</code> 一致 · 输出 ∈[-1,1]</div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+      <!-- A3 src -->
+      <div class="node n-src">
+        <div class="title">⬛ src 张量 [1,3,512,512] ∈[-1,1]</div>
+        <div class="desc">模型输入 · 以下三者皆派生自此 → 像素级对齐</div>
+      </div>
+      <div class="arrow short"><div class="line"></div></div>
+      <div class="branch-label">▼ 同一 src 三路派生（像素级对齐，任意输入尺寸都安全）</div>
+
+      <!-- 三路分支 -->
+      <div class="branch">
+        <div class="hbar"></div>
+        <div class="cols">
+
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-hqorig">
+              <span class="tag">HQ·A</span>
+              <div class="title">hq_orig</div>
+              <div class="desc">原图对齐 crop<br>复原实验 HQ 目标</div>
+            </div>
+          </div>
+
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-model">
+              <div class="title">💎 RetouchFormer</div>
+              <div class="desc"><code>model(src)</code><br>美颜·去瑕疵·磨皮·保结构</div>
+            </div>
+            <div class="arrow short"><div class="line"></div><div class="head"></div></div>
+            <div class="node n-hqbeauty">
+              <span class="tag">HQ·B</span>
+              <div class="title">hq_beauty</div>
+              <div class="desc">美颜结果<br>复原+美颜实验 HQ 目标</div>
+            </div>
+          </div>
+
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-lq">
+              <span class="tag">LQ·共用</span>
+              <div class="title">lq_gauss</div>
+              <div class="desc">高斯模糊退化<br>kernel∈{3,5,7,9,11} σ∈[1,2] 重复1–5<br>每图一个 FIXED seeded 实现</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div style="height:14px;"></div>
+      <div class="branch-label">▼ Phase B（03b）：共用同一 lq_gauss 作 LQ，仅 HQ 目标不同 → 两张 parquet</div>
+
+      <!-- 两张 parquet -->
+      <div class="branch">
+        <div class="hbar"></div>
+        <div class="cols" style="gap:60px;">
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-pq">
+              <span class="tag">A</span>
+              <div class="title">rest.parquet</div>
+              <div class="desc">LQ=lq_gauss → HQ=hq_orig<br>基线复原</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-pq">
+              <span class="tag">B</span>
+              <div class="title">rest_beauty.parquet</div>
+              <div class="desc">LQ=lq_gauss → HQ=hq_beauty<br>复原 + 美颜（修掉长痘）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:4px;"></div>
+      <div class="branch-label">▼ 04b 各训一个 HYPIR-SD2 LoRA（OUTPUT_DIR 分开，暖启动 HYPIR_sd2.pth）</div>
+
+      <!-- A/B 训练 -->
+      <div class="ab-cols">
+        <div class="ab-col">
+          <div class="arrow"><div class="line"></div><div class="head"></div></div>
+          <div class="node n-trainA">
+            <span class="tag">训练 A</span>
+            <div class="title">FineTuneSD2Trainer</div>
+            <div class="desc">rest.parquet → <code>exp_rest</code><br>基线复原</div>
+          </div>
+        </div>
+        <div class="ab-gap"></div>
+        <div class="ab-col">
+          <div class="arrow"><div class="line"></div><div class="head"></div></div>
+          <div class="node n-trainB">
+            <span class="tag">训练 B</span>
+            <div class="title">FineTuneSD2Trainer</div>
+            <div class="desc">rest_beauty.parquet → <code>exp_rest_beauty</code><br>复原+美颜，不毁脸</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
 
-  <!-- 核心思路 -->
-  <div class="insight">
-    <h2>💡 核心思路：换 HQ 目标，修掉「长痘变丑」</h2>
-    <p>现有 <code>03c/04c</code> 在线退化路径（LQ=高斯模糊、HQ=原图）虽能复原模糊，但模型过度增强会<span class="key">凭空长出皮肤瑕疵</span>（"长痘变丑"）。</p>
-    <p>解法：<span class="key">LQ 保持同样的模糊</span>，把 HQ 目标换成 RetouchFormer 的美颜版（已去瑕疵+磨皮、保结构）。模型仍学去模糊（增强不失），但目标变成干净光滑皮肤 → <span class="key">不再 invent 瑕疵</span>。</p>
-    <p>同时建两套数据做 <span class="key">A/B 单变量对比</span>：两者共用同一 <code>lq_gauss</code>，仅 HQ 目标不同。</p>
+  <!-- 桥接箭头 + 桥接节点 -->
+  <div class="arrow"><div class="line"></div><div class="head"></div></div>
+  <div class="node bridge">
+    <div class="title">🔗 人脸增强模型 = EnhModel</div>
+    <div class="desc">Phase A 训练产物（HYPIR 复原 / 复原+美颜，或 RetouchFormer）→ 作为 Phase B 的增强模型接口<br>
+      按评估（05/02）选用 A 或 B：A 去模糊但易「长痘」· B 去模糊 + 不毁脸</div>
   </div>
+  <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
-  <!-- 框图 -->
-  <div class="diagram">
-
-    <!-- 1. 输入 -->
-    <div class="node n-input">
-      <div class="title">🖼️ 原始人脸图像文件夹</div>
-      <div class="desc"><code>INPUT_DIR</code> · 任意尺寸/宽高比 · 可含子目录</div>
+  <!-- ============================================================ -->
+  <!-- Phase B：在线 · 3D 人体重建中的人脸增强 -->
+  <!-- ============================================================ -->
+  <div class="phase phase-b">
+    <div class="phase-head">
+      <span class="plabel">PHASE B · 在线</span>
+      <span class="ptitle">3D 人体重建中的人脸增强</span>
+      <span class="pdesc">双时机调用 EnhModel 增强人脸 GT / 渲染图，让监督目标更清晰 → 更高质量的人体重建</span>
     </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
-    <!-- 2. 对齐变换 -->
-    <div class="node n-src">
-      <div class="title">📐 Resize(512) → CenterCrop(512) → Normalize(±0.5)</div>
-      <div class="desc">对齐 crop · 与官方 <code>wildDataset</code> 一致 · 输出 ∈[-1,1]</div>
-      <div class="file-ref" style="margin-top:4px;">build_beauty_dataset.py · build_transform()</div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
+    <div class="diagram">
 
-    <!-- 3. src 张量 -->
-    <div class="node n-src">
-      <div class="title">⬛ src 张量 [1,3,512,512] ∈[-1,1]</div>
-      <div class="desc">模型输入 · 以下三者皆派生自此 → 像素级对齐</div>
-    </div>
-    <div class="arrow short"><div class="line"></div></div>
+      <!-- B 输入 -->
+      <div class="node n-input">
+        <div class="title">🎬 3D 人体重建训练帧序列</div>
+        <div class="desc">GT 图像（前处理）/ 训练中渲染图（后处理）</div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
-    <!-- 分支说明 -->
-    <div class="branch-label">▼ 同一 src 三路派生（像素级对齐，任意输入尺寸都安全）</div>
-
-    <!-- 三路分支 -->
-    <div class="branch">
-      <div class="hbar"></div>
-      <div class="cols">
-
-        <!-- hq_orig -->
-        <div class="col">
-          <div class="stub"></div>
-          <div class="node n-hqorig">
-            <span class="tag">HQ·A</span>
-            <div class="title">hq_orig</div>
-            <div class="desc">原图对齐 crop（直接存 src）<br>复原实验的 HQ 目标</div>
+      <!-- Stage 1 双时机 -->
+      <div class="stage">
+        <div class="badge">1</div>
+        <div class="stitle">双时机增强（调用时机）</div>
+        <div class="sdesc">两种时机共用下方同一套增强流程（Stage 2–5）</div>
+        <div class="mode-cols">
+          <div class="mode-card pre">
+            <div class="mtitle">🟦 前处理增强</div>
+            <div class="mdesc">训练<b>前</b>增强 GT 图像 → 作为训练监督目标</div>
+          </div>
+          <div class="mode-card post">
+            <div class="mtitle">🟪 后处理增强</div>
+            <div class="mdesc">训练<b>中</b>特定 epoch：渲染图→增强→回写 GT（迭代精修监督目标）</div>
           </div>
         </div>
-
-        <!-- 中间：RetouchFormer + hq_beauty -->
-        <div class="col">
-          <div class="stub"></div>
-          <div class="node n-model">
-            <div class="title">💎 RetouchFormer 模型</div>
-            <div class="desc"><code>pred,_ = model(src)</code><br>美颜 · 去瑕疵 · 磨皮 · 保结构</div>
-            <div class="file-ref" style="margin-top:4px;">InpaintGenerator · gen_best.pth</div>
-          </div>
-          <div class="arrow short"><div class="line"></div><div class="head"></div></div>
-          <div class="node n-hqbeauty">
-            <span class="tag">HQ·B</span>
-            <div class="title">hq_beauty</div>
-            <div class="desc">RetouchFormer 美颜结果<br>复原+美颜实验的 HQ 目标</div>
-          </div>
-        </div>
-
-        <!-- lq_gauss -->
-        <div class="col">
-          <div class="stub"></div>
-          <div class="node n-lq">
-            <span class="tag">LQ·共用</span>
-            <div class="title">lq_gauss</div>
-            <div class="desc">高斯模糊退化（作用于同一 crop）<br>
-              kernel ∈ {3,5,7,9,11} · σ∈[1,2] · 重复 1–5 次<br>
-              每图一个 FIXED seeded 实现（离线）</div>
-          </div>
-        </div>
-
       </div>
-    </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
-    <div style="height:20px;"></div>
-
-    <!-- 汇合：lq_gauss 作为共用 LQ -->
-    <div class="branch-label">▼ Phase B：建两张配对 parquet（共用同一 lq_gauss 作 LQ，仅 HQ 目标不同）</div>
-    <div class="branch">
-      <div class="hbar"></div>
-      <div class="cols">
-
-        <div class="col">
-          <div class="stub"></div>
-          <div class="node n-pq">
-            <span class="tag">A</span>
-            <div class="title">rest.parquet</div>
-            <div class="desc">LQ = lq_gauss → HQ = hq_orig<br>基线复原（= 现有 03c 风格）</div>
-          </div>
+      <!-- Stage 2 人脸定位 -->
+      <div class="stage">
+        <div class="badge">2</div>
+        <div class="stitle">人脸定位（多帧关联到人体）</div>
+        <div class="sdesc">把每帧人脸框关联到对应的人体 tracking ID</div>
+        <div class="steps">
+          <div class="step-row"><span class="dot">a</span><b>RetinaFace 检测</b> → 每帧人脸框</div>
+          <div class="step-row"><span class="dot">b</span><b>SAM3 多人追踪</b> → 人体 tracking ID + 身体 Mask</div>
+          <div class="step-row"><span class="dot">c</span>人脸框 ∩ 身体 Mask <b>重叠率匹配</b> → 关联到 tracking ID</div>
         </div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
-        <div class="col">
-          <div class="stub"></div>
-          <div class="node n-pq">
-            <span class="tag">B</span>
-            <div class="title">rest_beauty.parquet</div>
-            <div class="desc">LQ = lq_gauss → HQ = hq_beauty<br>复原 + 美颜（修掉长痘）</div>
+      <!-- Stage 3 区域增强 -->
+      <div class="stage">
+        <div class="badge">3</div>
+        <div class="stitle">区域增强（每个 tracked 人脸）</div>
+        <div class="sdesc">EnhModel 固定 512×512 输入，故需缩放对齐</div>
+        <div class="steps">
+          <div class="step-row"><span class="dot">a</span>裁剪人脸区域</div>
+          <div class="step-row"><span class="dot">b</span>扩展 bbox（upscale，留余量）</div>
+          <div class="step-row"><span class="dot">c</span>缩放至 <b>512×512</b></div>
+          <div class="step-row"><span class="dot">d</span><b>EnhModel 推理</b>（= Phase A 训练的人脸增强模型）</div>
+          <div class="step-row"><span class="dot">e</span>缩放回原尺寸</div>
+        </div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Stage 4 渐变融合 -->
+      <div class="stage">
+        <div class="badge">4</div>
+        <div class="stitle">渐变融合（避免接缝）</div>
+        <div class="sdesc">中心保留增强结果，边缘渐变过渡回原图</div>
+        <div class="steps">
+          <div class="step-row"><span class="dot">a</span><b>54px 边界渐变掩码</b>：中心保留增强、边缘渐变过渡</div>
+          <div class="step-row"><span class="dot">b</span>后处理模式<b>额外叠加 alpha 掩码</b>融合（渲染图与增强图按 alpha 混合）</div>
+        </div>
+      </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Stage 5 美颜后处理（可选） -->
+      <div class="stage">
+        <div class="badge">5</div>
+        <div class="stitle">美颜后处理（可选 · 二次增强）</div>
+        <div class="sdesc">接口与 EnhModel 一致，可串联在 Stage 3 之后</div>
+        <div class="opt-branch">
+          <div class="opt-card">
+            <div class="otitle">💎 RetouchFormer 二次增强</div>
+            <div class="odesc">去瑕疵 / 磨皮 / 保结构<br>接口同 EnhModel：crop→512→推理→回缩→渐变融合</div>
           </div>
         </div>
-
       </div>
+      <div class="arrow"><div class="line"></div><div class="head"></div></div>
+
+      <!-- 终点 -->
+      <div class="node n-end">
+        <div class="title">✅ 增强图像回写 GT / 继续训练</div>
+        <div class="desc">前处理：直接作监督目标 · 后处理：回写 GT 供后续 epoch 精修 → 更高质量的人体重建</div>
+      </div>
+
     </div>
-
-    <div style="height:6px;"></div>
-    <div class="branch-label">▼ 04b 各自训一个 HYPIR-SD2 LoRA（OUTPUT_DIR 分开）</div>
-
-    <!-- A/B 训练 -->
-    <div class="ab-cols">
-      <div class="ab-col">
-        <div class="arrow"><div class="line"></div><div class="head"></div></div>
-        <div class="node n-trainA">
-          <span class="tag">训练 A</span>
-          <div class="title">FineTuneSD2Trainer</div>
-          <div class="desc">暖启动 LoRA: <code>HYPIR_sd2.pth</code><br>parquet = rest.parquet<br>输出: <code>exp_rest</code></div>
-        </div>
-      </div>
-      <div class="ab-gap"></div>
-      <div class="ab-col">
-        <div class="arrow"><div class="line"></div><div class="head"></div></div>
-        <div class="node n-trainB">
-          <span class="tag">训练 B</span>
-          <div class="title">FineTuneSD2Trainer</div>
-          <div class="desc">暖启动 LoRA: <code>HYPIR_sd2.pth</code><br>parquet = rest_beauty.parquet<br>输出: <code>exp_rest_beauty</code></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- 评估对照 -->
-    <div class="node n-eval">
-      <div class="title">🔬 05 评估 / 02 推理 对比</div>
-      <div class="desc">同一组测试图，分别加载 A / B 的 checkpoint，对比复原图</div>
-    </div>
-
-    <div class="eval-box">
-      <div class="eval-card eval-a">
-        <div class="q">A · 基线复原</div>
-        <div class="ans">去模糊 ✓ · 但「长痘变丑」？✗</div>
-      </div>
-      <div class="eval-card eval-b">
-        <div class="q">B · 复原 + 美颜</div>
-        <div class="ans">去模糊 ✓ · 不毁脸 ✓</div>
-      </div>
-    </div>
-
   </div>
 
   <!-- 图例 -->
   <div class="legend">
     <h3>图例</h3>
     <div class="legend-grid">
-      <div class="legend-item"><span class="swatch" style="background:var(--c-input)"></span>输入原图</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-input)"></span>输入图像/帧</div>
       <div class="legend-item"><span class="swatch" style="background:var(--c-src)"></span>对齐 src 张量</div>
       <div class="legend-item"><span class="swatch" style="background:var(--c-model)"></span>RetouchFormer 美颜模型</div>
-      <div class="legend-item"><span class="swatch" style="background:var(--c-hqorig)"></span>hq_orig（原图 HQ）</div>
-      <div class="legend-item"><span class="swatch" style="background:var(--c-hqbeauty)"></span>hq_beauty（美颜 HQ）</div>
-      <div class="legend-item"><span class="swatch" style="background:var(--c-lq)"></span>lq_gauss（共用退化 LQ）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-hqorig)"></span>hq_orig / Phase A（复原）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-hqbeauty)"></span>hq_beauty / Phase B（美颜）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-lq)"></span>lq_gauss 退化 LQ</div>
       <div class="legend-item"><span class="swatch" style="background:var(--c-pq)"></span>配对 parquet</div>
-      <div class="legend-item"><span class="swatch" style="background:var(--c-eval)"></span>评估对照</div>
+      <div class="legend-item"><span class="swatch" style="background:#d97706"></span>桥接（EnhModel）</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--c-eval)"></span>终点（回写/重建）</div>
     </div>
   </div>
 
@@ -350,118 +377,12 @@
   <div class="notes">
     <h3>关键设计要点</h3>
     <ul>
-      <li><b>像素级对齐</b>：三者皆派生自同一 <code>src</code> 张量，故任意尺寸/宽高比输入都安全（模型 VRT 写死 512×512，非方形会被 CenterCrop，而 hq_orig / lq_gauss 存的正是这个 crop 版本）。</li>
-      <li><b>单变量 A/B</b>：A 与 B 共用同一 <code>lq_gauss</code>，仅 HQ 目标不同 → 对比纯粹反映「HQ 美颜 vs 原图」对长痘问题的影响。<code>BLUR_SEED</code> 可复现地重随机。</li>
-      <li><b>高斯模糊复现</b>本仓 HYPIR clone 里简化版 <code>batch_transform.py</code>：随机 kernel 3/5/7/9/11、σ∈[1,2]、重复 1–5 次，每图一个 FIXED seeded 实现（离线，非每 epoch 重随机）。作用于 raw 对齐 crop（非 <code>USM(orig)</code>）——与 03c 略有偏差，但 A/B 共用同一 lq_gauss，对比仍是单变量。</li>
-      <li><b>训练暖启动</b>：从发布 <code>HYPIR_sd2.pth</code> LoRA 继续练、适配人脸域，而非从零重学（7k 张从零不够；发布模型是 bs1024 大数据训出来的）。</li>
-      <li><b>对应脚本</b>：Phase A = <code>03d_build_beauty_dataset.sh</code> + <code>build_beauty_dataset.py</code>；Phase B = 复用 <code>03b_build_paired_dataset.sh</code>；训练 = <code>04b_train_paired.sh</code>（A/B 各跑一次，OUTPUT_DIR 分开）。</li>
-    </ul>
-  </div>
-
-  <!-- ============ 二、三维人体重建中的人脸增强模块 ============ -->
-  <div class="section-divider">
-    <h2>🧍 二、三维人体重建中的人脸增强模块</h2>
-    <div class="sub">双时机增强（前处理 / 后处理）→ 人脸定位 → 区域增强 → 渐变融合 →（可选）美颜后处理</div>
-  </div>
-
-  <!-- 模块定位 -->
-  <div class="insight" style="background:linear-gradient(90deg,#ede9fe,#ddd6fe);border-color:#7c3aed;border-left-color:#7c3aed;">
-    <h2 style="color:#5b21b6;">⚙️ 模块定位：训练循环里的人脸质量提升</h2>
-    <p>在人体重建（SMPLX / 3DGS / NeRF 训练）中，人脸区域常因分辨率低、模糊而细节丢失。该模块在<span style="font-weight:700;color:#5b21b6;">训练前（前处理）</span>或<span style="font-weight:700;color:#5b21b6;">训练中特定 epoch（后处理）</span>对 GT 人脸做增强，让监督目标更清晰，从而获得更高质量的人体重建结果。</p>
-    <p>关键点：用「<span style="font-weight:700;color:#5b21b6;">人脸框 ∩ 身体 Mask 重叠率</span>」把人脸框关联到人体 tracking ID，解决多人场景的人脸归属问题。</p>
-  </div>
-
-  <div class="diagram">
-
-    <!-- Stage 1: 双时机增强 -->
-    <div class="stage">
-      <div class="badge">1</div>
-      <div class="stitle">双时机增强（调用时机）</div>
-      <div class="sdesc">两种时机共用同一套增强流程（下方 Stage 2–5）</div>
-      <div class="mode-cols">
-        <div class="mode-card pre">
-          <div class="mtitle">🟦 前处理增强</div>
-          <div class="mdesc">训练<b>前</b>增强 GT 图像<br>→ 增强后的图作为训练监督目标</div>
-        </div>
-        <div class="mode-card post">
-          <div class="mtitle">🟪 后处理增强</div>
-          <div class="mdesc">训练<b>中</b>特定 epoch：用<b>渲染图</b>增强<br>→ 再回写 GT（迭代精修监督目标）</div>
-        </div>
-      </div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- Stage 2: 人脸定位 -->
-    <div class="stage">
-      <div class="badge">2</div>
-      <div class="stitle">人脸定位（多帧关联到人体）</div>
-      <div class="sdesc">把每帧的人脸框关联到对应的人体 tracking ID</div>
-      <div class="steps">
-        <div class="step-row"><span class="dot">a</span><b>RetinaFace 检测</b> → 每帧人脸框</div>
-        <div class="step-row"><span class="dot">b</span><b>SAM3 多人追踪</b> → 人体 tracking ID + 身体 Mask</div>
-        <div class="step-row"><span class="dot">c</span>人脸框 ∩ 身体 Mask <b>重叠率匹配</b> → 人脸框关联到 tracking ID</div>
-      </div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- Stage 3: 区域增强 -->
-    <div class="stage">
-      <div class="badge">3</div>
-      <div class="stitle">区域增强（每个 tracked 人脸）</div>
-      <div class="sdesc">EnhModel 固定 512×512 输入，故需缩放对齐</div>
-      <div class="steps">
-        <div class="step-row"><span class="dot">a</span>裁剪人脸区域</div>
-        <div class="step-row"><span class="dot">b</span>扩展 bbox（upscale，留余量）</div>
-        <div class="step-row"><span class="dot">c</span>缩放至 <b>512×512</b></div>
-        <div class="step-row"><span class="dot">d</span><b>EnhModel 推理</b>（人脸增强）</div>
-        <div class="step-row"><span class="dot">e</span>缩放回原尺寸</div>
-      </div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- Stage 4: 渐变融合 -->
-    <div class="stage">
-      <div class="badge">4</div>
-      <div class="stitle">渐变融合（避免接缝）</div>
-      <div class="sdesc">中心保留增强结果，边缘渐变过渡回原图</div>
-      <div class="steps">
-        <div class="step-row"><span class="dot">a</span><b>54px 边界渐变掩码</b>：中心保留增强、边缘渐变过渡</div>
-        <div class="step-row"><span class="dot">b</span>后处理模式<b>额外叠加 alpha 掩码</b>融合（渲染图与增强图按 alpha 混合）</div>
-      </div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- Stage 5: 美颜后处理（可选） -->
-    <div class="stage">
-      <div class="badge">5</div>
-      <div class="stitle">美颜后处理（可选 · 二次增强）</div>
-      <div class="sdesc">接口与 EnhModel 一致，可作为第二 pass 串联在 Stage 3 之后</div>
-      <div class="opt-branch">
-        <div class="opt-card">
-          <div class="otitle">💎 RetouchFormer 二次增强</div>
-          <div class="odesc">去瑕疵 / 磨皮 / 保结构<br>接口同 EnhModel：crop→512→推理→回缩→渐变融合</div>
-        </div>
-      </div>
-    </div>
-    <div class="arrow"><div class="line"></div><div class="head"></div></div>
-
-    <!-- 终点 -->
-    <div class="node endpoint">
-      <div class="title">✅ 增强图像回写 GT / 继续训练</div>
-      <div class="desc">前处理：直接作为训练监督目标 · 后处理：回写 GT 供后续 epoch 迭代精修</div>
-    </div>
-
-  </div>
-
-  <!-- 注释 -->
-  <div class="notes" style="margin-top:36px;">
-    <h3>设计要点</h3>
-    <ul>
-      <li><b>双时机</b>：前处理静态提升 GT 质量；后处理随训练迭代——特定 epoch 用<b>当前渲染图</b>（而非原始 GT）做增强再回写，让监督目标随模型能力动态精修。</li>
-      <li><b>人脸定位靠重叠率</b>：RetinaFace 只给框、SAM3 只给追踪 ID + 身体 Mask，二者不直接关联；用「人脸框落在哪个身体 Mask 内的重叠率最大」把人脸框绑定到 tracking ID，解决多人场景的人脸归属。</li>
-      <li><b>512×512 缩放对齐</b>：EnhModel 与 RetouchFormer 都写死 512×512 输入，故 crop → upscale bbox → 缩放 512 → 推理 → 缩放回原尺寸，保证增强后人脸与原图像素对齐、可无缝贴回。</li>
-      <li><b>54px 渐变掩码</b>：硬接缝会留下可见边界；54px 宽渐变带让增强区从中心到边缘平滑过渡到原图，后处理模式再叠一层 alpha 掩码融合渲染图与增强图。</li>
-      <li><b>美颜后处理可选串联</b>：RetouchFormer 接口与 EnhModel 一致（同样的 crop → 512 → 推理 → 回缩 → 渐变融合流程），可在 EnhModel 之后作为第二 pass 串联，进一步去瑕疵磨皮。</li>
+      <li><b>整体结构</b>：Phase A 离线训练人脸增强模型（数据集 03d + 训练 04b），经「EnhModel」桥接进入 Phase B 在线 3D 人体重建人脸增强；A 的训练产物即 B 调用的增强模型。</li>
+      <li><b>A 核心思路</b>：现有 LQ=模糊/HQ=原图路径会「长痘变丑」；解法是 LQ 保持同样模糊、把 HQ 换成 RetouchFormer 美颜版 → 模型仍学去模糊但目标变干净皮肤，不再 invent 瑕疵。A/B 共用同一 <code>lq_gauss</code> 仅 HQ 不同 → 单变量对比。</li>
+      <li><b>像素级对齐</b>（A）：hq_orig / hq_beauty / lq_gauss 皆派生自同一 <code>src</code> 张量，故任意尺寸/宽高比输入都安全（模型 VRT 写死 512×512，非方形 CenterCrop，三者存同一 crop 版本）。</li>
+      <li><b>人脸定位靠重叠率</b>（B·Stage2）：RetinaFace 只给框、SAM3 只给追踪 ID+身体 Mask；用「人脸框落在哪个身体 Mask 内重叠率最大」绑定到 tracking ID，解决多人场景人脸归属。</li>
+      <li><b>512×512 缩放对齐 + 54px 渐变融合</b>（B·Stage3-4）：EnhModel/RetouchFormer 写死 512 输入，crop→upscale bbox→512→推理→回缩，再以 54px 渐变掩码无缝贴回原图；后处理模式额外叠 alpha 掩码融合渲染图与增强图。</li>
+      <li><b>双时机</b>（B·Stage1）：前处理静态提升 GT；后处理随训练迭代——特定 epoch 用当前渲染图增强再回写，监督目标随模型能力动态精修。</li>
     </ul>
   </div>
 
