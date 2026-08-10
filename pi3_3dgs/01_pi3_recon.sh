@@ -3,8 +3,9 @@
 # export to COLMAP text format (for 2DGS train.py).
 #
 # Input:  video file (.mp4/.mov) OR folder of images (env: INPUT)
-# Output: $OUTPUT_DIR/{frames, predictions.npz, dense_cloud.ply, source/}
+# Output: $OUTPUT_DIR/{frames, predictions.npz, dense_cloud.ply, poses.json, source/}
 #         source/ contains images/ + sparse/0/{cameras,images,points3D}.txt
+#         (--no_colmap skips source/; wan22_rotate step 04 uses that mode)
 #
 # Env (all optional, defaults shown):
 #   INPUT=/path/to/rotate_360.mp4   # required if --input not given

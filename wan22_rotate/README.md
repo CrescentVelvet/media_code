@@ -45,6 +45,13 @@ GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
 #     image/
 #       00000.jpg, 00001.jpg, ...
 
+# 4) Pi3 位姿估计（不进行三维重建，只出位姿 + 稠密点云）
+#    复用 wan22_rotate env（已有 Pi3 全部依赖）；调 pi3_3dgs/pi3_recon.py --no_colmap
+#    自动用步骤 03 的 JPG（若已跑），否则自动调 03 抽帧
+GPU=0 bash wan22_rotate/04_pi3_pose.sh
+# 输出：rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
+# poses.json 是人类可读的 c2w 4x4 矩阵（每帧一个），可用任何 JSON viewer 看
+
 # ── 自定义 ──
 # 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
 GPU=0 INPUT_DIR=... WEIGHT_PATH=... \
@@ -62,18 +69,15 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
   INPUT_DIR=... bash wan22_rotate/01_pick_and_segment.sh
 ```
 
-- 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
+- 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；Pi3 位姿 → `../wan22_rotate_results/rotate_360/pi3/{predictions.npz,poses.json,dense_cloud.ply}`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
 
 ## → 接入三维重建（Pi3 + 2D Gaussian Splatting）
 
-生成的 `rotate_360.mp4`（或步骤 03 拆出的 JPG 帧）可直接喂给本仓的 [`pi3_3dgs/`](../pi3_3dgs/) 流水线做三维重建：[π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈出位姿 + 稠密点云，[2D Gaussian Splatting](https://github.com/hbb1/2d-gaussian-splatting)（SIGGRAPH 2024）训练 + TSDF 提网格。详见 [pi3_3dgs/README.md](../pi3_3dgs/README.md)。
+步骤 04 已用 Pi3 估出位姿（`rotate_360/pi3/`）。若要继续做 2DGS 三维重建，有两种路径：
 
+**路径 A（推荐）**：直接喂步骤 03 的 JPG 帧给 [`pi3_3dgs/`](../pi3_3dgs/) 全流程（Pi3 重跑一次 + COLMAP 导出 + 2DGS 训练 + 渲染 + 网格）：
 ```bash
-# 一键：rotate_360.mp4 → Pi3 位姿估计 → 2DGS 训练 → 渲染 + 网格
-#       （默认 INPUT 就指向 ../wan22_rotate_results/rotate_360.mp4，可不传）
-GPU=0 bash pi3_3dgs/run_all.sh
-
-# 也可喂步骤 03 拆出的 JPG 帧文件夹（匹配 INPUT_DIR/image/ 模式）
+# 一键：rotate_360/ (JPGs) → Pi3 → 2DGS 训练 → 渲染 + 网格
 GPU=0 INPUT=../wan22_rotate_results/rotate_360 bash pi3_3dgs/run_all.sh
 
 # 因输入是白底分割视频，建议训推用白底 + 无界 TSDF：
@@ -83,6 +87,8 @@ GPU=0 UNBOUNDED=1 MESH_RES=2048 bash pi3_3dgs/03_render_2dgs.sh   # 提网格
 # 首次跑前先做 pi3_3dgs 的「首次准备」（建 env + clone 仓 + 编 CUDA ext + 下 Pi3 权重）
 INSTALL_DEPS=1 BUILD_CUDA=1 bash pi3_3dgs/00_setup_env.sh
 ```
+
+**路径 B**：复用步骤 04 的 Pi3 输出（避免重跑 Pi3）—— 暂未自动化，需手动把 `predictions.npz` + `dense_cloud.ply` 转成 COLMAP 格式。如需此路径请提 issue；当前推荐路径 A（Pi3 推理只需 10-60 秒，重跑无妨）。
 
 ## 首次准备
 
@@ -163,6 +169,17 @@ $RESULTS_DIR/rotate_360.mp4
     ▼
 $RESULTS_DIR/rotate_360/image/*.jpg   (同名目录下的 image/ 文件夹)
                                       (匹配 INPUT_DIR/image/ 模式, 可喂回 01 或 pi3_3dgs)
+    │
+    ▼
+[04] Pi3 位姿估计  (wan22_rotate env, 调 pi3_3dgs/pi3_recon.py --no_colmap)
+    │  ├─ 确认步骤 03 的 JPG 存在 (否则自动调 03 抽帧)
+    │  ├─ Pi3 前向 (1 次推理 → 所有视角的位姿 + 稠密点云 + 置信度)
+    │  └─ --no_colmap: 跳过 COLMAP 导出 + 2DGS 训练 (不进行三维重建)
+    ▼
+$RESULTS_DIR/rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
+   predictions.npz  # 原始 Pi3 张量 (points, camera_poses, conf, images, ...)
+   dense_cloud.ply  # 置信度过滤后的稠密点云 (MeshLab/SuperSplat 可看)
+   poses.json       # 人类可读的 c2w 4x4 矩阵 (每帧一个, OpenCV 约定)
 ```
 
 ### Step 01 — 选图 + 分割 (`01_pick_and_segment.sh` → `pick_and_segment.py`)
@@ -209,6 +226,40 @@ $RESULTS_DIR/
 - 或任何接受 `INPUT_DIR/image/` 模式的算法
 
 默认 `FPS=0` 抽每一帧（按源视频 fps，~81 张）；设 `FPS=N` 按 N fps 采样。`JPG_QUALITY=95`（视觉无损）。
+
+### Step 04 — Pi3 位姿估计 (`04_pi3_pose.sh` → 调 `pi3_3dgs/pi3_recon.py --no_colmap`)
+
+在 wan22_rotate env 里跑 [π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈位姿 + 稠密点云估计——**不进行三维重建**（不导出 COLMAP 格式、不跑 2DGS 训练）。
+
+**为何能在 wan22_rotate env 里跑**：Pi3 的依赖（torch 2.6.0+cu124、numpy 1.26.4、cv2、safetensors、plyfile、huggingface_hub）全部已在 wan22_rotate env 里（sam_3d_body + diffsynth 装过）。不需要 pi3_3dgs env（那个 env 只是为了编 2DGS 的 CUDA 光栅化扩展）。
+
+**流程**：
+1. 若 `$RESULTS_DIR/<video_name>/image/` 已存在（步骤 03 跑过）：直接用这些 JPG 作为 Pi3 输入。
+2. 否则：自动调 `03_extract_frames.sh` 抽帧（"拆分视频为 JPG 帧"这一步）。
+3. 调 `pi3_3dgs/pi3_recon.py --no_colmap`：Pi3 前向一次出所有视角的位姿（c2w 4x4 矩阵）+ 稠密点云 + 置信度。
+4. 输出 `predictions.npz` + `dense_cloud.ply` + `poses.json`（人类可读）。
+
+**`--no_colmap` 的含义**：跳过 `pi3_recon.py` 的第 5 步（COLMAP 文本格式导出）。该步只在不做 2DGS 训练时是冗余的（COLMAP 格式是 2DGS `train.py` 的输入）。同时跳过了 `open3d` 的体素下采样（该库不在 wan22_rotate env 里，只在 COLMAP 导出阶段需要）。
+
+**`poses.json` 格式**：
+```json
+{
+  "frame_names": ["00000.jpg", "00001.jpg", ...],
+  "camera_poses_c2w": [[[...4x4...], [...], ...]],   // N 个 4x4 c2w 矩阵
+  "num_frames": 81,
+  "image_size": [1248, 704],
+  "convention": "OpenCV (z forward, y down, x right)",
+  "note": "c2w = camera-to-world 4x4 matrix. Invert for w2c ..."
+}
+```
+
+**首次准备**：需要 Pi3 仓库（`../Pi3`）和权重（`../../model/Pi3/model.safetensors`）。脚本会自动 clone Pi3 仓库（如果不存在）；权重需手动下载（脚本会给出提示）：
+```bash
+# 下 Pi3 权重（公开，免 token；约 1GB）
+mkdir -p ../../model/Pi3
+wget --no-check-certificate -O ../../model/Pi3/model.safetensors \
+  https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors
+```
 
 ## Config (env vars, all optional)
 
@@ -266,6 +317,20 @@ $RESULTS_DIR/
 | `END_FRAME` | `-1` | 结束帧，`-1` = 到末尾 |
 | `SKIP_EXTRACT` | `0` | `1` = 跳过 step 03（run_all.sh 用） |
 
+### Step 04 params
+| var | default | note |
+| --- | --- | --- |
+| `INPUT` | _(auto-detected)_ | Pi3 输入；默认用步骤 03 的 JPG 夹，否则用视频（自动调 03 抽帧） |
+| `VIDEO_PATH` | `$RESULTS_DIR/${OUTPUT_NAME:-rotate_360}.mp4` | 源视频（仅当 `INPUT` 未设且步骤 03 未跑时用） |
+| `OUTPUT_DIR` | `$RESULTS_DIR/${OUTPUT_NAME:-rotate_360}/pi3` | Pi3 输出目录 |
+| `FRAME_FPS` | `10` | 视频抽帧 fps（仅当需要抽帧时；步骤 03 已跑则忽略） |
+| `FRAME_MAX` | `60` | 最大帧数（防 OOM；Pi3 显存随 N 线性增长） |
+| `CONF_THRES` | `0.1` | sigmoid-conf 阈值，过滤低置信像素 |
+| `PI3_DIR` | `../Pi3` | Pi3 官方代码（自动 clone 如果缺） |
+| `PI3_CKPT` | `../../model/Pi3/model.safetensors` | Pi3 checkpoint（需手动下载） |
+| `DEVICE` | `cuda` | 或 `cpu`（很慢） |
+| `SKIP_PI3` | `0` | `1` = 跳过 step 04（run_all.sh 用） |
+
 ## 可能遇到的问题
 
 **1. 选出的图是背面而不是正面**
@@ -317,6 +382,7 @@ python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 
 │   └── checkpoints/
 │       └── sam2.1_hiera_large.pt
 ├── DiffSynth-Studio-Human/     # DiffSynth-Studio 官方代码 (本流程专用, 00 clone)
+├── Pi3/                          # Pi3 官方代码 (step 04 自动 clone; pi3_3dgs 也用)
 ├── wan22_experiments/           # LoRA 训练产物 (epoch-N.safetensors)
 └── wan22_rotate_results/        # 本流程输出
     ├── segmented_image.png      #   正面图 (人物保留, 背景白)
@@ -324,8 +390,16 @@ python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 
     ├── frontal_scores.csv       #   各图正面评分
     ├── debug_mask.png           #   分割掩码 (调试)
     ├── rotate_360.mp4           #   360° 旋转视频 (step 02)
-    └── rotate_360/              #   同名目录 (step 03)
-        └── image/               #     拆出的 JPG 帧 (00000.jpg, 00001.jpg, ...)
+    └── rotate_360/              #   同名目录 (step 03/04)
+        ├── image/               #     拆出的 JPG 帧 (step 03)
+        │   ├── 00000.jpg
+        │   ├── 00001.jpg
+        │   └── ...
+        └── pi3/                 #     Pi3 位姿估计输出 (step 04)
+            ├── frames/          #       Pi3 实际用的帧 (copy of image/, 或抽帧)
+            ├── predictions.npz  #       原始 Pi3 张量 (points, camera_poses, conf, ...)
+            ├── dense_cloud.ply  #       置信度过滤的稠密点云 (MeshLab/SuperSplat 可看)
+            └── poses.json       #       人类可读的 c2w 4x4 矩阵 (每帧一个)
 ```
 
 ## Notes

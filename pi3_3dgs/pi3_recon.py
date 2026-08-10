@@ -70,6 +70,8 @@ def parse_args():
                    help="Override cx (default: W/2)")
     p.add_argument("--cy", type=float, default=None_if_env_unset("CY"),
                    help="Override cy (default: H/2)")
+    p.add_argument("--no_colmap", action="store_true",
+                   help="Skip COLMAP text format export (pose-only mode; e.g. for wan22_rotate step 04)")
     args = p.parse_args()
     if not args.input:
         p.error("--input (or env INPUT) is required")
@@ -274,7 +276,11 @@ def main():
     source_dir = output_dir / "source"
     images_dir = source_dir / "images"
     sparse_dir = source_dir / "sparse" / "0"
-    for d in (frames_dir, images_dir, sparse_dir):
+    # Only create source/ dirs when exporting COLMAP (default). --no_colmap skips it.
+    dirs_to_create = [frames_dir]
+    if not args.no_colmap:
+        dirs_to_create.extend([images_dir, sparse_dir])
+    for d in dirs_to_create:
         d.mkdir(parents=True, exist_ok=True)
 
     # ── 1. Gather frames (extract from video / copy from folder) ───────────
@@ -282,9 +288,10 @@ def main():
     frame_names = gather_frames(args.input, str(frames_dir), args.frame_fps, args.frame_max)
     if not frame_names:
         sys.exit("ERROR: no frames gathered from input")
-    # Copy to source/images/ (2DGS reads training images from here)
-    for name in frame_names:
-        shutil.copy(str(frames_dir / name), str(images_dir / name))
+    # Copy to source/images/ (2DGS reads training images from here) — skip if --no_colmap
+    if not args.no_colmap:
+        for name in frame_names:
+            shutil.copy(str(frames_dir / name), str(images_dir / name))
 
     # ── 2. Load Pi3 model + load images as tensor ──────────────────────────
     print(f"[2/5] loading Pi3 model + images")
@@ -358,7 +365,35 @@ def main():
     save_ply_ascii(output_dir / "dense_cloud.ply", dense_v, dense_c)
     print(f"  -> {output_dir / 'dense_cloud.ply'}  ({len(dense_v):,} points)")
 
+    # ── 4b. Save human-readable poses.json (always; small, useful for inspection)
+    import json
+    camera_poses_np = res["camera_poses"][0].float().cpu().numpy()  # (N, 4, 4) c2w
+    poses_dict = {
+        "frame_names": frame_names,
+        "camera_poses_c2w": camera_poses_np.tolist(),  # (N, 4, 4)
+        "num_frames": N,
+        "image_size": [W, H],
+        "convention": "OpenCV (z forward, y down, x right)",
+        "note": ("c2w = camera-to-world 4x4 matrix. Invert for w2c "
+                 "(COLMAP stores w2c: R_w2c=R_c2w.T, t_w2c=-R_c2w.T@t_c2w)."),
+    }
+    with open(output_dir / "poses.json", "w") as f:
+        json.dump(poses_dict, f, indent=2)
+    print(f"  -> {output_dir / 'poses.json'}  ({N} poses, human-readable)")
+
     # ── 5. Export COLMAP text format (source/sparse/0/) ─────────────────────
+    #     Skipped when --no_colmap is set (pose-only mode, e.g. wan22_rotate step 04).
+    if args.no_colmap:
+        print(f"[5/5] exporting COLMAP text format -> SKIPPED (--no_colmap)")
+        print()
+        print(f"=== Done. Pi3 pose estimation complete (no COLMAP export). ===")
+        print(f"    Predictions:  {output_dir / 'predictions.npz'}")
+        print(f"    Dense cloud:  {output_dir / 'dense_cloud.ply'}")
+        print(f"    Poses (JSON): {output_dir / 'poses.json'}")
+        print(f"    Frames:       {frames_dir}")
+        print(f"    (Skipped COLMAP export + 2DGS training — drop --no_colmap to enable)")
+        return
+
     print(f"[5/5] exporting COLMAP text format -> {sparse_dir}")
 
     # 5a. cameras.txt — one PINHOLE per image (all share the same assumed intrinsics).

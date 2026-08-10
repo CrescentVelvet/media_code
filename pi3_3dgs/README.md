@@ -142,7 +142,8 @@ $RESULTS_DIR/model/test/ours_<N>/{renders,gt,depth}/*.png + mesh.ply
 - **输出**：
   - `predictions.npz` — 原始 Pi3 张量（`points`/`local_points`/`camera_poses`/`conf` + `images` + `frame_names`），供后续分析。
   - `dense_cloud.ply` — 置信度过滤 + 边缘过滤后的稠密点云（Pi3 的 `example.py` 同样做法），最多 100 万点。仅用于人工检查。
-- **COLMAP 文本格式导出**：
+  - `poses.json` — 人类可读的 c2w 4x4 矩阵（每帧一个，OpenCV 约定）。任何 JSON viewer 可看。
+- **COLMAP 文本格式导出**（`--no_colmap` 时跳过；wan22_rotate step 04 用此模式）：
   - `cameras.txt` — 每张图一个 PINHOLE 相机，`fx=fy=max(W,H)`（典型 50° FOV）、`cx=W/2, cy=H/2`。
   - `images.txt` — Pi3 的 `camera_poses` 是 c2w（OpenCV 约定：z 前 y 下 x 右，与 COLMAP 一致），转 w2c（`R_w2c = R_c2w.T`，`t_w2c = -R_c2c.T @ t_c2w`，对正交矩阵数值稳定），再转四元数（Shepperd 分支法）。
   - `points3D.txt` — 从 Pi3 的 `points`（全局稠密点云，每视角每像素一个世界坐标）按 conf+edge 过滤，体素下采样（Open3D，无则随机采样）到 `MAX_POINTS`，RGB 取对应像素。**track 留空**——2DGS 只用 3D 点位置做初始化，不用 track。
@@ -297,7 +298,8 @@ INSTALL_DEPS=1 BUILD_CUDA=1 bash pi3_3dgs/00_setup_env.sh
     ├── frames/                   # 抽帧 / 复制的源图
     ├── predictions.npz           # 原始 Pi3 输出
     ├── dense_cloud.ply           # 调试用稠密点云
-    ├── source/                   # 2DGS source 目录
+    ├── poses.json                # 人类可读的 c2w 4x4 矩阵 (每帧一个)
+    ├── source/                   # 2DGS source 目录 (--no_colmap 时不生成)
     │   ├── images/                #   训练图
     │   └── sparse/0/              #   COLMAP 文本格式
     │       ├── cameras.txt
