@@ -25,7 +25,7 @@ import urllib.parse
 try:
     import requests
 except ImportError:
-    sys.exit("ERROR: 'requests' not installed. pip install requests")
+    sys.exit("❌ 'requests' not installed. pip install requests")
 
 
 def env(k, default=""):
@@ -61,7 +61,7 @@ def build_conditions():
     if cf:
         with open(cf, encoding="utf-8") as f:
             arr = json.load(f)
-        print(f"[*] using conditions from {cf} ({len(arr)} item(s))")
+        print(f"📋 using conditions from {cf} ({len(arr)} item(s))")
         return arr
 
     task = env("TASK", "t2va")
@@ -153,18 +153,18 @@ def build_request():
 
 def submit(server_url, body, timeout=120):
     url = server_url.rstrip("/") + "/v1/videos"
-    print(f"[*] POST {url}")
+    print(f"📤 POST {url}")
     print(f"    task={body['task']}  duration={body['target']['duration_seconds']}s  "
           f"aspect={body['target']['aspect_ratio']}  seed={body['seed']}  "
           f"steps={body.get('num_inference_steps')}  conditions={len(body['conditions'])}")
     r = requests.post(url, json=body, timeout=timeout)
     if r.status_code >= 400:
-        sys.exit(f"ERROR: submit failed HTTP {r.status_code}: {r.text[:500]}")
+        sys.exit(f"❌ submit failed HTTP {r.status_code}: {r.text[:500]}")
     data = r.json()
     vid = data.get("id")
     if not vid:
-        sys.exit(f"ERROR: no 'id' in response: {json.dumps(data)[:500]}")
-    print(f"    -> video_id = {vid}")
+        sys.exit(f"❌ no 'id' in response: {json.dumps(data)[:500]}")
+    print(f"    → video_id = {vid}")
     return vid
 
 
@@ -189,24 +189,24 @@ def poll(server_url, vid):
                         prog = d.get("progress") or d.get("progress_ratio")
                         if prog is not None:
                             extra = f"  progress={prog}"
-                    print(f"    [{int(time.time()-t0):4d}s] status={st or '?'}{extra}")
+                    print(f"    ⏳ [{int(time.time()-t0):4d}s] status={st or '?'}{extra}")
                     last = st
                 if st in TERMINAL:
                     return st, d
             else:
-                print(f"    [poll] HTTP {r.status_code}: {r.text[:120]}")
+                print(f"    ⚠️ [poll] HTTP {r.status_code}: {r.text[:120]}")
         except Exception as e:
-            print(f"    [poll] transient error: {e}")
+            print(f"    ⚠️ [poll] transient error: {e}")
         time.sleep(interval)
-    sys.exit(f"ERROR: timed out after {timeout_s}s waiting for video {vid}")
+    sys.exit(f"❌ timed out after {timeout_s}s waiting for video {vid}")
 
 
 def download(server_url, vid, out_path):
     url = server_url.rstrip("/") + f"/v1/videos/{vid}/content"
-    print(f"[*] GET {url}")
+    print(f"📥 GET {url}")
     with requests.get(url, stream=True, timeout=300) as r:
         if r.status_code >= 400:
-            sys.exit(f"ERROR: download failed HTTP {r.status_code}: {r.text[:300]}")
+            sys.exit(f"❌ download failed HTTP {r.status_code}: {r.text[:300]}")
         total = int(r.headers.get("Content-Length", 0))
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
         done = 0
@@ -216,10 +216,10 @@ def download(server_url, vid, out_path):
                     f.write(chunk)
                     done += len(chunk)
                     if total:
-                        print(f"\r    downloaded {done/1e6:.1f}/{total/1e6:.1f} MB", end="")
+                        print(f"\r    📦 downloaded {done/1e6:.1f}/{total/1e6:.1f} MB", end="")
         print()
     sz = os.path.getsize(out_path)
-    print(f"    saved: {out_path}  ({sz/1e6:.1f} MB)")
+    print(f"    ✅ saved: {out_path}  ({sz/1e6:.1f} MB)")
     return out_path
 
 
@@ -240,9 +240,9 @@ def main():
     vid = submit(server_url, body)
     st, info = poll(server_url, vid)
     if st not in ("completed", "succeeded"):
-        sys.exit(f"ERROR: generation ended with status={st}: {json.dumps(info)[:400]}")
+        sys.exit(f"❌ generation ended with status={st}: {json.dumps(info)[:400]}")
     download(server_url, vid, out_path)
-    print(f"[*] done in {time.time()-t0:.0f}s  ->  {out_path}")
+    print(f"🎉 done in {time.time()-t0:.0f}s  →  {out_path}")
 
 
 if __name__ == "__main__":

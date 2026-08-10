@@ -59,13 +59,13 @@ LOG_FILE="${LOG_FILE:-$LOG_DIR/serve_${MODEL_VARIANT}_${PORT}.log}"
 
 # --- checks ---
 if [ ! -d "$MODEL_PATH" ]; then
-    echo "ERROR: model snapshot not found at $MODEL_PATH. Run 01_download_models.sh first." >&2; exit 1
+    echo "❌ ERROR: model snapshot not found at $MODEL_PATH. Run 01_download_models.sh first." >&2; exit 1
 fi
 if [ ! -f "$MODEL_PATH/model_index.json" ]; then
-    echo "ERROR: $MODEL_PATH/model_index.json not found (incomplete snapshot). Rerun 01_download_models.sh." >&2; exit 1
+    echo "❌ ERROR: $MODEL_PATH/model_index.json not found (incomplete snapshot). Rerun 01_download_models.sh." >&2; exit 1
 fi
 if ! command -v sglang >/dev/null 2>&1 && ! python -c "import sglang" 2>/dev/null; then
-    echo "ERROR: sglang not installed in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh." >&2; exit 1
+    echo "❌ ERROR: sglang not installed in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh." >&2; exit 1
 fi
 
 # --- build the flag list ---
@@ -85,17 +85,17 @@ SERVE_ARGS=(
 
 SERVER_URL="http://localhost:$PORT"
 
-echo "=== [02] SGLang serve MiniMax-H3 (H3-Base 768p) ==="
-echo "  模型路径:   $MODEL_PATH"
+echo "🚀 [02] SGLang serve MiniMax-H3 (H3-Base 768p)"
+echo "  🤖 模型路径: $MODEL_PATH"
 echo "  变体:       $MODEL_VARIANT  (FL2VA=T2VA/I2VA/L2VA/FL2VA; Ref2VA=参考生成)"
 echo "  并行:       num_gpus=$NUM_GPUS ulysses=$ULYSSES_DEGREE${TP_SIZE:+  tp=$TP_SIZE}${USE_FSDP:+  fsdp=on}"
 echo "  performance: $PERFORMANCE_MODE"
-echo "  服务地址:   $SERVER_URL  (host=$HOST)"
-echo "  日志:       $LOG_FILE"
+echo "  📡 服务地址: $SERVER_URL  (host=$HOST)"
+echo "  📝 日志:     $LOG_FILE"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
-    echo "  GPU:        physical $CUDA_VISIBLE_DEVICES  [GPU=N to restrict; leave unset to use all --num-gpus cards]"
+    echo "  🎮 GPU:       physical $CUDA_VISIBLE_DEVICES  [GPU=N to restrict; leave unset to use all --num-gpus cards]"
 else
-    echo "  GPU:        all visible  [set GPU=N to restrict to specific cards]"
+    echo "  🎮 GPU:       all visible  [set GPU=N to restrict to specific cards]"
 fi
 if [ "$NUM_GPUS" = "4" ] && [ "$ULYSSES_DEGREE" = "4" ] && [ "$USE_FSDP" != "1" ] && [ -z "$TP_SIZE" ]; then
     echo "  ⚠️  4× A100/H100 80GB 若默认 resident OOM，改用: USE_FSDP=1 (capacity) 或 TP_SIZE=2 ULYSSES_DEGREE=2"
@@ -107,34 +107,34 @@ run_serve() {
 }
 
 run_serve_bg() {
-    echo "--- launching SGLang in background (log: $LOG_FILE) ---"
+    echo "--- 📦 launching SGLang in background (log: $LOG_FILE) ---"
     nohup sglang serve "${SERVE_ARGS[@]}" >"$LOG_FILE" 2>&1 &
     SERVER_PID=$!
     echo "$SERVER_PID" > "$LOG_DIR/serve_${MODEL_VARIANT}_${PORT}.pid"
     echo "  server PID: $SERVER_PID"
-    echo "--- waiting for server to become ready (loading 33B model, this takes minutes) ---"
+    echo "  ⏳ waiting for server to become ready (loading 33B model, this takes minutes) ---"
     # Poll /health. SGLang returns 200 once the engine is up.
     ready=0
     for i in $(seq 1 "${HEALTH_TIMEOUT_MINS:-30}"); do
         if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-            echo "ERROR: server process died before becoming ready. Last log lines:" >&2
+            echo "❌ ERROR: server process died before becoming ready. Last log lines:" >&2
             tail -n 40 "$LOG_FILE" >&2 || true
             exit 1
         fi
         if curl -sf --max-time 10 "$SERVER_URL/health" >/dev/null 2>&1 \
            || curl -sf --max-time 10 "$SERVER_URL/health_generate" >/dev/null 2>&1; then
             ready=1
-            echo "  [$(printf '%02d' $i)min] server ready ✓"
+            echo "  [$(printf '%02d' $i)min] ✅ server ready"
             break
         fi
-        echo "  [$(printf '%02d' $i)min] not ready yet, retrying... (tail: $(tail -n1 "$LOG_FILE" 2>/dev/null | cut -c1-80))"
+        echo "  [$(printf '%02d' $i)min] ⏳ not ready yet... (tail: $(tail -n1 "$LOG_FILE" 2>/dev/null | cut -c1-80))"
         sleep 60
     done
     if [ "$ready" != "1" ]; then
-        echo "ERROR: server not ready after ${HEALTH_TIMEOUT_MINS:-30} min. Check $LOG_FILE." >&2
+        echo "❌ ERROR: server not ready after ${HEALTH_TIMEOUT_MINS:-30} min. Check $LOG_FILE." >&2
         exit 1
     fi
-    echo "=== [02] Server ready at $SERVER_URL (PID $SERVER_PID) ==="
+    echo "🎉 [02] Server ready at $SERVER_URL (PID $SERVER_PID)"
     echo "    Submit jobs:  bash minimax_h3/03_generate.sh"
     echo "    Stop server:  kill \$(cat $LOG_DIR/serve_${MODEL_VARIANT}_${PORT}.pid)"
 }

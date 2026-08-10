@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-echo "=== [00] Verify torch in conda env '$CONDA_ENV' ==="
+echo "🚀 [00] Verify torch in conda env '$CONDA_ENV'"
 python - <<'PY'
 import sys
 try:
@@ -40,7 +40,7 @@ PY
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
-    echo "--- installing SGLang (pip install \"sglang[all]\") ---"
+    echo "📦 installing SGLang (pip install \"sglang[all]\") ---"
     python -m pip install --upgrade pip "${PIP_FLAGS[@]}"
     python -m pip install "${PIP_FLAGS[@]}" "sglang[all]"
     # Diffusion extra is explicit in the sglang docker image
@@ -48,17 +48,17 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # no-op-ish safety net in case [all] didn't pin the diffusion deps.
     python -m pip install "${PIP_FLAGS[@]}" "sglang[diffusion]" || \
         echo "    (sglang[diffusion] extra not separately installable — assume [all] covers it)"
-    echo "--- deps installed. Verify with: python -c 'import sglang; print(sglang.__version__)' ---"
+    echo "📦 installed. Verify with: python -c 'import sglang; print(sglang.__version__)'"
 fi
 
-echo "=== [00] Checking SGLang availability ==="
+echo "🔍 [00] Checking SGLang availability ==="
 if python -c "import sglang" 2>/dev/null; then
     python - <<'PY'
 import sglang
 print(f"sglang: {getattr(sglang, '__version__', 'unknown')}")
 PY
 else
-    echo "WARNING: sglang not importable in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh first." >&2
+    echo "⚠️ WARNING: sglang not importable in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh first." >&2
 fi
 
-echo "=== [00] Done. Env '$CONDA_ENV' ready. (Missing sglang? INSTALL_DEPS=1 bash this) ==="
+echo "🎉 [00] Done. Env '$CONDA_ENV' ready. (Missing sglang? INSTALL_DEPS=1 bash this)"

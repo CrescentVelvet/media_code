@@ -72,7 +72,7 @@ OUTPUT_NAME="${OUTPUT_NAME:-}"                  # blank -> <task>_seed<seed>.mp4
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 TIMEOUT_MINS="${TIMEOUT_MINS:-30}"
 
-echo "=== [03] MiniMax-H3 generate ==="
+echo "🚀 [03] MiniMax-H3 generate"
 echo "  服务地址:   $SERVER_URL"
 echo "  任务:       $TASK"
 echo "  时长/比例:  ${DURATION}s / ${ASPECT_RATIO:-<per-task default>}  short_edge=$SHORT_EDGE  seed=$SEED"
@@ -100,4 +100,4 @@ export OUTPUT_DIR OUTPUT_NAME POLL_INTERVAL TIMEOUT_MINS
 
 python "$SCRIPT_DIR/generate.py"
 
-echo "=== [03] Done. ==="
+echo "🎉 [03] Done."

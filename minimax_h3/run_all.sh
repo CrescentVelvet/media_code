@@ -35,18 +35,18 @@ export MINIMAX_H3_DIR
 KEEP_SERVER="${KEEP_SERVER:-1}"
 export CONDA_ENV="${CONDA_ENV:-${CONDA_DEFAULT_ENV:-base}}"
 
-echo "=== [run_all] MiniMax-H3 one-click pipeline (conda env: $CONDA_ENV) ==="
+echo "🚀 [run_all] MiniMax-H3 one-click pipeline (conda env: $CONDA_ENV)"
 
 # 0. Clone the GitHub reference repo if absent (scripts/skills live here; SGLang
 #    serving itself does NOT depend on it — it only needs the HF weight snapshot).
 if [ ! -d "$MINIMAX_H3_DIR" ]; then
     mkdir -p "$(dirname "$MINIMAX_H3_DIR")"
-    echo "--- cloning reference repo -> $MINIMAX_H3_DIR ---"
+    echo "--- 📦 cloning reference repo -> $MINIMAX_H3_DIR ---"
     git clone "$MINIMAX_H3_REPO" "$MINIMAX_H3_DIR" || \
         git -c http.sslVerify=false clone "$MINIMAX_H3_REPO" "$MINIMAX_H3_DIR" || \
         echo "WARNING: reference repo clone failed (network); serving does not need it — continuing." >&2
 else
-    echo "--- reference repo already present: $MINIMAX_H3_DIR ---"
+    echo "--- 📦 reference repo already present: $MINIMAX_H3_DIR ---"
 fi
 
 # 1. Env + SGLang (first run installs deps).
@@ -65,10 +65,10 @@ BG=1 bash "$SCRIPT_DIR/02_serve.sh"
 PID_FILE="$MINIMAX_H3_DIR/logs/serve_fl2va_30010.pid"
 
 # 4. Run the T2VA example against the now-ready server.
-echo "--- running T2VA example ---"
+echo "--- 🎬 running T2VA example ---"
 bash "$SCRIPT_DIR/examples/run_t2va.sh"
 
-echo "=== [run_all] Pipeline finished. ==="
+echo "🎉 [run_all] Pipeline finished."
 if [ -f "$PID_FILE" ]; then
     PID="$(cat "$PID_FILE")"
     if [ "$KEEP_SERVER" = "1" ]; then
@@ -78,7 +78,7 @@ if [ -f "$PID_FILE" ]; then
         echo "      PROMPT=\"your text\" TASK=t2va bash $SCRIPT_DIR/03_generate.sh"
         echo "    Stop the server:  kill $PID"
     else
-        echo "--- stopping SGLang server (KEEP_SERVER=0) ---"
+        echo "    ⏹️ stopping SGLang server (KEEP_SERVER=0) ---"
         kill "$PID" 2>/dev/null || true
     fi
 else

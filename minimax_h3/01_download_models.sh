@@ -31,7 +31,7 @@ if [ "${DOWNLOAD_REF2VA:-0}" = "1" ]; then
     INCLUDES="$INCLUDES,Ref2VA/*"
 fi
 
-echo "=== [01] Downloading MiniMax-H3 weights ==="
+echo "📦 [01] Downloading MiniMax-H3 weights ==="
 echo "  HF repo:      $HF_REPO"
 echo "  model dir:    $MODEL_DIR  (SGLang --model-path points here)"
 echo "  code dir:     $MINIMAX_H3_DIR  (GitHub reference repo)"
@@ -43,7 +43,7 @@ else
 fi
 
 if ! python -c "import huggingface_hub" 2>/dev/null; then
-    echo "ERROR: huggingface_hub not installed in env '$CONDA_ENV'. Install with: pip install huggingface_hub" >&2
+    echo "❌ ERROR: huggingface_hub not installed in env '$CONDA_ENV'. Install with: pip install huggingface_hub" >&2
     exit 1
 fi
 
@@ -84,11 +84,11 @@ fi
 
 # Sanity-check the entry + the FL2VA task family SGLang loads by default.
 ok=1
-[ -f "$MODEL_DIR/model_index.json" ] || { echo "WARNING: $MODEL_DIR/model_index.json missing" >&2; ok=0; }
-[ -d "$MODEL_DIR/FL2VA" ] || { echo "WARNING: $MODEL_DIR/FL2VA/ missing (FL2VA not downloaded?)" >&2; ok=0; }
-if [ "$ok" = "1" ]; then
-    echo "--- weight snapshot OK: $MODEL_DIR ---"
+    [ -f "$MODEL_DIR/model_index.json" ] || { echo "⚠️ WARNING: $MODEL_DIR/model_index.json missing" >&2; ok=0; }
+    [ -d "$MODEL_DIR/FL2VA" ] || { echo "⚠️ WARNING: $MODEL_DIR/FL2VA/ missing (FL2VA not downloaded?)" >&2; ok=0; }
+    if [ "$ok" = "1" ]; then
+        echo "✅ weight snapshot OK: $MODEL_DIR"
     echo "    serve with:  MODEL_PATH=$MODEL_DIR bash minimax_h3/02_serve.sh"
 fi
 
-echo "=== [01] Done. Weights at: $MODEL_DIR ==="
+echo "🎉 [01] Done. Weights at: $MODEL_DIR"
