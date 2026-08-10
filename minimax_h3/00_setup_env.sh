@@ -12,8 +12,10 @@
 # SGLang pulls its own torch + flashinfer + CUDA kernels; its version pins may
 # CONFLICT with other algos in this repo (hunyuanvideo wants diffusers 0.35,
 # hypir pins diffusers 0.32 / transformers 4.49). Use a DEDICATED env:
-#   conda create -n minimax_h3 python=3.11 -y
+#   conda create -n minimax_h3 --clone doll -y   # 克隆现有 doll(python 3.11)，本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL
+#   conda activate minimax_h3
 #   CONDA_ENV=minimax_h3 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
+# doll 不在时新建见 README「可能遇到的问题」第 2 条（--override-channels + conda config ssl_verify）。
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

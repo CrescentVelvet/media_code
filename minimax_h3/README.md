@@ -56,17 +56,11 @@ SERVER_URL=http://localhost:30011 bash minimax_h3/examples/run_ref2va.sh   # (�
 cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env      # 填 http_proxy / https_proxy（公司代理用）
-conda create -n minimax_h3 python=3.11 -y && conda activate minimax_h3
-# 若上一行报 HTTP 403（.condarc 配了清华 TUNA 镜像且失效）或 SSL 证书认证失败
-# （公司代理 TLS 拦截，conda 不信代理根 CA），用下面三行绕开——原理同
-# wan22_rotate/00_setup_env.sh：它先 source _env.sh 把 REQUESTS_CA_BUNDLE /
-# SSL_CERT_FILE 指到 ~/.ca-bundle.crt 再跑 conda create；手动等价就是先建 CA 包、
-# 导出 CA 变量、再建 env（--override-channels 直连官方源避开失效的 TUNA 镜像）：
-#   bash minimax_h3/setup_ca_bundle.sh            # -> ~/.ca-bundle.crt（抓代理证书链+系统包+自检）
-#   export REQUESTS_CA_BUNDLE="$HOME/.ca-bundle.crt" SSL_CERT_FILE="$HOME/.ca-bundle.crt"
-#   conda create -n minimax_h3 python=3.11 -y --override-channels \
-#     -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main && conda activate minimax_h3
-# 详见下方「可能遇到的问题」第 2 条。
+conda create -n minimax_h3 --clone doll -y && conda activate minimax_h3
+# 克隆现有 doll env（python 3.11，本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL）。
+# sglang[all] 会自带 torch/flashinfer，不依赖 doll 的 torch，只是借 doll 的 python 3.11 起个壳。
+# doll 不在/想新建（会走 conda 通道，公司代理下易 403/SSL，修法见下方「可能遇到的问题」第 2 条）：
+#   conda create -n minimax_h3 python=3.11 -y
 pip install torch --index-url https://download.pytorch.org/whl/cu124   # 先装 CUDA torch
 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh       # 装 sglang[all]（含 diffusion 支持）
 HF_DISABLE_SSL=1 bash minimax_h3/01_download_models.sh  # 下 MiniMaxAI/MiniMax-H3 权重快照
@@ -181,15 +175,21 @@ API 文档：Global `platform.minimax.io` / CN `platform.minimaxi.com`（`/video
   ```
 - `No route to host` 连代理都不通：多为 docker 网桥网段和代理 IP 冲突。查 `getent hosts <proxy>` + `ip route | grep <网段>`，加主机路由 `sudo ip route add <代理IP> via <默认网关> dev <物理网卡>`，或改 `/etc/docker/daemon.json` 的 `default-address-pools` 给 docker 分不冲突的子网。
 
-**2. `conda create` 报 `HTTP 403 FORBIDDEN for channel conda-forge`**
-`~/.condarc` 把 `custom_channels` / `default_channels` 指向了清华 TUNA 镜像（`mirrors.tuna.tsinghua.edu.cn/anaconda/...`），该镜像偶发限流/抽风返回 403。`conda config --show channels` 只显示逻辑通道名（`conda-forge` / `defaults`），镜像重定向藏在 `custom_channels` / `default_channels` 里，要用 `conda config --show-sources` 才看得到（并标出是哪个 `.condarc` 文件设的）。两种修法：
-- 临时绕开（只影响当条命令，推荐先试）——直连官方源，公司代理下 `conda.anaconda.org` / `repo.anaconda.com` 走 `http_proxy`/`https_proxy`（和 clone 本仓同一条路）：
+**2. `conda create` 报 `HTTP 403` / `SSL: CERTIFICATE_VERIFY_FAILED`**
+两道坎：① `~/.condarc` 把 `custom_channels` / `default_channels` 指向清华 TUNA 镜像（`mirrors.tuna.tsinghua.edu.cn/anaconda/...`），该镜像偶发限流/抽风返 403；② 公司代理 TLS 拦截，conda 不信代理根 CA 报 SSL。`conda config --show channels` 只显逻辑通道名（`conda-forge` / `defaults`），镜像重定向藏在 `custom_channels` / `default_channels` 里，用 `conda config --show-sources` 才看得到。⚠️ 关键：conda **不读** `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` 环境变量（和 pip 不同！），SSL 必须走 `conda config --set ssl_verify`，导出环境变量对 conda 无效。三档修法（从简到繁）：
+- **克隆现有 env（最省事，不走 conda 通道，无 403/SSL）**——本机已有 `doll`(python 3.11) 就直接克隆，sglang[all] 自带 torch/flashinfer，只借 doll 的 python 起壳：
   ```bash
+  conda create -n minimax_h3 --clone doll -y && conda activate minimax_h3
+  ```
+- **新建 + 绕开镜像 + 用 CA 包验 SSL**（doll 不在时）——先建 CA 包，再让 conda 用它（不是导出环境变量，是 `ssl_verify`），最后 `--override-channels` 直连官方源：
+  ```bash
+  bash minimax_h3/setup_ca_bundle.sh                      # -> ~/.ca-bundle.crt（含代理根 CA，自检 [OK]）
+  conda config --set ssl_verify "$HOME/.ca-bundle.crt"     # conda 不读 REQUESTS_CA_BUNDLE，必须设这条
   conda create -n minimax_h3 python=3.11 -y --override-channels \
     -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main
   ```
-  若报 SSL 证书认证失败（代理根 CA 不被信任）：`conda create` 直跑时 `_env.sh` 没 source、CA 变量没设。先 `bash minimax_h3/setup_ca_bundle.sh` 建 `~/.ca-bundle.crt`，再 `export REQUESTS_CA_BUNDLE="$HOME/.ca-bundle.crt" SSL_CERT_FILE="$HOME/.ca-bundle.crt"` 后重试（原理同 `wan22_rotate/00_setup_env.sh`：它先 source `_env.sh` 设好 CA 变量再建 env，手动等价就是这两步）。官方源也被代理挡时，把上面两个 `-c` 换成 BFSU 同源镜像（`https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge`、`https://mirrors.bfsu.edu.cn/anaconda/pkgs/main`）。
-- 永久修 `~/.condarc`（影响所有 conda 命令）：编辑 `~/.condarc`，把 TUNA 域名（`mirrors.tuna.tsinghua.edu.cn/anaconda`）整体替换成 BFSU（`mirrors.bfsu.edu.cn/anaconda`，同源更稳），或直接删掉 `custom_channels` / `default_channels` 两段回退到 conda 官方源。
+  官方源也被代理挡时，把两个 `-c` 换成 BFSU 同源镜像（`https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge`、`https://mirrors.bfsu.edu.cn/anaconda/pkgs/main`）。建完想恢复默认：`conda config --set ssl_verify true`。
+- **永久修 `~/.condarc`**（影响所有 conda 命令）——把 TUNA 域名（`mirrors.tuna.tsinghua.edu.cn/anaconda`）整体替换成 BFSU（`mirrors.bfsu.edu.cn/anaconda`，同源更稳），或直接删掉 `custom_channels` / `default_channels` 两段回退到 conda 官方源；SSL 一劳永逸设 `conda config --set ssl_verify "$HOME/.ca-bundle.crt"`。
 
 **3. `pip install sglang[all]` 报 SSL/超时**
 ```bash
