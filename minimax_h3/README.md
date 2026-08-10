@@ -57,7 +57,13 @@ cd <your-code-dir>            # e.g. /data_3d/<uid>/code
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
 cd media_code && cp proxy.env.example proxy.env      # 填 http_proxy / https_proxy（公司代理用）
 conda create -n minimax_h3 python=3.11 -y && conda activate minimax_h3
-# 若上一行报 HTTP 403 FORBIDDEN（.condarc 配了清华 TUNA 镜像且失效），加 --override-channels 直连官方源绕开：
+# 若上一行报 HTTP 403（.condarc 配了清华 TUNA 镜像且失效）或 SSL 证书认证失败
+# （公司代理 TLS 拦截，conda 不信代理根 CA），用下面三行绕开——原理同
+# wan22_rotate/00_setup_env.sh：它先 source _env.sh 把 REQUESTS_CA_BUNDLE /
+# SSL_CERT_FILE 指到 ~/.ca-bundle.crt 再跑 conda create；手动等价就是先建 CA 包、
+# 导出 CA 变量、再建 env（--override-channels 直连官方源避开失效的 TUNA 镜像）：
+#   bash minimax_h3/setup_ca_bundle.sh            # -> ~/.ca-bundle.crt（抓代理证书链+系统包+自检）
+#   export REQUESTS_CA_BUNDLE="$HOME/.ca-bundle.crt" SSL_CERT_FILE="$HOME/.ca-bundle.crt"
 #   conda create -n minimax_h3 python=3.11 -y --override-channels \
 #     -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main && conda activate minimax_h3
 # 详见下方「可能遇到的问题」第 2 条。
@@ -182,7 +188,7 @@ API 文档：Global `platform.minimax.io` / CN `platform.minimaxi.com`（`/video
   conda create -n minimax_h3 python=3.11 -y --override-channels \
     -c https://conda.anaconda.org/conda-forge -c https://repo.anaconda.com/pkgs/main
   ```
-  若报 SSL（代理根 CA 不被信任）：先 `bash minimax_h3/setup_ca_bundle.sh` 建 `~/.ca-bundle.crt` 再重试。官方源也被代理挡时，把上面两个 `-c` 换成 BFSU 同源镜像（`https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge`、`https://mirrors.bfsu.edu.cn/anaconda/pkgs/main`）。
+  若报 SSL 证书认证失败（代理根 CA 不被信任）：`conda create` 直跑时 `_env.sh` 没 source、CA 变量没设。先 `bash minimax_h3/setup_ca_bundle.sh` 建 `~/.ca-bundle.crt`，再 `export REQUESTS_CA_BUNDLE="$HOME/.ca-bundle.crt" SSL_CERT_FILE="$HOME/.ca-bundle.crt"` 后重试（原理同 `wan22_rotate/00_setup_env.sh`：它先 source `_env.sh` 设好 CA 变量再建 env，手动等价就是这两步）。官方源也被代理挡时，把上面两个 `-c` 换成 BFSU 同源镜像（`https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge`、`https://mirrors.bfsu.edu.cn/anaconda/pkgs/main`）。
 - 永久修 `~/.condarc`（影响所有 conda 命令）：编辑 `~/.condarc`，把 TUNA 域名（`mirrors.tuna.tsinghua.edu.cn/anaconda`）整体替换成 BFSU（`mirrors.bfsu.edu.cn/anaconda`，同源更稳），或直接删掉 `custom_channels` / `default_channels` 两段回退到 conda 官方源。
 
 **3. `pip install sglang[all]` 报 SSL/超时**
