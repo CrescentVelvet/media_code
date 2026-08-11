@@ -9,15 +9,6 @@
 > 假设已进入容器（脚本自动激活 `wan22_rotate` env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
 
 ```bash
-# ── 一键：选图+分割 → 生成视频 ──
-# INPUT_DIR: 含 image/ 子文件夹的人物数据
-# WEIGHT_PATH: 训练好的 LoRA
-# RESULTS_DIR: 输出根目录
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/run_all.sh
-
 # ── 分步 ──
 # 1a) 选图+分割 完整版（SAM 3D Body: 3D 姿态估计选正面图 + SAM 分割）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
@@ -91,18 +82,17 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 # ── 自定义 ──
 # 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   PROMPT="人物360度旋转展示，高质量。" \
   HEIGHT=1248 WIDTH=706 NUM_FRAMES=121 \
-  bash wan22_rotate/run_all.sh
+  bash wan22_rotate/02_generate_video.sh
 # 跳过选图步骤，直接用已有图片生成视频
-GPU=0 SKIP_SEGMENT=1 \
+GPU=0 \
   SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
   WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
   RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/run_all.sh
+  bash wan22_rotate/02_generate_video.sh
 # 选出的图是背面？翻转正面判定方向
 GPU=0 FRONTAL_SIGN=-1 \
   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
@@ -255,7 +245,7 @@ $RESULTS_DIR/rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
    poses.json       # 人类可读的 c2w 4x4 矩阵 (每帧一个, OpenCV 约定)
     │
     ▼
-[05] 三维高斯重建  (pi3_3dgs env, 调 pi3_3dgs/run_all.sh)
+[05] 三维高斯重建  (wan22_rotate env, 调 05_3dgs_recon.sh)
     │  ├─ Pi3 重跑 (带 COLMAP 导出, 非 --no_colmap)
     │  │     ├─ cameras.txt   PINHOLE, fx=fy=max(W,H), cx=W/2, cy=H/2
     │  │     ├─ images.txt    c2w→w2c 四元数+平移
@@ -410,7 +400,6 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | `NUM_FRAMES` | `121` | 生成帧数（4k+1，Wan 约束） |
 | `FPS` | `15` | 输出 mp4 帧率 |
 | `OUTPUT_NAME` | `rotate_360` | 输出文件名（不含扩展名） |
-| `SKIP_SEGMENT` | `0` | `1` = 跳过 step 01（run_all.sh 用） |
 | `LOW_VRAM` | `0` | `1` = 磁盘 offload（慢但省显存，详见 wan22 README） |
 
 ### Step 03 params
@@ -421,7 +410,6 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | `JPG_QUALITY` | `95` | JPG 质量 1-100（95 ≈ 视觉无损） |
 | `START_FRAME` | `0` | 起始帧（跳过开头几帧） |
 | `END_FRAME` | `-1` | 结束帧，`-1` = 到末尾 |
-| `SKIP_EXTRACT` | `0` | `1` = 跳过 step 03（run_all.sh 用） |
 
 ### Step 04 params
 | var | default | note |
@@ -435,7 +423,6 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | `PI3_DIR` | `../Pi3` | Pi3 官方代码（自动 clone 如果缺） |
 | `PI3_CKPT` | `../../model/Pi3/model.safetensors` | Pi3 checkpoint（需手动下载） |
 | `DEVICE` | `cuda` | 或 `cpu`（很慢） |
-| `SKIP_PI3` | `0` | `1` = 跳过 step 04（run_all.sh 用） |
 
 ### Step 05 params
 > 步骤 5 在 wan22_rotate env 里跑（`05_3dgs_recon.sh`），默认已适配白底分割输入。
