@@ -233,7 +233,7 @@ $RESULTS_DIR/
 
 在 wan22_rotate env 里跑 [π³ (Pi3)](https://github.com/yyfz/Pi3)（ICLR 2026）前馈位姿 + 稠密点云估计——**不进行三维重建**（不导出 COLMAP 格式、不跑 2DGS 训练）。
 
-**为何能在 wan22_rotate env 里跑**：Pi3 的核心依赖（torch 2.6.0+cu124、numpy 1.26.4、cv2、safetensors）全部已在 wan22_rotate env 里（sam_3d_body + diffsynth 装过）。`plyfile` 不需要——`pi3_recon.py` 用自带的 ASCII PLY writer。不需要 pi3_3dgs env（那个 env 只是为了编 2DGS 的 CUDA 光栅化扩展）。
+**为何能在 wan22_rotate env 里跑**：Pi3 的依赖（torch 2.6.0+cu124、numpy 1.26.4、cv2、safetensors、plyfile）全部已在 wan22_rotate env 里（sam_3d_body + diffsynth 装过，`plyfile` 由 00_setup_env.sh 装或 `pip install plyfile`）。不需要 pi3_3dgs env（那个 env 只是为了编 2DGS 的 CUDA 光栅化扩展）。
 
 **流程**：
 1. 若 `$RESULTS_DIR/<video_name>/image/` 已存在（步骤 03 跑过）：直接用这些 JPG 作为 Pi3 输入。

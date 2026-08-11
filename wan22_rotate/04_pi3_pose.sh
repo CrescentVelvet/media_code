@@ -2,9 +2,9 @@
 # 04_pi3_pose.sh — split video into JPG frames + run Pi3 pose estimation
 # (NO 3D reconstruction — no COLMAP export, no 2DGS training).
 #
-# This step reuses the wan22_rotate conda env (which already has all Pi3 deps:
-# torch 2.6.0+cu124, numpy 1.26.4, cv2, safetensors). plyfile is NOT needed
-# (pi3_recon.py uses its own ASCII PLY writer).
+# This step reuses the wan22_rotate conda env (which already has most Pi3 deps:
+# torch 2.6.0+cu124, numpy 1.26.4, cv2, safetensors). Also needs plyfile
+# (Pi3 repo internals import it; installed by 00_setup_env.sh or `pip install plyfile`).
 # It does NOT need the pi3_3dgs env (which is only required for the 2DGS CUDA
 # rasterizer extensions). It calls pi3_3dgs/pi3_recon.py with --no_colmap to
 # skip the COLMAP text format export (that's only needed when feeding 2DGS).
@@ -116,11 +116,10 @@ else
 fi
 
 # ── 2. Verify deps are importable in the wan22_rotate env ─────────────────
-# Pi3 deps: torch, numpy, cv2, safetensors (all in wan22_rotate env).
-# plyfile is NOT needed — pi3_recon.py uses its own ASCII PLY writer.
+# Pi3 deps: torch, numpy, cv2, safetensors, plyfile (Pi3 repo internals use it).
 if ! python - <<'PY'
 import sys
-for mod in ["torch", "numpy", "cv2", "safetensors"]:
+for mod in ["torch", "numpy", "cv2", "safetensors", "plyfile"]:
     try:
         __import__(mod)
     except ImportError:
@@ -131,6 +130,7 @@ PY
 then
     echo "❌ ERROR: missing Pi3 deps in env '$CONDA_ENV'." >&2
     echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
+    echo "       Or quick fix: pip install plyfile" >&2
     exit 1
 fi
 

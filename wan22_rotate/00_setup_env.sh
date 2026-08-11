@@ -158,7 +158,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         hydra-colorlog pyrootutils webdataset chump "networkx==3.2.1" roma \
         joblib seaborn wandb appdirs appnope ffmpeg cython jsonlines pytest \
         xtcocotools loguru optree fvcore black pycocotools tensorboard \
-        huggingface_hub
+        huggingface_hub plyfile
 
     # 0e. detectron2 (@a1ce2f9, --no-deps to avoid pin clash)
     # 手动 clone 后本地 install——LD_LIBRARY_PATH= 防 conda libffi 和系统 libp11-kit 冲突
