@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wan2.2 Rotate — 算法流程图</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --purple: #bc8cff;
+  --orange: #d29922;
+  --red: #f85149;
+  --teal: #39d0d8;
+  --pink: #f778ba;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 40px 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+h1 { font-size: 1.8em; margin-bottom: 8px; }
+h2 { font-size: 1.3em; margin: 40px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+h3 { font-size: 1.05em; margin-bottom: 8px; }
+.subtitle { color: var(--text-dim); margin-bottom: 32px; }
+
+/* ── Pipeline flow ── */
+.pipeline { display: flex; flex-direction: column; gap: 0; align-items: center; }
+.step-row { display: flex; align-items: stretch; gap: 16px; width: 100%; justify-content: center; flex-wrap: wrap; }
+.arrow-down {
+  display: flex; flex-direction: column; align-items: center; margin: 6px 0;
+}
+.arrow-down .line { width: 2px; height: 28px; background: var(--border); }
+.arrow-down .head { font-size: 14px; color: var(--text-dim); margin-top: -4px; }
+.arrow-down .label {
+  font-size: 0.75em; color: var(--text-dim); background: var(--card);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; margin: 4px 0;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 280px;
+  max-width: 380px;
+  position: relative;
+}
+.card .step-num {
+  position: absolute; top: -12px; left: 16px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 2px 12px;
+  font-size: 0.8em; font-weight: 600; color: var(--accent);
+}
+.card h3 { margin-top: 4px; }
+.card .io { margin-top: 10px; font-size: 0.82em; }
+.card .io .in, .card .io .out { display: flex; gap: 4px; align-items: baseline; margin: 3px 0; }
+.card .io .tag { font-weight: 600; min-width: 38px; }
+.card .io .in .tag { color: var(--teal); }
+.card .io .out .tag { color: var(--green); }
+.card .detail { margin-top: 10px; font-size: 0.8em; color: var(--text-dim); }
+.card .detail li { list-style: none; padding-left: 14px; position: relative; margin: 3px 0; }
+.card .detail li::before { content: "▸"; position: absolute; left: 0; color: var(--accent); }
+
+/* variant cards */
+.variant-group {
+  display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+  width: 100%; max-width: 1200px;
+}
+.variant-group .card { flex: 1; min-width: 240px; max-width: 320px; }
+.card-01 { border-color: var(--green); }
+.card-01 .step-num { color: var(--green); border-color: var(--green); }
+.card-01b { border-color: var(--orange); }
+.card-01b .step-num { color: var(--orange); border-color: var(--orange); }
+.card-01c { border-color: var(--teal); }
+.card-01c .step-num { color: var(--teal); border-color: var(--teal); }
+
+.card-00 { border-color: var(--text-dim); }
+.card-00 .step-num { color: var(--text-dim); border-color: var(--text-dim); }
+.card-02 { border-color: var(--purple); }
+.card-02 .step-num { color: var(--purple); border-color: var(--purple); }
+.card-03 { border-color: var(--accent); }
+.card-03 .step-num { color: var(--accent); border-color: var(--accent); }
+.card-04 { border-color: var(--orange); }
+.card-04 .step-num { color: var(--orange); border-color: var(--orange); }
+.card-05 { border-color: var(--red); }
+.card-05 .step-num { color: var(--red); border-color: var(--red); }
+
+/* sub-steps for 05 */
+.substeps { display: flex; gap: 12px; margin-top: 10px; }
+.substep {
+  flex: 1; border: 1px dashed var(--border); border-radius: 6px; padding: 8px;
+  font-size: 0.78em;
+}
+.substep .sub-num { color: var(--red); font-weight: 600; font-size: 0.9em; }
+
+/* ── Internal flow diagram (step 01) ── */
+.flow-box {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 10px;
+  font-size: 0.78em;
+}
+.flow-node {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  border-radius: 5px; padding: 5px 8px; text-align: center;
+}
+.flow-node.highlight { border-color: var(--green); background: rgba(59,185,80,0.08); }
+.flow-arrow { text-align: center; color: var(--text-dim); font-size: 0.9em; }
+.flow-node.alt { font-size: 0.95em; color: var(--text-dim); }
+
+/* ── Dir tree ── */
+.tree {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px; font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 0.82em; overflow-x: auto; white-space: pre; line-height: 1.5;
+}
+.tree .dir { color: var(--accent); }
+.tree .file { color: var(--text); }
+.tree .comment { color: var(--text-dim); }
+.tree .highlight { color: var(--green); font-weight: 600; }
+
+/* ── Table ── */
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85em; }
+th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+th { background: rgba(255,255,255,0.03); color: var(--accent); }
+td { color: var(--text); }
+tr:hover { background: rgba(255,255,255,0.02); }
+
+/* ── Badge ── */
+.badge {
+  display: inline-block; font-size: 0.7em; padding: 1px 6px; border-radius: 8px;
+  font-weight: 600; margin-left: 6px;
+}
+.badge-gpu { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+.badge-cpu { background: rgba(57,208,216,0.15); color: var(--teal); border: 1px solid rgba(57,208,216,0.3); }
+.badge-fast { background: rgba(59,185,80,0.15); color: var(--green); border: 1px solid rgba(59,185,80,0.3); }
+.badge-heavy { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+
+/* ── Comparison ── */
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
+.compare-grid .item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.compare-grid .item h4 { font-size: 0.95em; margin-bottom: 8px; }
+.compare-grid .item ul { list-style: none; font-size: 0.8em; }
+.compare-grid .item li { padding-left: 12px; position: relative; margin: 4px 0; }
+.compare-grid .item li::before { content: "•"; position: absolute; left: 0; color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>🎬 Wan2.2 Rotate — 算法流程图</h1>
+<p class="subtitle">环绕人物 → 正面选图 → 分割 → 360°旋转视频 → 位姿估计 → 三维重建</p>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>📡 整体 Pipeline</h2>
+<div class="pipeline">
+
+  <!-- Step 00 -->
+  <div class="step-row">
+    <div class="card card-00">
+      <span class="step-num">00 Setup</span>
+      <h3>🔧 环境准备</h3>
+      <div class="detail">
+        <li>conda env <code>wan22_rotate</code> (CPython 3.10)</li>
+        <li>torch 2.6.0+cu124 + nvidia deps (本地 cp310 轮子)</li>
+        <li>gcc12 → detectron2 (ViTDet) 编译</li>
+        <li>DiffSynth-Studio (editable install)</li>
+        <li>sam_3d_body + MoGe + SAM2 + MediaPipe</li>
+        <li>2DGS CUDA 扩展 (INSTALL_2DGS=1, 可选)</li>
+        <li>下载: ViTDet / SAM2 / face_landmarker.task</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">env 就绪</span><div class="head">▼</div></div>
+
+  <!-- Step 01 — 3 variants -->
+  <div class="step-row">
+    <div class="variant-group">
+      <!-- 01 full -->
+      <div class="card card-01">
+        <span class="step-num">01 Full</span>
+        <h3>🎯 SAM 3D Body 选图+分割</h3>
+        <span class="badge badge-heavy">GATED 权重</span>
+        <span class="badge badge-gpu">GPU</span>
+        <div class="flow-box">
+          <div class="flow-node">🖼️ 输入图像 (N 张)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">🔍 ViTDet 人体检测 → bbox</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">📡 MoGe2 FOV 估计 → 内参</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">🧠 DINOv3 编码 + MHR 解码</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node highlight">📐 global_rot → 正面评分<br><small>score = -forward[2]</small></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">✂️ 分割 (SAM2 &gt; mesh &gt; bbox)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">🎨 背景置白</div>
+        </div>
+        <div class="detail">
+          <li>最准 (3D 姿态 global_rot)</li>
+          <li>需 HF_TOKEN + GATED 权重 (~1GB+)</li>
+          <li>每张图 ~2-5s (模型重)</li>
+          <li>FRONTAL_SIGN=-1 可翻转方向</li>
+        </div>
+      </div>
+
+      <!-- 01b simple -->
+      <div class="card card-01b">
+        <span class="step-num">01b Simple</span>
+        <h3>📏 按面积选图+分割</h3>
+        <span class="badge badge-gpu">GPU</span>
+        <div class="flow-box">
+          <div class="flow-node">🖼️ 输入图像 (N 张)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">🔍 ViTDet 检测 → bbox (每张)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">✂️ SAM2 分割 (每张)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node highlight">📐 按人物面积最大选图<br><small>area = mask.sum()</small></div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">📐 居中 + 背景置白</div>
+        </div>
+        <div class="detail">
+          <li>不需 3D body / GATED 权重</li>
+          <li>选"面积最大"≠"正面"（可能选到侧面）</li>
+          <li>每张图都跑 ViTDet+SAM2 (慢)</li>
+        </div>
+      </div>
+
+      <!-- 01c mediapipe -->
+      <div class="card card-01c">
+        <span class="step-num">01c MediaPipe</span>
+        <h3>🤖 Face Mesh 选图+分割</h3>
+        <span class="badge badge-cpu">CPU</span>
+        <span class="badge badge-fast">快</span>
+        <div class="flow-box">
+          <div class="flow-node">🖼️ 输入图像 (N 张)</div>
+          <div class="flow-arrow">▼ Phase 1 (CPU, ~0.1s/张)</div>
+          <div class="flow-node">🤖 MediaPipe Face Mesh → 468 关键点</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node highlight">📐 正面评分<br><small>symmetry × (eye_dist + 0.3)</small><br><small>鼻尖(1)居中 + 双眼(33,263)距离最大</small></div>
+          <div class="flow-arrow">▼ 选最高分 1 张</div>
+          <div class="flow-node alt">⏭️ 其余图丢弃 (不加载 ViTDet/SAM2)</div>
+          <div class="flow-arrow">▼ Phase 2 (lazy load)</div>
+          <div class="flow-node">📦 加载 ViTDet + SAM2 (仅此刻)</div>
+          <div class="flow-arrow">▼</div>
+          <div class="flow-node">✂️ SAM2 分割 → 居中 → 背景置白</div>
+        </div>
+        <div class="detail">
+          <li>无需 GATED 权重 (mediapipe pip 包)</li>
+          <li>两阶段：先评分选图，再懒加载分割</li>
+          <li>背面图无人脸 → 自动排除</li>
+          <li>支持 legacy (<1.0) + Tasks API (≥1.0)</li>
+          <li>SKIP_SEGMENTATION=1 仅选图</li>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">segmented_image.png + segmented_image_centered.png</span><div class="head">▼</div></div>
+
+  <!-- Step 02 -->
+  <div class="step-row">
+    <div class="card card-02">
+      <span class="step-num">02 Generate</span>
+      <h3>🎬 Wan2.2 I2V + LoRA 生成 360° 视频</h3>
+      <span class="badge badge-gpu">GPU</span>
+      <div class="io">
+        <div class="in"><span class="tag">IN</span> <code>segmented_image_centered.png</code></div>
+        <div class="in"><span class="tag">IN</span> <code>Wan2.2-TI2V-5B/</code> + LoRA <code>step-N.safetensors</code></div>
+        <div class="out"><span class="tag">OUT</span> <code>rotate_360.mp4</code> (81帧 @15fps, 1248×704)</div>
+      </div>
+      <div class="detail">
+        <li>ModelConfig(path=...) 直接加载本地权重</li>
+        <li>pipe.load_lora(dit, weight, alpha=1)</li>
+        <li>I2V: 分割图作首帧 → 360° 旋转视频</li>
+        <li>PROMPT / HEIGHT / WIDTH / NUM_FRAMES 可覆盖</li>
+        <li>LOW_VRAM=1 磁盘 offload (省显存)</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">rotate_360.mp4</span><div class="head">▼</div></div>
+
+  <!-- Step 03 -->
+  <div class="step-row">
+    <div class="card card-03">
+      <span class="step-num">03 Extract</span>
+      <h3>🎞️ 拆帧 → JPG</h3>
+      <span class="badge badge-cpu">CPU</span>
+      <div class="io">
+        <div class="in"><span class="tag">IN</span> <code>rotate_360.mp4</code></div>
+        <div class="out"><span class="tag">OUT</span> <code>rotate_360/image/00000.jpg ...</code></div>
+      </div>
+      <div class="detail">
+        <li>cv2.VideoCapture + imwrite(.jpg, quality=95)</li>
+        <li>FPS=0 抽每一帧 (~81张); FPS=N 按N采样</li>
+        <li>同名目录 = 合法 INPUT_DIR (可喂回 01 或 pi3)</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">rotate_360/image/*.jpg</span><div class="head">▼</div></div>
+
+  <!-- Step 04 -->
+  <div class="step-row">
+    <div class="card card-04">
+      <span class="step-num">04 Pose</span>
+      <h3>📡 Pi3 位姿估计</h3>
+      <span class="badge badge-gpu">GPU</span>
+      <div class="io">
+        <div class="in"><span class="tag">IN</span> <code>rotate_360/image/*.jpg</code></div>
+        <div class="in"><span class="tag">IN</span> <code>Pi3/model.safetensors</code></div>
+        <div class="out"><span class="tag">OUT</span> <code>pi3/predictions.npz</code> (原始张量)</div>
+        <div class="out"><span class="tag">OUT</span> <code>pi3/dense_cloud.ply</code> (稠密点云)</div>
+        <div class="out"><span class="tag">OUT</span> <code>pi3/poses.json</code> (c2w 4×4 矩阵)</div>
+      </div>
+      <div class="detail">
+        <li>π³ 前馈位姿 + 稠密点云 (ICLR 2026)</li>
+        <li>1 次推理 → 所有视角位姿 + 点云 + 置信度</li>
+        <li>--no_colmap: 不导 COLMAP (不做三维重建)</li>
+        <li>同 env 跑 (Pi3 deps 已在 wan22_rotate)</li>
+        <li>FRAME_MAX=60 防 OOM (显存随帧数线性)</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">位姿 + 点云</span><div class="head">▼</div></div>
+
+  <!-- Step 05 -->
+  <div class="step-row">
+    <div class="card card-05">
+      <span class="step-num">05 Recon</span>
+      <h3>🌐 三维高斯重建</h3>
+      <span class="badge badge-gpu">GPU</span>
+      <span class="badge badge-heavy">重</span>
+      <div class="substeps">
+        <div class="substep">
+          <div class="sub-num">5a Pi3+COLMAP</div>
+          Pi3 重跑 (带 COLMAP 导出)<br>
+          → <code>source/{images, sparse/0/*.txt}</code><br>
+          cameras.txt (PINHOLE)<br>
+          images.txt (c2w→w2c)<br>
+          points3D.txt (稠密点云)
+        </div>
+        <div class="substep">
+          <div class="sub-num">5b 2DGS 训练</div>
+          高斯初始化 → 可微光栅化<br>
+          L1+SSIM+法向+深度正则 → 致密化<br>
+          <code>--white_background</code> 适配白底<br>
+          → <code>point_cloud.ply</code>
+        </div>
+        <div class="substep">
+          <div class="sub-num">5c 渲染+网格</div>
+          render.py 渲染各视角<br>
+          TSDF fusion 提网格<br>
+          <code>--unbounded</code> 无界模式<br>
+          → <code>renders/*.png</code><br>
+          → <code>mesh.ply</code>
+        </div>
+      </div>
+      <div class="detail">
+        <li>全部在 wan22_rotate env (INSTALL_2DGS=1 编 CUDA 扩展)</li>
+        <li>WHITE_BG=1 + UNBOUNDED=1 适配白底人像</li>
+        <li>SKIP_PI3 / SKIP_TRAIN / SKIP_RENDER 可分步跳过</li>
+        <li>ITERATIONS=30000 (7000=快速demo)</li>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>⚖️ Step 01 三种方式对比</h2>
+<div class="compare-grid">
+  <div class="item" style="border-color: var(--green);">
+    <h4 style="color: var(--green);">01 Full — SAM 3D Body</h4>
+    <ul>
+      <li>原理: 3D 姿态 global_rot 算朝向</li>
+      <li>准确度: ★★★★★ (最准)</li>
+      <li>速度: ~2-5s/张 (模型重)</li>
+      <li>权重: GATED, ~1GB+ (需 HF_TOKEN)</li>
+      <li>额外依赖: detectron2, pyrender, MoGe2</li>
+      <li>分割: SAM2 / 3D mesh / bbox 三级</li>
+      <li>适用: 有 HF Token + 要最准</li>
+    </ul>
+  </div>
+  <div class="item" style="border-color: var(--orange);">
+    <h4 style="color: var(--orange);">01b Simple — 按面积</h4>
+    <ul>
+      <li>原理: 检测人体 → 按面积最大选</li>
+      <li>准确度: ★★☆ (面积大≠正面)</li>
+      <li>速度: ~1-2s/张 (每张都跑检测+分割)</li>
+      <li>权重: 无 GATED (只需 ViTDet)</li>
+      <li>额外依赖: detectron2</li>
+      <li>分割: SAM2 / bbox</li>
+      <li>适用: 无 GATED + 快速跑</li>
+    </ul>
+  </div>
+  <div class="item" style="border-color: var(--teal);">
+    <h4 style="color: var(--teal);">01c MediaPipe — Face Mesh</h4>
+    <ul>
+      <li>原理: 鼻尖居中 + 双眼距离最大</li>
+      <li>准确度: ★★★★ (正面锁定好)</li>
+      <li>速度: ~0.1s/张 评分 + 1张分割</li>
+      <li>权重: 无 (pip 包, face_landmarker.task ~1MB)</li>
+      <li>额外依赖: mediapipe (轻量)</li>
+      <li>分割: 两阶段, 先选再分割 (省加载)</li>
+      <li>适用: 无 GATED + CPU + 要正面</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>📂 输出目录结构</h2>
+<div class="tree"><span class="dir">wan22_rotate_results/</span>
+├── <span class="highlight">segmented_image.png</span>            <span class="comment"># Step 01/01b/01c: 人物分割图 (白底)</span>
+├── <span class="highlight">segmented_image_centered.png</span>   <span class="comment"># Step 01b/01c: 人物居中版</span>
+├── front_facing_original.jpg     <span class="comment"># 选出的正面原图</span>
+├── frontal_scores.csv            <span class="comment"># 各图正面评分 (调试)</span>
+├── debug_mask.png                <span class="comment"># 分割掩码 (调试)</span>
+│
+├── <span class="highlight">rotate_360.mp4</span>                 <span class="comment"># Step 02: 360°旋转视频 (81帧@15fps)</span>
+│
+└── <span class="dir">rotate_360/</span>                    <span class="comment"># Step 03: 同名目录 = 合法 INPUT_DIR</span>
+    ├── <span class="dir">image/</span>                      <span class="comment"># Step 03: 拆出的 JPG 帧</span>
+    │   ├── 00000.jpg
+    │   ├── 00001.jpg
+    │   └── ...
+    │
+    └── <span class="dir">pi3/</span>                        <span class="comment"># Step 04/05a: Pi3 输出</span>
+        ├── <span class="dir">frames/</span>                 <span class="comment">#   Pi3 实际用的帧</span>
+        ├── predictions.npz          <span class="comment">#   原始张量 (points, camera_poses, conf, ...)</span>
+        ├── dense_cloud.ply          <span class="comment">#   置信度过滤的稠密点云</span>
+        ├── poses.json               <span class="comment">#   人类可读 c2w 4×4 矩阵 (每帧一个)</span>
+        │
+        ├── <span class="dir">source/</span>                  <span class="comment"># Step 5a: COLMAP 场景</span>
+        │   ├── <span class="dir">images/</span>             <span class="comment">#   训练图</span>
+        │   └── <span class="dir">sparse/0/</span>
+        │       ├── cameras.txt      <span class="comment">#   PINHOLE, fx=fy=max(W,H)</span>
+        │       ├── images.txt       <span class="comment">#   c2w→w2c 四元数+平移</span>
+        │       └── points3D.txt     <span class="comment">#   稠密点云+RGB</span>
+        │
+        └── <span class="dir">model/</span>                   <span class="comment"># Step 5b/5c: 2DGS 训练产物</span>
+            ├── <span class="dir">point_cloud/</span>
+            │   └── <span class="dir">iteration_30000/</span>
+            │       └── <span class="highlight">point_cloud.ply</span>  <span class="comment"># 高斯点云</span>
+            └── <span class="dir">test/ours_30000/</span>
+                ├── <span class="dir">renders/</span>          <span class="comment"># 渲染图</span>
+                │   └── *.png
+                └── <span class="highlight">mesh.ply</span>        <span class="comment"># TSDF 网格 (MeshLab 可看)</span></div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>🔄 数据闭环</h2>
+<p style="color: var(--text-dim); font-size: 0.9em;">
+Step 03 的输出 <code>rotate_360/image/</code> 是合法的 <code>INPUT_DIR</code>，可喂回 Step 01 重新选图 + 分割 —— 形成"生成→选图→再生成"的闭环。
+同样可喂给 <code>pi3_3dgs</code> 或任何接受 <code>INPUT_DIR/image/</code> 模式的算法。
+</p>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>🔧 环境与依赖关系</h2>
+<table>
+  <tr>
+    <th>Step</th>
+    <th>脚本</th>
+    <th>Python</th>
+    <th>核心依赖</th>
+    <th>官方代码</th>
+    <th>权重</th>
+  </tr>
+  <tr>
+    <td>00</td>
+    <td>00_setup_env.sh</td>
+    <td>—</td>
+    <td>conda, pip, gcc12, nvcc (2DGS)</td>
+    <td>DiffSynth-Studio, sam-3d-body, detectron2, MoGe, sam2, 2d-gs</td>
+    <td>ViTDet, SAM2 ckpt, face_landmarker.task</td>
+  </tr>
+  <tr>
+    <td>01</td>
+    <td>01_pick_and_segment.sh → pick_and_segment.py</td>
+    <td>pick_and_segment.py</td>
+    <td>sam_3d_body, detectron2, MoGe2, pyrender</td>
+    <td>sam-3d-body/</td>
+    <td>sam-3d-body-dinov3/ (GATED), moge-2-vitl-normal/</td>
+  </tr>
+  <tr>
+    <td>01b</td>
+    <td>01b_pick_and_segment.sh → pick_and_segment_simple.py</td>
+    <td>pick_and_segment_simple.py</td>
+    <td>sam_3d_body (detector+segmentor), detectron2</td>
+    <td>sam-3d-body/</td>
+    <td>ViTDet/ (model_final_f05665.pkl)</td>
+  </tr>
+  <tr>
+    <td>01c</td>
+    <td>01c_pick_and_segment.sh → pick_and_segment_mediapipe.py</td>
+    <td>pick_and_segment_mediapipe.py</td>
+    <td>mediapipe (legacy/Tasks), sam_3d_body (分割, optional)</td>
+    <td>sam-3d-body/ (仅分割阶段)</td>
+    <td>face_landmarker.task (≥1.0), ViTDet (分割阶段)</td>
+  </tr>
+  <tr>
+    <td>02</td>
+    <td>02_generate_video.sh → generate_video.py</td>
+    <td>generate_video.py</td>
+    <td>diffsynth, torch, WanVideoPipeline</td>
+    <td>DiffSynth-Studio-Human/</td>
+    <td>Wan2.2-TI2V-5B/ + LoRA step-N.safetensors</td>
+  </tr>
+  <tr>
+    <td>03</td>
+    <td>03_extract_frames.sh → extract_frames.py</td>
+    <td>extract_frames.py</td>
+    <td>cv2 (opencv-python)</td>
+    <td>—</td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td>04</td>
+    <td>04_pi3_pose.sh → pi3_3dgs/pi3_recon.py</td>
+    <td>pi3_recon.py (--no_colmap)</td>
+    <td>torch, numpy, cv2, safetensors, plyfile</td>
+    <td>Pi3/</td>
+    <td>Pi3/model.safetensors (~1GB)</td>
+  </tr>
+  <tr>
+    <td>05</td>
+    <td>05_3dgs_recon.sh</td>
+    <td>pi3_recon.py + train.py + render.py</td>
+    <td>torch, simple_knn, diff_surfel_rasterization, open3d</td>
+    <td>Pi3/ + 2d-gaussian-splatting/</td>
+    <td>Pi3/model.safetensors</td>
+  </tr>
+</table>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>⚙️ 关键参数速查</h2>
+<table>
+  <tr><th>Step</th><th>变量</th><th>默认</th><th>说明</th></tr>
+  <tr><td>01</td><td>FRONTAL_SIGN</td><td>1</td><td>-1 = 翻转正面判定 (选到背面时用)</td></tr>
+  <tr><td>01</td><td>INFERENCE_TYPE</td><td>body</td><td>body (快) / full / hand</td></tr>
+  <tr><td>01c</td><td>MP_MIN_CONFIDENCE</td><td>0.5</td><td>Face Mesh 检测置信度阈值</td></tr>
+  <tr><td>01c</td><td>SKIP_SEGMENTATION</td><td>0</td><td>1 = 仅选图不分割 (快速看哪帧正面)</td></tr>
+  <tr><td>02</td><td>HEIGHT / WIDTH</td><td>1248 / 704</td><td>portrait; landscape 用 704 / 1248</td></tr>
+  <tr><td>02</td><td>NUM_FRAMES</td><td>81</td><td>生成帧数 (4k+1, Wan 约束)</td></tr>
+  <tr><td>02</td><td>LOW_VRAM</td><td>0</td><td>1 = 磁盘 offload (省显存)</td></tr>
+  <tr><td>03</td><td>FPS</td><td>0</td><td>0 = 每帧; N = 按 N fps 采样</td></tr>
+  <tr><td>04</td><td>FRAME_MAX</td><td>60</td><td>最大帧数 (Pi3 显存线性增长)</td></tr>
+  <tr><td>05</td><td>ITERATIONS</td><td>30000</td><td>2DGS 训练步数 (7000=demo)</td></tr>
+  <tr><td>05</td><td>WHITE_BG</td><td>1</td><td>白底训练 (适配分割图)</td></tr>
+  <tr><td>05</td><td>UNBOUNDED</td><td>1</td><td>无界 TSDF (人像在白色虚空)</td></tr>
+  <tr><td>05</td><td>SKIP_PI3 / SKIP_TRAIN / SKIP_RENDER</td><td>0</td><td>分步跳过 5a/5b/5c</td></tr>
+</table>
+
+</body>
+</html>
