@@ -64,13 +64,34 @@ def get_face_mesh():
     global _mp_face_mesh
     if _mp_face_mesh is None:
         import mediapipe as mp  # noqa: E402
-        _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+        # Some mediapipe versions don't auto-import the solutions subpackage,
+        # so `mp.solutions` raises AttributeError. Try explicit imports in order.
+        FaceMesh = None
+        for _mod_path in (
+            "mediapipe.solutions.face_mesh",       # standard
+            "mediapipe.python.solutions.face_mesh", # some Linux builds
+        ):
+            try:
+                import importlib
+                _mod = importlib.import_module(_mod_path)
+                FaceMesh = _mod.FaceMesh
+                print(f"🤖 MediaPipe FaceMesh via {_mod_path}")
+                break
+            except (ImportError, AttributeError):
+                continue
+        if FaceMesh is None:
+            sys.exit(
+                f"❌ cannot import mediapipe FaceMesh (version={getattr(mp,'__version__','?')}).\n"
+                f"   Try: pip install --force-reinstall mediapipe\n"
+                f"   Or use 01/01b (SAM 3D Body / ViTDet) instead of 01c."
+            )
+        _mp_face_mesh = FaceMesh(
             static_image_mode=True,
             max_num_faces=1,           # only the main subject matters
             refine_landmarks=False,    # 468 landmarks is enough; iris not needed
             min_detection_confidence=MP_MIN_CONFIDENCE,
         )
-        print(f"🤖 MediaPipe FaceMesh loaded (min_conf={MP_MIN_CONFIDENCE})")
+        print(f"   min_conf={MP_MIN_CONFIDENCE}")
     return _mp_face_mesh
 
 
