@@ -149,8 +149,9 @@ INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 #    编 simple-knn + diff-surfel-rasterization（复用已有的 gxx_linux-64=12 + 系统 CUDA toolkit）
 INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 
-# ⚠️ 如果上面编 CUDA 扩展失败（simple-knn 拉不下来 / CUDA 版本不匹配），
-#    按以下步骤手动修：
+# ⚠️ 如果上面编 CUDA 扩展失败（simple-knn 拉不下来 / CUDA 版本不匹配 / GLM 缺失），
+#    00 脚本已自动处理多数情况（自动找 CUDA 12.4 路径、zip fallback 拉 simple-knn、
+#    clone GLM）。但如果还是失败，按以下步骤手动修：
 #
 # a) simple-knn 拉不下来（gitlab.inria.fr 被封/慢）：
 #    在 Windows 浏览器下载 zip，传到容器：
@@ -171,7 +172,12 @@ export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
 export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
 $CUDA_HOME/bin/nvcc --version | tail -1    # 确认输出 cuda_12.4
 #
-# c) 编译两个 CUDA 扩展（--no-deps --no-index 避免联网）：
+# c) GLM 缺失（glm/glm.hpp: No such file or directory）：
+cd /data_3d/w00950754/code/2d-gaussian-splatting
+git clone https://github.com/g-truc/glm.git third_party/glm
+ls third_party/glm/glm/glm.hpp   # 确认存在
+#
+# d) 编译两个 CUDA 扩展（--no-deps --no-index 避免联网）：
 pip install --no-build-isolation --no-deps --no-index \
   /data_3d/w00950754/code/2d-gaussian-splatting/submodules/simple-knn
 pip install --no-build-isolation --no-deps --no-index \

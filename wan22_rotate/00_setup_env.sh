@@ -281,9 +281,27 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             open3d==0.18.0 mediapy==1.1.2 lpips==0.1.4 \
             scikit-image==0.21.0 tqdm==4.66.2 trimesh==4.3.2 \
             plyfile "setuptools<70"
-        # Build CUDA extensions (same gxx as detectron2, needs nvcc from CUDA toolkit)
+        # Build CUDA extensions (same gxx as detectron2, needs nvcc from CUDA toolkit).
+        # Auto-detect CUDA 12.x: /usr/local/cuda might point to 11.8, find cuda-12.4.
         export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
         if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+            _nvcc_ver="$($CUDA_HOME/bin/nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+' || echo '')"
+            _torch_ver="$(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null || echo '')"
+            if [ -n "$_nvcc_ver" ] && [ -n "$_torch_ver" ]; then
+                _nvcc_major="${_nvcc_ver%%.*}"
+                _torch_major="${_torch_ver%%.*}"
+                if [ "$_nvcc_major" != "$_torch_major" ]; then
+                    echo "  ⚠️ CUDA_HOME=$CUDA_HOME is $_nvcc_ver but torch is $_torch_ver"
+                    for _d in /usr/local/cuda-${_torch_major}*; do
+                        if [ -x "$_d/bin/nvcc" ]; then
+                            export CUDA_HOME="$_d"
+                            echo "  → switched CUDA_HOME to $CUDA_HOME"
+                            break
+                        fi
+                    done
+                fi
+            fi
+            export PATH="$CUDA_HOME/bin:$PATH"
             echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
             echo "  building CUDA ext: simple-knn"
             pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index \
