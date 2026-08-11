@@ -328,8 +328,10 @@ def main():
     # Trigger MediaPipe import early so a missing install fails fast.
     get_face_mesh()
 
-    human_detector, human_segmentor = build_tools()
-
+    # ── Phase 1: MediaPipe face scoring on ALL images (CPU, fast, ~0.1s/image).
+    # Don't load ViTDet/SAM2 yet — defer until we know which image to segment.
+    # This saves ~10-30s of model loading if no face is found or if
+    # SKIP_SEGMENTATION=1, and avoids holding N images in RAM.
     results = []
     t0 = time.time()
 
@@ -347,17 +349,17 @@ def main():
                 print(f"[{i}/{len(images)}] {fp.name}  ⚪  no face (back/side?)")
                 continue
 
+            # Only store path + score (not the image array) to save RAM.
             results.append({
                 "path": str(fp),
                 "rel": str(rel),
                 "score": score,
-                "image": image_bgr,
             })
             print(f"[{i}/{len(images)}] {fp.name}  🎯 score={score:.4f}  ({time.time()-t1:.2f}s)")
         except Exception as e:
             print(f"[{i}/{len(images)}] {fp.name}  ❌ {e}", file=sys.stderr)
 
-    print(f"⏱️  processed {len(results)}/{len(images)} images in {time.time()-t0:.1f}s")
+    print(f"⏱️  Phase 1 (MediaPipe scoring): {len(results)}/{len(images)} faces in {time.time()-t0:.1f}s")
 
     if not results:
         sys.exit("❌ no face detected in any image (are these back-facing shots?)")
@@ -365,15 +367,8 @@ def main():
     best = max(results, key=lambda r: r["score"])
     print(f"\n🎯 picked: {best['rel']}  (score={best['score']:.4f})")
 
-    image_bgr = best["image"]
-    img_h, img_w = image_bgr.shape[:2]
-
     out_dir = Path(OUTPUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save the picked original (always, even if segmentation is skipped)
-    cv2.imwrite(str(out_dir / "front_facing_original.jpg"), image_bgr)
-    print(f"✅ saved: {out_dir/'front_facing_original.jpg'}")
 
     # Save scores CSV (always — handy for debugging the pick)
     with open(out_dir / "frontal_scores.csv", "w", newline="", encoding="utf-8") as f:
@@ -384,12 +379,30 @@ def main():
     print(f"✅ saved: {out_dir/'frontal_scores.csv'}")
 
     if SKIP_SEGMENTATION:
+        # Still save the picked original for reference.
+        cv2.imwrite(str(out_dir / "front_facing_original.jpg"),
+                    cv2.imread(best["path"]))
+        print(f"✅ saved: {out_dir/'front_facing_original.jpg'}")
         print("⏭️  SKIP_SEGMENTATION=1 -> done (no segmentation)")
         print(f"\n🎉 Done. Next:")
         print(f"   WEIGHT_PATH=<lora> bash {Path(__file__).resolve().parent}/02_generate_video.sh")
         return
 
-    # Segment the person in the picked image.
+    # ── Phase 2: load ViTDet + SAM2 and segment ONLY the picked image.
+    # Re-read the single best image (instead of holding all N in RAM).
+    t_seg0 = time.time()
+    print("\n📦 loading ViTDet + SAM2 (lazy — only needed for the picked image) ...")
+    human_detector, human_segmentor = build_tools()
+
+    image_bgr = cv2.imread(best["path"])
+    if image_bgr is None:
+        sys.exit(f"❌ cannot re-read picked image: {best['path']}")
+    img_h, img_w = image_bgr.shape[:2]
+
+    # Save the picked original.
+    cv2.imwrite(str(out_dir / "front_facing_original.jpg"), image_bgr)
+    print(f"✅ saved: {out_dir/'front_facing_original.jpg'}")
+
     bboxes = detect_persons(human_detector, image_bgr)
     best_bbox = max(bboxes, key=lambda b: max(0, b[2]-b[0]) * max(0, b[3]-b[1])) if bboxes else None
 
@@ -398,6 +411,8 @@ def main():
         mask = segment_with_segmentor(human_segmentor, image_bgr, [best_bbox])
     if mask is None and best_bbox is not None:
         mask = bbox_to_mask(best_bbox, img_h, img_w, PADDING)
+
+    print(f"⏱️  Phase 2 (segment 1 image): {time.time()-t_seg0:.1f}s")
 
     if mask is None:
         print("⚠️  no mask produced (no detector/segmentor configured).")
