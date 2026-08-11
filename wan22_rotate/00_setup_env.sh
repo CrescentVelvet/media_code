@@ -278,10 +278,10 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         if [ -x "$CUDA_HOME/bin/nvcc" ]; then
             echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
             echo "  building CUDA ext: simple-knn"
-            pip install "${PIP_FLAGS[@]}" --no-build-isolation \
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps \
                 "$GS2D_DIR/submodules/simple-knn"
             echo "  building CUDA ext: diff-surfel-rasterization"
-            pip install "${PIP_FLAGS[@]}" --no-build-isolation \
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps \
                 "$GS2D_DIR/submodules/diff-surfel-rasterization"
             python -c "import simple_knn, diff_surfel_rasterization; print('  [OK] 2DGS CUDA exts')" || \
                 echo "  WARNING: CUDA exts built but not importable" >&2
