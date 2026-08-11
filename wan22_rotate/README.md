@@ -68,6 +68,7 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05_3dgs_recon.sh
+
 # 分步（05_3dgs_recon.sh 内部三步，可单独跳过）：
 # 5a) Pi3 推理 + COLMAP 导出（视频抽帧 → Pi3 → cameras/images/points3D.txt）
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
