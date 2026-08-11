@@ -212,7 +212,18 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             echo "         Place at: $CKPT_DIR/sam2.1_hiera_large.pt" >&2
     fi
 
-    # 0h. 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env)
+    # 0h. MediaPipe (face mesh for step 01c — lightweight front-image pick on CPU).
+    #     Only needed by 01c (MediaPipe-based frontal pick); 01/01b don't use it.
+    #     mediapipe pulls opencv-contrib-python (also provides cv2), conflicting
+    #     with the opencv-python installed above — force-reinstall opencv-python
+    #     afterward so detectron2/sam_3d_body keep the version they expect.
+    #     The final numpy pin (below) re-pins numpy in case mediapipe bumps it.
+    echo "--- installing MediaPipe (step 01c) ---"
+    pip install "${PIP_FLAGS[@]}" mediapipe || \
+        echo "WARNING: mediapipe install failed; step 01c needs it (pip install mediapipe)" >&2
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps opencv-python
+
+    # 0i. 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env)
     #     Gated by INSTALL_2DGS=1. Clones 2DGS repo + submodules, installs deps,
     #     builds two CUDA extensions (simple-knn + diff-surfel-rasterization).
     #     Needs CUDA toolkit (nvcc) at CUDA_HOME — same as detectron2 needs gxx.
@@ -367,6 +378,12 @@ if python -c "import diffsynth; print('  [OK] diffsynth')" 2>/dev/null; then :; 
 fi
 if python -c "import sam_3d_body, cv2, detectron2; print('  [OK] sam_3d_body + cv2 + detectron2')" 2>/dev/null; then :; else
     echo "  [MISS] sam_3d_body/cv2/detectron2 — Run: INSTALL_DEPS=1 bash $0" >&2
+fi
+
+# --- 5a. verify MediaPipe (step 01c, optional) ---
+echo "--- [5a] verify MediaPipe (step 01c) ---"
+if python -c "import mediapipe; print('  [OK] mediapipe', mediapipe.__version__)" 2>/dev/null; then :; else
+    echo "  [MISS] mediapipe — Run: INSTALL_DEPS=1 bash $0  (only needed by step 01c)" >&2
 fi
 
 # --- 5b. verify 2DGS (step 05, only if INSTALL_2DGS was used) ---

@@ -2,6 +2,11 @@
 
 从一组环绕人物拍摄的图像中，自动挑选人物面向相机的正面图像，用 SAM 3D Body 识别并分割人物（背景置白），再用 Wan2.2-TI2V-5B + 已训练的 LoRA 生成 360° 旋转视频。
 
+> 选正面图有三种方式（按需选一）：
+> - **01 完整版** — SAM 3D Body 3D 姿态估计（`global_rot` 算正面评分；需 GATED 权重，最准）
+> - **01b 简化版** — ViTDet 检测 + 按人物面积最大选图（不加载 3D body 模型，更快，但不保证正面）
+> - **01c MediaPipe 版** — MediaPipe Face Mesh 算正面评分（鼻尖居中 + 双眼距离最大；CPU 即可，无需 GATED 权重，比 01b 更能锁定"正面"）
+
 本目录只含编排脚本——SAM 3D Body 官方代码在 `../sam-3d-body`、DiffSynth-Studio 在 `../DiffSynth-Studio`，权重在各算法的 `$MODEL_DIR` 下。两步共用同一个 conda env（从 `doll` 克隆，装两套依赖）。
 
 ## 常用命令
@@ -18,6 +23,12 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01b_pick_and_segment.sh
+# 1c) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
+#     比 01b 更能锁定"正面"（01b 选面积最大, 可能选到侧面）; 比 01 快很多（不用 3D body 模型）
+#     仅选图不分割: SKIP_SEGMENTATION=1（快速看哪帧是正面）
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/01c_pick_and_segment.sh
 
 # 2) 只做视频生成（用上一步的分割图）
 #    模型: Wan2.2-TI2V-5B, 从 WAN_MODEL_PATH 直接加载 (ModelConfig(path=...))
@@ -128,10 +139,11 @@ cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 #    不要用 3.11 或 clone doll——cp310 轮子装不进 3.11）
 conda create -n wan22_rotate python=3.10 -y && conda activate wan22_rotate
 
-# 2. 装两套依赖 + SAM2 + 验证
+# 2. 装两套依赖 + SAM2 + MediaPipe + 验证
 #    INSTALL_DEPS=1 会用本地 cp310 轮子装 torch 2.6.0+cu124 + nvidia 依赖，
 #    装 gcc12（--no-update-deps 防 GraalPy 掉包）、diffsynth、sam_3d_body、detectron2，
-#    并 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt
+#    并 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt，
+#    装 mediapipe（step 01c 用，CPU 即可，无需 GATED 权重）
 INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 
 # 3. （步骤 5 用）装 2DGS 依赖 + 编 CUDA 扩展
@@ -230,6 +242,10 @@ INPUT_DIR/image/               (环绕人物拍摄的多张图像)
     │       ├─ 优先：HumanSegmentor (SAM2/SAM3, 需配 SEGMENTOR_PATH)
     │       ├─ 备选：3D mesh silhouette (pyrender 渲染 pred_vertices)
     │       └─ 兜底：bbox 矩形掩码
+    │
+    │  [01b] 简化版: 跳过 MoGe2/DINOv3/MHR, 只用 ViTDet + SAM2, 按面积最大选图
+    │  [01c] MediaPipe 版: 用 Face Mesh 算正面评分 (鼻尖居中 + 双眼距离最大), CPU 即可,
+    │       无需 GATED 权重; 分割复用 01b 的 ViTDet + SAM2; SKIP_SEGMENTATION=1 仅选图
     ▼
 $RESULTS_DIR/segmented_image.png   (人物保留, 背景白色)
     │
@@ -407,6 +423,17 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | `FRONTAL_SIGN` | `1` | `-1` = flip front-facing criterion (if picks back-facing) |
 | `WHITE_BG` | `1` | `1` = white background; `0` = black |
 | `PADDING` | `0.1` | bbox padding ratio (for bbox mask fallback) |
+
+### Step 01c params (MediaPipe 版)
+| var | default | note |
+| --- | --- | --- |
+| `MP_MIN_CONFIDENCE` | `0.5` | MediaPipe Face Mesh 检测置信度阈值 |
+| `SKIP_SEGMENTATION` | `0` | `1` = 仅选正面图不分割（快速看哪帧是正面） |
+| `DETECTOR_NAME` | `vitdet` | 分割用 ViTDet（01c 选图不用它，分割复用 01b 逻辑） |
+| `SEGMENTOR_NAME` | `sam2` | 分割用 SAM2（需配 `SEGMENTOR_PATH`） |
+| `DEVICE` | `cuda` | MediaPipe 本身跑 CPU；此值给 ViTDet/SAM2 分割用 |
+| `WHITE_BG` | `1` | `1` = 白底；`0` = 黑底 |
+| `PADDING` | `0.1` | bbox 兜底掩码的边距比例 |
 
 ### Step 02 params
 | var | default | note |
