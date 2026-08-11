@@ -61,15 +61,18 @@ echo "  💾 output:    $OUTPUT_DIR"
 echo ""
 
 # ── 0. Sanity: Pi3 repo + ckpt ────────────────────────────────────────────
-# Auto-clone Pi3 repo if missing. Check for the key import file
-# (pi3/models/pi3.py) rather than .git — handles partial/failed clones
-# where the dir exists but is incomplete (no .git, missing files).
+# Check for the key import file (pi3/models/pi3.py) rather than .git —
+# handles partial/failed clones where the dir exists but is incomplete.
 PI3_KEYFILE="$PI3_DIR/pi3/models/pi3.py"
 if [ ! -f "$PI3_KEYFILE" ]; then
-    echo "📦 Pi3 repo not found at $PI3_DIR — cloning..."
     if [ -d "$PI3_DIR" ]; then
-        rm -rf "$PI3_DIR"   # broken/partial clone — clean and re-clone
+        echo "❌ ERROR: $PI3_DIR exists but is incomplete (missing $PI3_KEYFILE)." >&2
+        echo "       This is likely a broken/partial clone. Please manually remove it:" >&2
+        echo "         rm -rf $PI3_DIR" >&2
+        echo "       Then re-run this script to clone fresh." >&2
+        exit 1
     fi
+    echo "📦 Pi3 repo not found at $PI3_DIR — cloning..."
     mkdir -p "$(dirname "$PI3_DIR")"
     git clone https://github.com/yyfz/Pi3.git "$PI3_DIR" || \
         git -c http.sslVerify=false clone https://github.com/yyfz/Pi3.git "$PI3_DIR"
