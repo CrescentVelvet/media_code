@@ -285,11 +285,11 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 
 **8. serve 起不来：`sglang: command not found` / `import sglang` 失败**
 没装 SGLang：`INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh`。装了还是 `command not found` 多半没 `conda activate minimax_h3`（脚本默认沿用当前 env）。`[diffusion]` extra 没带上时（模型类找不到）补 `pip install "sglang[diffusion]"`。
-> 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块末尾已加 `-U diffusers peft transformers` 对齐；若已装过没跑那步，手动补：
+> 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块已自动处理：先 `-U diffusers peft transformers` 对齐，再自检 `HybridCache`，缺失则强制升级 `transformers>=4.42`（必要时 `--no-deps` 绕开 resolver 上界）。重跑一次即可：
 > ```bash
-> pip install -U diffusers peft transformers
-> python -c "import sglang; from transformers import HybridCache; print('ok')"
+> INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 > ```
+> 仍失败（sglang 上界 pin 死 transformers<4.42）：`pip install -U --no-deps "transformers>=4.42"` 强制装，再 `python -c "import sglang; from transformers import HybridCache; print('ok')"` 自检。
 
 **9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。

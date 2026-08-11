@@ -57,17 +57,28 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # sglang 声明的约束内重解到一致版本组（pip 新 resolver 会尊重 sglang 的上界）。
     echo "📦 aligning diffusers/peft/transformers (fix HybridCache mismatch from cloned-stale deps) ---"
     python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
-    echo "📦 installed. Verify with: python -c 'import sglang; print(sglang.__version__)'"
+    # 自检 HybridCache（peft 新版要 transformers>=4.42）；pip -U 受 sglang 上界
+    # 约束可能没升到 4.42，自检失败则带版本下界强制升级，再不行用 --no-deps 绕开 resolver。
+    if ! python -c "from transformers import HybridCache" 2>/dev/null; then
+        echo "📦 HybridCache still missing — force-upgrading 'transformers>=4.42' ---"
+        python -m pip install "${PIP_FLAGS[@]}" -U "transformers>=4.42"
+        if ! python -c "from transformers import HybridCache" 2>/dev/null; then
+            echo "📦 still missing — retry with --no-deps (bypass resolver upper-bound) ---"
+            python -m pip install "${PIP_FLAGS[@]}" -U --no-deps "transformers>=4.42"
+        fi
+    fi
+    echo "📦 installed. Verify with: python -c 'import sglang; from transformers import HybridCache; print(\"ok\")'"
 fi
 
 echo "🔍 [00] Checking SGLang availability ==="
-if python -c "import sglang" 2>/dev/null; then
+if python -c "import sglang; from transformers import HybridCache" 2>/dev/null; then
     python - <<'PY'
 import sglang
-print(f"sglang: {getattr(sglang, '__version__', 'unknown')}")
+from transformers import HybridCache
+print(f"sglang: {getattr(sglang, '__version__', 'unknown')}  HybridCache: ok")
 PY
 else
-    echo "⚠️ WARNING: sglang not importable in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh first." >&2
+    echo "⚠️ WARNING: sglang/HybridCache not importable in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh." >&2
 fi
 
 echo "🎉 [00] Done. Env '$CONDA_ENV' ready. (Missing sglang? INSTALL_DEPS=1 bash this)"
