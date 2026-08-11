@@ -82,7 +82,7 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 # 5a) GOF 三维重建（Pi3+COLMAP → GOF 训练 → Marching Tetrahedra 提网格）
 #     与 05 (2DGS) 并列的替代方案。GOF 网格质量在多数 benchmark 上超 2DGS。
 #     首次需 INSTALL_GOF=1 编 GOF 的 3 个扩展（见下方「首次准备」）
-#     一键（Pi3 重跑带 COLMAP + GOF 训练 + Marching Tetrahedra 提网格）：
+#     一键全流程：Pi3 + COLMAP 导出 → GOF 训练 → Marching Tetrahedra 提网格
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
@@ -103,6 +103,7 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/source/{images, sparse/0/}                                  COLMAP 场景 (与 05 共用)
 #   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
+#   model_gof/test/ours_<N>/test_preds_1/*.png                     GOF 渲染图（新视角）
 #   model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply         GOF 网格 (Marching Tetrahedra)
 
 # ── 自定义 ──
@@ -326,11 +327,13 @@ $PI3_3DGS_RESULTS/{source/, model/}
 [05a] 三维高斯重建 (GOF)  (wan22_rotate env, 调 05a_3dgs_recon.sh, 与 05 并列)
     │  ├─ Pi3+COLMAP (同 05, 可设 SKIP_PI3=1 复用 source/)
     │  ├─ GOF 训练 (3DGS+Mip-Splatting 抗锯齿 + 法向/深度正则 → 致密化)
+    │  ├─ render.py: 渲染新视角 → test_preds_1/*.png
     │  └─ extract_mesh.py: Marching Tetrahedra + binary search 提网格
     ▼
 $PI3_3DGS_RESULTS/{source/, model_gof/}
     source/  (与 05 共用)
     model_gof/point_cloud/iteration_<N>/point_cloud.ply           # GOF 高斯点云
+    model_gof/test/ours_<N>/test_preds_1/*.png                  # GOF 渲染图（新视角）
     model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply      # Marching Tetrahedra 网格
 ```
 
@@ -438,8 +441,9 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 
 **与 05 (2DGS) 的区别**：
 - 光栅化器：`diff-gaussian-rasterization`（3DGS 原版光栅化器）而非 `diff-surfel-rasterization`（2DGS 专用）
+- 渲染：GOF 用独立的 `render.py`（输出 `test_preds_1/*.png`）；2DGS 的 `render.py` 同时做渲染 + TSDF 提网格
 - 提网格：`extract_mesh.py`（Marching Tetrahedra + binary search）而非 `render.py`（TSDF fusion）
-- 输出：`model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply`（带顶点色，若 `TEXTURE_MESH=1`）
+- 输出：`model_gof/test/ours_<N>/{test_preds_1/*.png, fusion/mesh_binary_search_7.ply}`（带顶点色，若 `TEXTURE_MESH=1`）
 - 共用 Pi3+COLMAP 的 `source/`（若 05 已跑过，设 `SKIP_PI3=1` 复用）
 
 **wan22_rotate 输入的适配**（`05a_3dgs_recon.sh` 已默认设好）：
@@ -564,6 +568,7 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 | `MODEL_DIR` | `$RESULTS_DIR/<name>/model_gof` | GOF 模型输出（与 2DGS 的 `model/` 分开） |
 | `SKIP_PI3` | `0` | `1` = 跳过 Pi3+COLMAP（复用 05 已跑过的 source/） |
 | `SKIP_TRAIN` | `0` | `1` = 跳过 GOF 训练（复用已有 model_gof/） |
+| `SKIP_RENDER` | `0` | `1` = 跳过渲染新视角 |
 | `SKIP_MESH` | `0` | `1` = 跳过 Marching Tetrahedra 提网格 |
 
 ## 可能遇到的问题
@@ -681,6 +686,7 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
     └── model_gof/                #   GOF 训练产物 (step 05a)
         ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
         └── test/ours_<N>/
+            ├── test_preds_1/*.png                       # 渲染图 (新视角)
             └── fusion/mesh_binary_search_7.ply          # Marching Tetrahedra 网格 (带顶点色)
 ```
 

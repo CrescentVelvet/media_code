@@ -35,6 +35,7 @@
 #   CONF_THRES=0.1          # Pi3 confidence threshold
 #   SKIP_PI3=0              # 1=skip Pi3+COLMAP (reuse existing source/)
 #   SKIP_TRAIN=0            # 1=skip GOF training (reuse existing model_gof/)
+#   SKIP_RENDER=0            # 1=skip rendering novel views
 #   SKIP_MESH=0             # 1=skip mesh extraction
 #   DEVICE=cuda
 set -o pipefail
@@ -195,6 +196,38 @@ else
     echo ""
 fi
 
+# ── GOF rendering (novel views) ───────────────────────────────────────────
+if [ "${SKIP_RENDER:-0}" = "1" ]; then
+    echo "⏭️ skip rendering (SKIP_RENDER=1)"
+else
+    if [ ! -f "$MODEL_DIR/cfg_args" ]; then
+        echo "❌ ERROR: trained model not found at $MODEL_DIR (no cfg_args)." >&2
+        echo "       Run training first or: SKIP_PI3=1 SKIP_TRAIN=0 bash $0" >&2
+        exit 1
+    fi
+    echo "🖼️ GOF rendering (novel views)"
+    echo "  💾 model: $MODEL_DIR"
+    echo "  📐 iteration: $ITERATIONS"
+    echo ""
+    RENDER_FLAGS=(
+        -m "$MODEL_DIR"
+        --iteration "$ITERATIONS"
+    )
+    [ "$WHITE_BG" = "1" ] && RENDER_FLAGS+=(--white_background)
+    if [ -n "${EXTRA_ARGS:-}" ]; then
+        # shellcheck disable=SC2206
+        RENDER_FLAGS+=($EXTRA_ARGS)
+    fi
+    ( cd "$GOF_DIR" && python render.py "${RENDER_FLAGS[@]}" )
+    if [ $? -ne 0 ]; then
+        echo "❌ FAILED. GOF rendering did not complete." >&2
+        exit 1
+    fi
+    echo "✅ GOF rendering done"
+    echo "  🖼️ renders: $MODEL_DIR/test/ours_$ITERATIONS/test_preds_*/00000.png"
+    echo ""
+fi
+
 # ── GOF mesh extraction (Marching Tetrahedra) ─────────────────────────────
 if [ "${SKIP_MESH:-0}" = "1" ]; then
     echo "⏭️ skip mesh extraction (SKIP_MESH=1)"
@@ -235,6 +268,7 @@ fi
 echo "🎉 [05a] Done. GOF reconstruction complete."
 echo "  📊 Pi3 + COLMAP:  $PI3_OUTPUT_DIR/{predictions.npz, source/}"
 echo "  🏋️ GOF model:     $MODEL_DIR/point_cloud/iteration_*/point_cloud.ply"
+echo "  🖼️ Renders:        $MODEL_DIR/test/ours_*/test_preds_*/00000.png"
 echo "  🌐 Mesh:           $MODEL_DIR/test/ours_*/fusion/mesh_binary_search_7.ply"
 echo ""
 echo "  Inspect mesh: meshlab $MODEL_DIR/test/ours_*/fusion/mesh_binary_search_7.ply"
