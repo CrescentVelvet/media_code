@@ -258,6 +258,14 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
                 LD_LIBRARY_PATH= git clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization" || \
                     LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization"
             fi
+            # GLM (header-only math lib, also a 2DGS submodule — diff-surfel-rasterization needs it)
+            GLM_DIR="$GS2D_DIR/third_party/glm"
+            if [ ! -f "$GLM_DIR/glm/glm.hpp" ]; then
+                echo "  cloning GLM (diff-surfel-rasterization dependency)"
+                rm -rf "$GLM_DIR"
+                LD_LIBRARY_PATH= git clone https://github.com/g-truc/glm.git "$GLM_DIR" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/g-truc/glm.git "$GLM_DIR"
+            fi
             # Final check
             if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ] || \
                [ ! -f "$SUBMOD_DIR/diff-surfel-rasterization/setup.py" ]; then
