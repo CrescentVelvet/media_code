@@ -4,6 +4,82 @@
 
 本目录只含编排脚本——EVA-Gaussian 官方代码在 `../EVA-Gaussian`（00 自动 clone），无预训练权重（从头训练）。数据集需 THuman2.0 / THumansit 的 GPS-Gaussian 格式渲染数据。独立 conda env（CPython 3.10 + torch 2.5.0+cu118，含 feature-splatting CUDA 光栅化器）。
 
+## 算法思路
+
+### 解决什么问题
+
+前馈式（feed-forward）3D Gaussian Splatting 方法虽能实时合成新视角，但已有工作存在两个瓶颈：
+
+1. **相机设置受限**：GPS-Gaussian 等方法仅支持密集双目（stereo）设置、小视角差异，无法应对稀疏视角 + 大角度差异的场景。
+2. **分辨率受限**：pixelSplat / MVSplat 等通用场景方法的跨视角注意力（cross-attention）只能处理 256×256 低分辨率输入，无法恢复人体精细细节（面部、手部）。
+
+EVA-Gaussian 的目标：在**稀疏多视角**（2~n 个源视角，角度差异可大）+ **高分辨率**（1024×1024）输入下，用普通 GPU 实时完成人体新视角合成。
+
+### 三阶段 pipeline
+
+```
+源视角图像 {I_i}  (n 张, 1024×1024, 环绕人体拍摄)
+    │
+    ▼
+[Stage 1] 高斯位置估计  (EVA module + U-Net)
+    │  ├─ U-Net backbone 提取多视角图像特征
+    │  ├─ EVA (Efficient cross-View Attention) 模块
+    │  │     └─ 1D 窗口式跨视角注意力 (沿 x 轴, shifted window)
+    │  │        利用人体居中 → 极线近水平 → x 轴局部窗口即可匹配
+    │  │        比全局 attention 省内存, 支持 1024×1024 高分辨率
+    │  └─ 输出: 每像素的 3D 高斯位置图 {P_i} (= 深度图 → depth2pts → 3D 点)
+    ▼
+[Stage 2] 高斯属性估计  (浅层 U-Net)
+    │  ├─ 输入: 位置图 {P_i} ⊕ 原始 RGB {I_i}
+    │  └─ 输出: 每个高斯的 opacity O, scale S, quaternion Q, feature F (32 维)
+    │         (feature 是创新点: 不用球谐函数, 而用 32 维特征向量)
+    ▼
+[Stage 3] 特征光栅化 + 循环精修  (feature-splatting + recurrent U-Net)
+    │  ├─ 聚合所有源视角的高斯 → α-blending 渲染 RGB 图 + 特征图
+    │  │     (feature-splatting: 修改版 diff-gaussian-rasterization, 支持 feature 通道)
+    │  ├─ 循环 U-Net (feature_refiner): 输入 RGB⊕Feature → 输出精修 RGB
+    │  │     修正 Stage 1 位置估计误差导致的伪影/畸变
+    │  └─ 输出: 新视角 RGB 图像 Î^L
+    ▼
+新视角图像  (任意相机位置, 实时渲染)
+```
+
+**关键创新**：
+- **EVA 模块**：1D 窗口式跨视角注意力。观察到人体采集系统中人体居中 → 极线近平行于 x 轴 → 只需沿 x 轴局部窗口做 cross-attention，无需全局 attention。窗口移位（shifted window）扩展感受野。这使 1024×1024 高分辨率成为可能（全局 attention 在此分辨率下会 OOM）。
+- **Feature splatting**：每个高斯额外预测 32 维特征向量（而非球谐函数），渲染时一起 splat 成特征图，再由 U-Net 精修。特征图比直接 RGB 更能捕捉场景信息，能修正位置估计的几何误差。
+- **Anchor loss**（可选）：用面部 + 手部关键点正则化高斯位置一致性，正则 opacity 和 scale 属性。
+
+### 输入
+
+| 输入 | 说明 |
+|---|---|
+| 源视角 RGB 图像 | n 张（默认 2 张，id=0,1），1024×1024（或 2048×2048 hr 版本） |
+| 相机内参 | 每视角 3×3 intrinsic 矩阵（`.npy`） |
+| 相机外参 | 每视角 3×4 extrinsic 矩阵（w2c，`.npy`） |
+| GT depth（训练用） | 16 位 PNG，`value/2^15 = 米` |
+| 前景 mask | 二值 PNG |
+| landmark.json（可选） | 面部 + 手部关键点，anchor loss 用 |
+
+### 输出
+
+| 输出 | 说明 |
+|---|---|
+| 新视角 RGB 图像 | 任意相机位置，实时渲染（推理时一次前向） |
+| 模型 checkpoint | `*.pth`（Stage 1: depthnet; Stage 2: 完整 EVANet） |
+| TensorBoard 日志 | loss / PSNR / SSIM / 渲染样例 |
+| 渲染样例 | `show/*.jpg`（Stage 2 每 eval_freq 步保存） |
+
+### 不足与局限
+
+1. **仅适用于人体居中场景**：EVA 模块的 1D 窗口注意力假设人体居中、极线近平行 x 轴。对非人体场景或人体偏离中心的场景，位置估计精度会下降。
+2. **训练数据为合成渲染**：在 THuman2.0 / THumansit（3D 扫描渲染的多视角数据）上训练，对真实世界拍摄图像的泛化性未充分验证（论文有跨数据集验证但仍在渲染数据范围内）。
+3. **显存需求高**：batch_size=1 时约 25 GB，需 ≥28 GB GPU。高分辨率（1024×1024）是主要原因，普通消费级 GPU（如 RTX 3090 24GB）可能 OOM。
+4. **两阶段训练增加复杂度**：需先预训练深度网络（Stage 1, ~100K 步），再端到端训练（Stage 2, ~100K 步），总训练时间长。
+5. **无逐场景优化**：前馈方法质量上限低于 per-scene 优化的 3DGS（后者逐场景训练数分钟~数小时，质量更高但非实时）。
+6. **仅支持静态姿态**：不处理动态/形变人体（无时序模型），每帧独立重建。
+7. **Anchor loss 依赖旧版 mmpose**：需要 mmpose 0.x / mmdet 2.x（旧 API），可能与 torch 2.5 不兼容，需建独立 env。官方 `landmark_generation.py` 还有语法错误（for 循环缺冒号，04 脚本自动修复）。
+8. **Feature-splatting 需编译 CUDA 扩展**：修改版 diff-gaussian-rasterization 需 nvcc 编译，CUDA toolkit 版本须与 torch 匹配（cu118→CUDA 11.8, cu124→CUDA 12.4）。
+
 ## 常用命令
 
 > 假设已进入容器（脚本自动激活 `eva_gaussian` env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。训练需 ≥28 GB 显存（batch_size=1 时约 25 GB）。
