@@ -73,8 +73,8 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/{predictions.npz, dense_cloud.ply, poses.json, source/}   Pi3 + COLMAP 场景
-#   model/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
-#   model/test/ours_<N>/{renders/*.png, mesh.ply}                 渲染图 + 网格
+#   model_2dgs/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
+#   model_2dgs/test/ours_<N>/{renders/*.png, mesh.ply}                 渲染图 + 网格
 #   ⚠️ mesh.ply / dense_cloud.ply 是网格/点云，用 MeshLab 看；不是 GS 格式，SuperSplat 打不开
 #   ⚠️ point_cloud.ply 是 2DGS 高斯模型（含 scale/rot/opacity），MeshLab 只能看点云，
 #      要看渲染效果直接看 renders/*.png（2DGS 原生渲染各视角）
@@ -319,10 +319,10 @@ $RESULTS_DIR/rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
     │  ├─ 2DGS 训练 (高斯初始化 → 可微光栅化 → L1+SSIM+法向+深度正则 → 致密化)
     │  └─ 渲染 + TSDF fusion 提网格 (unbounded 适配白底人像)
     ▼
-$PI3_3DGS_RESULTS/{source/, model/}
+$PI3_3DGS_RESULTS/{source/, model_2dgs/}
     source/images/ + sparse/0/*.txt              # COLMAP 场景
-    model/point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
-    model/test/ours_<N>/{renders/*.png, mesh.ply}      # 渲染 + TSDF 网格
+    model_2dgs/point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
+    model_2dgs/test/ours_<N>/{renders/*.png, mesh.ply}      # 渲染 + TSDF 网格
 
 [05a] 三维高斯重建 (GOF)  (wan22_rotate env, 调 05a_3dgs_recon.sh, 与 05 并列)
     │  ├─ Pi3+COLMAP (同 05, 可设 SKIP_PI3=1 复用 source/)
@@ -549,7 +549,7 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 | `FRAME_FPS` | `10` | 视频抽帧 fps（Pi3 显存随帧数线性增长） |
 | `FRAME_MAX` | `60` | 最大帧数（防 OOM） |
 | `SKIP_PI3` | `0` | `1` = 跳过 5a（复用已有 COLMAP source/） |
-| `SKIP_TRAIN` | `0` | `1` = 跳过 5b（复用已有 model/） |
+| `SKIP_TRAIN` | `0` | `1` = 跳过 5b（复用已有 model_2dgs/） |
 | `SKIP_RENDER` | `0` | `1` = 跳过 5c |
 
 ### Step 05a params
@@ -565,7 +565,7 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 | `ITERATIONS` | `30000` | GOF 训练步数（7000 = 快速 demo） |
 | `FRAME_FPS` | `10` | 视频抽帧 fps（Pi3 显存随帧数线性增长） |
 | `FRAME_MAX` | `60` | 最大帧数（防 OOM） |
-| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_gof` | GOF 模型输出（与 2DGS 的 `model/` 分开） |
+| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_gof` | GOF 模型输出（与 2DGS 的 `model_2dgs/` 分开） |
 | `SKIP_PI3` | `0` | `1` = 跳过 Pi3+COLMAP（复用 05 已跑过的 source/） |
 | `SKIP_TRAIN` | `0` | `1` = 跳过 GOF 训练（复用已有 model_gof/） |
 | `SKIP_RENDER` | `0` | `1` = 跳过渲染新视角 |
@@ -678,7 +678,7 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
     │       └── points3D.txt
     ├── predictions.npz           #   原始 Pi3 张量
     ├── dense_cloud.ply           #   稠密点云 (调试)
-    └── model/                    #   2DGS 训练产物 (step 05)
+    └── model_2dgs/                #   2DGS 训练产物 (step 05)
         ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
         └── test/ours_<N>/
             ├── renders/*.png     #     渲染图

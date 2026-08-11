@@ -53,7 +53,7 @@ INPUT="${INPUT:-$RESULTS_DIR/${OUTPUT_NAME}.mp4}"
 PI3_OUTPUT_DIR="${PI3_OUTPUT_DIR:-$RESULTS_DIR/${OUTPUT_NAME}/pi3}"
 SOURCE_DIR="${SOURCE_DIR:-$PI3_OUTPUT_DIR/source}"
 # 2DGS training output
-MODEL_DIR="${MODEL_DIR:-$RESULTS_DIR/${OUTPUT_NAME}/model}"
+MODEL_DIR="${MODEL_DIR:-$RESULTS_DIR/${OUTPUT_NAME}/model_2dgs}"
 
 # ── Params ────────────────────────────────────────────────────────────────
 WHITE_BG="${WHITE_BG:-1}"
@@ -147,7 +147,7 @@ fi
 
 # ── 5b) 2DGS training ─────────────────────────────────────────────────────
 if [ "${SKIP_TRAIN:-0}" = "1" ]; then
-    echo "⏭️ [skip 5b] SKIP_TRAIN=1 (reusing existing model/)"
+    echo "⏭️ [skip 5b] SKIP_TRAIN=1 (reusing existing model_2dgs/)"
 else
     if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
         echo "❌ ERROR: source dir not ready: $SOURCE_DIR" >&2
@@ -228,4 +228,4 @@ echo "  🏋️ 2DGS model:    $MODEL_DIR/point_cloud/iteration_*/point_cloud.pl
 echo "  🌐 Mesh:          $MODEL_DIR/test/ours_*/mesh.ply"
 echo ""
 echo "  Inspect mesh: meshlab $MODEL_DIR/test/ours_*/mesh.ply"
-echo "  Or web:       https://playcanvas.com/supersplat/editor (drag .ply)"
+echo "  Renders:      $MODEL_DIR/test/ours_*/renders/*.png (2DGS 原生渲染)"
