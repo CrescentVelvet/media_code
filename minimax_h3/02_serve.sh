@@ -7,17 +7,16 @@
 #
 # SGLang shards the 33B Omni-Transformer + Qwen3-VL-32B encoder across GPUs.
 # Parallelism is fully configurable; below are the VERIFIED recipes from the
-# SGLang cookbook, mapped to your hardware:
+# SGLang cookbook, mapped to A100:
 #
-#   4× A100 80GB / H100 80GB (capacity, safest):  NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1
-#   4× H100 80GB (fastest, resident):             NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2
-#   4× H200 141GB / 8× B200 (resident, README):    NUM_GPUS=4 ULYSSES_DEGREE=4   (default)
-#   2× RTX 5090 32GB (offload, slow):              see README offload note
+#   4× A100 80GB (capacity, safest):   GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1
+#   4× A100 80GB (fastest):             GPU=0,1,2,3 NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2
+#   2× RTX 5090 32GB (offload, slow):   see README offload note
 #
-# A100 is Ampere (H100 is Hopper) — not in the officially-verified list, but
-# 4× A100 80GB has the same per-card VRAM as H100, so the H100 80GB recipes
-# apply. If the default (Ulysses4, resident) OOMs, set USE_FSDP=1 (capacity
-# path) or TP_SIZE=2 ULYSSES_DEGREE=2 (lowers peak memory).
+# A100 is Ampere — not in the officially-verified list, but 4× A100 80GB has
+# enough per-card VRAM for the 80GB recipes. If the default (Ulysses4,
+# resident) OOMs, set USE_FSDP=1 (capacity path) or TP_SIZE=2 ULYSSES_DEGREE=2
+# (lowers peak memory).
 #
 # Usage:
 #   GPU=              bash minimax_h3/02_serve.sh              # foreground, default FL2VA on :30010
@@ -45,7 +44,7 @@ fi
 
 NUM_GPUS="${NUM_GPUS:-4}"
 ULYSSES_DEGREE="${ULYSSES_DEGREE:-$NUM_GPUS}"
-TP_SIZE="${TP_SIZE:-}"                           # unset by default; set 2 for H100 fastest
+TP_SIZE="${TP_SIZE:-}"                           # unset by default; set 2 for A100 fastest
 USE_FSDP="${USE_FSDP:-0}"
 PERFORMANCE_MODE="${PERFORMANCE_MODE:-speed}"   # speed | memory
 # Extra flags appended verbatim (e.g. offload components on low-VRAM cards).
@@ -98,7 +97,7 @@ else
     echo "  🎮 GPU:       all visible  [set GPU=N to restrict to specific cards]"
 fi
 if [ "$NUM_GPUS" = "4" ] && [ "$ULYSSES_DEGREE" = "4" ] && [ "$USE_FSDP" != "1" ] && [ -z "$TP_SIZE" ]; then
-    echo "  ⚠️  4× A100/H100 80GB 若默认 resident OOM，改用: USE_FSDP=1 (capacity) 或 TP_SIZE=2 ULYSSES_DEGREE=2"
+    echo "  ⚠️  4× A100 80GB 若默认 resident OOM，改用: USE_FSDP=1 (capacity) 或 TP_SIZE=2 ULYSSES_DEGREE=2"
 fi
 
 run_serve() {

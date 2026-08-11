@@ -11,43 +11,73 @@
 
 ## 常用命令
 
-> 假设已进入容器、`conda activate minimax_h3`、`cd media_code`；`GPU` 留空用全部可见卡，`NUM_GPUS` 控制张数。首次跑前先做下方「首次准备」。
+> 假设已进入容器、`conda activate minimax_h3`、`cd media_code`。
+> **铁律：每条命令必须显式写出 `GPU`（物理卡号）、`MODEL_PATH`（权重地址）、输入路径、`OUTPUT_DIR`（输出地址），不靠脚本默认值。** 首次跑前先做下方「首次准备」。
+> 路径约定（可改）：权重根 `../../model/MiniMax-H3`、参考仓 `../MiniMax-H3`、输出 `../MiniMax-H3/results`、输入示例放 `../data/`。
+> 8 卡服务器选 4 卡：`GPU=0,1,2,3`（逗号分隔物理卡号），`NUM_GPUS=4` 必须和卡数一致。
 
 ```bash
 # ── 一键（clone + 装环境 + 下权重 + 起服务 + 跑 T2VA 示例）──
-INSTALL_DEPS=1 bash minimax_h3/run_all.sh            # 首次（装 SGLang）
-bash minimax_h3/run_all.sh                            # 之后（跳过装包）
+# 首次（装 SGLang）
+INSTALL_DEPS=1 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 OUTPUT_DIR=../MiniMax-H3/results/t2va \
+  bash minimax_h3/run_all.sh
+# 之后（跳过装包）
+GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 OUTPUT_DIR=../MiniMax-H3/results/t2va \
+  bash minimax_h3/run_all.sh
 
-# ── 起服务（H3-Base 768p，长驻进程）──
-# 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010（前台跑，看日志）
-bash minimax_h3/02_serve.sh
-# 1b) 后台起 + 等就绪（run_all 用这种）
-BG=1 bash minimax_h3/02_serve.sh
-# 1c) 4× A100 80GB 容量配方（resident 若 OOM 就上 FSDP）
-NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 bash minimax_h3/02_serve.sh
-# 1d) 4× H100 80GB 最快配方（TP2 + Ulysses2）
-NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 bash minimax_h3/02_serve.sh
+# ── 起服务（H3-Base 768p，长驻进程；服务占用 GPU，generate 是 HTTP 客户端不占）──
+# 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010，前台跑看日志
+#    A100 80GB 上默认 resident 易 OOM，必上 FSDP 容量配方
+GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 \
+  bash minimax_h3/02_serve.sh
+# 1b) 后台起 + 等就绪（run_all 用这种），前面参数照抄加 BG=1
+GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 \
+  BG=1 bash minimax_h3/02_serve.sh
+# 1c) 最快配方（TP2 + Ulysses2，降单卡峰值显存）
+GPU=0,1,2,3 NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 \
+  MODEL_PATH=../../model/MiniMax-H3 \
+  bash minimax_h3/02_serve.sh
 # 2) Ref2VA 变体（参考图/视频/音频 -> 视频），端口 30011
-MODEL_VARIANT=ref2va bash minimax_h3/02_serve.sh
+GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va \
+  bash minimax_h3/02_serve.sh
 
-# ── 发请求（服务必须已就绪）──
+# ── 发请求（服务必须已就绪；SERVER_URL 决定打哪个变体/端口，等价于哪几张卡上的服务）──
 # T2VA 文生视频（自带默认 prompt）
-TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
+  DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
+  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
+  bash minimax_h3/03_generate.sh
 # I2VA 首帧生视频（FL2VA 变体）
-TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
+  bash minimax_h3/03_generate.sh
 # Ref2VA 参考生成（Ref2VA 变体，服务在 :30011）
-SERVER_URL=http://localhost:30011 TASK=ref2va \
-  REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
+GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
+  TASK=ref2va REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
   PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
   bash minimax_h3/03_generate.sh
 
-# ── 复现官方三个 768p 样例（用官方 prompt + 官方 CDN 参考素材）──
-bash minimax_h3/examples/run_t2va.sh                 # -> results/t2va/t2va.mp4
-bash minimax_h3/examples/run_fl2va.sh                # -> results/fl2va/fl2va.mp4  (需 FL2VA 服务)
-SERVER_URL=http://localhost:30011 bash minimax_h3/examples/run_ref2va.sh   # (需 Ref2VA 服务)
+# ── 复现官方三个 768p 样例（用官方 prompt + 官方 CDN 参考素材，输入地址在脚本内）──
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  OUTPUT_DIR=../MiniMax-H3/results/t2va \
+  bash minimax_h3/examples/run_t2va.sh                 # -> ../MiniMax-H3/results/t2va/t2va.mp4
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va \
+  bash minimax_h3/examples/run_fl2va.sh                # -> ../MiniMax-H3/results/fl2va/fl2va.mp4 (需 FL2VA 服务)
+GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va \
+  bash minimax_h3/examples/run_ref2va.sh               # -> ../MiniMax-H3/results/ref2va/ref2va.mp4 (需 Ref2VA 服务)
 ```
 
-- 结果：生成视频 → `../MiniMax-H3/results/<task>/<name>.mp4`；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
+- 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
 - 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。
 - 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
 
@@ -59,12 +89,13 @@ cd media_code && cp proxy.env.example proxy.env      # 填 http_proxy / https_pr
 conda create -n minimax_h3 --clone doll -y && conda activate minimax_h3
 # 克隆现有 doll env（本地复制不走 conda 通道，绕开 TUNA 镜像 403 + 代理 SSL；
 # sglang 支持 py3.10/3.11，doll 是哪个都能用）。
-# sglang[all] 会自带 torch/flashinfer，不依赖 doll 的 torch，只是借 doll 的 python 起个壳。
 # doll 不在/想新建（会走 conda 通道，公司代理下易 403/SSL，修法见下方「可能遇到的问题」第 2 条）：
 #   conda create -n minimax_h3 python=3.11 -y
 pip install torch --index-url https://download.pytorch.org/whl/cu124   # 先装 CUDA torch
 INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh       # 装 sglang[all]（含 diffusion 支持）
-HF_DISABLE_SSL=1 bash minimax_h3/01_download_models.sh  # 下 MiniMaxAI/MiniMax-H3 权重快照
+# 下 MiniMaxAI/MiniMax-H3 权重快照（默认只下 FL2VA/；要 Ref2VA 加 DOWNLOAD_REF2VA=1）
+HF_DISABLE_SSL=1 MODEL_DIR=../../model/MiniMax-H3 \
+  bash minimax_h3/01_download_models.sh
 ```
 ⚠️ SGLang 自带 torch/flashinfer/cuda kernel，版本 pin 与本仓其他算法冲突，务必用专用 env（`CONDA_ENV=minimax_h3`），别装进共享 env。
 ⚠️ MiniMax-H3 在 HF 上是 **MiniMax H3 Community License**，可能 gated：下不动/报 401 时去 https://huggingface.co/MiniMaxAI/MiniMax-H3 接受协议、建 read token，再 `HF_TOKEN=<token> bash minimax_h3/01_download_models.sh`。
@@ -104,40 +135,52 @@ MiniMax-H3 是全模态生成系统：吃 **文本 + 可选图片/视频/音频�
 > 想自己写短 prompt 也能跑（`03_generate.sh` 的 `PROMPT="..."`），但效果不如 H3-Context-IR 格式的长描述——官方建议接 Context-IR API 或照「Prompting Guidance」自建预处理。本目录的三个样例直接用官方给的 Context-IR 输出，可严格复现。
 
 ## Serving (02 — SGLang 起 H3-Base 服务)
-`02_serve.sh` 调 `sglang serve`：把 33B Transformer + Qwen3-VL-32B 编码器分片到多卡，起一个 HTTP 服务。并行度全可配，下表是 SGLang cookbook 的 **verified 配方**映射到你的硬件：
+`02_serve.sh` 调 `sglang serve`：把 33B Transformer + Qwen3-VL-32B 编码器分片到多卡，起一个 HTTP 服务。并行度全可配，下表是 SGLang cookbook 的 **verified 配方**映射到 A100：
 
 | 硬件 | 配方 | 命令 |
 |---|---|---|
-| **4× A100 80GB**（你的） | 容量（最稳，推荐先试） | `NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 bash minimax_h3/02_serve.sh` |
-| 4× A100 80GB | 最快（同 H100 配方） | `NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 bash minimax_h3/02_serve.sh` |
-| 4× H100 80GB | 最快 resident | `NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 bash ...` |
-| 4× H200 141GB / 8× B200 | resident（README 默认） | `NUM_GPUS=4 ULYSSES_DEGREE=4 bash ...` |
-| 2× RTX 5090 32GB | 逐层 offload（慢） | `EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-components dit,text_encoder,vae --dit-layerwise-resident-layers 20" bash ...` |
+| **4× A100 80GB**（8 卡选 4 卡） | 容量（最稳，推荐先试） | `GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 MODEL_PATH=../../model/MiniMax-H3 bash minimax_h3/02_serve.sh` |
+| 4× A100 80GB | 最快（TP2 + Ulysses2） | `GPU=0,1,2,3 NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 MODEL_PATH=../../model/MiniMax-H3 bash ...` |
+| 2× RTX 5090 32GB | 逐层 offload（慢） | `GPU=0,1 EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-components dit,text_encoder,vae --dit-layerwise-resident-layers 20" bash ...` |
 
-- A100 是 Ampere（H100 是 Hopper），不在官方 verified 列表，但 4× A100 80GB **单卡显存 == H100 80GB**，故 H100 的 80GB 配方适用。
-- 默认 `NUM_GPUS=4 ULYSSES_DEGREE=4`（README 官方示例）在 80GB 卡上可能 OOM——A100 务必备好 `USE_FSDP=1` 或 `TP_SIZE=2 ULYSSES_DEGREE=2` 兜底。
+- A100 是 Ampere，不在官方 verified 列表，但 4× A100 80GB 单卡显存 80GB 足够覆盖 80GB 配方。
+- 默认 `NUM_GPUS=4 ULYSSES_DEGREE=4`（resident）在 80GB 卡上可能 OOM——A100 务必备好 `USE_FSDP=1` 或 `TP_SIZE=2 ULYSSES_DEGREE=2` 兜底。
 - `MODEL_VARIANT=fl2va`(默认, :30010) / `ref2va`(:30011)；`PORT` 可覆盖。
 - `BG=1` 后台起 + 轮询 `/health` 等就绪（加载 33B 要几分钟）；`BG=0`(默认) 前台跑看日志。
-- `GPU=0,1,2,3` 限制可见卡；多卡 serve 一般留空 + 用 `--num-gpus`。
+- `GPU=0,1,2,3` 选物理卡号（8 卡服务器选其他 4 张就改这里，`NUM_GPUS` 必须和卡数一致）。
+- `MODEL_PATH` 指向 HF 权重快照根目录（含 `model_index.json`）。
 - `EXTRA_SGLANG_FLAGS` 透传任意 SGLang 参数（如 `--quantization fp8`、offload 选项）。
 
 ## Generate (03 — 发请求 + 轮询 + 下载)
-`03_generate.sh` 调 `generate.py`：根据 `TASK` 拼请求 body、提交、轮询、下载，打印耗时。任务→conditions 映射：
+`03_generate.sh` 调 `generate.py`：根据 `TASK` 拼请求 body、提交、轮询、下载，打印耗时。任务→conditions 映射（每条都要显式带 `GPU` `SERVER_URL` 输入路径 `OUTPUT_DIR`/`OUTPUT_NAME`）：
 ```bash
 # T2VA（无 conditions）
-TASK=t2va PROMPT="..." DURATION=10 ASPECT_RATIO=16:9 SEED=0 bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  TASK=t2va PROMPT="..." DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
+  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
+  bash minimax_h3/03_generate.sh
 # I2VA 首帧（FL2VA 权重）
-TASK=fl2va FIRST_FRAME=/data/first.png DURATION=8 bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  TASK=fl2va FIRST_FRAME=/data/first.png DURATION=8 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
+  bash minimax_h3/03_generate.sh
 # FL2VA 首末帧
-TASK=fl2va FIRST_FRAME=/data/first.png LAST_FRAME=/data/last.png DURATION=8 bash minimax_h3/03_generate.sh
-# Ref2VA 参考图+音频（Ref2VA 权重）
-SERVER_URL=http://localhost:30011 TASK=ref2va \
-  REF_IMAGES=/data/subject.png REF_AUDIOS=/data/voice.mp3 \
-  PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  TASK=fl2va FIRST_FRAME=/data/first.png LAST_FRAME=/data/last.png DURATION=8 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va_fl.mp4 \
+  bash minimax_h3/03_generate.sh
+# Ref2VA 参考图+音频（Ref2VA 权重，服务在 :30011）
+GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
+  TASK=ref2va REF_IMAGES=/data/subject.png REF_AUDIOS=/data/voice.mp3 \
+  PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
+  bash minimax_h3/03_generate.sh
 # Ref2VA 多参料（逗号分隔；视频可带 start_time_seconds）
-SERVER_URL=http://localhost:30011 TASK=ref2va \
-  REF_IMAGES=/data/a.png,/data/b.png REF_VIDEOS=/data/v1.mp4 REF_VIDEO_STARTS=0,0 \
-  PROMPT="Combine <Picture 1>, <Picture 2>, <Video 1> ..." bash minimax_h3/03_generate.sh
+GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
+  TASK=ref2va REF_IMAGES=/data/a.png,/data/b.png REF_VIDEOS=/data/v1.mp4 REF_VIDEO_STARTS=0,0 \
+  PROMPT="Combine <Picture 1>, <Picture 2>, <Video 1> ..." \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va_multi.mp4 \
+  bash minimax_h3/03_generate.sh
 ```
 - 本地路径自动转 `file://`（服务进程要能读该路径）；http(s) URL 原样传（官方样例用 CDN URL）。
 - Ref2VA 的 condition **顺序**会影响模态编号。官方 ref2va 样例顺序是「视频先、音频后」（视频自带音轨算 `<Audio 1>`、音频文件算 `<Audio 2>`），故用 `CONDITIONS_FILE=examples/ref2va_conditions.json` 传 verbatim JSON 数组，绕开 env 构造的固定顺序，保证严格复现。
@@ -145,13 +188,19 @@ SERVER_URL=http://localhost:30011 TASK=ref2va \
 - `POLL_INTERVAL=10` `TIMEOUT_MINS=30` 控制轮询。
 
 ## 复现官方三个 768p 样例
-`examples/` 下三个脚本各跑一个官方样例（prompt 直接抄自 `scripts/readme/reproducible-768p-*-request.sh`，参考素材用官方 CDN URL）：
+`examples/` 下三个脚本各跑一个官方样例（prompt 直接抄自 `scripts/readme/reproducible-768p-*-request.sh`，参考素材用官方 CDN URL，输入地址在脚本内写死；调用时仍要显式传 `GPU` `SERVER_URL` `OUTPUT_DIR`）：
 ```bash
-# FL2VA 服务先起好（bash minimax_h3/02_serve.sh，:30010）
-bash minimax_h3/examples/run_t2va.sh     # 文生视频，10s 16:9，星舰舰长 -> t2va.mp4
-bash minimax_h3/examples/run_fl2va.sh    # 首帧生视频，8s auto，拉面/家庭 -> fl2va.mp4
-# Ref2VA 服务先起好（MODEL_VARIANT=ref2va bash minimax_h3/02_serve.sh，:30011）
-bash minimax_h3/examples/run_ref2va.sh   # 参考视频+音频，5s auto，粉西装男 -> ref2va.mp4
+# 前置：FL2VA 服务先起好（见「常用命令」起服务 1)，端口 :30010
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  OUTPUT_DIR=../MiniMax-H3/results/t2va \
+  bash minimax_h3/examples/run_t2va.sh     # 文生视频，10s 16:9，星舰舰长 -> t2va.mp4
+GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va \
+  bash minimax_h3/examples/run_fl2va.sh    # 首帧生视频，8s auto，拉面/家庭 -> fl2va.mp4
+# 前置：Ref2VA 服务先起好（见「常用命令」起服务 2)，端口 :30011
+GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va \
+  bash minimax_h3/examples/run_ref2va.sh   # 参考视频+音频，5s auto，粉西装男 -> ref2va.mp4
 ```
 对照官方结果：仓库 `assets/t2va.mp4` / `fl2va.mp4` / `ref2va.mp4`（在 https://github.com/MiniMax-AI/MiniMax-H3 的 assets 下）。
 
@@ -212,12 +261,16 @@ HF 上 MiniMax-H3 是 Community License，可能需接受协议。去 https://hu
 **7. serve 报 OOM / CUDA out of memory（4× A100 80GB）**
 默认 `NUM_GPUS=4 ULYSSES_DEGREE=4`（resident）在 80GB 卡上可能不够。按顺序试：
 ```bash
-# a) FSDP 容量配方（verified on H100 80GB，同显存）
-NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 bash minimax_h3/02_serve.sh
+# a) FSDP 容量配方（A100 80GB verified）
+GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
+  MODEL_PATH=../../model/MiniMax-H3 bash minimax_h3/02_serve.sh
 # b) TP2 + Ulysses2（降单卡峰值显存）
-NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 bash minimax_h3/02_serve.sh
+GPU=0,1,2,3 NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 \
+  MODEL_PATH=../../model/MiniMax-H3 bash minimax_h3/02_serve.sh
 # c) offload（极慢但能塞下，2× RTX5090 才需要）
-NUM_GPUS=4 EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-components dit,text_encoder,vae --dit-layerwise-resident-layers 20" bash minimax_h3/02_serve.sh
+GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
+  EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-components dit,text_encoder,vae --dit-layerwise-resident-layers 20" \
+  bash minimax_h3/02_serve.sh
 # 还可加 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
@@ -250,7 +303,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | var | default | note |
 |---|---|---|
 | `CONDA_ENV` | 当前 env | 专用 `minimax_h3` 推荐（SGLang pin 与其他算法冲突） |
-| `GPU` | _(unset)_ | 限制可见卡（`0,1,2,3`）；多卡 serve 一般留空用 `--num-gpus` |
+| `GPU` | _(必填)_ | 物理卡号列表（`0,1,2,3`），8 卡选 4 卡用前 4 张；`NUM_GPUS` 要和卡数一致 |
 | `MINIMAX_H3_DIR` | `../MiniMax-H3` | GitHub 参考仓（scripts/skills，serve 不依赖它） |
 | `MODEL_DIR` / `MODEL_PATH` | `../../model/MiniMax-H3` | HF 权重快照（SGLang `--model-path` 指它） |
 | `MINIMAX_H3_REPO` | 官方 GitHub URL | clone 源 |
@@ -267,7 +320,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `HOST` / `PORT` | `0.0.0.0` / `30010`(fl2va) `30011`(ref2va) | |
 | `NUM_GPUS` | `4` | 张数 |
 | `ULYSSES_DEGREE` | `=NUM_GPUS` | Ulysses 注意力并行度 |
-| `TP_SIZE` | _(unset)_ | 张量并行；H100/A100 80GB 最快配 `2` |
+| `TP_SIZE` | _(unset)_ | 张量并行；A100 80GB 最快配 `2` |
 | `USE_FSDP` | `0` | `1` = `--use-fsdp-inference true`（80GB 卡容量配方） |
 | `PERFORMANCE_MODE` | `speed` | `speed` \| `memory`（offload 用 memory） |
 | `EXTRA_SGLANG_FLAGS` | _(unset)_ | 透传任意 `sglang serve` 参数 |
