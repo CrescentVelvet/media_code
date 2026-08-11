@@ -31,6 +31,12 @@ fi
 
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
+# Force offline mode — all models are pre-downloaded manually (corporate proxy blocks HF).
+# Prevents transformers/huggingface_hub from attempting network downloads (SSL errors).
+# sam_3d_body's dinov3.py, MoGe2, etc. all load from local paths set by the scripts.
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+
 # Activate the conda env (CPython 3.10; has both sam_3d_body + diffsynth deps).
 CONDA_ENV="${CONDA_ENV:-wan22_rotate}"
 export CONDA_ENV
