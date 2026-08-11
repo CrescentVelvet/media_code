@@ -529,6 +529,27 @@ python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 
 - **CUDA 版本不匹配**：系统有多个 CUDA，`/usr/local/cuda` 可能指向 11.8。用 `ls -d /usr/local/cuda-12*` 找到 12.4 路径，`export CUDA_HOME=/usr/local/cuda-12.4` + `export PATH=$CUDA_HOME/bin:$PATH`。
 - **pip 联网报错**：加 `--no-build-isolation --no-deps --no-index` 三个 flag，彻底禁止联网。
 
+**10. 步骤 5 训练报 `'FigureCanvasAgg' object has no attribute 'tostring_rgb'`**
+matplotlib ≥ 3.10 删除了 `tostring_rgb()`，2DGS 的 `colormap()` 还在用旧 API。两种修法（任选一）：
+
+- **快修（推荐）**：降版本，不改代码：
+```bash
+pip install 'matplotlib<3.10'
+```
+`00_setup_env.sh` 的 2DGS 依赖已 pin `matplotlib<3.10`，但如果 mediapipe / 其他包后续升级了它，手动降回来即可。
+
+- **手动 patch**：改 2DGS 源码 `2d-gaussian-splatting/utils/general_utils.py` 第 ~173 行的 `colormap` 函数：
+```python
+# 改前（旧 matplotlib < 3.10）：
+data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+# 改后（matplotlib ≥ 3.10）：
+data = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
+data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
+```
+`buffer_rgba()` 返回 (H, W, 4) 的 RGBA 数组，`[..., :3]` 取前 3 通道即 RGB，等价于旧 `tostring_rgb()` 的输出。
+
 ## 目录布局
 ```
 <code-dir>/
