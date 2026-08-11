@@ -65,36 +65,19 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 
 # 5) 三维高斯重建（Pi3 → COLMAP → 2DGS 训练 → 渲染 + 网格）
 #    在 wan22_rotate env 里跑（首次需 INSTALL_2DGS=1 编 2DGS CUDA 扩展，见下方「首次准备」）
-#    一键（Pi3 重跑带 COLMAP 导出 + 2DGS 训练 + 渲染 + 网格）：
+#    一键全流程：Pi3 + COLMAP 导出 → 2DGS 训练 → 渲染 + 网格
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/05_3dgs_recon.sh
-
-# 分步（05_3dgs_recon.sh 内部三步，可单独跳过）：
-# 5a) Pi3 推理 + COLMAP 导出（视频抽帧 → Pi3 → cameras/images/points3D.txt）
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
-  INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  SKIP_TRAIN=1 SKIP_RENDER=1 \
-  bash wan22_rotate/05_3dgs_recon.sh
-
-# 5b) 2DGS 训练（白底适配 wan22_rotate 分割图，默认 WHITE_BG=1）
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  SKIP_PI3=1 \
-  bash wan22_rotate/05_3dgs_recon.sh
-
-# 5c) 渲染 + 提网格（无界 TSDF 适配人像在白色虚空中，默认 UNBOUNDED=1）
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  SKIP_PI3=1 SKIP_TRAIN=1 \
   bash wan22_rotate/05_3dgs_recon.sh
 
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/{predictions.npz, dense_cloud.ply, poses.json, source/}   Pi3 + COLMAP 场景
 #   model/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
 #   model/test/ours_<N>/{renders/*.png, mesh.ply}                 渲染图 + 网格
+#   ⚠️ mesh.ply / dense_cloud.ply 是网格/点云，用 MeshLab 看；不是 GS 格式，SuperSplat 打不开
+#   ⚠️ point_cloud.ply 是 2DGS 高斯模型（含 scale/rot/opacity），MeshLab 只能看点云，
+#      要看渲染效果直接看 renders/*.png（2DGS 原生渲染各视角）
 
 # 5a) GOF 三维重建（Pi3+COLMAP → GOF 训练 → Marching Tetrahedra 提网格）
 #     与 05 (2DGS) 并列的替代方案。GOF 网格质量在多数 benchmark 上超 2DGS。
