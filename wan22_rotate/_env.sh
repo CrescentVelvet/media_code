@@ -86,6 +86,11 @@ export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 # 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env as 01-04)
 GS2D_DIR="${GS2D_DIR:-$REPO_DIR/../2d-gaussian-splatting}"
 
+# Gaussian Opacity Fields (step 05 — GOF 重建, Marching Tetrahedra 提网格;
+# 比 2DGS 网格质量更好。与 2DGS 共用 simple-knn, 另需 diff-gaussian-rasterization
+# + tetra-triangulation 两个扩展)
+GOF_DIR="${GOF_DIR:-$REPO_DIR/../gaussian-opacity-fields}"
+
 # MediaPipe (step 01c — Tasks API model file, for mediapipe >= 1.0)
 export MP_MODEL_PATH="${MP_MODEL_PATH:-$WAN_MODEL_DIR/mediapipe/face_landmarker.task}"
 
@@ -98,4 +103,4 @@ fi
 # Output dir (outside the repo, like wan22_results / wan22_experiments).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
-export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR GS2D_DIR RESULTS_DIR
+export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR GS2D_DIR GOF_DIR RESULTS_DIR

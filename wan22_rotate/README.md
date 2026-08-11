@@ -91,6 +91,29 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 #   model/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
 #   model/test/ours_<N>/{renders/*.png, mesh.ply}                 渲染图 + 网格
 
+# 5a) GOF 三维重建（Pi3+COLMAP → GOF 训练 → Marching Tetrahedra 提网格）
+#     与 05 (2DGS) 并列的替代方案。GOF 网格质量在多数 benchmark 上超 2DGS。
+#     首次需 INSTALL_GOF=1 编 GOF 的 3 个扩展（见下方「首次准备」）
+#     一键（Pi3 重跑带 COLMAP + GOF 训练 + Marching Tetrahedra 提网格）：
+GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+  INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/05a_3dgs_recon.sh
+# 复用 05 已跑过的 Pi3+COLMAP source/（跳过 Pi3 重跑）：
+GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  SKIP_PI3=1 \
+  bash wan22_rotate/05a_3dgs_recon.sh
+# 只重训 GOF（复用已有 model_gof/，跳过训练）：
+GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  SKIP_PI3=1 SKIP_TRAIN=1 \
+  bash wan22_rotate/05a_3dgs_recon.sh
+# 输出：<RESULTS_DIR>/rotate_360/
+#   pi3/source/{images, sparse/0/}                                  COLMAP 场景 (与 05 共用)
+#   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
+#   model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply         GOF 网格 (Marching Tetrahedra)
+
 # ── 自定义 ──
 # 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
@@ -119,11 +142,16 @@ GPU=0 SEGMENTOR_PATH=../sam2 \
 
 - 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；Pi3 位姿 → `../wan22_rotate_results/rotate_360/pi3/{predictions.npz,poses.json,dense_cloud.ply}`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
 
-## → 接入三维重建（Pi3 + 2D Gaussian Splatting）
+## → 接入三维重建（Pi3 + Gaussian Splatting）
 
-步骤 04 只估位姿（`--no_colmap`，不做三维重建）。步骤 5 在**同一个 wan22_rotate env** 里完成 3DGS 重建（Pi3 重跑带 COLMAP 导出 + 2DGS 训练 + 渲染 + 网格），无需 pi3_3dgs 独立 env。首次需 `INSTALL_2DGS=1` 编 2DGS 的两个 CUDA 扩展（复用已有的 gxx_linux-64=12）。
+步骤 04 只估位姿（`--no_colmap`，不做三维重建）。步骤 5/5a 在**同一个 wan22_rotate env** 里完成 3DGS 重建（Pi3 重跑带 COLMAP 导出 → 训练 → 提网格），无需 pi3_3dgs 独立 env。提供两种并列方案：
 
-> 也可用独立的 [`pi3_3dgs/`](../pi3_3dgs/) 流程（自带独立 env，参数更全），但本流程推荐直接用步骤 5。
+- **Step 05 (2DGS)** — `05_3dgs_recon.sh`：2D Gaussian Splatting，TSDF fusion 提网格。需 `INSTALL_2DGS=1`。
+- **Step 05a (GOF)** — `05a_3dgs_recon.sh`：Gaussian Opacity Fields，Marching Tetrahedra 提网格，网格质量超 2DGS。需 `INSTALL_GOF=1`。
+
+两者共用 Pi3+COLMAP 的 `source/`（05 跑过则 05a 设 `SKIP_PI3=1` 复用）。
+
+> 也可用独立的 [`pi3_3dgs/`](../pi3_3dgs/) 流程（自带独立 env，参数更全），但本流程推荐直接用步骤 5/5a。
 
 ## 首次准备
 
@@ -151,6 +179,15 @@ INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 #    INSTALL_2DGS=1 会 clone 2d-gaussian-splatting 仓 + 装 open3d/lpips/trimesh 等 +
 #    编 simple-knn + diff-surfel-rasterization（复用已有的 gxx_linux-64=12 + 系统 CUDA toolkit）
 INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
+
+# 3a. （步骤 5a 用）装 GOF 依赖 + 编 3 个扩展
+#     INSTALL_GOF=1 会 clone gaussian-opacity-fields 仓 + 装 cmake/gmp/cgal +
+#     编 diff-gaussian-rasterization (3DGS 光栅化器) + simple-knn (若 2DGS 已装则复用)
+#     + tetra-triangulation (C++ 扩展, Marching Tetrahedra 用)
+INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
+# ⚠️ tetra-triangulation 编译可能因 OptiX 缺失失败（tetra-nerf 的 CMakeLists.txt 需要
+#    NVIDIA OptiX 库）。如果失败，00 脚本会打印详细修复指引（下载 OptiX 7.6 + 设 OPTIX_PATH）。
+#    GOF 的子模块可能是去 OptiX 的精简版（只需 cmake+gmp+cgal），直接编即可。
 
 # ⚠️ 如果上面编 CUDA 扩展失败（simple-knn 拉不下来 / CUDA 版本不匹配 / GLM 缺失），
 #    00 脚本已自动处理多数情况（自动找 CUDA 12.4 路径、zip fallback 拉 simple-knn、
@@ -279,7 +316,7 @@ $RESULTS_DIR/rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
    poses.json       # 人类可读的 c2w 4x4 矩阵 (每帧一个, OpenCV 约定)
     │
     ▼
-[05] 三维高斯重建  (wan22_rotate env, 调 05_3dgs_recon.sh)
+[05] 三维高斯重建 (2DGS)  (wan22_rotate env, 调 05_3dgs_recon.sh)
     │  ├─ Pi3 重跑 (带 COLMAP 导出, 非 --no_colmap)
     │  │     ├─ cameras.txt   PINHOLE, fx=fy=max(W,H), cx=W/2, cy=H/2
     │  │     ├─ images.txt    c2w→w2c 四元数+平移
@@ -290,7 +327,17 @@ $RESULTS_DIR/rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
 $PI3_3DGS_RESULTS/{source/, model/}
     source/images/ + sparse/0/*.txt              # COLMAP 场景
     model/point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
-    model/test/ours_<N>/{renders/*.png, mesh.ply}      # 渲染 + 网格
+    model/test/ours_<N>/{renders/*.png, mesh.ply}      # 渲染 + TSDF 网格
+
+[05a] 三维高斯重建 (GOF)  (wan22_rotate env, 调 05a_3dgs_recon.sh, 与 05 并列)
+    │  ├─ Pi3+COLMAP (同 05, 可设 SKIP_PI3=1 复用 source/)
+    │  ├─ GOF 训练 (3DGS+Mip-Splatting 抗锯齿 + 法向/深度正则 → 致密化)
+    │  └─ extract_mesh.py: Marching Tetrahedra + binary search 提网格
+    ▼
+$PI3_3DGS_RESULTS/{source/, model_gof/}
+    source/  (与 05 共用)
+    model_gof/point_cloud/iteration_<N>/point_cloud.ply           # GOF 高斯点云
+    model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply      # Marching Tetrahedra 网格
 ```
 
 ### Step 01 — 选图 + 分割 (`01_pick_and_segment.sh` → `pick_and_segment.py`)
@@ -391,6 +438,28 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 ```
 需系统有 CUDA 12.4 toolkit（`CUDA_HOME=/usr/local/cuda`，nvcc 可用）。
 
+### Step 05a — GOF 三维重建（`05a_3dgs_recon.sh`，与 05 并列）
+
+与 Step 05 (2DGS) 并列的替代方案，用 [Gaussian Opacity Fields (GOF)](https://github.com/autonomousvision/gaussian-opacity-fields)（SIGGRAPH Asia 2024）替换 2DGS。GOF 在 3DGS + Mip-Splatting 基础上加了 opacity field 表面提取——用 **Marching Tetrahedra** 直接从 3D 高斯的 opacity level-set 提网格（非 TSDF fusion），网格质量在多数 benchmark 上超过 2DGS，外观质量也优于原版 3DGS。
+
+**与 05 (2DGS) 的区别**：
+- 光栅化器：`diff-gaussian-rasterization`（3DGS 原版光栅化器）而非 `diff-surfel-rasterization`（2DGS 专用）
+- 提网格：`extract_mesh.py`（Marching Tetrahedra + binary search）而非 `render.py`（TSDF fusion）
+- 输出：`model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply`（带顶点色，若 `TEXTURE_MESH=1`）
+- 共用 Pi3+COLMAP 的 `source/`（若 05 已跑过，设 `SKIP_PI3=1` 复用）
+
+**wan22_rotate 输入的适配**（`05a_3dgs_recon.sh` 已默认设好）：
+- `WHITE_BG=1`（默认）— GOF 训练用白底，与分割图一致
+- `FAR=1000000`（默认 1e6 = 无界）— tetrahedra 远平面，人像在白色虚空中
+- `FILTER_MESH=1`（默认）— 按高斯尺寸过滤 mesh，去噪
+- `TEXTURE_MESH=1`（默认）— 提取顶点色，得到彩色网格
+
+**首次准备**：在 wan22_rotate env 里装 GOF 依赖 + 编 3 个扩展（一次性）：
+```bash
+INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
+```
+需系统有 CUDA 12.4 toolkit + cmake/gmp/cgal（00 脚本自动用 conda 装）。⚠️ tetra-triangulation 编译若因 OptiX 缺失失败，00 脚本会打印下载 OptiX 7.6 + 设 `OPTIX_PATH` 的指引。
+
 ## Config (env vars, all optional)
 
 ### Paths & envs
@@ -485,6 +554,24 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | `SKIP_TRAIN` | `0` | `1` = 跳过 5b（复用已有 model/） |
 | `SKIP_RENDER` | `0` | `1` = 跳过 5c |
 
+### Step 05a params
+> 步骤 5a 在 wan22_rotate env 里跑（`05a_3dgs_recon.sh`），默认已适配白底分割输入。与 05 (2DGS) 并列。
+| var | default | note |
+| --- | --- | --- |
+| `INPUT` | `$RESULTS_DIR/rotate_360.mp4` | 输入视频 / 图像夹 |
+| `WHITE_BG` | `1` | `1` = GOF 训练用白底（适配分割图） |
+| `FILTER_MESH` | `1` | `1` = 按高斯尺寸过滤 mesh（去噪） |
+| `TEXTURE_MESH` | `1` | `1` = 提取顶点色（彩色网格） |
+| `NEAR` | `0.02` | tetrahedra 近平面 |
+| `FAR` | `1000000` | tetrahedra 远平面（1e6 = 无界，白底人像） |
+| `ITERATIONS` | `30000` | GOF 训练步数（7000 = 快速 demo） |
+| `FRAME_FPS` | `10` | 视频抽帧 fps（Pi3 显存随帧数线性增长） |
+| `FRAME_MAX` | `60` | 最大帧数（防 OOM） |
+| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_gof` | GOF 模型输出（与 2DGS 的 `model/` 分开） |
+| `SKIP_PI3` | `0` | `1` = 跳过 Pi3+COLMAP（复用 05 已跑过的 source/） |
+| `SKIP_TRAIN` | `0` | `1` = 跳过 GOF 训练（复用已有 model_gof/） |
+| `SKIP_MESH` | `0` | `1` = 跳过 Marching Tetrahedra 提网格 |
+
 ## 可能遇到的问题
 
 **1. 选出的图是背面而不是正面**
@@ -564,7 +651,8 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
 │       └── sam2.1_hiera_large.pt
 ├── DiffSynth-Studio-Human/     # DiffSynth-Studio 官方代码 (本流程专用, 00 clone)
 ├── Pi3/                          # Pi3 官方代码 (step 04 自动 clone; pi3_3dgs 也用)
-├── 2d-gaussian-splatting/        # 2DGS 官方代码 + CUDA 子模块 (step 05 → pi3_3dgs/00 clone)
+├── 2d-gaussian-splatting/        # 2DGS 官方代码 + CUDA 子模块 (step 05, 00 clone)
+├── gaussian-opacity-fields/      # GOF 官方代码 + CUDA 子模块 (step 05a, 00 clone)
 ├── wan22_experiments/           # LoRA 训练产物 (epoch-N.safetensors)
 ├── wan22_rotate_results/        # 本流程输出 (step 01-04)
     ├── segmented_image.png      #   正面图 (人物保留, 背景白)
@@ -591,11 +679,15 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
     │       └── points3D.txt
     ├── predictions.npz           #   原始 Pi3 张量
     ├── dense_cloud.ply           #   稠密点云 (调试)
-    └── model/                    #   2DGS 训练产物
+    └── model/                    #   2DGS 训练产物 (step 05)
         ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
         └── test/ours_<N>/
             ├── renders/*.png     #     渲染图
             └── mesh.ply          #     TSDF 网格
+    └── model_gof/                #   GOF 训练产物 (step 05a)
+        ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
+        └── test/ours_<N>/
+            └── fusion/mesh_binary_search_7.ply          # Marching Tetrahedra 网格 (带顶点色)
 ```
 
 ## Notes

@@ -344,6 +344,175 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         fi
     fi
 
+    # 0j. Gaussian Opacity Fields (step 05a — GOF 重建, 与 05 (2DGS) 并列)
+    #     GOF 用 Marching Tetrahedra 提网格 (非 TSDF), 网格质量超 2DGS。
+    #     3 个扩展:
+    #       - diff-gaussian-rasterization (3DGS 光栅化器, 不同于 2DGS 的 diff-surfel-rasterization)
+    #       - simple-knn (与 2DGS 同源, 若已装则复用)
+    #       - tetra-triangulation (C++ 扩展, 需 cmake/gmp/cgal; 来自 tetra-nerf)
+    #     GOF 自己是 3DGS + Mip-Splatting 的扩展 (anti-aliasing + normal/distortion 正则)。
+    if [ "${INSTALL_GOF:-0}" = "1" ]; then
+        echo "--- setting up Gaussian Opacity Fields (step 05a GOF) ---"
+        if [ ! -d "$GOF_DIR/.git" ]; then
+            echo "  cloning GOF -> $GOF_DIR"
+            mkdir -p "$(dirname "$GOF_DIR")"
+            LD_LIBRARY_PATH= git clone --recursive \
+                https://github.com/autonomousvision/gaussian-opacity-fields.git "$GOF_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone --recursive \
+                https://github.com/autonomousvision/gaussian-opacity-fields.git "$GOF_DIR"
+        fi
+        # Ensure submodules (diff-gaussian-rasterization on github, simple-knn on
+        # gitlab.inria.fr, tetra-triangulation on github). Fall back to manual clone.
+        if [ ! -f "$GOF_DIR/submodules/diff-gaussian-rasterization/setup.py" ] || \
+           [ ! -f "$GOF_DIR/submodules/simple-knn/setup.py" ] || \
+           [ ! -f "$GOF_DIR/submodules/tetra-triangulation/CMakeLists.txt" ]; then
+            echo "  ensuring GOF submodules"
+            ( cd "$GOF_DIR" && LD_LIBRARY_PATH= git submodule update --init --recursive ) || \
+                ( cd "$GOF_DIR" && LD_LIBRARY_PATH= git -c http.sslVerify=false submodule update --init --recursive ) || true
+            # Fallback: clone submodules individually
+            SUBMOD_DIR="$GOF_DIR/submodules"
+            # diff-gaussian-rasterization (3DGS 光栅化器, 不同于 2DGS 的 diff-surfel-rasterization)
+            if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ]; then
+                echo "  cloning diff-gaussian-rasterization"
+                rm -rf "$SUBMOD_DIR/diff-gaussian-rasterization"
+                LD_LIBRARY_PATH= git clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git "$SUBMOD_DIR/diff-gaussian-rasterization" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git "$SUBMOD_DIR/diff-gaussian-rasterization"
+            fi
+            # simple-knn (与 2DGS 同源, gitlab.inria.fr 可能被封)
+            if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
+                echo "  cloning simple-knn (gitlab.inria.fr, may be slow)"
+                rm -rf "$SUBMOD_DIR/simple-knn"
+                LD_LIBRARY_PATH= git clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || {
+                        # Last resort: zip download (single HTTP request, faster than git clone)
+                        echo "  git clone failed, trying zip download..."
+                        _zip="/tmp/simple-knn-main.zip"
+                        curl -k -L --connect-timeout 30 --max-time 300 -o "$_zip" \
+                            "https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip" && \
+                            unzip -o "$_zip" -d "$SUBMOD_DIR" && \
+                            mv "$SUBMOD_DIR/simple-knn-main" "$SUBMOD_DIR/simple-knn" || \
+                            echo "  ❌ simple-knn download failed — see 2DGS setup fallback" >&2
+                    }
+            fi
+            # tetra-triangulation (C++ 扩展, 来自 tetra-nerf 的 triangulation 部分)
+            if [ ! -f "$SUBMOD_DIR/tetra-triangulation/CMakeLists.txt" ]; then
+                echo "  cloning tetra-triangulation (from tetra-nerf repo)"
+                rm -rf "$SUBMOD_DIR/tetra-triangulation"
+                LD_LIBRARY_PATH= git clone https://github.com/jkulhanek/tetra-nerf.git "$SUBMOD_DIR/tetra-triangulation" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/jkulhanek/tetra-nerf.git "$SUBMOD_DIR/tetra-triangulation"
+            fi
+            # GLM (header-only math lib, diff-gaussian-rasterization 需要)
+            GLM_DIR_GOF="$GOF_DIR/third_party/glm"
+            if [ ! -f "$GLM_DIR_GOF/glm/glm.hpp" ]; then
+                echo "  cloning GLM (diff-gaussian-rasterization dependency)"
+                rm -rf "$GLM_DIR_GOF"
+                LD_LIBRARY_PATH= git clone https://github.com/g-truc/glm.git "$GLM_DIR_GOF" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/g-truc/glm.git "$GLM_DIR_GOF"
+            fi
+            # Final check
+            if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ] || \
+               [ ! -f "$SUBMOD_DIR/tetra-triangulation/CMakeLists.txt" ]; then
+                echo "  ❌ GOF submodules not ready. Manual:" >&2
+                echo "     cd $SUBMOD_DIR" >&2
+                echo "     git clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git diff-gaussian-rasterization" >&2
+                echo "     git clone https://github.com/jkulhanek/tetra-nerf.git tetra-triangulation" >&2
+            fi
+        fi
+        # Install cmake + gmp + cgal (for tetra-triangulation C++ build)
+        # ⚠️ 显式 pin python=3.10 防 GraalPy 掉包 (与 gxx 同理, 见上方注释)
+        echo "  installing cmake + gmp + cgal (for tetra-triangulation)"
+        conda install -y -c conda-forge --no-update-deps cmake gmp cgal python=3.10
+        # 校验 python 没被掉包成 GraalPy
+        impl3="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
+        if [ "$impl3" != "CPython" ]; then
+            echo "  ⚠️ cmake/gmp/cgal install 把 python 掉包成 '$impl3'，自动修复..." >&2
+            conda install -y -c defaults python=3.10 --force-reinstall
+            pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+            for w in "$WAN_MODEL_DIR"/torch-*.whl "$WAN_MODEL_DIR"/torchvision-*.whl; do
+                [ -f "$w" ] && pip install --force-reinstall --no-deps "$w"
+            done
+        fi
+        # GOF Python deps (torch/numpy already installed; open3d/lpips/trimesh/plyfile
+        # already installed if INSTALL_2DGS was run; just the GOF-specific extras)
+        echo "  installing GOF Python deps (ninja, GPUtil)"
+        pip install "${PIP_FLAGS[@]}" ninja GPUtil || true
+        # Auto-detect CUDA 12.x (与 2DGS 同, /usr/local/cuda 可能是 11.8)
+        export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+        if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+            _nvcc_ver="$($CUDA_HOME/bin/nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+' || echo '')"
+            _torch_ver="$(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null || echo '')"
+            if [ -n "$_nvcc_ver" ] && [ -n "$_torch_ver" ]; then
+                _nvcc_major="${_nvcc_ver%%.*}"
+                _torch_major="${_torch_ver%%.*}"
+                if [ "$_nvcc_major" != "$_torch_major" ]; then
+                    echo "  ⚠️ CUDA_HOME=$CUDA_HOME is $_nvcc_ver but torch is $_torch_ver"
+                    for _d in /usr/local/cuda-${_torch_major}*; do
+                        if [ -x "$_d/bin/nvcc" ]; then
+                            export CUDA_HOME="$_d"
+                            echo "  → switched CUDA_HOME to $CUDA_HOME"
+                            break
+                        fi
+                    done
+                fi
+            fi
+            export PATH="$CUDA_HOME/bin:$PATH"
+            export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
+            export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+            echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
+            # Build tetra-triangulation (C++ extension for Delaunay tetrahedralization,
+            # used by GOF's extract_mesh.py for Marching Tetrahedra).
+            # Needs: cmake + gmp + cgal (just installed) + torch (already in env).
+            # Note: tetra-triangulation is a submodule from tetra-nerf repo. The full
+            # tetra-nerf CMakeLists.txt requires OptiX (NVIDIA ray-tracing lib). GOF's
+            # submodule MAY be a stripped-down version without OptiX dep — try build,
+            # if it fails on OptiX, see error message below for manual fix.
+            TETRA_DIR="$GOF_DIR/submodules/tetra-triangulation"
+            if [ -f "$TETRA_DIR/CMakeLists.txt" ]; then
+                echo "  building tetra-triangulation (cmake + make)"
+                ( cd "$TETRA_DIR" && \
+                  cmake . -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" && \
+                  make -j ) || {
+                    echo "  ⚠️ tetra-triangulation build failed." >&2
+                    echo "     Common cause: OptiX not found (full tetra-nerf CMakeLists.txt requires it)." >&2
+                    echo "     If GOF's submodule is the full tetra-nerf (not stripped):" >&2
+                    echo "       1) Download OptiX 7.6 from NVIDIA: https://developer.nvidia.com/designworks/optix/downloads/legacy" >&2
+                    echo "       2) export OPTIX_PATH=/path/to/optix" >&2
+                    echo "       3) Re-run: INSTALL_GOF=1 bash $0" >&2
+                }
+                # pip install the Python wrapper (--no-deps: skip nerfstudio, trimesh is already installed)
+                pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps -e "$TETRA_DIR" || \
+                    echo "  ⚠️ tetra-triangulation pip install failed (C++ ext may still be usable if make succeeded)" >&2
+            else
+                echo "  ⚠️ tetra-triangulation submodule not found at $TETRA_DIR" >&2
+                echo "     GOF mesh extraction (extract_mesh.py) will not work without it." >&2
+            fi
+            # Build diff-gaussian-rasterization (3DGS CUDA rasterizer, GOF's train.py needs it)
+            echo "  building CUDA ext: diff-gaussian-rasterization"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index \
+                "$GOF_DIR/submodules/diff-gaussian-rasterization" || \
+                echo "  ⚠️ diff-gaussian-rasterization build failed" >&2
+            # Build simple-knn if not already installed (from 2DGS setup)
+            if ! python -c "import simple_knn" 2>/dev/null; then
+                echo "  building CUDA ext: simple-knn (not yet installed)"
+                pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index \
+                    "$GOF_DIR/submodules/simple-knn" || \
+                    echo "  ⚠️ simple-knn build failed" >&2
+            else
+                echo "  [OK] simple-knn already installed (from 2DGS setup)"
+            fi
+            # Verify imports
+            python -c "import diff_gaussian_rasterization; print('  [OK] diff_gaussian_rasterization')" || \
+                echo "  ⚠️ diff_gaussian_rasterization not importable" >&2
+            python -c "import simple_knn; print('  [OK] simple_knn')" || \
+                echo "  ⚠️ simple_knn not importable" >&2
+            python -c "from tetranerf.utils.extension import cpp; print('  [OK] tetra-triangulation')" 2>/dev/null || \
+                echo "  ⚠️ tetra-triangulation (tetranerf.utils.extension.cpp) not importable — mesh extraction won't work" >&2
+        else
+            echo "  ⚠️ nvcc not found at $CUDA_HOME/bin/nvcc — GOF CUDA exts NOT built." >&2
+            echo "           Install CUDA toolkit 12.4 and re-run: INSTALL_GOF=1 bash $0" >&2
+        fi
+    fi
+
     # 最后钉 numpy + setuptools——前面装的依赖会把 numpy 升到 2.x（detectron2 不兼容），
     # setuptools>=70 去掉了 pkg_resources（detectron2 model_zoo 要用）
     echo "--- pinning numpy==1.26.4 + setuptools==69.5.1 ---"
@@ -411,6 +580,29 @@ if [ "${INSTALL_2DGS:-0}" = "1" ] || python -c "import diff_surfel_rasterization
         echo "  [MISS] 2DGS CUDA exts — Run: INSTALL_DEPS=1 INSTALL_2DGS=1 bash $0" >&2
     else
         echo "  [OK] 2DGS repo + CUDA exts"
+    fi
+fi
+
+# --- 5c. verify GOF (step 05a, only if INSTALL_GOF was used) ---
+if [ "${INSTALL_GOF:-0}" = "1" ] || python -c "import diff_gaussian_rasterization" 2>/dev/null; then
+    echo "--- [5c] verify GOF (step 05a) ---"
+    _ok_gof=1
+    if [ ! -d "$GOF_DIR" ]; then
+        echo "  [MISS] GOF repo — Run: INSTALL_DEPS=1 INSTALL_GOF=1 bash $0" >&2
+        _ok_gof=0
+    elif ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; then
+        echo "  [MISS] GOF CUDA exts (diff_gaussian_rasterization / simple_knn)" >&2
+        echo "         Run: INSTALL_DEPS=1 INSTALL_GOF=1 bash $0" >&2
+        _ok_gof=0
+    fi
+    # tetra-triangulation (optional but needed for mesh extraction via extract_mesh.py)
+    if [ "$_ok_gof" = "1" ]; then
+        if python -c "from tetranerf.utils.extension import cpp" 2>/dev/null; then
+            echo "  [OK] GOF repo + CUDA exts + tetra-triangulation"
+        else
+            echo "  [OK] GOF repo + CUDA exts (tetra-triangulation NOT built — mesh extraction won't work)" >&2
+            echo "      Re-run: INSTALL_DEPS=1 INSTALL_GOF=1 bash $0" >&2
+        fi
     fi
 fi
 
