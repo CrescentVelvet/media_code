@@ -227,35 +227,43 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
                 https://github.com/hbb1/2d-gaussian-splatting.git "$GS2D_DIR"
         fi
         # Ensure submodules (simple-knn on gitlab.inria.fr, diff-surfel-rasterization on github).
-        # git submodule update may fail if gitlab.inria.fr is blocked by proxy;
-        # fall back to cloning each submodule directly.
+        # git submodule update may fail if gitlab.inria.fr is blocked/slow;
+        # fall back to cloning each submodule directly (LD_LIBRARY_PATH= fixes
+        # conda libffi vs system libp11-kit conflict that makes git hang).
         if [ ! -f "$GS2D_DIR/submodules/simple-knn/setup.py" ] || \
            [ ! -f "$GS2D_DIR/submodules/diff-surfel-rasterization/setup.py" ]; then
             echo "  ensuring 2DGS submodules"
-            ( cd "$GS2D_DIR" && git submodule update --init --recursive ) || \
-                ( cd "$GS2D_DIR" && git -c http.sslVerify=false submodule update --init --recursive ) || true
-            # Fallback: clone submodules individually if submodule update failed
+            ( cd "$GS2D_DIR" && LD_LIBRARY_PATH= git submodule update --init --recursive ) || \
+                ( cd "$GS2D_DIR" && LD_LIBRARY_PATH= git -c http.sslVerify=false submodule update --init --recursive ) || true
+            # Fallback: clone submodules individually
             SUBMOD_DIR="$GS2D_DIR/submodules"
             if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
-                echo "  cloning simple-knn directly (gitlab.inria.fr may be blocked)"
+                echo "  cloning simple-knn (gitlab.inria.fr, may be slow)"
                 rm -rf "$SUBMOD_DIR/simple-knn"
-                git clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
-                    git -c http.sslVerify=false clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
-                    git clone https://github.com/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
-                    echo "  WARNING: simple-knn clone failed — try manually:" >&2
+                LD_LIBRARY_PATH= git clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || {
+                        # Last resort: download zip (single HTTP request, faster than git clone)
+                        echo "  git clone failed, trying zip download..."
+                        _zip="/tmp/simple-knn-main.zip"
+                        curl -k -L --connect-timeout 30 --max-time 300 -o "$_zip" \
+                            "https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip" && \
+                            unzip -o "$_zip" -d "$SUBMOD_DIR" && \
+                            mv "$SUBMOD_DIR/simple-knn-main" "$SUBMOD_DIR/simple-knn" || \
+                            echo "  ❌ simple-knn download failed — manual:" >&2
+                    }
             fi
             if [ ! -f "$SUBMOD_DIR/diff-surfel-rasterization/setup.py" ]; then
-                echo "  cloning diff-surfel-rasterization directly"
+                echo "  cloning diff-surfel-rasterization"
                 rm -rf "$SUBMOD_DIR/diff-surfel-rasterization"
-                git clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization" || \
-                    git -c http.sslVerify=false clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization"
+                LD_LIBRARY_PATH= git clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization"
             fi
             # Final check
             if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ] || \
                [ ! -f "$SUBMOD_DIR/diff-surfel-rasterization/setup.py" ]; then
-                echo "  ❌ 2DGS submodules not ready. Manual clone:" >&2
+                echo "  ❌ 2DGS submodules not ready. Manual:" >&2
                 echo "     cd $SUBMOD_DIR" >&2
-                echo "     git clone https://gitlab.inria.fr/bkerbl/simple-knn.git simple-knn" >&2
+                echo "     curl -kL -o sk.zip https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip && unzip sk.zip && mv simple-knn-main simple-knn" >&2
                 echo "     git clone https://github.com/hbb1/diff-surfel-rasterization.git diff-surfel-rasterization" >&2
             fi
         fi
