@@ -149,6 +149,34 @@ INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
 #    编 simple-knn + diff-surfel-rasterization（复用已有的 gxx_linux-64=12 + 系统 CUDA toolkit）
 INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 
+# ⚠️ 如果上面编 CUDA 扩展失败（simple-knn 拉不下来 / CUDA 版本不匹配），
+#    按以下步骤手动修：
+#
+# a) simple-knn 拉不下来（gitlab.inria.fr 被封/慢）：
+#    在 Windows 浏览器下载 zip，传到容器：
+#      https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip
+#    解压到子模块目录：
+cd /data_3d/w00950754/code/2d-gaussian-splatting/submodules
+unzip /path/to/simple-knn-main.zip
+mv simple-knn-main simple-knn
+ls simple-knn/setup.py   # 确认存在
+#
+# b) CUDA 版本不匹配（detected 11.8 vs PyTorch 12.4）：
+#    系统有多个 CUDA，torch 找到了 11.8。设 CUDA_HOME 指向 12.4：
+conda activate wan22_rotate
+export CUDA_HOME=/usr/local/cuda          # 确认: $CUDA_HOME/bin/nvcc --version 输出 cuda_12.4
+export PATH=$CUDA_HOME/bin:$PATH          # 让 12.4 的 nvcc 排在 PATH 前面
+export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
+export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+python -c "import torch; print('torch CUDA:', torch.version.cuda)"  # 应显示 12.4
+#
+# c) 编译两个 CUDA 扩展（--no-deps --no-index 避免联网）：
+pip install --no-build-isolation --no-deps --no-index \
+  /data_3d/w00950754/code/2d-gaussian-splatting/submodules/simple-knn
+pip install --no-build-isolation --no-deps --no-index \
+  /data_3d/w00950754/code/2d-gaussian-splatting/submodules/diff-surfel-rasterization
+python -c "import simple_knn, diff_surfel_rasterization; print('OK')"
+
 # 3. 下权重（两边各自的下载脚本）
 #    完整版 01 需要 SAM 3D Body 权重（GATED）；简化版 01b 不需要
 HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # SAM 3D Body（GATED，需先 Request access）
@@ -454,6 +482,12 @@ INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh                          # gxx 
 python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 验证
 ```
 > 铁律：往 `wan22_rotate` env 里 `conda install` 任何包都加 `--no-update-deps`，否则 GraalPy 会回来把 numpy 干掉。
+
+**9. 步骤 5 编 CUDA 扩展报 `simple-knn 拉不下来` / `CUDA version (11.8) mismatches PyTorch (12.4)`**
+见上方「首次准备」的 ⚠️ 手动修复步骤。要点：
+- **simple-knn**：`gitlab.inria.fr` 可能被代理封。浏览器下载 zip 传上去，解压到 `2d-gaussian-splatting/submodules/simple-knn/`。
+- **CUDA 版本不匹配**：系统有多个 CUDA，torch 找到 11.8 而非 12.4。必须 `export CUDA_HOME=/usr/local/cuda`（指向 12.4）+ `export PATH=$CUDA_HOME/bin:$PATH`（让 12.4 的 nvcc 排前面），再 `pip install`。
+- **pip 联网报错**：加 `--no-build-isolation --no-deps --no-index` 三个 flag，彻底禁止联网。
 
 ## 目录布局
 ```
