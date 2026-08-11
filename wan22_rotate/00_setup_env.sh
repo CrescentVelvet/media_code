@@ -302,11 +302,12 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             fi
         fi
         # 2DGS Python deps (torch/numpy already installed, just the extras)
+        # matplotlib<3.10: 2DGS colormap() uses fig.canvas.tostring_rgb() (removed in 3.10)
         echo "  installing 2DGS Python deps"
         pip install "${PIP_FLAGS[@]}" \
             open3d==0.18.0 mediapy==1.1.2 lpips==0.1.4 \
             scikit-image==0.21.0 tqdm==4.66.2 trimesh==4.3.2 \
-            plyfile "setuptools<70"
+            plyfile "setuptools<70" "matplotlib<3.10"
         # Build CUDA extensions (same gxx as detectron2, needs nvcc from CUDA toolkit).
         # Auto-detect CUDA 12.x: /usr/local/cuda might point to 11.8, find cuda-12.4.
         export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
