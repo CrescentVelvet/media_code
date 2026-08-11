@@ -160,6 +160,22 @@ huggingface-cli download Wan-AI/Wan2.2-Animate-2-14B --local-dir $MODEL_DIR/Wan-
 ```
 默认：官方代码 `../Wan-Animate-2`、权重 `../../model`（相对本目录）；用 `OFFICIAL_DIR` / `MODEL_DIR` 覆盖。
 
+## 关于用于三维重建的适用性分析
+
+> 问：能否用 Wan-Animate-2 把视频中运动的人物变成静止姿态，且几何一致性足够好，从而消除三维重建的模糊？
+
+**结论：基本不成立。** Wan-Animate-2 是**生成**工具而非**几何**工具。
+
+1. **把运动人物变成静止姿态——部分可行。** 用静止 driving video（或单帧）驱动，理论上能让输出停在某个 canonical pose；论文还有"文本驱动视角控制、与驱动视频解耦"的特性，概念上最接近"人物静止+视角变化"。但模型本质面向**动作生成**，喂静止驱动往往有残余浮动/微动，不会纹丝不动。
+2. **几何一致性足够做三维重建——基本不行（致命点）。** 扩散生成的多帧是"看起来合理"的合成图像，**不保证真实多视几何一致性**：同一三维点在不同帧的投影像素位置没有可靠对应，纹理/几何会帧间漂移（hallucination）。直接喂给 COLMAP/3DGS 会导致特征匹配失败或几何错乱，反而**更糊**。真正用扩散做 3D 的路线（SDS/Score Distillation）是把扩散当优化先验放进反传循环，而非把生成帧当真实多视图直接重建。
+
+**更对症的工具（本仓就有）：**
+- 运动人物→静止 canonical pose：靠 **SMPL/SMPL-X 参数化人体拟合**（显式几何、帧间一致），而非生成式动画。Wan-Animate-2 的卖点恰恰是"去掉中间动作提取器"，与该需求方向相反。
+- 人体新视角重建：[`eva_gaussian/`](../eva_gaussian/)（depthnet + 3DGS + SMPL 形变先验）就是为此设计。
+- 视频直接重建：[`pi3_3dgs/`](../pi3_3dgs/)（前馈位姿+点估计 → 2DGS）。
+
+一句话：冻结姿态勉强可用，但喂给三维重建会引入而非消除模糊；解决运动模糊应走 SMPL 形变先验 + 人体专属高斯（`eva_gaussian`）。
+
 ## Notes
 - Official code & weights follow their own license (Wan-Animate-2 = Apache 2.0). This folder only orchestrates; no official code is copied.
 - `.gitattributes` (repo root) forces LF so Windows-pushed scripts run cleanly on Ubuntu.
