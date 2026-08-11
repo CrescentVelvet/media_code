@@ -462,7 +462,7 @@ def main():
                 for i, (p, c) in enumerate(zip(pts, cols))]
     write_points3D_txt(sparse_dir / "points3D.txt", points3D)
 
-    extent = float(pts.max(0) - pts.min(0)) if len(pts) else np.zeros(3)
+    extent = (pts.max(0) - pts.min(0)) if len(pts) else np.zeros(3)
     print(f"  -> {sparse_dir / 'cameras.txt'}  ({N} PINHOLE cameras)")
     print(f"  -> {sparse_dir / 'images.txt'}   ({N} images w/ c2w->w2c extrinsics)")
     print(f"  -> {sparse_dir / 'points3D.txt'} ({len(pts):,} init points; "
