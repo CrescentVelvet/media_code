@@ -178,6 +178,23 @@ python -c "import simple_knn, diff_surfel_rasterization; print('OK')"
 #    完整版 01 需要 SAM 3D Body 权重（GATED）；简化版 01b 不需要
 HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # SAM 3D Body（GATED，需先 Request access）
 bash wan22/01_verify_models.sh                           # Wan2.2（确认权重在位）
+
+# ⚠️ 如果 HuggingFace 下载失败（代理拦截 huggingface.co），
+#    从 ModelScope 手动下载 SAM 3D Body + MoGe2 权重，放到对应目录：
+#    1) sam-3d-body-dinov3（含 model.ckpt, model_config.yaml, assets/mhr_model.pt）
+mkdir -p ../../model/sam-3d-body/sam-3d-body-dinov3/assets
+#       从 ModelScope 下载后放入：
+#         ../../model/sam-3d-body/sam-3d-body-dinov3/model.ckpt
+#         ../../model/sam-3d-body/sam-3d-body-dinov3/model_config.yaml
+#         ../../model/sam-3d-body/sam-3d-body-dinov3/assets/mhr_model.pt
+#    2) moge-2-vitl-normal（FOV 估计器权重）
+mkdir -p ../../model/sam-3d-body/moge-2-vitl-normal
+#       从 ModelScope 下载后放入：
+#         ../../model/sam-3d-body/moge-2-vitl-normal/
+#    确认文件存在：
+ls ../../model/sam-3d-body/sam-3d-body-dinov3/model.ckpt
+ls ../../model/sam-3d-body/sam-3d-body-dinov3/assets/mhr_model.pt
+ls ../../model/sam-3d-body/moge-2-vitl-normal/
 ```
 
 权重需已在 `$MODEL_DIR`（默认 `../../model`）下：
