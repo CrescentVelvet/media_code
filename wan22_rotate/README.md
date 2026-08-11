@@ -428,6 +428,7 @@ INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 | var | default | note |
 | --- | --- | --- |
 | `MP_MIN_CONFIDENCE` | `0.5` | MediaPipe Face Mesh 检测置信度阈值 |
+| `MP_MODEL_PATH` | `$MODEL_DIR/mediapipe/face_landmarker.task` | mediapipe >= 1.0 Tasks API 模型文件（00 自动下载；legacy < 1.0 不需要） |
 | `SKIP_SEGMENTATION` | `0` | `1` = 仅选正面图不分割（快速看哪帧是正面） |
 | `DETECTOR_NAME` | `vitdet` | 分割用 ViTDet（01c 选图不用它，分割复用 01b 逻辑） |
 | `SEGMENTOR_NAME` | `sam2` | 分割用 SAM2（需配 `SEGMENTOR_PATH`） |

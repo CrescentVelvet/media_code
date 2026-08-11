@@ -86,6 +86,9 @@ export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 # 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env as 01-04)
 GS2D_DIR="${GS2D_DIR:-$REPO_DIR/../2d-gaussian-splatting}"
 
+# MediaPipe (step 01c — Tasks API model file, for mediapipe >= 1.0)
+export MP_MODEL_PATH="${MP_MODEL_PATH:-$WAN_MODEL_DIR/mediapipe/face_landmarker.task}"
+
 # ModelConfig looks for $WAN_MODEL_DIR/Wan-AI/Wan2.2-TI2V-5B/ — if only
 # $WAN_MODEL_DIR/Wan2.2-TI2V-5B/ exists (no org prefix), symlink Wan-AI -> .
 if [ ! -e "$WAN_MODEL_DIR/Wan-AI" ] && [ -d "$WAN_MODEL_DIR/Wan2.2-TI2V-5B" ]; then

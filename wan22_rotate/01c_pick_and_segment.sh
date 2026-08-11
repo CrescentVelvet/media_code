@@ -20,6 +20,7 @@ source "$SCRIPT_DIR/_env.sh"
 
 # --- MediaPipe face mesh config ---
 export MP_MIN_CONFIDENCE="${MP_MIN_CONFIDENCE:-0.5}"
+export MP_MODEL_PATH="${MP_MODEL_PATH:-$WAN_MODEL_DIR/mediapipe/face_landmarker.task}"
 export DEVICE="${DEVICE:-cuda}"  # mediapipe always runs on CPU; this is for detector/segmentor
 
 # --- optional person detector + segmentor (reused from 01b) ---

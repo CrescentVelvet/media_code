@@ -213,15 +213,30 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     fi
 
     # 0h. MediaPipe (face mesh for step 01c — lightweight front-image pick on CPU).
-    #     Only needed by 01c (MediaPipe-based frontal pick); 01/01b don't use it.
-    #     mediapipe pulls opencv-contrib-python (also provides cv2), conflicting
-    #     with the opencv-python installed above — force-reinstall opencv-python
-    #     afterward so detectron2/sam_3d_body keep the version they expect.
-    #     The final numpy pin (below) re-pins numpy in case mediapipe bumps it.
+    #     Only needed by 01c; 01/01b don't use it.
+    #     mediapipe >= 1.0 removed the legacy 'solutions' API — it uses the Tasks
+    #     API which needs a .task model file (face_landmarker.task, ~1MB).
+    #     mediapipe < 1.0 uses legacy 'solutions.face_mesh' (no model file needed).
+    #     Both are supported by pick_and_segment_mediapipe.py.
+    #     mediapipe also pulls opencv-contrib-python (conflicts with opencv-python)
+    #     — force-reinstall opencv-python afterward.
     echo "--- installing MediaPipe (step 01c) ---"
     pip install "${PIP_FLAGS[@]}" mediapipe || \
         echo "WARNING: mediapipe install failed; step 01c needs it (pip install mediapipe)" >&2
     pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps opencv-python
+
+    # Download face_landmarker.task model (only needed for mediapipe >= 1.0;
+    # legacy < 1.0 ignores it). Small file (~1MB), from Google storage.
+    MP_MODEL_DIR="$WAN_MODEL_DIR/mediapipe"
+    mkdir -p "$MP_MODEL_DIR"
+    if [ ! -f "$MP_MODEL_DIR/face_landmarker.task" ]; then
+        echo "--- downloading MediaPipe face_landmarker.task (for mediapipe >= 1.0 Tasks API) ---"
+        wget --no-check-certificate -q -O "$MP_MODEL_DIR/face_landmarker.task" \
+            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" || \
+            echo "WARNING: face_landmarker.task download failed (Google storage may be blocked)." >&2
+            echo "         Manual: wget -O $MP_MODEL_DIR/face_landmarker.task" >&2
+            echo "           https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" >&2
+    fi
 
     # 0i. 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env)
     #     Gated by INSTALL_2DGS=1. Clones 2DGS repo + submodules, installs deps,

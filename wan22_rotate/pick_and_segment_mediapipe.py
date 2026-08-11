@@ -55,81 +55,150 @@ SKIP_SEGMENTATION = os.environ.get("SKIP_SEGMENTATION", "0") == "1"
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff"}
 
-# --- MediaPipe Face Mesh (imported lazily so the rest of the script can run
-#     even if mediapipe isn't installed, e.g. for env checks) ---
-_mp_face_mesh = None
+# --- MediaPipe Face Mesh / Landmarker (imported lazily so the rest of the
+#     script can run even if mediapipe isn't installed, e.g. for env checks) ---
+# mediapipe < 1.0  → legacy `solutions.face_mesh` API (no model file needed)
+# mediapipe >= 1.0 → Tasks API `vision.FaceLandmarker` (needs .task model file)
+_mp_detector = None     # the detector instance
+_mp_mode = None         # 'legacy' or 'tasks'
+_mp = None              # the mediapipe module
+
+# Landmark indices (same for both APIs — canonical Face Mesh topology)
+LM_NOSE = 1             # nose tip
+LM_L_EYE = 33           # left eye outer corner
+LM_R_EYE = 263          # right eye outer corner
 
 
 def get_face_mesh():
-    global _mp_face_mesh
-    if _mp_face_mesh is None:
-        import mediapipe as mp  # noqa: E402
-        # Some mediapipe versions don't auto-import the solutions subpackage,
-        # so `mp.solutions` raises AttributeError. Try explicit imports in order.
-        FaceMesh = None
-        for _mod_path in (
-            "mediapipe.solutions.face_mesh",       # standard
-            "mediapipe.python.solutions.face_mesh", # some Linux builds
-        ):
-            try:
-                import importlib
-                _mod = importlib.import_module(_mod_path)
-                FaceMesh = _mod.FaceMesh
-                print(f"🤖 MediaPipe FaceMesh via {_mod_path}")
-                break
-            except (ImportError, AttributeError):
-                continue
-        if FaceMesh is None:
-            sys.exit(
-                f"❌ cannot import mediapipe FaceMesh (version={getattr(mp,'__version__','?')}).\n"
-                f"   Try: pip install --force-reinstall mediapipe\n"
-                f"   Or use 01/01b (SAM 3D Body / ViTDet) instead of 01c."
-            )
-        _mp_face_mesh = FaceMesh(
+    """Init a MediaPipe face detector, supporting both legacy and Tasks APIs.
+
+    Legacy (mediapipe < 1.0): mp.solutions.face_mesh.FaceMesh — no model file.
+    Tasks   (mediapipe >= 1.0): mp.tasks.python.vision.FaceLandmarker — needs
+           a .task model file (set via MP_MODEL_PATH or auto-searched).
+    """
+    global _mp_detector, _mp_mode, _mp
+    if _mp_detector is not None:
+        return _mp_detector
+
+    import mediapipe as mp  # noqa: E402
+    _mp = mp
+
+    # ── Strategy 1: legacy solutions API (mediapipe < 1.0) ──
+    try:
+        from mediapipe.solutions.face_mesh import FaceMesh
+        _mp_detector = FaceMesh(
             static_image_mode=True,
-            max_num_faces=1,           # only the main subject matters
-            refine_landmarks=False,    # 468 landmarks is enough; iris not needed
+            max_num_faces=1,
+            refine_landmarks=False,
             min_detection_confidence=MP_MIN_CONFIDENCE,
         )
-        print(f"   min_conf={MP_MIN_CONFIDENCE}")
-    return _mp_face_mesh
+        _mp_mode = "legacy"
+        print(f"🤖 MediaPipe FaceMesh (legacy solutions API, min_conf={MP_MIN_CONFIDENCE})")
+        return _mp_detector
+    except (ImportError, AttributeError):
+        pass  # fall through to Tasks API
+
+    # ── Strategy 2: Tasks API (mediapipe >= 1.0) ──
+    try:
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision
+
+        model_path = os.environ.get("MP_MODEL_PATH", "")
+        if not model_path:
+            # Auto-search common locations
+            for p in (
+                "../../model/mediapipe/face_landmarker.task",
+                os.path.expanduser("~/model/mediapipe/face_landmarker.task"),
+                "/data_3d/model/mediapipe/face_landmarker.task",
+            ):
+                if os.path.isfile(p):
+                    model_path = p
+                    break
+
+        if not model_path or not os.path.isfile(model_path):
+            sys.exit(
+                f"❌ mediapipe {getattr(mp, '__version__', '?')} uses the Tasks API "
+                f"(legacy 'solutions' was removed).\n"
+                f"   Need a model file. Either:\n"
+                f"   A) Download the model:\n"
+                f"      mkdir -p ../../model/mediapipe\n"
+                f"      wget -O ../../model/mediapipe/face_landmarker.task \\\n"
+                f"        https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task\n"
+                f"      Then re-run.\n"
+                f"   B) Downgrade: pip install --force-reinstall 'mediapipe<1.0'\n"
+                f"      (legacy API, no model file needed)."
+            )
+
+        base_options = mp_python.BaseOptions(model_asset_path=model_path)
+        options = vision.FaceLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.IMAGE,
+            num_faces=1,
+            min_face_detection_confidence=MP_MIN_CONFIDENCE,
+            min_face_presence_confidence=MP_MIN_CONFIDENCE,
+        )
+        _mp_detector = vision.FaceLandmarker.create_from_options(options)
+        _mp_mode = "tasks"
+        print(f"🤖 MediaPipe FaceLandmarker (Tasks API, model={model_path})")
+        return _mp_detector
+    except Exception as e:
+        sys.exit(
+            f"❌ cannot init mediapipe face detector "
+            f"(version={getattr(mp, '__version__', '?')}, error={e}).\n"
+            f"   Try: pip install --force-reinstall 'mediapipe<1.0'  (legacy, no model file)\n"
+            f"   Or use 01/01b (SAM 3D Body / ViTDet) instead of 01c."
+        )
+
+
+def detect_landmarks(image_rgb):
+    """Run the detector on an RGB image; return list of 468 NormalizedLandmark
+    or None if no face.
+
+    Legacy: face_mesh.process(rgb) → results.multi_face_landmarks[0].landmark
+    Tasks:  landmarker.detect(mp_image) → results.face_landmarks[0]
+    """
+    det = get_face_mesh()
+    if _mp_mode == "legacy":
+        results = det.process(image_rgb)
+        if not results.multi_face_landmarks:
+            return None
+        return results.multi_face_landmarks[0].landmark
+    elif _mp_mode == "tasks":
+        mp_image = _mp.Image(
+            image_format=_mp.ImageFormat.SRGB,
+            data=image_rgb,
+        )
+        results = det.detect(mp_image)
+        if not results.face_landmarks:
+            return None
+        return results.face_landmarks[0]
+    return None
 
 
 def compute_frontal_score(image_bgr):
-    """Run MediaPipe Face Mesh on one image; return (score, landmarks) or (0.0, None).
+    """Run MediaPipe face detection on one image; return (score, found_face) or
+    (0.0, False).
 
     score = symmetry * (eye_dist + 0.3)
       symmetry in [0, 1]  (1 = nose centered between eyes)
       eye_dist in [0, 1]  (normalized x; max when front-facing)
-    No face -> (0.0, None). Multi-face -> take the largest by bbox area.
+    No face -> (0.0, False). Multi-face -> take the best by score.
     """
-    fm = get_face_mesh()
-    h, w = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    results = fm.process(rgb)
 
-    if not results.multi_face_landmarks:
-        return 0.0, None
+    lm = detect_landmarks(rgb)
+    if lm is None:
+        return 0.0, False
 
-    best_score = 0.0
-    best_lm = None
-    for face_lm in results.multi_face_landmarks:
-        lm = face_lm.landmark  # 468 NormalizedLandmark (x, y, z in [0,1])
+    nose = lm[LM_NOSE]
+    l_eye = lm[LM_L_EYE]
+    r_eye = lm[LM_R_EYE]
 
-        nose = lm[1]             # nose tip
-        l_eye = lm[33]           # left eye outer corner
-        r_eye = lm[263]          # right eye outer corner
-
-        mid_x = (l_eye.x + r_eye.x) / 2.0
-        symmetry = 1.0 - abs(nose.x - mid_x)
-        eye_dist = abs(r_eye.x - l_eye.x)
-        score = symmetry * (eye_dist + 0.3)
-
-        if score > best_score:
-            best_score = score
-            best_lm = face_lm
-
-    return best_score, best_lm
+    mid_x = (l_eye.x + r_eye.x) / 2.0
+    symmetry = 1.0 - abs(nose.x - mid_x)
+    eye_dist = abs(r_eye.x - l_eye.x)
+    score = symmetry * (eye_dist + 0.3)
+    return score, True
 
 
 # ── person segmentation (reuses 01b's tools, optional) ──
@@ -365,8 +434,8 @@ def main():
                 print(f"[{i}/{len(images)}] {fp.name}  ⚠️  cannot read")
                 continue
 
-            score, lm = compute_frontal_score(image_bgr)
-            if lm is None:
+            score, found = compute_frontal_score(image_bgr)
+            if not found:
                 print(f"[{i}/{len(images)}] {fp.name}  ⚪  no face (back/side?)")
                 continue
 
