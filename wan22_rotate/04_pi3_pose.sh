@@ -3,7 +3,8 @@
 # (NO 3D reconstruction — no COLMAP export, no 2DGS training).
 #
 # This step reuses the wan22_rotate conda env (which already has all Pi3 deps:
-# torch 2.6.0+cu124, numpy 1.26.4, cv2, safetensors, plyfile, huggingface_hub).
+# torch 2.6.0+cu124, numpy 1.26.4, cv2, safetensors). plyfile is NOT needed
+# (pi3_recon.py uses its own ASCII PLY writer).
 # It does NOT need the pi3_3dgs env (which is only required for the 2DGS CUDA
 # rasterizer extensions). It calls pi3_3dgs/pi3_recon.py with --no_colmap to
 # skip the COLMAP text format export (that's only needed when feeding 2DGS).
@@ -60,9 +61,15 @@ echo "  💾 output:    $OUTPUT_DIR"
 echo ""
 
 # ── 0. Sanity: Pi3 repo + ckpt ────────────────────────────────────────────
-# Auto-clone Pi3 repo if missing (small public repo, no auth needed).
-if [ ! -d "$PI3_DIR/.git" ]; then
+# Auto-clone Pi3 repo if missing. Check for the key import file
+# (pi3/models/pi3.py) rather than .git — handles partial/failed clones
+# where the dir exists but is incomplete (no .git, missing files).
+PI3_KEYFILE="$PI3_DIR/pi3/models/pi3.py"
+if [ ! -f "$PI3_KEYFILE" ]; then
     echo "📦 Pi3 repo not found at $PI3_DIR — cloning..."
+    if [ -d "$PI3_DIR" ]; then
+        rm -rf "$PI3_DIR"   # broken/partial clone — clean and re-clone
+    fi
     mkdir -p "$(dirname "$PI3_DIR")"
     git clone https://github.com/yyfz/Pi3.git "$PI3_DIR" || \
         git -c http.sslVerify=false clone https://github.com/yyfz/Pi3.git "$PI3_DIR"
@@ -106,11 +113,11 @@ else
 fi
 
 # ── 2. Verify deps are importable in the wan22_rotate env ─────────────────
-# Pi3 deps: torch, numpy, cv2, safetensors, plyfile, huggingface_hub.
-# All present in wan22_rotate env (sam_3d_body + diffsynth installed them).
+# Pi3 deps: torch, numpy, cv2, safetensors (all in wan22_rotate env).
+# plyfile is NOT needed — pi3_recon.py uses its own ASCII PLY writer.
 if ! python - <<'PY'
 import sys
-for mod in ["torch", "numpy", "cv2", "safetensors", "plyfile"]:
+for mod in ["torch", "numpy", "cv2", "safetensors"]:
     try:
         __import__(mod)
     except ImportError:
