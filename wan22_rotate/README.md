@@ -162,13 +162,14 @@ mv simple-knn-main simple-knn
 ls simple-knn/setup.py   # 确认存在
 #
 # b) CUDA 版本不匹配（detected 11.8 vs PyTorch 12.4）：
-#    系统有多个 CUDA，torch 找到了 11.8。设 CUDA_HOME 指向 12.4：
+#    系统有多个 CUDA，/usr/local/cuda 指向 11.8。找到 12.4 的路径设给 CUDA_HOME：
+#    ls -d /usr/local/cuda-12*  →  /usr/local/cuda-12.4
 conda activate wan22_rotate
-export CUDA_HOME=/usr/local/cuda          # 确认: $CUDA_HOME/bin/nvcc --version 输出 cuda_12.4
-export PATH=$CUDA_HOME/bin:$PATH          # 让 12.4 的 nvcc 排在 PATH 前面
+export CUDA_HOME=/usr/local/cuda-12.4       # ⚠️ 不是 /usr/local/cuda（那个是 11.8）
+export PATH=$CUDA_HOME/bin:$PATH           # 让 12.4 的 nvcc 排在 PATH 前面
 export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
 export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
-python -c "import torch; print('torch CUDA:', torch.version.cuda)"  # 应显示 12.4
+$CUDA_HOME/bin/nvcc --version | tail -1    # 确认输出 cuda_12.4
 #
 # c) 编译两个 CUDA 扩展（--no-deps --no-index 避免联网）：
 pip install --no-build-isolation --no-deps --no-index \
@@ -486,7 +487,7 @@ python -c "import numpy, torch; print(numpy.__version__, torch.__version__)"  # 
 **9. 步骤 5 编 CUDA 扩展报 `simple-knn 拉不下来` / `CUDA version (11.8) mismatches PyTorch (12.4)`**
 见上方「首次准备」的 ⚠️ 手动修复步骤。要点：
 - **simple-knn**：`gitlab.inria.fr` 可能被代理封。浏览器下载 zip 传上去，解压到 `2d-gaussian-splatting/submodules/simple-knn/`。
-- **CUDA 版本不匹配**：系统有多个 CUDA，torch 找到 11.8 而非 12.4。必须 `export CUDA_HOME=/usr/local/cuda`（指向 12.4）+ `export PATH=$CUDA_HOME/bin:$PATH`（让 12.4 的 nvcc 排前面），再 `pip install`。
+- **CUDA 版本不匹配**：系统有多个 CUDA，`/usr/local/cuda` 可能指向 11.8。用 `ls -d /usr/local/cuda-12*` 找到 12.4 路径，`export CUDA_HOME=/usr/local/cuda-12.4` + `export PATH=$CUDA_HOME/bin:$PATH`。
 - **pip 联网报错**：加 `--no-build-isolation --no-deps --no-index` 三个 flag，彻底禁止联网。
 
 ## 目录布局
