@@ -77,6 +77,9 @@ export DIFFSYNTH_MODEL_BASE_PATH="${DIFFSYNTH_MODEL_BASE_PATH:-$WAN_MODEL_DIR}"
 export DIFFSYNTH_SKIP_DOWNLOAD="${DIFFSYNTH_SKIP_DOWNLOAD:-True}"
 export DIFFSYNTH_DOWNLOAD_SOURCE="${DIFFSYNTH_DOWNLOAD_SOURCE:-modelscope}"
 
+# 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env as 01-04)
+GS2D_DIR="${GS2D_DIR:-$REPO_DIR/../2d-gaussian-splatting}"
+
 # ModelConfig looks for $WAN_MODEL_DIR/Wan-AI/Wan2.2-TI2V-5B/ — if only
 # $WAN_MODEL_DIR/Wan2.2-TI2V-5B/ exists (no org prefix), symlink Wan-AI -> .
 if [ ! -e "$WAN_MODEL_DIR/Wan-AI" ] && [ -d "$WAN_MODEL_DIR/Wan2.2-TI2V-5B" ]; then
@@ -86,4 +89,4 @@ fi
 # Output dir (outside the repo, like wan22_results / wan22_experiments).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
-export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR RESULTS_DIR
+export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR GS2D_DIR RESULTS_DIR

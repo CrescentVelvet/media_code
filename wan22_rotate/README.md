@@ -39,6 +39,7 @@ GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered
 #    默认抽每一帧（FPS=0）；指定 FPS 则按该 fps 采样
 GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
   bash wan22_rotate/03_extract_frames.sh
+  
 # 输出结构：
 #   rotate_360.mp4
 #   rotate_360/                 # 同名目录
@@ -52,28 +53,27 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360/image \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/04_pi3_pose.sh
+
 # 输出：rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
 # poses.json 是人类可读的 c2w 4x4 矩阵（每帧一个），可用任何 JSON viewer 看
 
 # 5) 三维高斯重建（Pi3 → COLMAP → 2DGS 训练 → 渲染 + 网格）
-#    用 pi3_3dgs 独立 env（首次需建 env + clone 仓 + 编 CUDA ext，见下方「首次准备」）
-#    INPUT 用步骤 03 的视频；pi3_3dgs 重跑 Pi3（带 COLMAP 导出）+ 训 2DGS + 出网格
-#    一键（WHITE_BG 适配白底分割图；UNBOUNDED 适配人像在白色虚空中）：
+#    在 wan22_rotate env 里跑（首次需 INSTALL_2DGS=1 编 2DGS CUDA 扩展，见下方「首次准备」）
+#    一键（Pi3 重跑带 COLMAP 导出 + 2DGS 训练 + 渲染 + 网格）：
 GPU=0 INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
-  WHITE_BG=1 UNBOUNDED=1 MESH_RES=2048 \
-  bash pi3_3dgs/run_all.sh
-# 分步：
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/05_3dgs_recon.sh
+# 分步（05_3dgs_recon.sh 内部三步，可单独跳过）：
 # 5a) Pi3 推理 + COLMAP 导出（视频抽帧 → Pi3 → cameras/images/points3D.txt）
-GPU=0 INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
-  bash pi3_3dgs/01_pi3_recon.sh
-# 5b) 2DGS 训练（白底适配 wan22_rotate 分割图）
-GPU=0 WHITE_BG=1 bash pi3_3dgs/02_train_2dgs.sh
-# 5c) 渲染 + 提网格（无界 TSDF 适配人像在白色虚空中）
-GPU=0 UNBOUNDED=1 MESH_RES=2048 bash pi3_3dgs/03_render_2dgs.sh
-# 输出：../pi3_3dgs_results/
-#   source/{images, sparse/0/{cameras,images,points3D}.txt}   COLMAP 场景
-#   model/point_cloud/iteration_<N>/point_cloud.ply            高斯点云
-#   model/test/ours_<N>/{renders/*.png, mesh.ply}             渲染图 + 网格
+GPU=0 INPUT=... SKIP_TRAIN=1 SKIP_RENDER=1 bash wan22_rotate/05_3dgs_recon.sh
+# 5b) 2DGS 训练（白底适配 wan22_rotate 分割图，默认 WHITE_BG=1）
+GPU=0 SKIP_PI3=1 bash wan22_rotate/05_3dgs_recon.sh
+# 5c) 渲染 + 提网格（无界 TSDF 适配人像在白色虚空中，默认 UNBOUNDED=1）
+GPU=0 SKIP_PI3=1 SKIP_TRAIN=1 bash wan22_rotate/05_3dgs_recon.sh
+# 输出：<RESULTS_DIR>/rotate_360/
+#   pi3/{predictions.npz, dense_cloud.ply, poses.json, source/}   Pi3 + COLMAP 场景
+#   model/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
+#   model/test/ours_<N>/{renders/*.png, mesh.ply}                 渲染图 + 网格
 
 # ── 自定义 ──
 # 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
@@ -96,11 +96,9 @@ GPU=0 SEGMENTOR_PATH=/path/to/sam2_repo \
 
 ## → 接入三维重建（Pi3 + 2D Gaussian Splatting）
 
-步骤 04 已用 Pi3 估出位姿（`rotate_360/pi3/`，`--no_colmap` 模式，不做三维重建）。若要继续做 2DGS 三维重建：
+步骤 04 只估位姿（`--no_colmap`，不做三维重建）。步骤 5 在**同一个 wan22_rotate env** 里完成 3DGS 重建（Pi3 重跑带 COLMAP 导出 + 2DGS 训练 + 渲染 + 网格），无需 pi3_3dgs 独立 env。首次需 `INSTALL_2DGS=1` 编 2DGS 的两个 CUDA 扩展（复用已有的 gxx_linux-64=12）。
 
-**路径 A（推荐）**：见上方步骤 5 — 喂步骤 03 的视频给 [`pi3_3dgs/`](../pi3_3dgs/) 全流程（Pi3 重跑带 COLMAP 导出 + 2DGS 训练 + 渲染 + 网格）。Pi3 推理只需 10-60 秒，重跑无妨。参数详见 [`pi3_3dgs/README.md`](../pi3_3dgs/README.md)。
-
-**路径 B**：复用步骤 04 的 Pi3 输出（避免重跑 Pi3）—— 暂未自动化，需手动把 `predictions.npz` + `dense_cloud.ply` 转成 COLMAP 格式。如需此路径请提 issue。
+> 也可用独立的 [`pi3_3dgs/`](../pi3_3dgs/) 流程（自带独立 env，参数更全），但本流程推荐直接用步骤 5。
 
 ## 首次准备
 
@@ -122,6 +120,11 @@ conda create -n wan22_rotate python=3.10 -y && conda activate wan22_rotate
 #    装 gcc12（--no-update-deps 防 GraalPy 掉包）、diffsynth、sam_3d_body、detectron2，
 #    并 clone SAM2 仓库 + pip install + 下载 sam2.1_hiera_large.pt
 INSTALL_DEPS=1 bash wan22_rotate/00_setup_env.sh
+
+# 3. （步骤 5 用）装 2DGS 依赖 + 编 CUDA 扩展
+#    INSTALL_2DGS=1 会 clone 2d-gaussian-splatting 仓 + 装 open3d/lpips/trimesh 等 +
+#    编 simple-knn + diff-surfel-rasterization（复用已有的 gxx_linux-64=12 + 系统 CUDA toolkit）
+INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 
 # 3. 下权重（两边各自的下载脚本）
 #    完整版 01 需要 SAM 3D Body 权重（GATED）；简化版 01b 不需要
@@ -287,25 +290,24 @@ wget --no-check-certificate -O ../../model/Pi3/model.safetensors \
   https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors
 ```
 
-### Step 05 — 三维高斯重建（调 `pi3_3dgs/` 全流程）
+### Step 05 — 三维高斯重建（`05_3dgs_recon.sh`）
 
-步骤 04 只估位姿（`--no_colmap`，不做三维重建）。步骤 5 调用 [`pi3_3dgs/`](../pi3_3dgs/) 的独立流程，在 **pi3_3dgs env**（非 wan22_rotate env）中完成：Pi3 重跑（带 COLMAP 导出）→ 2DGS 训练 → 渲染 + 网格。
+步骤 04 只估位姿（`--no_colmap`，不做三维重建）。步骤 5 在**同一个 wan22_rotate env** 里完成 3DGS 重建：Pi3 重跑（带 COLMAP 导出）→ 2DGS 训练 → 渲染 + 网格。
 
-**为何需要独立 env**：2DGS 的两个 CUDA 扩展（`diff-surfel-rasterization` + `simple-knn`）需要 nvcc 编译，wan22_rotate env 没有 CUDA toolkit。pi3_3dgs env 专门为此建。
+**为何能用同一个 env**：2DGS 的两个 CUDA 扩展（`diff-surfel-rasterization` + `simple-knn`）需要 nvcc + gxx 编译。wan22_rotate env 已有 `gxx_linux-64=12`（为 detectron2 装的），只需系统有 CUDA toolkit（nvcc），`INSTALL_2DGS=1` 即可在 wan22_rotate env 里编这两个扩展。无需建独立 env。
 
-**为何重跑 Pi3**：步骤 04 用了 `--no_colmap`（只出位姿 + 点云，不导 COLMAP 格式）。步骤 5 的 `01_pi3_recon.sh` 不带 `--no_colmap`，会额外导出 `cameras.txt` / `images.txt` / `points3D.txt`（2DGS `train.py` 的输入）。Pi3 推理只需 10-60 秒，重跑无妨。
+**为何重跑 Pi3**：步骤 04 用了 `--no_colmap`（只出位姿 + 点云，不导 COLMAP 格式）。步骤 5 不带 `--no_colmap`，会额外导出 `cameras.txt` / `images.txt` / `points3D.txt`（2DGS `train.py` 的输入）。Pi3 推理只需 10-60 秒，重跑无妨。
 
-**wan22_rotate 输入的适配**：步骤 03 的视频是白底分割图（人物保留、背景纯白），步骤 5 需：
-- `WHITE_BG=1` — 2DGS 训练用白底背景（`--white_background`），与输入一致
-- `UNBOUNDED=1` — TSDF 用无界模式（人像在白色虚空中，非 bounded 场景）
-- `MESH_RES=2048` — 提高网格分辨率（人像细节）
+**wan22_rotate 输入的适配**（`05_3dgs_recon.sh` 已默认设好）：
+- `WHITE_BG=1`（默认）— 2DGS 训练用白底背景，与分割图一致
+- `UNBOUNDED=1`（默认）— TSDF 无界模式，人像在白色虚空中
+- `MESH_RES=2048`（默认）— 提高网格分辨率
 
-**首次准备**：需建 pi3_3dgs env（独立于 wan22_rotate）：
+**首次准备**：在 wan22_rotate env 里装 2DGS 依赖 + 编 CUDA 扩展（一次性）：
 ```bash
-conda create -n pi3_3dgs python=3.10 -y && conda activate pi3_3dgs
-INSTALL_DEPS=1 BUILD_CUDA=1 bash pi3_3dgs/00_setup_env.sh
+INSTALL_DEPS=1 INSTALL_2DGS=1 bash wan22_rotate/00_setup_env.sh
 ```
-需 CUDA 12.4 toolkit（`CUDA_HOME=/usr/local/cuda`）匹配 torch cu124。详见 [`pi3_3dgs/README.md`](../pi3_3dgs/README.md)。
+需系统有 CUDA 12.4 toolkit（`CUDA_HOME=/usr/local/cuda`，nvcc 可用）。
 
 ## Config (env vars, all optional)
 
@@ -378,17 +380,19 @@ INSTALL_DEPS=1 BUILD_CUDA=1 bash pi3_3dgs/00_setup_env.sh
 | `SKIP_PI3` | `0` | `1` = 跳过 step 04（run_all.sh 用） |
 
 ### Step 05 params
-> 步骤 5 调用 `pi3_3dgs/` 脚本，使用独立的 `pi3_3dgs` env。完整参数见 [`pi3_3dgs/README.md`](../pi3_3dgs/README.md)。
+> 步骤 5 在 wan22_rotate env 里跑（`05_3dgs_recon.sh`），默认已适配白底分割输入。
 | var | default | note |
 | --- | --- | --- |
-| `INPUT` | `$RESULTS_DIR/rotate_360.mp4` | 输入视频 / 图像夹（pi3_3dgs `run_all.sh` 默认接 wan22_rotate） |
-| `WHITE_BG` | `0` | `1` = 训练用白底（wan22_rotate 输入推荐 `1`） |
-| `UNBOUNDED` | `0` | `1` = 无界 TSDF（推荐 wan22_rotate 输入） |
-| `MESH_RES` | `1024` | TSDF 体素分辨率（2048 更细，更耗内存） |
+| `INPUT` | `$RESULTS_DIR/rotate_360.mp4` | 输入视频 / 图像夹 |
+| `WHITE_BG` | `1` | `1` = 训练用白底（适配 wan22_rotate 分割图） |
+| `UNBOUNDED` | `1` | `1` = 无界 TSDF（适配人像在白色虚空） |
+| `MESH_RES` | `2048` | TSDF 体素分辨率 |
 | `ITERATIONS` | `30000` | 2DGS 训练步数（7000 = 快速 demo） |
 | `FRAME_FPS` | `10` | 视频抽帧 fps（Pi3 显存随帧数线性增长） |
 | `FRAME_MAX` | `60` | 最大帧数（防 OOM） |
-| `RESULTS_DIR` | `../pi3_3dgs_results` | pi3_3dgs 输出根（独立于 wan22_rotate_results） |
+| `SKIP_PI3` | `0` | `1` = 跳过 5a（复用已有 COLMAP source/） |
+| `SKIP_TRAIN` | `0` | `1` = 跳过 5b（复用已有 model/） |
+| `SKIP_RENDER` | `0` | `1` = 跳过 5c |
 
 ## 可能遇到的问题
 

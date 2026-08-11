@@ -212,6 +212,51 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             echo "         Place at: $CKPT_DIR/sam2.1_hiera_large.pt" >&2
     fi
 
+    # 0h. 2D Gaussian Splatting (step 05 — 3DGS reconstruction, same env)
+    #     Gated by INSTALL_2DGS=1. Clones 2DGS repo + submodules, installs deps,
+    #     builds two CUDA extensions (simple-knn + diff-surfel-rasterization).
+    #     Needs CUDA toolkit (nvcc) at CUDA_HOME — same as detectron2 needs gxx.
+    if [ "${INSTALL_2DGS:-0}" = "1" ]; then
+        echo "--- setting up 2D Gaussian Splatting (step 05) ---"
+        if [ ! -d "$GS2D_DIR/.git" ]; then
+            echo "  cloning 2DGS -> $GS2D_DIR"
+            mkdir -p "$(dirname "$GS2D_DIR")"
+            LD_LIBRARY_PATH= git clone --recursive \
+                https://github.com/hbb1/2d-gaussian-splatting.git "$GS2D_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone --recursive \
+                https://github.com/hbb1/2d-gaussian-splatting.git "$GS2D_DIR"
+        fi
+        # Ensure submodules (simple-knn on gitlab.inria.fr, diff-surfel-rasterization on github)
+        if [ ! -f "$GS2D_DIR/submodules/simple-knn/setup.py" ] || \
+           [ ! -f "$GS2D_DIR/submodules/diff-surfel-rasterization/setup.py" ]; then
+            echo "  ensuring 2DGS submodules"
+            ( cd "$GS2D_DIR" && git submodule update --init --recursive ) || \
+                ( cd "$GS2D_DIR" && git -c http.sslVerify=false submodule update --init --recursive )
+        fi
+        # 2DGS Python deps (torch/numpy already installed, just the extras)
+        echo "  installing 2DGS Python deps"
+        pip install "${PIP_FLAGS[@]}" \
+            open3d==0.18.0 mediapy==1.1.2 lpips==0.1.4 \
+            scikit-image==0.21.0 tqdm==4.66.2 trimesh==4.3.2 \
+            plyfile "setuptools<70"
+        # Build CUDA extensions (same gxx as detectron2, needs nvcc from CUDA toolkit)
+        export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+        if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+            echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
+            echo "  building CUDA ext: simple-knn"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation \
+                "$GS2D_DIR/submodules/simple-knn"
+            echo "  building CUDA ext: diff-surfel-rasterization"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation \
+                "$GS2D_DIR/submodules/diff-surfel-rasterization"
+            python -c "import simple_knn, diff_surfel_rasterization; print('  [OK] 2DGS CUDA exts')" || \
+                echo "  WARNING: CUDA exts built but not importable" >&2
+        else
+            echo "  WARNING: nvcc not found at $CUDA_HOME/bin/nvcc — 2DGS CUDA exts NOT built." >&2
+            echo "           Install CUDA toolkit 12.4 and re-run: INSTALL_2DGS=1 bash $0" >&2
+        fi
+    fi
+
     # 最后钉 numpy + setuptools——前面装的依赖会把 numpy 升到 2.x（detectron2 不兼容），
     # setuptools>=70 去掉了 pkg_resources（detectron2 model_zoo 要用）
     echo "--- pinning numpy==1.26.4 + setuptools==69.5.1 ---"
@@ -262,6 +307,18 @@ if python -c "import diffsynth; print('  [OK] diffsynth')" 2>/dev/null; then :; 
 fi
 if python -c "import sam_3d_body, cv2, detectron2; print('  [OK] sam_3d_body + cv2 + detectron2')" 2>/dev/null; then :; else
     echo "  [MISS] sam_3d_body/cv2/detectron2 — Run: INSTALL_DEPS=1 bash $0" >&2
+fi
+
+# --- 5b. verify 2DGS (step 05, only if INSTALL_2DGS was used) ---
+if [ "${INSTALL_2DGS:-0}" = "1" ] || python -c "import diff_surfel_rasterization" 2>/dev/null; then
+    echo "--- [5b] verify 2DGS (step 05) ---"
+    if [ ! -d "$GS2D_DIR" ]; then
+        echo "  [MISS] 2DGS repo — Run: INSTALL_DEPS=1 INSTALL_2DGS=1 bash $0" >&2
+    elif ! python -c "import simple_knn, diff_surfel_rasterization" 2>/dev/null; then
+        echo "  [MISS] 2DGS CUDA exts — Run: INSTALL_DEPS=1 INSTALL_2DGS=1 bash $0" >&2
+    else
+        echo "  [OK] 2DGS repo + CUDA exts"
+    fi
 fi
 
 echo ""
