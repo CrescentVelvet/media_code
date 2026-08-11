@@ -17,15 +17,24 @@
 > 8 卡服务器选 4 卡：`GPU=0,1,2,3`（逗号分隔物理卡号），`NUM_GPUS=4` 必须和卡数一致。
 
 ```bash
-# ── 一键（clone + 装环境 + 下权重 + 起服务 + 跑 T2VA 示例）──
-# 首次（装 SGLang）
-INSTALL_DEPS=1 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=../../model/MiniMax-H3 OUTPUT_DIR=../MiniMax-H3/results/t2va \
-  bash minimax_h3/run_all.sh
-# 之后（跳过装包）
-GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=../../model/MiniMax-H3 OUTPUT_DIR=../MiniMax-H3/results/t2va \
-  bash minimax_h3/run_all.sh
+# ── 日常生成视频（一条命令：服务没起就自动起 + 发请求 + 下载 mp4；服务留着下次复用）──
+# T2VA 文生视频
+GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
+  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
+  DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
+  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
+  bash minimax_h3/run.sh
+# I2VA 首帧生视频（FL2VA 变体，:30010）
+GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
+  TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 \
+  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
+  bash minimax_h3/run.sh
+# Ref2VA 参考生成（变体 ref2va，端口 30011）
+GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va PORT=30011 \
+  TASK=ref2va REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
+  PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
+  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
+  bash minimax_h3/run.sh
 
 # ── 起服务（H3-Base 768p，长驻进程；服务占用 GPU，generate 是 HTTP 客户端不占）──
 # 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010，前台跑看日志
@@ -33,7 +42,7 @@ GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
   MODEL_PATH=../../model/MiniMax-H3 \
   bash minimax_h3/02_serve.sh
-# 1b) 后台起 + 等就绪（run_all 用这种），前面参数照抄加 BG=1
+# 1b) 后台起 + 等就绪（run.sh 自动用这种），前面参数照抄加 BG=1
 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
   MODEL_PATH=../../model/MiniMax-H3 \
   BG=1 bash minimax_h3/02_serve.sh
@@ -78,7 +87,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 ```
 
 - 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
-- 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。
+- 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
 - 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
 
 ## 首次准备
@@ -217,7 +226,7 @@ API 文档：Global `platform.minimax.io` / CN `platform.minimaxi.com`（`/video
 公司代理做 HTTPS 中间人解密，按阶段列常见报错与修法（命令在服务器上、conda 环境已激活时执行）。
 
 **1. clone/pull 本仓或官方仓报错**
-- `SSL certificate problem`：公开仓加 `-c http.sslVerify=false`（`run_all.sh` 已对官方仓做兜底）。
+- `SSL certificate problem`：公开仓加 `-c http.sslVerify=false`。
 - `Failed to connect to github.com port 443`（连不上，非 SSL）：git 没走代理。设全局代理（密码特殊字符必须 URL 编码）：
   ```bash
   git config --global https.proxy http://USER:PASS@proxyhk.huawei.com:8080
@@ -307,7 +316,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `MINIMAX_H3_DIR` | `../MiniMax-H3` | GitHub 参考仓（scripts/skills，serve 不依赖它） |
 | `MODEL_DIR` / `MODEL_PATH` | `../../model/MiniMax-H3` | HF 权重快照（SGLang `--model-path` 指它） |
 | `MINIMAX_H3_REPO` | 官方 GitHub URL | clone 源 |
-| `INSTALL_DEPS` | `0`（run_all: `1`） | `1` = `pip install "sglang[all]"` |
+| `INSTALL_DEPS` | `0` | `1` = `pip install "sglang[all]"`（首次准备手动设 `1`） |
 | `HF_HUB_DISABLE_XET` | `1` | 关 HF Xet/Rust 通道（代理不友好） |
 | `HF_DISABLE_SSL` | `0` | `1` = SSL 免校验下载权重 |
 | `HF_TOKEN` | _(unset)_ | gated 仓才需（先去 HF 页面接受协议） |
