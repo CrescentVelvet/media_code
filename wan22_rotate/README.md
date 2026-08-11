@@ -50,6 +50,7 @@ GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
 #    自动用步骤 03 的 JPG（若已跑），否则自动调 03 抽帧
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360/image \
+  RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/04_pi3_pose.sh
 # 输出：rotate_360/pi3/{predictions.npz, dense_cloud.ply, poses.json}
 # poses.json 是人类可读的 c2w 4x4 矩阵（每帧一个），可用任何 JSON viewer 看
