@@ -179,16 +179,25 @@ if __name__ == "__main__":
 
 ## 常用命令
 > 假设已进入容器；首次跑前先做下方「首次准备」。
+> **铁律：每条命令都必须显式写出模型地址、输入路径、输出路径，不能全靠脚本里的默认值。** 用具体路径，不要用 `...` 占位。
 
 \```bash
 # 一键
-GPU=0 INPUT_DIR=... bash <algo>/run_all.sh
+GPU=0 INPUT_DIR=../data/subject_folder \
+  WEIGHT_PATH=../../model/<algo>/step-N.safetensors \
+  RESULTS_DIR=../../output/<algo>_results \
+  bash <algo>/run_all.sh
 
 # 分步
 # 1) ...
-GPU=0 ... bash <algo>/01_xxx.sh
+GPU=0 INPUT_DIR=../data/subject_folder \
+  RESULTS_DIR=../../output/<algo>_results \
+  bash <algo>/01_xxx.sh
 # 2) ...
-GPU=0 ... bash <algo>/02_xxx.sh
+GPU=0 MODEL_PATH=../../model/<algo>/model.safetensors \
+  INPUT=../../output/<algo>_results/input_data \
+  RESULTS_DIR=../../output/<algo>_results \
+  bash <algo>/02_xxx.sh
 \```
 
 ## 首次准备
