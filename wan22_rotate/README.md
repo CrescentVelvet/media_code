@@ -19,10 +19,12 @@
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01_pick_and_segment.sh
+
 # 1b) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01b_pick_and_segment.sh
+
 # 1c) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
 #     比 01b 更能锁定"正面"（01b 选面积最大, 可能选到侧面）; 比 01 快很多（不用 3D body 模型）
 #     仅选图不分割: SKIP_SEGMENTATION=1（快速看哪帧是正面）
@@ -43,7 +45,7 @@ GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered
 GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/03_extract_frames.sh
-  
+
 # 输出结构：
 #   rotate_360.mp4
 #   rotate_360/                 # 同名目录
@@ -76,16 +78,19 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   SKIP_TRAIN=1 SKIP_RENDER=1 \
   bash wan22_rotate/05_3dgs_recon.sh
+
 # 5b) 2DGS 训练（白底适配 wan22_rotate 分割图，默认 WHITE_BG=1）
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   SKIP_PI3=1 \
   bash wan22_rotate/05_3dgs_recon.sh
+
 # 5c) 渲染 + 提网格（无界 TSDF 适配人像在白色虚空中，默认 UNBOUNDED=1）
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   SKIP_PI3=1 SKIP_TRAIN=1 \
   bash wan22_rotate/05_3dgs_recon.sh
+
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/{predictions.npz, dense_cloud.ply, poses.json, source/}   Pi3 + COLMAP 场景
 #   model/point_cloud/iteration_<N>/point_cloud.ply                高斯点云
@@ -99,16 +104,19 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05a_3dgs_recon.sh
+
 # 复用 05 已跑过的 Pi3+COLMAP source/（跳过 Pi3 重跑）：
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   SKIP_PI3=1 \
   bash wan22_rotate/05a_3dgs_recon.sh
+
 # 只重训 GOF（复用已有 model_gof/，跳过训练）：
 GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   SKIP_PI3=1 SKIP_TRAIN=1 \
   bash wan22_rotate/05a_3dgs_recon.sh
+
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/source/{images, sparse/0/}                                  COLMAP 场景 (与 05 共用)
 #   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
@@ -121,6 +129,7 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a
   PROMPT="人物360度旋转展示，高质量。" \
   HEIGHT=1248 WIDTH=706 NUM_FRAMES=121 \
   bash wan22_rotate/02_generate_video.sh
+
 # 跳过选图步骤，直接用已有图片生成视频
 GPU=0 \
   SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
@@ -128,11 +137,13 @@ GPU=0 \
   WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/02_generate_video.sh
+
 # 选出的图是背面？翻转正面判定方向
 GPU=0 FRONTAL_SIGN=-1 \
   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01_pick_and_segment.sh
+
 # 用 SAM2 分割器（需提前放好 sam2 仓库 + checkpoint）
 GPU=0 SEGMENTOR_PATH=../sam2 \
   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
