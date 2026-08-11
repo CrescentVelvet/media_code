@@ -226,12 +226,38 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
                 LD_LIBRARY_PATH= git -c http.sslVerify=false clone --recursive \
                 https://github.com/hbb1/2d-gaussian-splatting.git "$GS2D_DIR"
         fi
-        # Ensure submodules (simple-knn on gitlab.inria.fr, diff-surfel-rasterization on github)
+        # Ensure submodules (simple-knn on gitlab.inria.fr, diff-surfel-rasterization on github).
+        # git submodule update may fail if gitlab.inria.fr is blocked by proxy;
+        # fall back to cloning each submodule directly.
         if [ ! -f "$GS2D_DIR/submodules/simple-knn/setup.py" ] || \
            [ ! -f "$GS2D_DIR/submodules/diff-surfel-rasterization/setup.py" ]; then
             echo "  ensuring 2DGS submodules"
             ( cd "$GS2D_DIR" && git submodule update --init --recursive ) || \
-                ( cd "$GS2D_DIR" && git -c http.sslVerify=false submodule update --init --recursive )
+                ( cd "$GS2D_DIR" && git -c http.sslVerify=false submodule update --init --recursive ) || true
+            # Fallback: clone submodules individually if submodule update failed
+            SUBMOD_DIR="$GS2D_DIR/submodules"
+            if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
+                echo "  cloning simple-knn directly (gitlab.inria.fr may be blocked)"
+                rm -rf "$SUBMOD_DIR/simple-knn"
+                git clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
+                    git -c http.sslVerify=false clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
+                    git clone https://github.com/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
+                    echo "  WARNING: simple-knn clone failed — try manually:" >&2
+            fi
+            if [ ! -f "$SUBMOD_DIR/diff-surfel-rasterization/setup.py" ]; then
+                echo "  cloning diff-surfel-rasterization directly"
+                rm -rf "$SUBMOD_DIR/diff-surfel-rasterization"
+                git clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization" || \
+                    git -c http.sslVerify=false clone https://github.com/hbb1/diff-surfel-rasterization.git "$SUBMOD_DIR/diff-surfel-rasterization"
+            fi
+            # Final check
+            if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ] || \
+               [ ! -f "$SUBMOD_DIR/diff-surfel-rasterization/setup.py" ]; then
+                echo "  ❌ 2DGS submodules not ready. Manual clone:" >&2
+                echo "     cd $SUBMOD_DIR" >&2
+                echo "     git clone https://gitlab.inria.fr/bkerbl/simple-knn.git simple-knn" >&2
+                echo "     git clone https://github.com/hbb1/diff-surfel-rasterization.git diff-surfel-rasterization" >&2
+            fi
         fi
         # 2DGS Python deps (torch/numpy already installed, just the extras)
         echo "  installing 2DGS Python deps"
