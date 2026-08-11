@@ -88,18 +88,6 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05a_3dgs_recon.sh
 
-# 复用 05 已跑过的 Pi3+COLMAP source/（跳过 Pi3 重跑）：
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  SKIP_PI3=1 \
-  bash wan22_rotate/05a_3dgs_recon.sh
-
-# 只重训 GOF（复用已有 model_gof/，跳过训练）：
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  SKIP_PI3=1 SKIP_TRAIN=1 \
-  bash wan22_rotate/05a_3dgs_recon.sh
-
 # 输出：<RESULTS_DIR>/rotate_360/
 #   pi3/source/{images, sparse/0/}                                  COLMAP 场景 (与 05 共用)
 #   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
