@@ -6,7 +6,7 @@
 
 本仓支持**两条路径**（同一个 env / 官方代码 / CUDA 扩展，互不干扰）：
 - **路径 A：D-NeRF 复现**（论文 benchmark）— `00 装 env → 01 下 D-NeRF → 02 渲染+评测`，`run_all.sh` 一键。`hook/lego/trex/...` 8 个合成场景，`--is_blender`，40000 步贴近论文 PSNR。
-- **路径 B：真实拍摄人体序列**（NeRF-DS 设定，解决人物微动）— `03 COLMAP 位姿 → 04 训练 → 05 渲染+评测`。摄入一组多视角图像（人物保持静止时有微动——呼吸/衣摆/姿势漂移），COLMAP 估位姿，Deformable-GS 的 deformation MLP 把微动从 canonical 高斯分离 → 解决静态方法（2DGS/GOF）重建出现的"鬼影/拖影"。**⚠️ 不要把 Wan2.2 生成的旋转视频喂给 03**——它本质是静态场景（相机转、人物不动），用 2DGS/GOF 已是最佳；Deformable-GS 的 deformation field 会去拟视频生成的"伪动"噪声 → overfit、泛化差。
+- **路径 B：真实拍摄人体序列**（NeRF-DS 设定，解决人物微动）— `03 COLMAP 位姿 → 04 训练 → 05 渲染+评测`。摄入一组多视角图像（人物保持静止时有微动——呼吸/衣摆/姿势漂移），COLMAP 估位姿，Deformable-GS 的 deformation MLP 把微动从 canonical 高斯分离 → 解决静态方法（2DGS/GOF）重建出现的"鬼影/拖影"。**⚠️ 不要把 Wan2.2 生成的旋转视频喂给 03**——详细原因见下方「为什么用真实拍摄序列，而非 Wan2.2 生成的旋转视频」小节。
 
 ## 常用命令
 
@@ -44,7 +44,7 @@ bash deformable_gaussians/01_download_models.sh   # -> $MODEL_DIR/data/D-NeRF/<s
 ```
 
 ### 路径 B：真实拍摄人体序列（03 COLMAP → 04 训练 → 05 渲染）
-> 适合摄入真实多视角图像（人物有微动）。摄入 Wan2.2 旋转视频**不合适**——见上方说明。
+> 适合摄入真实多视角图像（人物有微动）。摄入 Wan2.2 旋转视频**不合适**——原因见下方「为什么用真实拍摄序列，而非 Wan2.2 生成的旋转视频」小节。
 
 ```bash
 # ── 3) COLMAP 位姿估计（拍摄图像序列 → NeRF-DS COLMAP 格式） ──
@@ -171,10 +171,33 @@ python train.py -s /abs/path/to/nerf-ds/scene -m output/scene --eval --iteration
 
 **适用场景**：手持相机环绕人物拍摄的多视角图像序列，人物保持静止时仍有真实微动（呼吸/衣摆/姿势漂移）。等价于 NeRF-DS 设定。deformation MLP 把微动从 canonical 高斯分离 → 解决静态方法（2DGS/GOF）的"鬼影/拖影"。
 
+### 为什么用真实拍摄序列，而非 Wan2.2 生成的旋转视频
+
+Deformable-GS 的核心是一个 **deformation MLP**，输入是归一化帧号 `fid`，输出每个高斯在该时刻的 `d_xyz / d_rotation / d_scaling`。这个 MLP 只有在「帧间物体真的在动」时才有意义——它学的是**真实物理形变随时间的演化**。所以选择输入数据时，关键看「帧间的"动"是什么来源」：
+
+| 维度 | 真实拍摄序列 ✅ | Wan2.2 旋转视频 ❌ |
+|---|---|---|
+| **场景类型** | multi-view dynamic（轻微动态）| multi-view static（理想）/ noisy（实际）|
+| **帧间"动"的来源** | 真实物理形变（呼吸、衣摆、姿势漂移）| 视频生成模型的时序不一致噪声（衣服抖、面部漂、姿态漂）|
+| **deformation MLP 学到** | 真实形变 → 泛化好 | 生成噪声 → overfit 训练集，新视角全是伪影 |
+| **canonical 高斯** | 干净（微动被分离出去）| 被伪动污染（deformation 把噪声"吸收"进静态场）|
+| **重建新视角** | 能正确去除微动 → 干净渲染 | 把训练集噪声外推到新视角 → 拖影/扭曲 |
+| **场景本质** | 人物不动，相机转 + 微动 | 人物不动，相机转（理想静态）|
+| **静态方法够不够** | 不够（2DGS/GOF 会出现"鬼影/拖影"）| 够（2DGS/GOF 已是最佳）|
+
+**核心矛盾**：Wan2.2 生成的旋转视频，理想情况下是「人物静止 + 相机环绕」的 **multi-view static scene**——这正是 2DGS/GOF 的标准设定（[wan22_rotate/05_3dgs_recon.sh](../wan22_rotate/05_3dgs_recon.sh) / [05a_3dgs_recon.sh](../wan22_rotate/05a_3dgs_recon.sh) 已经能完美处理）。把它喂给 Deformable-GS 等于把方法的强项（建模真实形变）用错了地方：
+
+1. **理想静态情况下，deformation MLP 是冗余的**——人物 0 微动时 `d_xyz/d_rot/d_scale` 应该恒为 0，MLP 等价于一个空操作。这时 Deformable-GS 退化为 vanilla 3DGS，多训了一个 MLP 反而引入了过拟合风险。
+2. **实际 Wan2.2 视频有"伪动"**——视频生成模型固有的时序不一致（同一像素在不同帧生成时不稳定）会造成衣服抖动、面部表情漂移、姿态微漂。这些不是真实物理形变，是生成噪声。
+3. **deformation MLP 会去拟这种伪动噪声**——MLP 不会区分"真实形变"和"生成噪声"，它会把所有帧间差异都拟下来。训练 PSNR 可能很高（拟了训练集），但 canonical 高斯被噪声污染，**新视角渲染会出现拖影/扭曲**（把训练集的伪动外推到未见视角）。
+4. **真实拍摄序列的微动是物理形变**——呼吸、衣摆、姿势漂移这些都有真实物理结构（衣物形变、肌肉形变、骨骼位姿），deformation MLP 学到的是这些物理形变的低维流形，能正确泛化到新视角（同一人物新角度的微动模式跟训练集一致）。
+
+**结论**：Wan2.2 旋转视频走 [wan22_rotate/05_3dgs_recon.sh](../wan22_rotate/05_3dgs_recon.sh) 或 [05a](../wan22_rotate/05a_3dgs_recon.sh)（静态方法，2DGS/GOF）；真实拍摄人体序列走本目录的 03/04/05（动态方法，Deformable-GS）。两条 pipeline 服务不同场景，不要混用输入。
+
 **不适用场景**：
-- **Wan2.2 生成的旋转视频**——本质是静态场景（相机转、人物不动），用 2DGS/GOF 已是最佳；deformation field 会去拟视频生成的"伪动"噪声，overfit、泛化差。
-- **Pi3 位姿估计**——Pi3 假设静态场景，动态场景上位姿会糊；必须用 COLMAP SfM 自己估位姿（03 的核心工作）。
-- **完全静止的拍摄**（人物 0 微动）——deformation MLP 学不到任何形变，等价于多此一举；用 2DGS/GOF 即可。
+- **Wan2.2 生成的旋转视频**——见上方对比表的详细分析。用 2DGS/GOF（[wan22_rotate/05_3dgs_recon.sh](../wan22_rotate/05_3dgs_recon.sh) / [05a](../wan22_rotate/05a_3dgs_recon.sh)）即可，Deformable-GS 是退化甚至有害的。
+- **Pi3 位姿估计**——Pi3 是前馈位姿估计器，假设场景静态（同一物体在所有帧中位置不变）；动态场景上 Pi3 会把人物微动当噪声，位姿估计误差大。03 用 COLMAP SfM 通过 bundle adjustment 联合优化点云+相机位姿，对动态场景更鲁棒。
+- **完全静止的拍摄**（人物 0 微动）——deformation MLP 学不到任何形变，等价于多此一举；用 2DGS/GOF 即可（更快、更稳）。
 
 ### Step 03 — COLMAP 位姿估计（`03_colmap_pose.sh`）
 调系统 `colmap` 二进制跑 SfM（feature_extractor → exhaustive_matcher → mapper → image_undistorter），把 `INPUT_DIR/image/*.jpg` 转成 Deformable-GS 期望的 NeRF-DS COLMAP 格式：
