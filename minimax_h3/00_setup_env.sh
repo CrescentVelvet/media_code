@@ -43,6 +43,16 @@ PY
 PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
     --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
+    # 升级 g++ 到 12（支持 C++20 <concepts>）：sglang JIT 融合 QKNorm+RoPE kernel 需要。
+    # 不升级也能跑（fallback 到非融合 Python 实现，略慢）。conda install 走 conda 通道
+    # 可能 403/SSL，失败不中断。pin python=3.10 避免 gxx 把 CPython 降级成 GraalPy。
+    if ! echo '#include <concepts>' | g++ -std=c++20 -x c++ -fsyntax-only - 2>/dev/null; then
+        echo "📦 g++ too old (no C++20 <concepts>), upgrading gxx_linux-64=12 (optional, for JIT kernel fusion) ---"
+        conda install -y -c conda-forge gxx_linux-64=12 python=3.10 || \
+            echo "⚠️ g++ upgrade failed (non-fatal: JIT kernel fallback to slower Python impl)" >&2
+    else
+        echo "✅ g++ supports C++20 (JIT kernel fusion ok)"
+    fi
     echo "📦 installing SGLang (pip install -U \"sglang[all]\") ---"
     python -m pip install --upgrade pip "${PIP_FLAGS[@]}"
     # -U 强制升级：SGLang Diffusion（--model-variant / --performance-mode 等参数）
@@ -121,6 +131,75 @@ content = content.replace(
 with open(path, 'w') as f:
     f.write(content)
 print(f"    ✅ patched {path} (exist_ok=True)")
+PYFIX
+        fi
+        # 修复 flash_attention_v3.py 的 only_qv 参数不兼容旧 kernel
+        # （sglang-kernel==0.4.1 的 flash_attn_varlen_func 不支持 only_qv，
+        # sglang git main 传了它）。用 inspect.signature 动态过滤不支持的参数。
+        FA3_PY="$SGLANG_SRC/python/sglang/kernels/ops/attention/flash_attention_v3.py"
+        if [ -f "$FA3_PY" ] && ! grep -q 'inspect.signature' "$FA3_PY"; then
+            python - "$FA3_PY" <<'PYFIX'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+if 'only_qv=only_qv' not in content:
+    print("    (flash_attention_v3.py: only_qv not used, skip)")
+    sys.exit(0)
+old = '''    return _call_fa3_kernel(
+        _load_fa3_kernels()["flash_attn_varlen_func"],
+        q=q,
+        k=k,
+        v=v,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_k=cu_seqlens_k,
+        max_seqlen_q=max_seqlen_q,
+        max_seqlen_k=max_seqlen_k,
+        seqused_q=seqused_q,
+        seqused_k=seqused_k,
+        page_table=page_table,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        qv=qv,
+        q_descale=q_descale,
+        k_descale=k_descale,
+        v_descale=v_descale,
+        window_size=window_size,
+        attention_chunk=attention_chunk,
+        softcap=softcap,
+        num_splits=num_splits,
+        pack_gqa=pack_gqa,
+        only_qv=only_qv,
+        sm_margin=sm_margin,
+        return_softmax_lse=return_softmax_lse,
+        sinks=sinks,
+        out=out,
+    )'''
+new = '''    kernel = _load_fa3_kernels()["flash_attn_varlen_func"]
+    import inspect as _inspect
+    _supported = set(_inspect.signature(kernel).parameters)
+    _kwargs = dict(
+        q=q, k=k, v=v,
+        cu_seqlens_q=cu_seqlens_q, cu_seqlens_k=cu_seqlens_k,
+        max_seqlen_q=max_seqlen_q, max_seqlen_k=max_seqlen_k,
+        seqused_q=seqused_q, seqused_k=seqused_k,
+        page_table=page_table, softmax_scale=softmax_scale,
+        causal=causal, qv=qv,
+        q_descale=q_descale, k_descale=k_descale, v_descale=v_descale,
+        window_size=window_size, attention_chunk=attention_chunk,
+        softcap=softcap, num_splits=num_splits, pack_gqa=pack_gqa,
+        only_qv=only_qv, sm_margin=sm_margin,
+        return_softmax_lse=return_softmax_lse, sinks=sinks, out=out,
+    )
+    _kwargs = {k: v for k, v in _kwargs.items() if k in _supported}
+    return _call_fa3_kernel(kernel, **_kwargs)'''
+if old not in content:
+    print("    ⚠️ flash_attention_v3.py: expected pattern not found (file changed?)")
+    sys.exit(0)
+content = content.replace(old, new)
+with open(path, 'w') as f:
+    f.write(content)
+print(f"    ✅ patched {path} (filter unsupported kernel args)")
 PYFIX
         fi
         # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐。
