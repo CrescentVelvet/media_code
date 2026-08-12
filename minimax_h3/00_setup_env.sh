@@ -58,16 +58,18 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # 但新 peft 要 transformers>=4.42 的 HybridCache，于是 import sglang 报
     # `cannot import name 'HybridCache' from 'transformers'`。显式 -U 让 pip 在
     # sglang 声明的约束内重解到一致版本组（pip 新 resolver 会尊重 sglang 的上界）。
+    # pin <5.0：transformers 5.x 内置 qwen3_asr，sglang git main 代码又 AutoConfig.register
+    # 同名导致 `ValueError: 'qwen3_asr' is already used`；4.4x 有 HybridCache 没 qwen3_asr。
     echo "📦 aligning diffusers/peft/transformers (fix HybridCache mismatch from cloned-stale deps) ---"
-    python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
+    python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft "transformers>=4.42,<5.0"
     # 自检 HybridCache（peft 新版要 transformers>=4.42）；pip -U 受 sglang 上界
     # 约束可能没升到 4.42，自检失败则带版本下界强制升级，再不行用 --no-deps 绕开 resolver。
     if ! python -c "from transformers import HybridCache" 2>/dev/null; then
-        echo "📦 HybridCache still missing — force-upgrading 'transformers>=4.42' ---"
-        python -m pip install "${PIP_FLAGS[@]}" -U "transformers>=4.42"
+        echo "📦 HybridCache still missing — force-upgrading 'transformers>=4.42,<5.0' ---"
+        python -m pip install "${PIP_FLAGS[@]}" -U "transformers>=4.42,<5.0"
         if ! python -c "from transformers import HybridCache" 2>/dev/null; then
             echo "📦 still missing — retry with --no-deps (bypass resolver upper-bound) ---"
-            python -m pip install "${PIP_FLAGS[@]}" -U --no-deps "transformers>=4.42"
+            python -m pip install "${PIP_FLAGS[@]}" -U --no-deps "transformers>=4.42,<5.0"
         fi
     fi
     echo "📦 installed. Verify with: python -c 'import sglang; from transformers import HybridCache; print(\"ok\")'"
@@ -108,8 +110,8 @@ else
         # SGLANG_BUILD_RUST_EXTS=none 跳过 Rust 扩展（cargo 不在时；运行时报错再装 rustup）。
         SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python[diffusion]" --no-deps || \
             SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python" --no-deps
-        # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐
-        python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
+        # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐（pin <5.0 避免 qwen3_asr 冲突）
+        python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft "transformers>=4.42,<5.0"
     else
         echo "❌ ERROR: clone sglang repo failed. Manual: LD_LIBRARY_PATH= git clone https://github.com/sgl-project/sglang.git $SGLANG_SRC && SGLANG_BUILD_RUST_EXTS=none pip install -e \"$SGLANG_SRC/python[diffusion]\" --no-deps" >&2
     fi
