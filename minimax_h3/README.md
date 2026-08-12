@@ -289,7 +289,8 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 > ```bash
 > INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 > ```
-> 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git /tmp/sglang-src && pip install -e "/tmp/sglang-src/python[diffusion]" --no-deps`。
+> 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git /tmp/sglang-src && SGLANG_BUILD_RUST_EXTS=none pip install -e "/tmp/sglang-src/python[diffusion]" --no-deps`。
+> 若 editable 安装报 `cargo is required to discover the Rust extension modules`：设 `SGLANG_BUILD_RUST_EXTS=none` 跳过 Rust 扩展（00 已自动设）；运行时若报 Rust 相关错误再装工具链：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env`。
 > 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块已自动处理：先 `-U diffusers peft transformers` 对齐，再自检 `HybridCache`，缺失则强制升级 `transformers>=4.42`（必要时 `--no-deps` 绕开 resolver 上界）。重跑一次即可：
 > ```bash
 > INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh

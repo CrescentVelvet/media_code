@@ -100,17 +100,18 @@ else
             LD_LIBRARY_PATH= git -c http.sslVerify=false clone --depth 1 https://github.com/sgl-project/sglang.git "$SGLANG_SRC"
     fi
     if [ -d "$SGLANG_SRC/python" ]; then
-        echo "📦 pip install -e $SGLANG_SRC/python[diffusion] --no-deps (跳过 git pin 的 torch 2.13/cuda 13，用现有 torch cu124) ---"
+        echo "📦 pip install -e $SGLANG_SRC/python[diffusion] --no-deps (跳过 torch 2.13/cuda 13 pin + Rust 扩展) ---"
         # git main 的 pyproject.toml pin torch==2.13.0 / cuda-python>=13.0（CUDA 13），
         # A100 是 CUDA 12.4 装不上 cuda 13 wheel。--no-deps 只装 sglang 本体
         # （带 --model-variant / --performance-mode 等 diffusion serving 参数），
         # torch/flashinfer 用 env 现有版本；[diffusion] extra 依赖单独装。
-        python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python[diffusion]" --no-deps || \
-            python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python" --no-deps
+        # SGLANG_BUILD_RUST_EXTS=none 跳过 Rust 扩展（cargo 不在时；运行时报错再装 rustup）。
+        SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python[diffusion]" --no-deps || \
+            SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python" --no-deps
         # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐
         python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
     else
-        echo "❌ ERROR: clone sglang repo failed. Manual: LD_LIBRARY_PATH= git clone https://github.com/sgl-project/sglang.git $SGLANG_SRC && pip install -e \"$SGLANG_SRC/python[diffusion]\" --no-deps" >&2
+        echo "❌ ERROR: clone sglang repo failed. Manual: LD_LIBRARY_PATH= git clone https://github.com/sgl-project/sglang.git $SGLANG_SRC && SGLANG_BUILD_RUST_EXTS=none pip install -e \"$SGLANG_SRC/python[diffusion]\" --no-deps" >&2
     fi
     # 再自检
     if sglang serve --help 2>&1 | grep -q -- '--model-variant'; then
