@@ -285,17 +285,17 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 
 **8. serve 起不来：`sglang: command not found` / `import sglang` 失败**
 没装 SGLang：`INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh`。装了还是 `command not found` 多半没 `conda activate minimax_h3`（脚本默认沿用当前 env）。`[diffusion]` extra 没带上时（模型类找不到）补 `pip install "sglang[diffusion]"`。
-> 若报 `unrecognized arguments --model-variant fl2va --performance-mode speed`：SGLang Diffusion（`--model-variant` / `--performance-mode` 等参数）在 PyPI 的 `sglang[all]`（如 0.5.10.post1）不带——这些参数在 git main 分支。`00_setup_env.sh` 已自动处理：先 `pip install -U "sglang[all]"`，自检 `--model-variant` 失败则 `git clone` sglang 源码 + `pip install -e ... --no-deps`（跳过 git pin 的 `torch==2.13.0`/`cuda-python>=13.0`，用 env 现有 torch cu124 装 sglang 本体）。重跑一次：
+> 若报 `unrecognized arguments --model-variant fl2va --performance-mode speed`：SGLang Diffusion（`--model-variant` / `--performance-mode` 等参数）在 PyPI 的 `sglang[all]`（如 0.5.10.post1）不带——这些参数在 git main 分支。`00_setup_env.sh` 已自动处理：先 `pip install -U "sglang[all]"`，自检 `--model-variant` 失败则 `git clone` sglang 源码 + `pip install -e ... --no-deps --config-settings editable_mode=compat`（跳过 git pin 的 `torch==2.13.0`/`cuda-python>=13.0`，用 env 现有 torch cu124 装 sglang 本体；`compat` 模式避免 `KeyError: sglang.multimodal_gen`）。重跑一次：
 > ```bash
 > INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 > ```
-> 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git /tmp/sglang-src && SGLANG_BUILD_RUST_EXTS=none pip install -e "/tmp/sglang-src/python[diffusion]" --no-deps`。
+> 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git /tmp/sglang-src && SGLANG_BUILD_RUST_EXTS=none pip install -e "/tmp/sglang-src/python[diffusion]" --no-deps --config-settings editable_mode=compat`。
 > 若 editable 安装报 `cargo is required to discover the Rust extension modules`：设 `SGLANG_BUILD_RUST_EXTS=none` 跳过 Rust 扩展（00 已自动设）；运行时若报 Rust 相关错误再装工具链：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env`。
-> 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块已自动处理：先 `-U diffusers peft transformers` 对齐，再自检 `HybridCache`，缺失则强制升级 `transformers>=4.42`（必要时 `--no-deps` 绕开 resolver 上界）。重跑一次即可：
-> ```bash
-> INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
-> ```
-> 仍失败（sglang 上界 pin 死 transformers<4.42）：`pip install -U --no-deps "transformers>=4.42"` 强制装，再 `python -c "import sglang; from transformers import HybridCache; print('ok')"` 自检。
+> **依赖对齐**（sglang git main pin `transformers==5.12.1`）：00 自动 `-U diffusers peft transformers huggingface_hub xgrammar`。注意：
+> - transformers 5.x 重命名 `PreTrainedConfig→PretrainedConfig`，sglang git main 已适配新名，**不要降级到 4.x**（会报 `cannot import name 'PreTrainedConfig'`）。
+> - `HybridCache` 在 5.x 已移除（用 `DynamicCache`），sglang 不依赖它，00 已去掉自检。
+> - `huggingface_hub` 旧版缺 `is_offline_mode`，与 transformers 5.x 不兼容，必须一起升。
+> - `xgrammar>=0.2.1`（sglang git main 用了 `AnyTokensFormat` 等新 API）。
 
 **9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。
