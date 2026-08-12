@@ -39,9 +39,10 @@ PY
 # diffusion extras (diffusers/transformers/einops...) that MiniMax-H3 needs.
 # If your sglang build splits diffusion into a separate extra and [all] didn't
 # bring it, additionally run: pip install "sglang[diffusion]"
+# PIP_FLAGS 提到块外，自检段（git fallback）也能用。
+PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
-    PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
-        --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
     echo "📦 installing SGLang (pip install -U \"sglang[all]\") ---"
     python -m pip install --upgrade pip "${PIP_FLAGS[@]}"
     # -U 强制升级：SGLang Diffusion（--model-variant / --performance-mode 等参数）
@@ -84,13 +85,36 @@ else
 fi
 
 # 自检 sglang serve 是否支持 MiniMax-H3 的 diffusion 参数（--model-variant / --performance-mode）。
-# 旧版 sglang 不带 SGLang Diffusion（2025/11 后新增），会报 unrecognized arguments。
+# SGLang Diffusion（2025/11 后新增）的 --model-variant 等参数，PyPI 的 sglang[all]
+# 可能不带（cookbook 的 docker 命令是从源码 pip install -e ".../python[diffusion]"）。
+# 自检失败则从 git clone sglang 源码 + editable 安装 [diffusion] extra。
 echo "🔍 [00] Checking SGLang Diffusion args (--model-variant) ==="
 if sglang serve --help 2>&1 | grep -q -- '--model-variant'; then
     echo "✅ sglang serve supports --model-variant (Diffusion ok)"
 else
-    echo "❌ ERROR: sglang serve does NOT recognize --model-variant — sglang too old (need >=2025/11 Diffusion build)." >&2
-    echo "   Fix: pip install -U \"sglang[all]\"  (then rerun INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh)" >&2
+    echo "⚠️ PyPI sglang 不带 --model-variant — 从 git 源码装 [diffusion] extra (cookbook 做法) ---" >&2
+    SGLANG_SRC="${SGLANG_SRC:-/tmp/sglang-src}"
+    if [ ! -d "$SGLANG_SRC/python" ]; then
+        echo "📦 cloning sglang repo -> $SGLANG_SRC"
+        LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git "$SGLANG_SRC" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone --depth 1 https://github.com/sgl-project/sglang.git "$SGLANG_SRC"
+    fi
+    if [ -d "$SGLANG_SRC/python" ]; then
+        echo "📦 pip install -e $SGLANG_SRC/python[diffusion] ---"
+        python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python[diffusion]" || \
+            python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python"
+        # editable 装完再对齐 diffusers/peft/transformers（git 版本可能 pin 不同）
+        python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
+    else
+        echo "❌ ERROR: clone sglang repo failed. Manual: git clone https://github.com/sgl-project/sglang.git $SGLANG_SRC && pip install -e \"$SGLANG_SRC/python[diffusion]\"" >&2
+    fi
+    # 再自检
+    if sglang serve --help 2>&1 | grep -q -- '--model-variant'; then
+        echo "✅ sglang serve now supports --model-variant (Diffusion ok after git install)"
+    else
+        echo "❌ ERROR: sglang serve still does NOT recognize --model-variant." >&2
+        echo "   Manual fallback: pip install -e \"$SGLANG_SRC/python[diffusion]\" then check deps." >&2
+    fi
 fi
 
 echo "🎉 [00] Done. Env '$CONDA_ENV' ready. (Missing sglang? INSTALL_DEPS=1 bash this)"

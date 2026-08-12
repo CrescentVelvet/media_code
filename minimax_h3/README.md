@@ -285,11 +285,11 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 
 **8. serve 起不来：`sglang: command not found` / `import sglang` 失败**
 没装 SGLang：`INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh`。装了还是 `command not found` 多半没 `conda activate minimax_h3`（脚本默认沿用当前 env）。`[diffusion]` extra 没带上时（模型类找不到）补 `pip install "sglang[diffusion]"`。
-> 若报 `unrecognized arguments --model-variant fl2va --performance-mode speed`：sglang 版本太旧。SGLang Diffusion（`--model-variant` / `--performance-mode` 等参数）是 2025/11 后新增，旧版不认识。`00_setup_env.sh` 已用 `pip install -U` 强制升级 + 自检 `--model-variant` 支持，重跑一次：
+> 若报 `unrecognized arguments --model-variant fl2va --performance-mode speed`：SGLang Diffusion（`--model-variant` / `--performance-mode` 等参数）在 PyPI 的 `sglang[all]` 可能不带——cookbook 的 docker 命令是从 sglang 源码 `pip install -e ".../python[diffusion]"`。`00_setup_env.sh` 已自动处理：先 `pip install -U "sglang[all]"` + `sglang[diffusion]`，再自检 `--model-variant`，不支持就 `git clone` sglang 源码 + editable 装 `[diffusion]` extra（cookbook 做法）。重跑一次：
 > ```bash
 > INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
 > ```
-> 自检报 `❌ sglang serve does NOT recognize --model-variant` 时手动升：`pip install -U "sglang[all]"`，再 `sglang serve --help 2>&1 | grep model-variant` 确认。
+> 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone https://github.com/sgl-project/sglang.git /tmp/sglang-src && pip install -e "/tmp/sglang-src/python[diffusion]"`。
 > 若报 `ImportError: cannot import name 'HybridCache' from 'transformers'`：克隆 doll 这类已有 env 时，pip 没升级里面旧的 transformers（满足 sglang 下界就跳过），但新 peft 要 transformers≥4.42 的 `HybridCache`，于是 `import sglang` 链断在 `diffusers→peft→transformers`。`00_setup_env.sh` 的 INSTALL_DEPS 块已自动处理：先 `-U diffusers peft transformers` 对齐，再自检 `HybridCache`，缺失则强制升级 `transformers>=4.42`（必要时 `--no-deps` 绕开 resolver 上界）。重跑一次即可：
 > ```bash
 > INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh
