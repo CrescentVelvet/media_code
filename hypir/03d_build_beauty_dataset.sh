@@ -3,26 +3,33 @@
 # (hq_orig=原图对齐 crop, hq_beauty=美颜, lq_gauss=高斯模糊退化)。
 #
 # 与 03b(真实配对 LQ+HQ) / 03c(只输入 HQ 在线合成退化) 对照：这里只输入一个
-# 「原图人脸」文件夹，对每张同时保存 THREE 张像素级对齐的 512×512 PNG：
-#   hq_orig/<name>.png   = 原图对齐 crop(Resize512+CenterCrop512)  —— 复原实验的 HQ 目标
-#   hq_beauty/<name>.png = RetouchFormer 美颜结果                  —— 美颜实验的 HQ 目标
-#   lq_gauss/<name>.png  = 同一 crop 的高斯模糊退化                 —— 两个实验共用的 LQ 输入
-# 三者都派生自模型输入 src 张量(同一 crop)，故像素级对齐——任意尺寸/宽高比输入都安全
+# 「原图人脸」文件夹，对每张同时保存多张像素级对齐的 512×512 PNG：
+#   hq_orig/<name>.png        = 原图对齐 crop(Resize512+CenterCrop512) —— 复原实验的 HQ 目标
+#   hq_beauty/<name>.png      = RetouchFormer 美颜结果(1 pass)            —— 美颜实验的 HQ 目标
+#   hq_beauty_strong/<name>.png = RetouchFormer 迭代美颜(BEAUTY_PASSES 次) —— 加强美颜实验的 HQ 目标
+#   lq_gauss/<name>.png       = 同一 crop 的高斯模糊退化                   —— 三个实验共用的 LQ 输入
+# 上述均派生自模型输入 src 张量(同一 crop)，故像素级对齐——任意尺寸/宽高比输入都安全
 # (模型 VRT 写死 512×512，非方形会被 CenterCrop，而 hq_orig/lq_gauss 存的正是这个 crop 版本)。
 #
-# 为什么是三套(两张 parquet)而不是一套：
+# 为什么是多套(多张 parquet)而不是一套：
 #   现有 03c/04c 在线退化路径(LQ=高斯模糊, HQ=原图)虽能复原模糊，但会「长痘变丑」——
 #   模型过度增强、凭空 invent 皮肤瑕疵。把 HQ 目标换成 RetouchFormer 的美颜版(已去瑕疵+磨皮
 #   保结构)而 LQ 保持同样的模糊，模型仍学去模糊(增强不失)但目标变成干净光滑皮肤，故不再
-#   invent 瑕疵。同时建两套可 A/B 对比：
-#     rest.parquet        : lq_gauss -> hq_orig   (基线 = 现有 03c 风格复原)
-#     rest_beauty.parquet : lq_gauss -> hq_beauty (复原 + 美颜，修掉长痘问题)
-#   各用 04b 训一个(OUTPUT_DIR 分开)，再用 05/02 评测算指标，对比哪个不毁脸。
+#   invent 瑕疵。同时建多套做 A/B/C 对比(A/B/C 共用同一 lq_gauss，单变量对比只 HQ 目标不同)：
+#     rest.parquet             : lq_gauss -> hq_orig          (A 基线 = 现有 03c 风格复原)
+#     rest_beauty.parquet      : lq_gauss -> hq_beauty        (B 复原+美颜，1 pass 美颜 HQ)
+#     rest_beauty_strong.parquet : lq_gauss -> hq_beauty_strong (C 加强美颜，迭代 BEAUTY_PASSES 次美颜 HQ)
+#   各用 04b 训一个(OUTPUT_DIR 分开)，再用 05/02 评测算指标，对比哪个不毁脸、美颜多强。
+#   rest_beauty_strong 仅在 BEAUTY_PASSES>=2 时产出(默认 BEAUTY_PASSES=1 只产 A/B)。
+#
+# 迭代美颜(BEAUTY_PASSES)：RetouchFormer 输入输出都是 [1,3,512,512] in [-1,1]，把上一轮
+#   输出 clamp(-1,1) 后喂回去即叠加一次美颜。pass 1 永远存 hq_beauty；pass 2..N 的最终结果存
+#   hq_beauty_strong(中间 pass 不留)。pass>2 继续叠加但收益递减——2 通常是甜点。
 #
 # 高斯模糊复现本仓 HYPIR clone 里简化版 batch_transform.py 的逻辑(随机 kernel 3/5/7/9/11、
 # sigma 1-2、重复 1-5 次)，每图一个 FIXED seeded 实现(离线，非每 epoch 重随机)。
 #   NB: 模糊作用于 raw 对齐 crop(非 USM(orig))，与 03c 的 LQ=blur(USM(orig)) 略有偏差；
-#       但 A/B 共用同一 lq_gauss，对比仍是单变量(HQ 目标不同)。BLUR_SEED 可复现地重随机。
+#       但 A/B/C 共用同一 lq_gauss，对比仍是单变量(HQ 目标不同)。BLUR_SEED 可复现地重随机。
 #
 # conda env：不强制——默认沿用当前已激活 env(CONDA_DEFAULT_ENV)，缺包就 pip 兜底装。
 #   想强制专 env 就设 RETOUCH_CONDA_ENV(Phase A)/ HYPIR_CONDA_ENV(Phase B)。
@@ -36,7 +43,8 @@
 #   RESIZE_MODE=square             square(默认,CenterCrop512,任意输入安全) | smallest(仅 Resize512,需方形输入)
 #   SKIP_BLUR=1                    只产 hq_orig+hq_beauty(不建 lq_gauss)，则也跳过 parquet(无 LQ 没法配对)
 #   BLUR_SEED=231                  高斯模糊随机种子(复现用)
-#   SKIP_PARQUET=1                 只产图，不建 parquet(之后再 03b)；默认会建两张 parquet 供 04b 直接用
+#   BEAUTY_PASSES=2                RetouchFormer 迭代次数(1=只 A/B; 2=加 C 加强美颜; >2 收益递减)
+#   SKIP_PARQUET=1                 只产图，不建 parquet(之后再 03b)；默认会建 parquet 供 04b 直接用
 #   GPU=0                           美颜用哪张卡(Phase B 建 parquet 不用卡)
 #   NPROC=4                         多卡分片加速 Phase A(NPROC<=可见卡数; 不设 GPU 用全部可见卡, 或 GPU=0,1,2,3)
 #
@@ -83,17 +91,20 @@ MODEL_NAME="${MODEL_NAME:-RetouchFormer}"
 RESIZE_MODE="${RESIZE_MODE:-square}"          # square | smallest
 SIZE="${SIZE:-512}"                           # model is fixed to 512
 DEVICE="${DEVICE:-cuda}"
-export SAVE_COMPARE="${SAVE_COMPARE:-0}"      # 1=额外存 compare/<name>.png ([LQ|orig|beauty] 横拼)
+export SAVE_COMPARE="${SAVE_COMPARE:-0}"      # 1=额外存 compare/<name>.png ([LQ|orig|beauty[|strong]] 横拼)
 export SKIP_BLUR="${SKIP_BLUR:-0}"            # 1=只产 hq_orig+hq_beauty(不建 lq_gauss，也跳过 parquet)
 export BLUR_SEED="${BLUR_SEED:-231}"          # 高斯模糊随机种子(复现用)
+export BEAUTY_PASSES="${BEAUTY_PASSES:-1}"    # RetouchFormer 迭代次数(>=2 额外产 hq_beauty_strong + rest_beauty_strong.parquet)
 
-echo "=== [03d] Phase A: RetouchFormer 美颜 + 高斯模糊 -> 配对对比 hq_orig/hq_beauty/lq_gauss ==="
+echo "=== [03d] Phase A: RetouchFormer 美颜 + 高斯模糊 -> 配对对比 hq_orig/hq_beauty[/hq_beauty_strong]/lq_gauss ==="
 echo " 💎 美颜env:        retouchformer (CONDA_ENV=$CONDA_ENV)"
 echo " 💎 代码路径:       $RETOUCH_DIR"
 echo " 💎 权重:           $WEIGHT_PATH"
 echo " 💎 输入(原图):     $INPUT_DIR"
-echo " 💎 输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/ + lq_gauss/ + compare/)"
-echo " 💎 参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED nproc=${NPROC:-1}"
+echo " 💎 输出根:         $OUTPUT_DIR  (hq_orig/ + hq_beauty/"
+[ "${BEAUTY_PASSES:-1}" -ge 2 ] && echo " 💎                  + hq_beauty_strong/ (BEAUTY_PASSES=${BEAUTY_PASSES} 迭代美颜) +"
+echo " 💎                  + lq_gauss/ [+ compare/])"
+echo " 💎 参数:           resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED beauty_passes=${BEAUTY_PASSES:-1} nproc=${NPROC:-1}"
 if [ "${NPROC:-1}" -gt 1 ]; then
     echo " 💎 多卡:           NPROC=${NPROC} (torchrun 分片, 见下)"
 fi
@@ -144,12 +155,13 @@ else
     python "$SCRIPT_DIR/build_beauty_dataset.py"
 fi
 
-echo "=== [03d] Phase A done. hq_orig/hq_beauty/lq_gauss under: $OUTPUT_DIR ==="
+echo "=== [03d] Phase A done. hq_orig/hq_beauty[/hq_beauty_strong]/lq_gauss under: $OUTPUT_DIR ==="
 
-# ─── Phase B: 建两张配对 parquet (hypir env) ───
-# rest.parquet        : lq_gauss -> hq_orig   (基线复原)
-# rest_beauty.parquet : lq_gauss -> hq_beauty  (复原+美颜)
-# 两张共用同一 lq_gauss(LQ)，只 HQ 目标不同 -> 单变量对比 HQ 美颜 vs 原图对「长痘」的影响。
+# ─── Phase B: 建配对 parquet (hypir env) ───
+# rest.parquet             : lq_gauss -> hq_orig           (A 基线复原)
+# rest_beauty.parquet      : lq_gauss -> hq_beauty          (B 复原+美颜)
+# rest_beauty_strong.parquet : lq_gauss -> hq_beauty_strong (C 加强美颜, 仅 BEAUTY_PASSES>=2)
+# 三张共用同一 lq_gauss(LQ)，只 HQ 目标不同 -> 单变量对比 HQ 原图/美颜/加强美颜 对「长痘」的影响。
 if [ "${SKIP_BLUR:-0}" = "1" ]; then
     echo "    SKIP_BLUR=1 -> 无 lq_gauss，跳过 parquet。如需配对训练，去掉 SKIP_BLUR 重跑。"
     exit 0
@@ -158,6 +170,9 @@ if [ "${SKIP_PARQUET:-0}" = "1" ]; then
     echo "    SKIP_PARQUET=1 -> 跳过 parquet 构建。之后手动建："
     echo "      HQ_DIR=$OUTPUT_DIR/hq_orig  LQ_DIR=$OUTPUT_DIR/lq_gauss PARQUET_OUT=$OUTPUT_DIR/rest.parquet        bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
     echo "      HQ_DIR=$OUTPUT_DIR/hq_beauty LQ_DIR=$OUTPUT_DIR/lq_gauss PARQUET_OUT=$OUTPUT_DIR/rest_beauty.parquet bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
+    if [ "${BEAUTY_PASSES:-1}" -ge 2 ]; then
+        echo "      HQ_DIR=$OUTPUT_DIR/hq_beauty_strong LQ_DIR=$OUTPUT_DIR/lq_gauss PARQUET_OUT=$OUTPUT_DIR/rest_beauty_strong.parquet bash $SCRIPT_DIR/03b_build_paired_dataset.sh"
+    fi
     exit 0
 fi
 
@@ -174,13 +189,30 @@ build_parquet() {  # <hq_subdir> <parquet_name>
         bash "$SCRIPT_DIR/03b_build_paired_dataset.sh"
 }
 
+# A 基线复原：lq_gauss -> hq_orig
 build_parquet "hq_orig"   "rest.parquet"
+# B 复原+美颜(1 pass)：lq_gauss -> hq_beauty
 build_parquet "hq_beauty" "rest_beauty.parquet"
+# C 加强美颜(迭代 BEAUTY_PASSES 次)：lq_gauss -> hq_beauty_strong (仅 BEAUTY_PASSES>=2)
+if [ "${BEAUTY_PASSES:-1}" -ge 2 ]; then
+    if [ -d "$OUTPUT_DIR/hq_beauty_strong" ]; then
+        build_parquet "hq_beauty_strong" "rest_beauty_strong.parquet"
+    else
+        echo "⚠️  BEAUTY_PASSES=${BEAUTY_PASSES} 但 $OUTPUT_DIR/hq_beauty_strong 不存在——跳过 C 组 parquet。" >&2
+        echo "    (Phase A 可能没产该目录；检查日志)" >&2
+    fi
+fi
 
 echo "=== [03d] Done. 美颜对比数据集就绪: $OUTPUT_DIR ==="
-echo " 💎   rest.parquet        (lq_gauss->hq_orig  基线复原): $OUTPUT_DIR/rest.parquet"
-echo " 💎   rest_beauty.parquet (lq_gauss->hq_beauty 复原+美颜): $OUTPUT_DIR/rest_beauty.parquet"
+echo " 💎   rest.parquet                (lq_gauss->hq_orig          A 基线复原): $OUTPUT_DIR/rest.parquet"
+echo " 💎   rest_beauty.parquet         (lq_gauss->hq_beauty        B 复原+美颜): $OUTPUT_DIR/rest_beauty.parquet"
+if [ "${BEAUTY_PASSES:-1}" -ge 2 ]; then
+    echo " 💎   rest_beauty_strong.parquet  (lq_gauss->hq_beauty_strong C 加强美颜): $OUTPUT_DIR/rest_beauty_strong.parquet"
+fi
 echo " 💎   next(各自训一个, OUTPUT_DIR 分开):"
-echo " 💎     A 基线:   PARQUET_PATH=$OUTPUT_DIR/rest.parquet        OUTPUT_DIR=$OUTPUT_DIR/exp_rest        bash $SCRIPT_DIR/04b_train_paired.sh"
-echo " 💎     B 美颜:   PARQUET_PATH=$OUTPUT_DIR/rest_beauty.parquet OUTPUT_DIR=$OUTPUT_DIR/exp_rest_beauty bash $SCRIPT_DIR/04b_train_paired.sh"
-echo " 💎   训完用 05_eval / 02_run_inference 对比两组复原图，看 B 是否修掉了「长痘变丑」。"
+echo " 💎     A 基线:    PARQUET_PATH=$OUTPUT_DIR/rest.parquet                OUTPUT_DIR=$OUTPUT_DIR/exp_rest             bash $SCRIPT_DIR/04b_train_paired.sh"
+echo " 💎     B 美颜:    PARQUET_PATH=$OUTPUT_DIR/rest_beauty.parquet         OUTPUT_DIR=$OUTPUT_DIR/exp_rest_beauty      bash $SCRIPT_DIR/04b_train_paired.sh"
+if [ "${BEAUTY_PASSES:-1}" -ge 2 ]; then
+    echo " 💎     C 加强美颜: PARQUET_PATH=$OUTPUT_DIR/rest_beauty_strong.parquet OUTPUT_DIR=$OUTPUT_DIR/exp_rest_beauty_strong bash $SCRIPT_DIR/04b_train_paired.sh"
+fi
+echo " 💎   训完用 05_eval / 02_run_inference 对比各组复原图，看 B/C 是否修掉了「长痘变丑」、C 比 B 更强。"

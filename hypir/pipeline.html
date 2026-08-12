@@ -7,7 +7,8 @@
 <style>
   :root{
     --c-input:#6b7280; --c-src:#0f766e; --c-model:#7c3aed;
-    --c-hqorig:#2563eb; --c-hqbeauty:#db2777; --c-lq:#ea580c;
+    --c-hqorig:#2563eb; --c-hqbeauty:#db2777; --c-hqstrong:#9d174d;
+    --c-lq:#ea580c;
     --c-pq:#475569; --c-eval:#059669;
     --bg:#f8fafc; --line:#94a3b8;
   }
@@ -43,10 +44,12 @@
   .n-model{border-left:6px solid var(--c-model);background:#f5f3ff;} .n-model .title{color:var(--c-model);}
   .n-hqorig{border-left:6px solid var(--c-hqorig);background:#eff6ff;} .n-hqorig .title{color:var(--c-hqorig);}
   .n-hqbeauty{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;} .n-hqbeauty .title{color:var(--c-hqbeauty);}
+  .n-hqstrong{border-left:6px solid var(--c-hqstrong);background:#fce7f3;} .n-hqstrong .title{color:var(--c-hqstrong);}
   .n-lq{border-left:6px solid var(--c-lq);background:#fff7ed;} .n-lq .title{color:var(--c-lq);}
   .n-pq{border-left:6px solid var(--c-pq);background:#f1f5f9;} .n-pq .title{color:var(--c-pq);}
   .n-trainA{border-left:6px solid var(--c-hqorig);background:#eff6ff;} .n-trainA .title{color:var(--c-hqorig);}
   .n-trainB{border-left:6px solid var(--c-hqbeauty);background:#fdf2f8;} .n-trainB .title{color:var(--c-hqbeauty);}
+  .n-trainC{border-left:6px solid var(--c-hqstrong);background:#fce7f3;} .n-trainC .title{color:var(--c-hqstrong);}
   .n-end{border-left:6px solid var(--c-eval);background:#ecfdf5;} .n-end .title{color:var(--c-eval);}
 
   /* 箭头 */
@@ -63,7 +66,7 @@
   .branch .stub{width:3px;height:16px;background:var(--line);}
   .branch-label{font-size:.72rem;color:#64748b;background:var(--bg);padding:0 8px;margin:-8px 0 8px;position:relative;z-index:1;}
 
-  /* A/B 两列 */
+  /* A/B/C 三列 */
   .ab-cols{display:flex;gap:0;justify-content:center;align-items:flex-start;}
   .ab-col{display:flex;flex-direction:column;align-items:center;}
   .ab-gap{width:60px;}
@@ -153,7 +156,7 @@
         <div class="desc">模型输入 · 以下三者皆派生自此 → 像素级对齐</div>
       </div>
       <div class="arrow short"><div class="line"></div></div>
-      <div class="branch-label">▼ 同一 src 三路派生（像素级对齐，任意输入尺寸都安全）</div>
+      <div class="branch-label">▼ 同一 src 派生（hq_orig/lq_gauss 直接来自 src；hq_beauty=RetouchFormer(src)；hq_beauty_strong=迭代再跑 N pass，仅 BEAUTY_PASSES≥2 产出）</div>
 
       <!-- 三路分支 -->
       <div class="branch">
@@ -173,13 +176,27 @@
             <div class="stub"></div>
             <div class="node n-model">
               <div class="title">💎 RetouchFormer</div>
-              <div class="desc"><code>model(src)</code><br>美颜·去瑕疵·磨皮·保结构</div>
+              <div class="desc"><code>model(src)</code> · pass 1<br>美颜·去瑕疵·磨皮·保结构</div>
             </div>
             <div class="arrow short"><div class="line"></div><div class="head"></div></div>
             <div class="node n-hqbeauty">
               <span class="tag">HQ·B</span>
               <div class="title">hq_beauty</div>
-              <div class="desc">美颜结果<br>复原+美颜实验 HQ 目标</div>
+              <div class="desc">美颜结果(1 pass)<br>B 组复原+美颜实验 HQ 目标</div>
+            </div>
+          </div>
+
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-model">
+              <div class="title">💎 RetouchFormer</div>
+              <div class="desc"><code>model(hq_beauty)</code> · pass 2..N<br>迭代美颜(BEAUTY_PASSES)<br>更磨皮·更去瑕疵</div>
+            </div>
+            <div class="arrow short"><div class="line"></div><div class="head"></div></div>
+            <div class="node n-hqstrong">
+              <span class="tag">HQ·C</span>
+              <div class="title">hq_beauty_strong</div>
+              <div class="desc">迭代美颜(N pass)<br>C 组加强美颜实验 HQ 目标<br><span style="font-size:.7rem;color:#9d174d;">仅 BEAUTY_PASSES≥2 产出</span></div>
             </div>
           </div>
 
@@ -196,12 +213,12 @@
       </div>
 
       <div style="height:14px;"></div>
-      <div class="branch-label">▼ Phase B（03b）：共用同一 lq_gauss 作 LQ，仅 HQ 目标不同 → 两张 parquet</div>
+      <div class="branch-label">▼ Phase B（03b）：共用同一 lq_gauss 作 LQ，仅 HQ 目标不同 → 三张 parquet（C 仅 BEAUTY_PASSES≥2）</div>
 
-      <!-- 两张 parquet -->
+      <!-- 三张 parquet -->
       <div class="branch">
         <div class="hbar"></div>
-        <div class="cols" style="gap:60px;">
+        <div class="cols" style="gap:50px;">
           <div class="col">
             <div class="stub"></div>
             <div class="node n-pq">
@@ -218,13 +235,21 @@
               <div class="desc">LQ=lq_gauss → HQ=hq_beauty<br>复原 + 美颜（修掉长痘）</div>
             </div>
           </div>
+          <div class="col">
+            <div class="stub"></div>
+            <div class="node n-pq">
+              <span class="tag">C</span>
+              <div class="title">rest_beauty_strong.parquet</div>
+              <div class="desc">LQ=lq_gauss → HQ=hq_beauty_strong<br>复原 + 加强美颜（迭代 N pass）<br><span style="font-size:.7rem;color:#9d174d;">仅 BEAUTY_PASSES≥2</span></div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div style="height:4px;"></div>
       <div class="branch-label">▼ 04b 各训一个 HYPIR-SD2 LoRA（OUTPUT_DIR 分开，暖启动 HYPIR_sd2.pth）</div>
 
-      <!-- A/B 训练 -->
+      <!-- A/B/C 训练 -->
       <div class="ab-cols">
         <div class="ab-col">
           <div class="arrow"><div class="line"></div><div class="head"></div></div>
@@ -243,6 +268,15 @@
             <div class="desc">rest_beauty.parquet → <code>exp_rest_beauty</code><br>复原+美颜，不毁脸</div>
           </div>
         </div>
+        <div class="ab-gap"></div>
+        <div class="ab-col">
+          <div class="arrow"><div class="line"></div><div class="head"></div></div>
+          <div class="node n-trainC">
+            <span class="tag">训练 C</span>
+            <div class="title">FineTuneSD2Trainer</div>
+            <div class="desc">rest_beauty_strong.parquet → <code>exp_rest_beauty_strong</code><br>复原+加强美颜<br><span style="font-size:.7rem;color:#9d174d;">仅 BEAUTY_PASSES≥2</span></div>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -253,7 +287,7 @@
   <div class="node bridge">
     <div class="title">🔗 人脸增强模型 = EnhModel</div>
     <div class="desc">Phase A 训练产物（HYPIR 复原 / 复原+美颜，或 RetouchFormer）→ 作为 Phase B 的增强模型接口<br>
-      按评估（05/02）选用 A 或 B：A 去模糊但易「长痘」· B 去模糊 + 不毁脸</div>
+      按评估（05/02）选用 A / B / C：A 去模糊但易「长痘」· B 去模糊 + 不毁脸 · C 加强美颜（迭代 N pass，可能过磨失结构）</div>
   </div>
   <div class="arrow"><div class="line"></div><div class="head"></div></div>
 
@@ -378,8 +412,8 @@
     <h3>关键设计要点</h3>
     <ul>
       <li><b>整体结构</b>：Phase A 离线训练人脸增强模型（数据集 03d + 训练 04b），经「EnhModel」桥接进入 Phase B 在线 3D 人体重建人脸增强；A 的训练产物即 B 调用的增强模型。</li>
-      <li><b>A 核心思路</b>：现有 LQ=模糊/HQ=原图路径会「长痘变丑」；解法是 LQ 保持同样模糊、把 HQ 换成 RetouchFormer 美颜版 → 模型仍学去模糊但目标变干净皮肤，不再 invent 瑕疵。A/B 共用同一 <code>lq_gauss</code> 仅 HQ 不同 → 单变量对比。</li>
-      <li><b>像素级对齐</b>（A）：hq_orig / hq_beauty / lq_gauss 皆派生自同一 <code>src</code> 张量，故任意尺寸/宽高比输入都安全（模型 VRT 写死 512×512，非方形 CenterCrop，三者存同一 crop 版本）。</li>
+      <li><b>A 核心思路</b>：现有 LQ=模糊/HQ=原图路径会「长痘变丑」；解法是 LQ 保持同样模糊、把 HQ 换成 RetouchFormer 美颜版 → 模型仍学去模糊但目标变干净皮肤，不再 invent 瑕疵。A/B/C 共用同一 <code>lq_gauss</code> 仅 HQ 不同（原图 / 美颜 1pass / 迭代 N pass）→ 单变量对比。C 组 <code>hq_beauty_strong</code> 由 RetouchFormer 迭代美颜（<code>BEAUTY_PASSES</code> 次）得到，更磨皮去瑕疵但可能过磨失结构——对比 B 找甜点。</li>
+      <li><b>像素级对齐</b>（A）：hq_orig / hq_beauty / hq_beauty_strong / lq_gauss 皆派生自同一 <code>src</code> 张量，故任意尺寸/宽高比输入都安全（模型 VRT 写死 512×512，非方形 CenterCrop，四者存同一 crop 版本）。</li>
       <li><b>人脸定位靠重叠率</b>（B·Stage2）：RetinaFace 只给框、SAM3 只给追踪 ID+身体 Mask；用「人脸框落在哪个身体 Mask 内重叠率最大」绑定到 tracking ID，解决多人场景人脸归属。</li>
       <li><b>512×512 缩放对齐 + 54px 渐变融合</b>（B·Stage3-4）：EnhModel/RetouchFormer 写死 512 输入，crop→upscale bbox→512→推理→回缩，再以 54px 渐变掩码无缝贴回原图；后处理模式额外叠 alpha 掩码融合渲染图与增强图。</li>
       <li><b>双时机</b>（B·Stage1）：前处理静态提升 GT；后处理随训练迭代——特定 epoch 用当前渲染图增强再回写，监督目标随模型能力动态精修。</li>

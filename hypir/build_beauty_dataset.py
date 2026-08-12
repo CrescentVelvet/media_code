@@ -8,7 +8,7 @@ once and saves THREE perfectly-aligned 512x512 PNGs under OUTPUT_DIR:
   - hq_beauty/<rel>.png — RetouchFormer's beautified output of that same crop
                           (HQ target for the *restoration+beauty* run)
   - lq_gauss/<rel>.png  — gaussian-blurred degradation of the same crop
-                          (the LQ input for BOTH runs)
+                          (the LQ input for ALL runs)
 
 All three derive from the SAME source tensor (the model input src), so they are
 pixel-aligned by construction — safe for any input size/aspect (the model's VRT
@@ -22,17 +22,28 @@ Why three folders (two datasets) instead of one:
   skin flaws. By swapping the HQ target to RetouchFormer's beautified version
   (blemish-free, skin smoothed) while keeping the SAME blurred LQ, the model
   still learns deblur (enhancement preserved) but its target is clean smooth
-  skin, so it stops inventing blemishes. Building BOTH lets you A/B compare:
-    rest.parquet      : lq_gauss -> hq_orig   (baseline = current 03c-style)
-    rest_beauty.parquet : lq_gauss -> hq_beauty (restoration + beauty, the fix)
+  skin, so it stops inventing blemishes. Building BOTH (plus the strong variant
+  below for C) lets you A/B/C compare:
+    rest.parquet      : lq_gauss -> hq_orig   (A baseline = current 03c-style)
+    rest_beauty.parquet : lq_gauss -> hq_beauty (B restoration + beauty, the fix)
   Train 04b on each (separate OUTPUT_DIR), then eval with 05/02 and compare.
+
+BEAUTY_PASSES (default 1): how many times to run RetouchFormer back-to-back on
+its own output. With BEAUTY_PASSES=2 you get an extra folder
+`hq_beauty_strong/` = RetouchFormer(RetouchFormer(src)) — heavier skin
+smoothing / blemish removal than one pass. This yields a third parquet
+`rest_beauty_strong.parquet` (lq_gauss -> hq_beauty_strong) for the "C 加强美颜"
+A/B/C arm. The model takes and returns [1,3,512,512] in [-1,1], so iterating
+is just feeding `pred` back in (clamped to [-1,1] for safety); passes>2 keep
+stacking more smoothing (diminishing returns — 2 is the useful sweet spot).
 
 The gaussian blur replicates the SIMPLIFIED batch_transform.py shipped in this
 repo's HYPIR clone (random kernel 3/5/7/9/11, sigma 1-2, repeated 1-5 times),
 one FIXED seeded realization per image (offline, not re-randomized per epoch).
 NB: applied to the raw aligned crop (not USM(orig)) — a minor deviation from
-03c's LQ=blur(USM(orig)); the A-vs-B comparison stays single-variable since both
-share the identical lq_gauss. Pass BLUR_SEED to re-randomize reproducibly.
+03c's LQ=blur(USM(orig)); the A-vs-B-vs-C comparison stays single-variable
+since all three share the identical lq_gauss. Pass BLUR_SEED to re-randomize
+reproducibly.
 
 Model loading mirrors the official img_retouching.py exactly:
     net = importlib.import_module('model.RetouchFormer')
@@ -43,7 +54,7 @@ Model loading mirrors the official img_retouching.py exactly:
 
 Env (set by 03d_build_beauty_dataset.sh):
   RETOUCH_DIR, WEIGHT_PATH, MODEL_NAME, INPUT_DIR, OUTPUT_DIR,
-  RESIZE_MODE, SIZE, DEVICE, SAVE_COMPARE, BLUR_SEED, SKIP_BLUR
+  RESIZE_MODE, SIZE, DEVICE, SAVE_COMPARE, BLUR_SEED, SKIP_BLUR, BEAUTY_PASSES
 """
 import os
 import sys
@@ -73,6 +84,10 @@ DEVICE = os.environ.get("DEVICE", "cuda")
 SAVE_COMPARE = os.environ.get("SAVE_COMPARE", "0") == "1"
 BLUR_SEED = int(os.environ.get("BLUR_SEED", "231"))
 SKIP_BLUR = os.environ.get("SKIP_BLUR", "0") == "1"     # 1 = don't build lq_gauss
+# How many back-to-back RetouchFormer passes to run on each crop. 1 (default)
+# = the standard hq_beauty; 2 = additionally produce hq_beauty_strong (heavier
+# smoothing) for the "C 加强美颜" arm. passes>2 keeps stacking but yields little.
+BEAUTY_PASSES = max(1, int(os.environ.get("BEAUTY_PASSES", "1")))
 
 # Multi-GPU sharding via torchrun: each process is independent (no comms).
 # torchrun sets LOCAL_RANK/WORLD_SIZE; standalone (plain python) defaults to 0/1.
@@ -165,10 +180,15 @@ def main():
     out_dir = Path(OUTPUT_DIR)
     dirs = {
         "hq_orig":   out_dir / "hq_orig",     # aligned original crop (restoration HQ)
-        "hq_beauty": out_dir / "hq_beauty",   # RetouchFormer beautified (beauty HQ)
+        "hq_beauty": out_dir / "hq_beauty",   # RetouchFormer beautified, 1 pass (beauty HQ)
     }
+    # C 加强美颜 arm: heavier smoothing from running RetouchFormer N>=2 times.
+    # Only build the *strong* variant (pass N) as a separate folder — the 1-pass
+    # hq_beauty above is always produced so A/B stay backward-compatible.
+    if BEAUTY_PASSES >= 2:
+        dirs["hq_beauty_strong"] = out_dir / "hq_beauty_strong"
     if not SKIP_BLUR:
-        dirs["lq_gauss"] = out_dir / "lq_gauss"  # gaussian-blurred (LQ for both)
+        dirs["lq_gauss"] = out_dir / "lq_gauss"  # gaussian-blurred (LQ for all)
     if SAVE_COMPARE:
         dirs["compare"] = out_dir / "compare"
     for d in dirs.values():
@@ -185,11 +205,13 @@ def main():
     if LOCAL_RANK == 0:
         print(f"[*] {len(images)} image(s): {input_dir} -> {out_dir}")
         print(f"[*]   hq_orig(原图对齐crop) -> {dirs['hq_orig']}")
-        print(f"[*]   hq_beauty(美颜)        -> {dirs['hq_beauty']}")
+        print(f"[*]   hq_beauty(美颜, {BEAUTY_PASSES} pass{'es' if BEAUTY_PASSES>1 else ''}) -> {dirs['hq_beauty']}")
+        if BEAUTY_PASSES >= 2:
+            print(f"[*]   hq_beauty_strong(迭代美颜, {BEAUTY_PASSES} passes) -> {dirs['hq_beauty_strong']}")
         if not SKIP_BLUR:
             print(f"[*]   lq_gauss(高斯模糊LQ)   -> {dirs['lq_gauss']}  (blur_seed={BLUR_SEED})")
         print(f"[*] params: resize={RESIZE_MODE} size={SIZE} device={device} "
-              f"save_compare={SAVE_COMPARE} skip_blur={SKIP_BLUR}")
+              f"save_compare={SAVE_COMPARE} skip_blur={SKIP_BLUR} beauty_passes={BEAUTY_PASSES}")
     # shard: each rank takes a strided subset so no two ranks touch the same image
     my_images = images[LOCAL_RANK::WORLD_SIZE]
     if WORLD_SIZE > 1:
@@ -206,10 +228,15 @@ def main():
             stem = rel.with_suffix(".png")
             orig_path = dirs["hq_orig"] / stem
             beauty_path = dirs["hq_beauty"] / stem
+            strong_path = dirs.get("hq_beauty_strong", None)
+            if strong_path is not None:
+                strong_path = strong_path / stem
             tag = "" if not SKIP_BLUR else " [no-blur]"
             try:
                 orig_path.parent.mkdir(parents=True, exist_ok=True)
                 beauty_path.parent.mkdir(parents=True, exist_ok=True)
+                if strong_path is not None:
+                    strong_path.parent.mkdir(parents=True, exist_ok=True)
                 img = Image.open(fp).convert("RGB")
                 w0, h0 = img.size
                 src = tfm(img).unsqueeze(0).to(device)   # [1,3,512,512] in [-1,1] — model input
@@ -218,11 +245,23 @@ def main():
                 save_image(src, str(orig_path), normalize=True, value_range=(-1, 1))
 
                 t1 = time.time()
-                pred, _ = model(src)            # [1,3,512,512] in [-1,1] — beautified
-                dt = time.time() - t1
-                # hq_beauty = RetouchFormer output. Both [-1,1] -> [0,1] PNG via
+                # pass 1 — always run; this is the standard hq_beauty saved to disk.
+                beauty1, _ = model(src)         # [1,3,512,512] in [-1,1] — 1-pass beautified
+                # hq_beauty = RetouchFormer output (1 pass). Both [-1,1] -> [0,1] PNG via
                 # save_image normalize=True, value_range=(-1,1) (matches run_inference.py).
-                save_image(pred, str(beauty_path), normalize=True, value_range=(-1, 1))
+                save_image(beauty1, str(beauty_path), normalize=True, value_range=(-1, 1))
+                # passes 2..N — feed the previous output back into the model to stack more
+                # smoothing. Model I/O is [1,3,512,512] in [-1,1], so iteration is trivial;
+                # clamp to [-1,1] to guard against any tiny out-of-range drift (no-op when
+                # the output is already in range). Only the FINAL pass is saved as
+                # hq_beauty_strong (intermediate passes are not kept — pass N is the target).
+                cur = beauty1
+                for p in range(2, BEAUTY_PASSES + 1):
+                    cur, _ = model(cur.clamp(-1.0, 1.0))
+                if BEAUTY_PASSES >= 2:
+                    save_image(cur, str(strong_path), normalize=True, value_range=(-1, 1))
+                dt = time.time() - t1
+                pred = cur                      # for shape reporting below
 
                 lq = None
                 if not SKIP_BLUR:
@@ -232,15 +271,17 @@ def main():
                     save_image(lq, str(lq_path), normalize=True, value_range=(-1, 1))
 
                 if SAVE_COMPARE:
-                    # [LQ(gauss) | HQ(orig) | HQ(beauty)] horizontal concat.
-                    # Reuse the SAME `lq` tensor saved above (re-calling blur_fn
-                    # would draw a different kernel/sigma — compare must match
-                    # the saved lq_gauss).
+                    # [LQ(gauss) | HQ(orig) | HQ(beauty,1pass) | HQ(beauty_strong,Npass)]
+                    # Reuse the SAME `lq`/`beauty1`/`cur` tensors saved above (re-calling
+                    # blur_fn / the model would draw different results — compare must match
+                    # the saved files).
                     panels = []
                     if not SKIP_BLUR:
                         panels.append(lq)
-                    panels.append(src)
-                    panels.append(pred)
+                    panels.append(src)                                  # hq_orig
+                    panels.append(beauty1)                             # hq_beauty (1 pass)
+                    if BEAUTY_PASSES >= 2:
+                        panels.append(cur)                             # hq_beauty_strong (N pass)
                     cmp = torch.cat(panels, dim=3)
                     cmp_path = dirs["compare"] / stem
                     cmp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -249,10 +290,11 @@ def main():
                 _, _, H, W = pred.shape
                 infer_times.append(dt)
                 ok += 1
+                extra = f" + hq_beauty_strong({BEAUTY_PASSES}p)" if BEAUTY_PASSES >= 2 else ""
                 if WORLD_SIZE == 1 or i <= 3 or i % 50 == 0:
                     print(f"{rank_pfx}♻️[{gidx}/{len(images)}] {fp.name}  ->  hq_orig + hq_beauty"
-                          f"{' + lq_gauss' if not SKIP_BLUR else ''} | "
-                          f"{w0}x{h0} -> {W}x{H} | 美颜 {dt:.2f}s{tag}")
+                          f"{' + lq_gauss' if not SKIP_BLUR else ''}{extra} | "
+                          f"{w0}x{h0} -> {W}x{H} | 美颜 {BEAUTY_PASSES} pass{'es' if BEAUTY_PASSES>1 else ''} {dt:.2f}s{tag}")
             except Exception as e:
                 # 损坏/截断图(OSError: image file is truncated)或推理失败都跳过、不中断；
                 # 删掉本图已写的半成品(避免半对进 parquet 破坏同名配对)。
@@ -277,14 +319,18 @@ def main():
               f"max {max(infer_times):.2f}s, 共 {len(infer_times)} 张")
     if LOCAL_RANK == 0:
         print(f"[*] hq_orig(原图对齐crop):    {dirs['hq_orig']}")
-        print(f"[*] hq_beauty(美颜):         {dirs['hq_beauty']}")
+        print(f"[*] hq_beauty(美颜,1pass):    {dirs['hq_beauty']}")
+        if BEAUTY_PASSES >= 2:
+            print(f"[*] hq_beauty_strong(迭代美颜,{BEAUTY_PASSES}pass): {dirs['hq_beauty_strong']}")
         if not SKIP_BLUR:
             print(f"[*] lq_gauss(高斯模糊LQ):    {dirs['lq_gauss']}")
         if SAVE_COMPARE:
-            print(f"[*] 对齐核对图(LQ|orig|beauty): {dirs['compare']}")
+            print(f"[*] 对齐核对图(LQ|orig|beauty[+strong]): {dirs['compare']}")
         if not SKIP_BLUR:
             print(f"[*] next: bash {os.path.dirname(os.path.abspath(__file__))}"
-                  f"/03d_build_beauty_dataset.sh 会用 03b 产两张 parquet(rest/rest_beauty)")
+                  f"/03d_build_beauty_dataset.sh 会用 03b 产 parquet(rest"
+                  f"{'/rest_beauty' if BEAUTY_PASSES>=2 else ''}"
+                  f"{'/rest_beauty_strong' if BEAUTY_PASSES>=2 else ''})")
 
 
 if __name__ == "__main__":
