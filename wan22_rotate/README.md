@@ -102,6 +102,29 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 #   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
 #   model_gof/test/ours_<N>/test_preds_1/*.png                     GOF 渲染图（新视角）
 #   model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply         GOF 网格 (Marching Tetrahedra)
+
+# 5b) LHM 单图前馈人体高斯重建（单张正面图 → 前馈网络 → 可动画人体高斯 + 网格）
+#     与 05 (2DGS) / 05a (GOF) 并列的第三种方案，但范式不同：
+#     05/05a 是"多视图逐场景优化"，05b 是"单图前馈"（秒级出结果，无需 Pi3/COLMAP/视频）。
+#     输入直接用 step 01 的 segmented_image.png；输出网格/动画到 model_lhm/。
+#     首次需 INSTALL_LHM=1 建独立 lhm env（torch 2.3.0，与 wan22_rotate 不兼容，见下方「首次准备」）
+#     一键全流程：单图 → LLM mesh 导出（canonical pose 静止网格）
+GPU=0 IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
+  MODEL_NAME=LHM-500M-HF \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/05b_lhm_recon.sh
+
+# 5b 可选）渲染旋转动画：从 step 02 的 rotate_360.mp4 提取 SMPL-X 动作再驱动
+#          （需 00 装 LHM_DOWNLOAD_POSE=1 下 yolov8x + vitpose）
+GPU=0 IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
+  SRC_VIDEO=../../output/wan22_rotate_results/rotate_360.mp4 \
+  EXTRACT_MOTION=1 SKIP_MESH=1 \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/05b_lhm_recon.sh
+
+# 输出：<RESULTS_DIR>/rotate_360/
+#   model_lhm/segmented_image.ply             LHM 人体高斯网格（canonical pose，MeshLab 看）
+#   model_lhm/segmented_image_anim.mp4        LHM 旋转动画（5b-2 跑了才有）
 ```
 
 - 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；Pi3 位姿 → `../wan22_rotate_results/rotate_360/pi3/{predictions.npz,poses.json,dense_cloud.ply}`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
@@ -112,8 +135,9 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 
 - **Step 05 (2DGS)** — `05_3dgs_recon.sh`：2D Gaussian Splatting，TSDF fusion 提网格。需 `INSTALL_2DGS=1`。
 - **Step 05a (GOF)** — `05a_3dgs_recon.sh`：Gaussian Opacity Fields，Marching Tetrahedra 提网格，网格质量超 2DGS。需 `INSTALL_GOF=1`。
+- **Step 05b (LHM)** — `05b_lhm_recon.sh`：feed-forward 单图人体高斯重建（ICCV 2025）。单张正面图 → 前馈网络 → 可动画人体高斯 + 网格。**范式不同**：无需 Pi3/COLMAP/多视图视频，秒级出结果；用独立 `lhm` env（torch 2.3.0，与 wan22_rotate 不兼容）。需 `INSTALL_LHM=1`。
 
-两者共用 Pi3+COLMAP 的 `source/`（05 跑过则 05a 设 `SKIP_PI3=1` 复用）。
+前两者共用 Pi3+COLMAP 的 `source/`（05 跑过则 05a 设 `SKIP_PI3=1` 复用）。05b 走完全不同的路径——直接吃 step 01 的 `segmented_image.png`，不依赖 02-04 的任何产物（但可选从 02 的视频提取动作做动画）。
 
 > 也可用独立的 [`pi3_3dgs/`](../pi3_3dgs/) 流程（自带独立 env，参数更全），但本流程推荐直接用步骤 5/5a。
 
@@ -152,6 +176,24 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 # ⚠️ tetra-triangulation 编译可能因 OptiX 缺失失败（tetra-nerf 的 CMakeLists.txt 需要
 #    NVIDIA OptiX 库）。如果失败，00 脚本会打印详细修复指引（下载 OptiX 7.6 + 设 OPTIX_PATH）。
 #    GOF 的子模块可能是去 OptiX 的精简版（只需 cmake+gmp+cgal），直接编即可。
+
+# 3b. （步骤 5b 用）装 LHM 依赖 + 下权重（独立 lhm env，torch 2.3.0）
+#     ⚠️ LHM 钉 torch 2.3.0 / numpy 1.23.0，与 wan22_rotate 的 torch 2.6.0 / numpy 1.26.4
+#        不兼容——INSTALL_LHM=1 会建独立 conda env `lhm`（CPython 3.10），不在 wan22_rotate 里装。
+#     INSTALL_LHM=1 会: 建 lhm env → 装 torch 2.3.0+cu121 + xformers + requirements →
+#     装 LHM 改版 sam2 (hitsz-zuoqi) + ashawkey diff-gaussian-rasterization + simple-knn +
+#     pytorch3d → clone LHM 仓 → 软链 pretrained_models -> ../../model/LHM →
+#     下 LHM_prior_model.tar (SMPL-X/sapiens/sam2/gagatracker, OSS) +
+#     下 LHM 主权重 (3DAIGC/LHM-500M-HF, HF/ModelScope)
+INSTALL_DEPS=1 INSTALL_LHM=1 bash wan22_rotate/00_setup_env.sh
+# 可选额外下载（按需）:
+#   LHM_DOWNLOAD_MOTION=1  下 LHM 自带 motion 示例 (mimo1 等, 5b 动画用)
+#   LHM_DOWNLOAD_POSE=1   下 yolov8x + vitpose + 装 mmcv/ultralytics/ViTPose (从视频提取 SMPL-X 动作用)
+# 例: INSTALL_DEPS=1 INSTALL_LHM=1 LHM_DOWNLOAD_MOTION=1 bash wan22_rotate/00_setup_env.sh
+# ⚠️ LHM 主权重走 HuggingFace (3DAIGC/LHM-500M-HF)，代理若封 HF 会自动转 ModelScope；
+#    都失败则 00 脚本打印手动下载指令（HF/ModelScope 两个 URL）。
+# ⚠️ pytorch3d 编译可能失败（需 nvcc + 匹配 torch 2.3.0）。失败时 mesh 导出可能受影响，
+#    00 脚本会打印手动安装指引。LHM-MINI (16GB GPU) / LHM-500M-HF (24GB) 可选。
 
 # ⚠️ 如果上面编 CUDA 扩展失败（simple-knn 拉不下来 / CUDA 版本不匹配 / GLM 缺失），
 #    00 脚本已自动处理多数情况（自动找 CUDA 12.4 路径、zip fallback 拉 simple-knn、
@@ -221,6 +263,14 @@ $MODEL_DIR/
   sam-3d-body/
     sam-3d-body-dinov3/                    # SAM 3D Body ckpt + mhr_model
     moge-2-vitl-normal/                    # MoGe2 FOV estimator
+  LHM/                                     # step 05b 用 (00 设 LHM_DOWNLOAD_*=1 自动下)
+    human_model_files/                     #   SMPL-X + yolov8x + vitpose (LHM_prior_model.tar 解压)
+      pose_estimate/{yolov8x.pt, vitpose-h-wholebody.pth}  # video2motion 用
+    sapiens/                               #   fine encoder
+    sam2/                                  #   LHM 改版 sam2 权重
+    gagatracker/                           #   vgghead 人脸检测
+    dense_sample_points/                   #   1_20000.ply
+    huggingface/                           #   LHM 主权重 (3DAIGC/LHM-500M-HF, snapshot_download cache)
 ```
 
 LoRA 权重路径示例：`$MODEL_DIR/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors`。
@@ -304,6 +354,20 @@ $PI3_3DGS_RESULTS/{source/, model_gof/}
     model_gof/point_cloud/iteration_<N>/point_cloud.ply           # GOF 高斯点云
     model_gof/test/ours_<N>/test_preds_1/*.png                  # GOF 渲染图（新视角）
     model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply      # Marching Tetrahedra 网格
+```
+
+```
+[05b] 单图前馈人体高斯重建 (LHM)  (独立 lhm env, 调 05b_lhm_recon.sh, 与 05/05a 并列)
+     │  ⚠️ 范式不同: 不走 Pi3+COLMAP+多视图优化, 而是单图前馈网络 (秒级)
+     │  ├─ 输入: step 01 的 segmented_image.png (正面白底人物), 无需 02-04 任何产物
+     │  ├─ LHM 前向 (DINOv2+Sapiens 编码 → Transformer → gs-MLP → 可动画高斯)
+     │  ├─ 5b-1 (默认): export_mesh → canonical pose 静止网格 .ply
+     │  └─ 5b-2 (可选): export_video + 动作序列 → 旋转动画 .mp4
+     │           动作: (a) LHM 自带 mimo1  (b) 从 02 的 rotate_360.mp4 提取 SMPL-X
+     ▼
+$RESULTS_DIR/rotate_360/model_lhm/
+     segmented_image.ply          # LHM 人体高斯网格 (canonical pose, MeshLab 看)
+     segmented_image_anim.mp4     # LHM 旋转动画 (5b-2 跑了才有)
 ```
 
 ### Step 01 — 选图 + 分割 (`01_pick_and_segment.sh` → `pick_and_segment.py`)
@@ -427,6 +491,35 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 ```
 需系统有 CUDA 12.4 toolkit + cmake/gmp/cgal（00 脚本自动用 conda 装）。⚠️ tetra-triangulation 编译若因 OptiX 缺失失败，00 脚本会打印下载 OptiX 7.6 + 设 `OPTIX_PATH` 的指引。
 
+### Step 05b — LHM 单图前馈人体高斯重建（`05b_lhm_recon.sh`，与 05/05a 并列）
+
+与 Step 05/05a 并列的第三种方案，用 [LHM (Large Animatable Human Reconstruction Model)](https://github.com/aigc3d/LHM)（ICCV 2025）。**范式根本不同**：05/05a 是"多视图视频 → Pi3+COLMAP → 逐场景优化高斯 → 提网格"（per-scene optimization，需 30k 步训练）；05b 是"**单张正面图 → 前馈网络一次前向 → 可动画人体高斯**"（feed-forward，秒级出结果，无需 Pi3/COLMAP/视频）。
+
+**与 05/05a 的区别**：
+- 输入：step 01 的 `segmented_image.png`（单张正面白底人物），**无需 02-04 任何产物**（Pi3/COLMAP/JPG 帧）
+- 方法：LHM 前馈（DINOv2 + Sapiens 编码 → 多模态 Transformer → gs-MLP → 可动画 3D 高斯），不做逐场景优化
+- 速度：单次前向数秒（vs 05/05a 的 30k 步训练，~10-30 分钟）
+- 精度：依赖 LHM 预训练泛化，不如 05/05a 逐场景拟合精确（但无需多视图，更鲁棒于单图输入）
+- Env：**独立 `lhm` env**（torch 2.3.0 / numpy 1.23.0），与 wan22_rotate 的 torch 2.6.0 / numpy 1.26.4 不兼容——05b 在 source `_env.sh` 前设 `CONDA_ENV=lhm` 切换
+- 输出：`model_lhm/segmented_image.ply`（canonical pose 静止网格）+ 可选 `segmented_image_anim.mp4`（旋转动画）
+
+**两个子步骤**：
+- **5b-1（默认，网格导出）**：`export_mesh=True` → `infer_mesh()` → 单图前馈出高斯 → 导 `segmented_image.ply`（canonical/静止姿态）。无需动作序列。
+- **5b-2（可选，动画渲染）**：`export_video=True` + 动作序列 → `infer_single()` → 用 SMPL-X 动作驱动高斯出旋转动画 `.mp4`。默认 `SKIP_ANIM=1` 跳过；给 `MOTION_SEQ=<dir>` 或 `EXTRACT_MOTION=1` 自动开启。动作来源三选一：(a) LHM 自带 `mimo1`（00 装 `LHM_DOWNLOAD_MOTION=1`）；(b) 从 step 02 的 `rotate_360.mp4` 用 `video2motion.py` 提取 SMPL-X（`EXTRACT_MOTION=1`，需 00 装 `LHM_DOWNLOAD_POSE=1`）；(c) 任意 `smplx_params` 目录。
+
+**wan22_rotate 输入的适配**（`05b_lhm_recon.sh` 已默认设好）：
+- `IMAGE_INPUT`（默认 `$RESULTS_DIR/segmented_image.png`）— 直接吃 step 01 的正面分割图（LHM 内部会再用 SAM2/rembg 抠一次，白底无副作用）
+- `MODEL_NAME=LHM-500M-HF`（默认）— 半身+全身；显存不够用 `LHM-MINI`（16GB），最高质量用 `LHM-1B-HF`（需 24GB+）
+
+**为何独立 env**：LHM `requirements.txt` 钉 `torch==2.3.0` / `numpy==1.23.0`，与 wan22_rotate 的 torch 2.6.0+cu124 / numpy 1.26.4 直接冲突（detectron2/diffsynth 也要 1.26.4）。强行装进同一个 env 会让 numpy/torch 版本打架，导致一方全坏。故 05b 用独立 `lhm` env（CPython 3.10），由 `INSTALL_LHM=1` 在 00 里一次性建好；脚本通过 `CONDA_ENV=lhm` 切换。
+
+**首次准备**：建 lhm env + 装依赖 + 下权重（一次性）：
+```bash
+INSTALL_DEPS=1 INSTALL_LHM=1 bash wan22_rotate/00_setup_env.sh
+# 可选: LHM_DOWNLOAD_MOTION=1 (下 LHM 自带动作) / LHM_DOWNLOAD_POSE=1 (下 video2motion 权重)
+```
+需系统有 CUDA toolkit（nvcc，编译 diff-gaussian-rasterization / simple-knn / pytorch3d 用）。⚠️ LHM 主权重走 HuggingFace（`3DAIGC/LHM-500M-HF`），代理若封 HF 会自动转 ModelScope（`Damo_XR_Lab/LHM-500M-HF`）；都失败 00 脚本打印手动下载指令。⚠️ pytorch3d 编译可能失败（需 nvcc 匹配 torch 2.3.0），失败时 mesh 导出可能受影响，00 脚本打印手动指引。
+
 ## Config (env vars, all optional)
 
 ### Paths & envs
@@ -540,6 +633,23 @@ INSTALL_DEPS=1 INSTALL_GOF=1 bash wan22_rotate/00_setup_env.sh
 | `SKIP_RENDER` | `0` | `1` = 跳过渲染新视角 |
 | `SKIP_MESH` | `0` | `1` = 跳过 Marching Tetrahedra 提网格 |
 
+### Step 05b params
+> 步骤 5b 在**独立 lhm env** 里跑（`05b_lhm_recon.sh`，`CONDA_ENV=lhm` 自动切换）。与 05/05a 并列但范式不同（单图前馈，无需 Pi3/COLMAP）。
+| var | default | note |
+| --- | --- | --- |
+| `IMAGE_INPUT` | `$RESULTS_DIR/segmented_image.png` | 单张人像图（step 01 输出；也可传任意正面人像） |
+| `MODEL_NAME` | `LHM-500M-HF` | LHM 模型（alt: `LHM-1B-HF` 最高质量, `LHM-MINI` 16GB GPU） |
+| `MODEL_DIR_LHM` | `$RESULTS_DIR/<name>/model_lhm` | 输出目录（与 `model_2dgs/` `model_gof/` 并列） |
+| `MOTION_SEQ` | _(empty)_ | 动作目录（含 `smplx_params`）；留空动画步骤用 LHM 默认 `mimo1` |
+| `EXTRACT_MOTION` | `0` | `1` = 从 `rotate_360.mp4` 用 `video2motion.py` 提取 SMPL-X 动作（需 00 装 `LHM_DOWNLOAD_POSE=1`） |
+| `SRC_VIDEO` | `$RESULTS_DIR/<name>.mp4` | `EXTRACT_MOTION=1` 时的源视频（step 02 输出） |
+| `MOTION_OUT` | `$MODEL_DIR_LHM/custom_motion` | 提取出的动作输出目录 |
+| `RENDER_FPS` | `30` | 动画输出 fps |
+| `MOTION_READ_FPS` | `30` | 读动作序列的 fps |
+| `SKIP_MESH` | `0` | `1` = 跳过网格导出（5b-1） |
+| `SKIP_ANIM` | `1` | `1` = 跳过动画渲染（5b-2，默认跳过；给 `MOTION_SEQ` 或 `EXTRACT_MOTION=1` 自动开） |
+| `DEVICE` | `cuda` | 或 `cpu`（极慢） |
+
 ## 可能遇到的问题
 
 **1. 选出的图是背面而不是正面**
@@ -605,6 +715,26 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
 ```
 `buffer_rgba()` 返回 (H, W, 4) 的 RGBA 数组，`[..., :3]` 取前 3 通道即 RGB，等价于旧 `tostring_rgb()` 的输出。
 
+**11. step 05b 报 `conda env 'lhm' not found` / `torch 2.3.0 与 ... 不兼容`**
+LHM 用独立 env。首次需 `INSTALL_DEPS=1 INSTALL_LHM=1 bash wan22_rotate/00_setup_env.sh` 建 `lhm` env + 装依赖。05b 脚本在 source `_env.sh` 前设 `CONDA_ENV=lhm` 自动切换；若 `CONDA_ENV` 被外部覆盖成别的值，显式 `CONDA_ENV=lhm bash wan22_rotate/05b_lhm_recon.sh`。
+
+**12. step 05b 报 `LHM model '...' not found` / `OSError: ... not a valid local path`（HF 模型加载）**
+LHM 主权重未下全。00 脚本走 HuggingFace（`3DAIGC/LHM-500M-HF`），代理若封 HF 会转 ModelScope；都失败需手动下：
+```bash
+# 方案 A: HuggingFace（若代理放行）
+python -c "from huggingface_hub import snapshot_download; \
+  snapshot_download(repo_id='3DAIGC/LHM-500M-HF', cache_dir='../../model/LHM/huggingface')"
+# 方案 B: ModelScope（阿里 OSS，一般不被代理封）
+python -c "from modelscope import snapshot_download; \
+  snapshot_download(model_id='Damo_XR_Lab/LHM-500M-HF', cache_dir='../../model/LHM/huggingface')"
+```
+确认：`ls ../../model/LHM/huggingface/models--3DAIGC--LHM-500M-HF/` 应有 `snapshots/` 子目录。`_env.sh` 设了 `HF_HUB_OFFLINE=1`（强制走本地缓存，防 SSL 报错），权重下到上述 cache 目录后离线加载即可。
+
+**13. step 05b 报 `No SAM2 found` / `pytorch3d` / `mmcv` 相关**
+- **`No SAM2 found`**：LHM 改版 sam2（`hitsz-zuoqi/sam2`）没装好，LHM 会回退到 `rembg` 抠背景（质量略降，不致命）。要修：`INSTALL_DEPS=1 INSTALL_LHM=1 bash wan22_rotate/00_setup_env.sh` 重装。
+- **`pytorch3d` 导入失败**：pytorch3d 编译失败（需 nvcc 匹配 torch 2.3.0）。mesh 导出可能受影响。手动装见 [pytorch3d INSTALL.md](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md)；预编译轮子在 `https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt230/download.html`（可能被代理封，浏览器下后 `pip install <wheel>.whl`）。
+- **`mmcv` / `ultralytics` / `vitpose` 缺失**：仅 `EXTRACT_MOTION=1`（从视频提 SMPL-X 动作）需要。重装：`INSTALL_DEPS=1 INSTALL_LHM=1 LHM_DOWNLOAD_POSE=1 bash wan22_rotate/00_setup_env.sh`。
+
 ## 目录布局
 ```
 <code-dir>/
@@ -621,6 +751,13 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
 ├── Pi3/                          # Pi3 官方代码 (step 04 自动 clone; pi3_3dgs 也用)
 ├── 2d-gaussian-splatting/        # 2DGS 官方代码 + CUDA 子模块 (step 05, 00 clone)
 ├── gaussian-opacity-fields/      # GOF 官方代码 + CUDA 子模块 (step 05a, 00 clone)
+├── LHM/                           # LHM 官方代码 (step 05b, 00 clone)
+│   ├── pretrained_models -> ../../model/LHM/  # 软链到共享权重根 (LHM 用相对 ./pretrained_models/ 读)
+│   └── exps/                      #   LHM 推理原始输出 (meshs/videos/images/, 05b 跑完 copy 走)
+├── sam2_lhm/                      # LHM 改版 sam2 (hitsz-zuoqi, step 05b, 00 clone; 非官方 sam2)
+├── diff-gaussian-rasterization_lhm/  # ashawkey 改版 3DGS 光栅化器 (LHM 用, 00 clone)
+├── simple-knn_lhm/               # camenduru simple-knn (LHM 用, 00 clone)
+├── ViTPose_lhm/                  # ViTPose 源码 (video2motion 用, 00 装 LHM_DOWNLOAD_POSE=1 时 clone)
 ├── wan22_experiments/           # LoRA 训练产物 (epoch-N.safetensors)
 ├── wan22_rotate_results/        # 本流程输出 (step 01-04)
     ├── segmented_image.png      #   正面图 (人物保留, 背景白)
@@ -628,35 +765,22 @@ data = data[..., :3]   # RGBA → RGB，丢掉 alpha 通道
     ├── frontal_scores.csv       #   各图正面评分
     ├── debug_mask.png           #   分割掩码 (调试)
     ├── rotate_360.mp4           #   360° 旋转视频 (step 02)
-    └── rotate_360/              #   同名目录 (step 03/04)
+    └── rotate_360/              #   同名目录 (step 03/04/05/05a/05b)
         ├── image/               #     拆出的 JPG 帧 (step 03)
         │   ├── 00000.jpg
         │   ├── 00001.jpg
         │   └── ...
-        └── pi3/                 #     Pi3 位姿估计输出 (step 04)
-            ├── frames/          #       Pi3 实际用的帧 (copy of image/, 或抽帧)
-            ├── predictions.npz  #       原始 Pi3 张量 (points, camera_poses, conf, ...)
-            ├── dense_cloud.ply  #       置信度过滤的稠密点云 (MeshLab/SuperSplat 可看)
-            └── poses.json       #       人类可读的 c2w 4x4 矩阵 (每帧一个)
-└── pi3_3dgs_results/            # step 05 三维重建输出 (独立目录)
-    ├── source/                   #   COLMAP 场景 (01_pi3_recon 导出)
-    │   ├── images/               #     训练图
-    │   └── sparse/0/
-    │       ├── cameras.txt
-    │       ├── images.txt
-    │       └── points3D.txt
-    ├── predictions.npz           #   原始 Pi3 张量
-    ├── dense_cloud.ply           #   稠密点云 (调试)
-    └── model_2dgs/                #   2DGS 训练产物 (step 05)
-        ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
-        └── test/ours_<N>/
-            ├── renders/*.png     #     渲染图
-            └── mesh.ply          #     TSDF 网格
-    └── model_gof/                #   GOF 训练产物 (step 05a)
-        ├── point_cloud/iteration_<N>/point_cloud.ply   # 高斯点云
-        └── test/ours_<N>/
-            ├── test_preds_1/*.png                       # 渲染图 (新视角)
-            └── fusion/mesh_binary_search_7.ply          # Marching Tetrahedra 网格 (带顶点色)
+        ├── pi3/                 #     Pi3 位姿估计输出 (step 04)
+        │   ├── frames/          #       Pi3 实际用的帧 (copy of image/, 或抽帧)
+        │   ├── predictions.npz  #       原始 Pi3 张量 (points, camera_poses, conf, ...)
+        │   ├── dense_cloud.ply  #       置信度过滤的稠密点云 (MeshLab/SuperSplat 可看)
+        │   └── poses.json       #       人类可读的 c2w 4x4 矩阵 (每帧一个)
+        ├── model_2dgs/          #     2DGS 训练产物 (step 05)
+        ├── model_gof/           #     GOF 训练产物 (step 05a)
+        └── model_lhm/           #     LHM 前馈输出 (step 05b, 与 05/05a 并列但范式不同)
+            ├── segmented_image.ply        #   人体高斯网格 (canonical pose, MeshLab 看)
+            ├── segmented_image_anim.mp4   #   旋转动画 (5b-2 跑了才有)
+            └── custom_motion/             #   从视频提取的 SMPL-X 动作 (EXTRACT_MOTION=1 时)
 ```
 
 ## Notes

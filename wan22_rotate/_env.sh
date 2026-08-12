@@ -91,6 +91,15 @@ GS2D_DIR="${GS2D_DIR:-$REPO_DIR/../2d-gaussian-splatting}"
 # + tetra-triangulation 两个扩展)
 GOF_DIR="${GOF_DIR:-$REPO_DIR/../gaussian-opacity-fields}"
 
+# LHM (step 05b — feed-forward 单图人体高斯重建, ICCV 2025)。
+# 与 05/05a 的"多视图逐场景优化"不同: LHM 从单张正面图前馈出可动画人体高斯 + 网格。
+# ⚠️ 用独立 conda env (默认 `lhm`, torch 2.3.0), 与 wan22_rotate 的 torch 2.6.0 不兼容;
+#    05b_lhm_recon.sh 在 source 本文件前设 CONDA_ENV=lhm 切换。
+# 权重放到 $LHM_MODEL_DIR (= $WAN_MODEL_DIR/LHM), 通过软链 $LHM_DIR/pretrained_models
+# 暴露给 LHM (其代码用相对 ./pretrained_models/ 读权重, 由 00_setup_env.sh 建链)。
+LHM_DIR="${LHM_DIR:-$REPO_DIR/../LHM}"
+LHM_MODEL_DIR="${LHM_MODEL_DIR:-$WAN_MODEL_DIR/LHM}"
+
 # MediaPipe (step 01c — Tasks API model file, for mediapipe >= 1.0)
 export MP_MODEL_PATH="${MP_MODEL_PATH:-$WAN_MODEL_DIR/mediapipe/face_landmarker.task}"
 
@@ -103,4 +112,4 @@ fi
 # Output dir (outside the repo, like wan22_results / wan22_experiments).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../wan22_rotate_results}"
 
-export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR GS2D_DIR GOF_DIR RESULTS_DIR
+export REPO_DIR SAM3D_DIR SAM3D_MODEL_DIR SAM2_DIR DIFFSYNTH_DIR WAN_MODEL_DIR GS2D_DIR GOF_DIR LHM_DIR LHM_MODEL_DIR RESULTS_DIR

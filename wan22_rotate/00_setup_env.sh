@@ -513,6 +513,262 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         fi
     fi
 
+    # 0k. LHM (step 05b — feed-forward 单图人体高斯重建, ICCV 2025)。
+    #     与 05 (2DGS) / 05a (GOF) 并列, 但范式不同: 单张正面图 → 前馈网络 → 可动画人体高斯 + 网格。
+    #     ⚠️ 用独立 conda env `lhm` (torch 2.3.0, numpy 1.23.0), 与 wan22_rotate 的
+    #        torch 2.6.0 / numpy 1.26.4 不兼容——必须在独立 env 里装。
+    #     流程: 建 lhm env → 装 torch 2.3.0+cu121 + xformers + requirements → 装 LHM 改版
+    #     sam2 + ashawkey diff-gaussian-rasterization + simple-knn + pytorch3d →
+    #     clone LHM 仓 → 软链 pretrained_models → 下 prior_model + LHM 权重。
+    #     结束后切回 wan22_rotate env (本块下面的 numpy 钉版本 + verify 都在 wan22_rotate)。
+    if [ "${INSTALL_LHM:-0}" = "1" ]; then
+        echo "--- setting up LHM (step 05b, separate env 'lhm') ---"
+        LHM_ENV="lhm"
+        # 1) 建 lhm env (CPython 3.10, 匹配 LHM 的 cp310 轮子 / 源码编译)
+        if ! conda env list 2>/dev/null | grep -qw "$LHM_ENV"; then
+            echo "  creating conda env '$LHM_ENV' (python=3.10)"
+            conda create -n "$LHM_ENV" python=3.10 -y
+        fi
+        # 切到 lhm env 做安装 (CONDA_ENV 仍 = wan22_rotate, 块尾切回)
+        conda activate "$LHM_ENV"
+        impl_lhm="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
+        if [ "$impl_lhm" != "CPython" ]; then
+            echo "  ⚠️ lhm env python 实现是 $impl_lhm (应为 CPython), 修复..." >&2
+            conda install -y -c defaults python=3.10 --force-reinstall
+        fi
+        echo "  lhm env: python=$(python --version 2>&1 | cut -d' ' -f2)"
+
+        # 2) torch 2.3.0+cu121 (PyPI 默认即 cu121 轮子, 不走 download.pytorch.org——代理封 403)
+        #    本仓 torch 2.6 轮子是 cp310 但 LHM 钉 torch 2.3.0, 不能复用。
+        echo "  installing torch 2.3.0 + torchvision 0.18.0 + torchaudio 2.3.0 (cu121, from PyPI)"
+        pip install "${PIP_FLAGS[@]}" torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 || \
+            echo "  ⚠️ torch 2.3.0 install failed (PyPI/代理?), 手动: pip install torch==2.3.0 ..." >&2
+        # xformers (LHM INSTALL.md step 2; PyPI 的 0.0.26.post1 匹配 torch 2.3.0+cu121)
+        echo "  installing xformers==0.0.26.post1"
+        pip install "${PIP_FLAGS[@]}" xformers==0.0.26.post1 || \
+            echo "  ⚠️ xformers install failed; LHM 部分算子可能回退到 torch attention" >&2
+
+        # 3) LHM requirements.txt 依赖 (torch/numpy 已装, 这里装其余)
+        #    ⚠️ LHM 钉 numpy==1.23.0, 与 wan22_rotate 的 1.26.4 不同——这就是要独立 env 的原因。
+        echo "  installing LHM requirements.txt deps"
+        pip install "${PIP_FLAGS[@]}" \
+            einops roma accelerate smplx chumpy decord==0.6.0 \
+            diffusers==0.32.0 dna==0.0.1 imageio==2.34.1 imageio-ffmpeg \
+            jaxtyping==0.2.38 kiui==0.2.14 kornia==0.7.2 loguru==0.7.3 \
+            lpips==0.1.4 matplotlib==3.5.3 megfile==4.1.0.post2 \
+            numpy==1.23.0 omegaconf==2.3.0 open3d==0.19.0 opencv-python \
+            opencv-python-headless Pillow==10.4.0 plyfile pygltflib==1.16.2 \
+            pyrender==0.1.45 PyYAML==6.0.1 rembg==2.0.63 Requests==2.32.3 \
+            scipy spaces setuptools==74.0.0 \
+            taming_transformers_rom1504==0.0.6 timm==1.0.15 tqdm==4.66.4 \
+            transformers==4.41.2 trimesh==4.4.9 typeguard==2.13.3 xatlas==0.0.9 || \
+            echo "  ⚠️ 部分 requirements 安装失败 (上面有 WARNING), 继续装其余" >&2
+
+        # 4) basicsr 从源码装 (requirements 的 basicsr==1.4.2 和 torchvision 冲突, 走源码)
+        echo "  installing basicsr from source (XPixelGroup/BasicSR)"
+        pip uninstall -y basicsr 2>/dev/null || true
+        pip install "${PIP_FLAGS[@]}" "git+https://github.com/XPixelGroup/BasicSR.git" || \
+            LD_LIBRARY_PATH= pip install "${PIP_FLAGS[@]}" \
+                "git+https://github.com/XPixelGroup/BasicSR.git" || \
+            echo "  ⚠️ basicsr 源码安装失败; app/animation 可能受影响" >&2
+
+        # 5) LHM 改版 sam2 (hitsz-zuoqi/sam2, 非官方 facebookresearch/sam2)。
+        #    手动 clone 再 pip install -e (LD_LIBRARY_PATH= 防 conda libffi 冲突让 git 卡住)。
+        SAM2_LHM_DIR="${SAM2_LHM_DIR:-$REPO_DIR/../sam2_lhm}"
+        if [ ! -d "$SAM2_LHM_DIR/.git" ]; then
+            echo "  cloning LHM-modified sam2 -> $SAM2_LHM_DIR"
+            mkdir -p "$(dirname "$SAM2_LHM_DIR")"
+            LD_LIBRARY_PATH= git clone https://github.com/hitsz-zuoqi/sam2.git "$SAM2_LHM_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/hitsz-zuoqi/sam2.git "$SAM2_LHM_DIR"
+        fi
+        pip install "${PIP_FLAGS[@]}" -e "$SAM2_LHM_DIR" || \
+            echo "  ⚠️ LHM sam2 install failed; LHM 会回退到 rembg 抠背景 (质量略降)" >&2
+
+        # 6) 装 gxx 12 (编 CUDA 扩展要的; python=3.10 pin 防 GraalPy 掉包, --no-update-deps)
+        echo "  installing gxx_linux-64=12 into lhm env (for CUDA ext compile)"
+        conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10 || \
+            echo "  ⚠️ gxx install failed; 用系统 gcc 编 CUDA 扩展可能失败" >&2
+        impl_lhm2="$(python -c 'import platform; print(platform.python_implementation())' 2>/dev/null || echo unknown)"
+        if [ "$impl_lhm2" != "CPython" ]; then
+            echo "  ⚠️ gxx 把 lhm python 掉包成 $impl_lhm2, 修复..." >&2
+            conda install -y -c defaults python=3.10 --force-reinstall
+            pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.23.0
+        fi
+        export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
+        export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+
+        # 7) CUDA toolkit 路径 (auto-detect cuda-12.x; /usr/local/cuda 可能是 11.8)
+        export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+        if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+            _nvcc_ver="$($CUDA_HOME/bin/nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+' || echo '')"
+            echo "  nvcc: ${_nvcc_ver:-unknown} at $CUDA_HOME"
+            export PATH="$CUDA_HOME/bin:$PATH"
+        else
+            echo "  ⚠️ nvcc not found at $CUDA_HOME/bin/nvcc — LHM CUDA exts NOT built." >&2
+        fi
+
+        # 8) diff-gaussian-rasterization (ashawkey 改版, 不同于 GOF 的 graphdeco-inria 版)。
+        #    LHM INSTALL.md step 5: 用 ashawkey/diff-gaussian-rasterization (含修改)。
+        DGR_LHM_DIR="${DGR_LHM_DIR:-$REPO_DIR/../diff-gaussian-rasterization_lhm}"
+        if [ ! -d "$DGR_LHM_DIR/.git" ]; then
+            echo "  cloning ashawkey diff-gaussian-rasterization -> $DGR_LHM_DIR"
+            mkdir -p "$(dirname "$DGR_LHM_DIR")"
+            LD_LIBRARY_PATH= git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization.git "$DGR_LHM_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone --recursive \
+                https://github.com/ashawkey/diff-gaussian-rasterization.git "$DGR_LHM_DIR"
+        fi
+        if [ -f "$DGR_LHM_DIR/setup.py" ] || [ -f "$DGR_LHM_DIR/pyproject.toml" ]; then
+            echo "  building diff-gaussian-rasterization (LHM 改版)"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps "$DGR_LHM_DIR" || \
+                echo "  ⚠️ diff-gaussian-rasterization build failed (nvcc/gcc 版本?)" >&2
+        fi
+        # simple-knn (camenduru 版, LHM INSTALL.md 指定)
+        SK_LHM_DIR="${SK_LHM_DIR:-$REPO_DIR/../simple-knn_lhm}"
+        if [ ! -d "$SK_LHM_DIR/.git" ]; then
+            echo "  cloning simple-knn (camenduru) -> $SK_LHM_DIR"
+            mkdir -p "$(dirname "$SK_LHM_DIR")"
+            LD_LIBRARY_PATH= git clone https://github.com/camenduru/simple-knn.git "$SK_LHM_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/camenduru/simple-knn.git "$SK_LHM_DIR"
+        fi
+        if [ -f "$SK_LHM_DIR/setup.py" ] || [ -f "$SK_LHM_DIR/pyproject.toml" ]; then
+            echo "  building simple-knn"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps "$SK_LHM_DIR" || \
+                echo "  ⚠️ simple-knn build failed" >&2
+        fi
+
+        # 9) pytorch3d (INSTALL.md step 6; mesh 导出 + 某些几何算子用)。
+        #    先装 fvcore + iopath (依赖), 再试预编译轮子, 失败则源码编译。
+        echo "  installing pytorch3d deps (fvcore, iopath)"
+        pip install "${PIP_FLAGS[@]}" fvcore iopath || true
+        echo "  installing pytorch3d (try wheel, fallback to source)"
+        if ! pip install "${PIP_FLAGS[@]}" --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.6" 2>/dev/null; then
+            LD_LIBRARY_PATH= pip install "${PIP_FLAGS[@]}" --no-build-isolation \
+                "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.6" || \
+                echo "  ⚠️ pytorch3d build failed (mesh 导出可能受影响); " \
+                     "手动: 见 https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md" >&2
+        fi
+
+        # 10) clone LHM 仓 + 软链 pretrained_models -> $LHM_MODEL_DIR (权重统一放 model/)
+        if [ ! -d "$LHM_DIR/.git" ]; then
+            echo "  cloning LHM -> $LHM_DIR"
+            mkdir -p "$(dirname "$LHM_DIR")"
+            LD_LIBRARY_PATH= git clone https://github.com/aigc3d/LHM.git "$LHM_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/aigc3d/LHM.git "$LHM_DIR"
+        fi
+        mkdir -p "$LHM_MODEL_DIR"
+        # LHM 代码用相对 ./pretrained_models/ 读权重; 软链到共享 model/LHM (不复制)
+        if [ ! -e "$LHM_DIR/pretrained_models" ]; then
+            ln -sfn "$LHM_MODEL_DIR" "$LHM_DIR/pretrained_models"
+        elif [ -L "$LHM_DIR/pretrained_models" ]; then
+            ln -sfn "$LHM_MODEL_DIR" "$LHM_DIR/pretrained_models"
+        else
+            echo "  ⚠️ $LHM_DIR/pretrained_models 已存在且非软链, 不覆盖 (权重可能已在仓内)" >&2
+        fi
+
+        # 11) 下 prior_model (SMPL-X / sapiens / sam2 / gagatracker / dense_sample_points 等)。
+        #     OSS bucket (virutalbuy-public.oss-...), 一般不被代理封; 解压到 $LHM_MODEL_DIR。
+        OSS_BASE="https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM"
+        if [ ! -d "$LHM_MODEL_DIR/human_model_files" ] && \
+           [ ! -f "$LHM_MODEL_DIR/.prior_extracted" ]; then
+            echo "  downloading LHM prior models (LHM_prior_model.tar, ~?GB from OSS)"
+            _tar="$LHM_MODEL_DIR/LHM_prior_model.tar"
+            wget --no-check-certificate -c -O "$_tar" "$OSS_BASE/LHM_prior_model.tar" || \
+                echo "  ⚠️ prior_model 下载失败 (OSS 被封?); 手动: wget -O $_tar $OSS_BASE/LHM_prior_model.tar" >&2
+            if [ -f "$_tar" ]; then
+                echo "  extracting LHM_prior_model.tar -> $LHM_MODEL_DIR"
+                tar -xf "$_tar" -C "$LHM_MODEL_DIR" && touch "$LHM_MODEL_DIR/.prior_extracted"
+                # tar 解压出 ./pretrained_models/* ; 移到 $LHM_MODEL_DIR 根 (软链指向这里)
+                if [ -d "$LHM_MODEL_DIR/pretrained_models" ]; then
+                    cp -rn "$LHM_MODEL_DIR/pretrained_models/." "$LHM_MODEL_DIR/" 2>/dev/null || true
+                fi
+            fi
+        else
+            echo "  [OK] LHM prior models already present at $LHM_MODEL_DIR"
+        fi
+
+        # 12) 下 LHM 主权重 (默认 LHM-500M-HF; HF repo 3DAIGC/LHM-500M-HF)。
+        #     ⚠️ _env.sh 设了 HF_HUB_OFFLINE=1 防联网报错; 下载时临时关掉。
+        #     HF 被代理封则试 ModelScope (Damo_XR_Lab/LHM-500M-HF), 都不行给手动指令。
+        LHM_MODEL_NAME="${LHM_MODEL_NAME:-LHM-500M-HF}"
+        LHM_HF_DIR="$LHM_MODEL_DIR/huggingface"
+        mkdir -p "$LHM_HF_DIR"
+        echo "  downloading LHM model '$LHM_MODEL_NAME' (HF 3DAIGC/$LHM_MODEL_NAME)"
+        if [ ! -d "$LHM_HF_DIR/models--3DAIGC--$(echo "$LHM_MODEL_NAME" | sed 's/-/_/g')" ]; then
+            HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id='3DAIGC/${LHM_MODEL_NAME}', cache_dir='${LHM_HF_DIR}')
+print('  [OK] HF download done')
+" 2>&1 || {
+                echo "  ⚠️ HF 下载失败 (代理封 huggingface.co?), 试 ModelScope..." >&2
+                pip install "${PIP_FLAGS[@]}" modelscope 2>/dev/null || true
+                python -c "
+from modelscope import snapshot_download
+snapshot_download(model_id='Damo_XR_Lab/${LHM_MODEL_NAME}', cache_dir='${LHM_HF_DIR}')
+print('  [OK] ModelScope download done')
+" 2>&1 || {
+                    echo "  ⚠️ ModelScope 也失败。手动下载:" >&2
+                    echo "    HF:      https://huggingface.co/3DAIGC/${LHM_MODEL_NAME}" >&2
+                    echo "    ModelScope: https://modelscope.cn/models/Damo_XR_Lab/${LHM_MODEL_NAME}" >&2
+                    echo "    放到 $LHM_HF_DIR/ (snapshot_download 的 cache 结构)" >&2
+                }
+            }
+        else
+            echo "  [OK] LHM model '$LHM_MODEL_NAME' already present"
+        fi
+
+        # 13) (可选) 下 motion 示例 (animation 用; mesh 导出不需要)。
+        if [ "${LHM_DOWNLOAD_MOTION:-0}" = "1" ]; then
+            echo "  downloading LHM motion examples (motion_video.tar)"
+            if [ ! -d "$LHM_DIR/train_data/motion_video" ]; then
+                _mtar="$LHM_DIR/train_data/motion_video.tar"
+                mkdir -p "$(dirname "$_mtar")"
+                wget --no-check-certificate -c -O "$_mtar" "$OSS_BASE/motion_video.tar" || \
+                    echo "  ⚠️ motion_video 下载失败 (可选, 仅 animation 用)" >&2
+                [ -f "$_mtar" ] && tar -xf "$_mtar" -C "$LHM_DIR/train_data/" 2>/dev/null || true
+            fi
+        fi
+
+        # 14) (可选) 下 video2motion 权重 (从 rotate_360.mp4 提取 SMPL-X 动作用)。
+        if [ "${LHM_DOWNLOAD_POSE:-0}" = "1" ]; then
+            echo "  downloading yolov8x + vitpose (video2motion 用, 可选)"
+            _pe="$LHM_MODEL_DIR/human_model_files/pose_estimate"
+            mkdir -p "$_pe"
+            [ -f "$_pe/yolov8x.pt" ] || \
+                wget --no-check-certificate -c -O "$_pe/yolov8x.pt" \
+                "$OSS_BASE/yolov8x.pt" || echo "  ⚠️ yolov8x 下载失败" >&2
+            [ -f "$_pe/vitpose-h-wholebody.pth" ] || \
+                wget --no-check-certificate -c -O "$_pe/vitpose-h-wholebody.pth" \
+                "https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/vitpose-h-wholebody.pth" \
+                || echo "  ⚠️ vitpose 下载失败" >&2
+            # video2motion 还需 mmcv==1.3.9 + ultralytics + ViTPose
+            pip install "${PIP_FLAGS[@]}" mmcv==1.3.9 ultralytics || \
+                echo "  ⚠️ mmcv/ultralytics 装失败 (video2motion 用)" >&2
+            VITPOSE_DIR="${VITPOSE_DIR:-$REPO_DIR/../ViTPose_lhm}"
+            if [ ! -d "$VITPOSE_DIR/.git" ]; then
+                LD_LIBRARY_PATH= git clone https://github.com/ViTAE-Transformer/ViTPose.git "$VITPOSE_DIR" || \
+                    LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/ViTAE-Transformer/ViTPose.git "$VITPOSE_DIR"
+            fi
+            pip install "${PIP_FLAGS[@]}" -v -e "$VITPOSE_DIR/third-party/ViTPose" 2>/dev/null || \
+                echo "  ⚠️ ViTPose 安装失败 (mmcv 版本冲突常见)" >&2
+        fi
+
+        # 15) verify LHM imports + 回到 wan22_rotate env
+        echo "  --- verify LHM imports ---"
+        python -c "import torch; print('  torch', torch.__version__, 'cuda', torch.version.cuda)" 2>/dev/null
+        python -c "import numpy; print('  numpy', numpy.__version__)" 2>/dev/null
+        python -c "import diff_gaussian_rasterization; print('  [OK] diff_gaussian_rasterization')" 2>/dev/null || \
+            echo "  [MISS] diff_gaussian_rasterization" >&2
+        python -c "import simple_knn; print('  [OK] simple_knn')" 2>/dev/null || \
+            echo "  [MISS] simple_knn" >&2
+        python -c "import pytorch3d; print('  [OK] pytorch3d')" 2>/dev/null || \
+            echo "  [MISS] pytorch3d (mesh 导出可能受影响)" >&2
+        python -c "from sam2 import build_sam2; print('  [OK] sam2 (LHM 改版)')" 2>/dev/null || \
+            echo "  [MISS] sam2 (LHM 会回退到 rembg)" >&2
+        # 切回 wan22_rotate (下面的 numpy 钉版本 + verify 都在 wan22_rotate env)
+        conda activate "$CONDA_ENV"
+        echo "  restored env: $CONDA_ENV"
+    fi
+
     # 最后钉 numpy + setuptools——前面装的依赖会把 numpy 升到 2.x（detectron2 不兼容），
     # setuptools>=70 去掉了 pkg_resources（detectron2 model_zoo 要用）
     echo "--- pinning numpy==1.26.4 + setuptools==69.5.1 ---"
@@ -603,6 +859,41 @@ if [ "${INSTALL_GOF:-0}" = "1" ] || python -c "import diff_gaussian_rasterizatio
             echo "  [OK] GOF repo + CUDA exts (tetra-triangulation NOT built — mesh extraction won't work)" >&2
             echo "      Re-run: INSTALL_DEPS=1 INSTALL_GOF=1 bash $0" >&2
         fi
+    fi
+fi
+
+# --- 5d. verify LHM (step 05b, 独立 lhm env; 用 conda run 不切 env) ---
+if [ "${INSTALL_LHM:-0}" = "1" ] || conda run -n lhm python -c "import diff_gaussian_rasterization" 2>/dev/null; then
+    echo "--- [5d] verify LHM (step 05b, env 'lhm') ---"
+    if [ ! -d "$LHM_DIR" ]; then
+        echo "  [MISS] LHM repo — Run: INSTALL_DEPS=1 INSTALL_LHM=1 bash $0" >&2
+    elif ! conda env list 2>/dev/null | grep -qw "lhm"; then
+        echo "  [MISS] lhm conda env — Run: INSTALL_DEPS=1 INSTALL_LHM=1 bash $0" >&2
+    else
+        _ok_lhm=1
+        conda run -n lhm python -c "import torch,numpy; print('  torch',torch.__version__,'numpy',numpy.__version__)" 2>/dev/null || _ok_lhm=0
+        conda run -n lhm python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] LHM CUDA exts')" 2>/dev/null || {
+            echo "  [MISS] LHM CUDA exts (diff_gaussian_rasterization / simple_knn)" >&2
+            echo "         Run: INSTALL_DEPS=1 INSTALL_LHM=1 bash $0" >&2
+            _ok_lhm=0
+        }
+        conda run -n lhm python -c "import pytorch3d; print('  [OK] pytorch3d')" 2>/dev/null || \
+            echo "  [MISS] pytorch3d (mesh 导出可能受影响)" >&2
+        conda run -n lhm python -c "from sam2 import build_sam2; print('  [OK] sam2 (LHM 改版)')" 2>/dev/null || \
+            echo "  [MISS] sam2 (LHM 会回退到 rembg 抠背景, 质量略降)" >&2
+        # 权重: prior_model (human_model_files) + LHM 主模型 (huggingface/)
+        if [ ! -d "$LHM_MODEL_DIR/human_model_files" ]; then
+            echo "  [MISS] LHM prior models (human_model_files/) at $LHM_MODEL_DIR" >&2
+            echo "         Re-run: INSTALL_DEPS=1 INSTALL_LHM=1 bash $0  (or手动下 LHM_prior_model.tar)" >&2
+            _ok_lhm=0
+        fi
+        if [ ! -d "$LHM_MODEL_DIR/huggingface" ] || \
+           [ -z "$(ls -d "$LHM_MODEL_DIR/huggingface/models--3DAIGC--"* 2>/dev/null)" ]; then
+            echo "  [MISS] LHM model weights at $LHM_MODEL_DIR/huggingface/" >&2
+            echo "         Re-run: INSTALL_DEPS=1 INSTALL_LHM=1 bash $0  (or手动下 3DAIGC/LHM-500M-HF)" >&2
+            _ok_lhm=0
+        fi
+        [ "$_ok_lhm" = "1" ] && echo "  [OK] LHM env + repo + weights ready"
     fi
 fi
 
