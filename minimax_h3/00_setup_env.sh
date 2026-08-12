@@ -42,13 +42,15 @@ PY
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
-    echo "📦 installing SGLang (pip install \"sglang[all]\") ---"
+    echo "📦 installing SGLang (pip install -U \"sglang[all]\") ---"
     python -m pip install --upgrade pip "${PIP_FLAGS[@]}"
-    python -m pip install "${PIP_FLAGS[@]}" "sglang[all]"
+    # -U 强制升级：SGLang Diffusion（--model-variant / --performance-mode 等参数）
+    # 是 2025/11 后新增，旧版 sglang 不认识这些参数会报 unrecognized arguments。
+    python -m pip install "${PIP_FLAGS[@]}" -U "sglang[all]"
     # Diffusion extra is explicit in the sglang docker image
     # (python -m pip install -e ...python[diffusion]); install it too as a
     # no-op-ish safety net in case [all] didn't pin the diffusion deps.
-    python -m pip install "${PIP_FLAGS[@]}" "sglang[diffusion]" || \
+    python -m pip install "${PIP_FLAGS[@]}" -U "sglang[diffusion]" || \
         echo "    (sglang[diffusion] extra not separately installable — assume [all] covers it)"
     # sglang diffusion 链路 diffusers→peft→transformers 三者版本须一致。克隆 doll
     # 这类已有 env 时，pip 可能不升级里面旧的 transformers（满足 sglang 下界就跳过），
@@ -79,6 +81,16 @@ print(f"sglang: {getattr(sglang, '__version__', 'unknown')}  HybridCache: ok")
 PY
 else
     echo "⚠️ WARNING: sglang/HybridCache not importable in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh." >&2
+fi
+
+# 自检 sglang serve 是否支持 MiniMax-H3 的 diffusion 参数（--model-variant / --performance-mode）。
+# 旧版 sglang 不带 SGLang Diffusion（2025/11 后新增），会报 unrecognized arguments。
+echo "🔍 [00] Checking SGLang Diffusion args (--model-variant) ==="
+if sglang serve --help 2>&1 | grep -q -- '--model-variant'; then
+    echo "✅ sglang serve supports --model-variant (Diffusion ok)"
+else
+    echo "❌ ERROR: sglang serve does NOT recognize --model-variant — sglang too old (need >=2025/11 Diffusion build)." >&2
+    echo "   Fix: pip install -U \"sglang[all]\"  (then rerun INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh)" >&2
 fi
 
 echo "🎉 [00] Done. Env '$CONDA_ENV' ready. (Missing sglang? INSTALL_DEPS=1 bash this)"
