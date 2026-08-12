@@ -297,6 +297,7 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 > - `huggingface_hub` 旧版缺 `is_offline_mode`，与 transformers 5.x 不兼容，必须一起升。
 > - `xgrammar>=0.2.1`（sglang git main 用了 `AnyTokensFormat` 等新 API）。
 > - **qwen3_asr 热修**：sglang git main 的 `sglang/srt/configs/qwen3_asr.py` 用 `AutoConfig.register("qwen3_asr", ...)` 没传 `exist_ok=True`，transformers 5.12+ 内置同名配置会报 `ValueError: 'qwen3_asr' is already used`。00 在 editable install 后自动用 python 脚本给两处 register 加 `try/except + exist_ok=True`（检测 `exist_ok` 已在文件里则跳过）。手动修：`python -c "import pathlib; p=pathlib.Path('/tmp/sglang-src/python/sglang/srt/configs/qwen3_asr.py'); s=p.read_text(); s=s.replace('AutoConfig.register(\"qwen3_asr\", Qwen3ASRConfig)', 'try:\n    AutoConfig.register(\"qwen3_asr\", Qwen3ASRConfig, exist_ok=True)\nexcept ValueError:\n    pass'); p.write_text(s)"`
+> - **`requires ... which is not installed` 警告正常**：用 `--no-deps` 装 sglang git main，它 pin 的是 `torch==2.13.0`/`cuda-python>=13.0`（CUDA 13）等依赖，而当前 env 是 torch 2.x cu124（CUDA 12.4）。pip 会打印 `sglang 0.x requires torch==2.13.0, but you have torch 2.x which does not match` 之类的警告——**这是预期的，不影响 MiniMax-H3 推理**。sglang 的 diffusion serving 代码不依赖 torch 2.13 新特性，cu124 的 torch 能正常跑。
 
 **9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。
