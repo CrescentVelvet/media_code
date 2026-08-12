@@ -20,13 +20,19 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01_pick_and_segment.sh
 
-# 1b) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
+# 1b) 用 SAM2 分割器（需提前放好 sam2 仓库 + checkpoint）
+GPU=0 SEGMENTOR_PATH=../sam2 \
+  INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+  RESULTS_DIR=../../output/wan22_rotate_results \
+  bash wan22_rotate/01_pick_and_segment.sh
+
+# 1c) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01b_pick_and_segment.sh
 
-# 1c) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
-#     比 01b 更能锁定"正面"（01b 选面积最大, 可能选到侧面）; 比 01 快很多（不用 3D body 模型）
+# 1d) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
+#     比 01c 更能锁定"正面"（01b 选面积最大, 可能选到侧面）; 比 01 快很多（不用 3D body 模型）
 #     仅选图不分割: SKIP_SEGMENTATION=1（快速看哪帧是正面）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
@@ -38,12 +44,15 @@ GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered
   WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
   RESULTS_DIR=../../output/wan22_rotate_results \
+  PROMPT="Rotate the object in a stationary scene while keeping the background unchanged" \
+  HEIGHT=1248 WIDTH=706 NUM_FRAMES=81 SEED=42 FPS=15 \
   bash wan22_rotate/02_generate_video.sh
 
 # 3) 拆分视频为 JPG 帧（输出到 <视频同名>/image/，匹配 INPUT_DIR/image/ 模式）
 #    默认抽每一帧（FPS=0）；指定 FPS 则按该 fps 采样
 GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
+  FPS=0 \
   bash wan22_rotate/03_extract_frames.sh
 
 # 输出结构：
@@ -93,34 +102,6 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 #   model_gof/point_cloud/iteration_<N>/point_cloud.ply             GOF 高斯点云
 #   model_gof/test/ours_<N>/test_preds_1/*.png                     GOF 渲染图（新视角）
 #   model_gof/test/ours_<N>/fusion/mesh_binary_search_7.ply         GOF 网格 (Marching Tetrahedra)
-
-# ── 自定义 ──
-# 换 prompt / 分辨率 / 帧数（portrait 默认 1248×704；landscape 用 704×1248）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  PROMPT="人物360度旋转展示，高质量。" \
-  HEIGHT=1248 WIDTH=706 NUM_FRAMES=121 \
-  bash wan22_rotate/02_generate_video.sh
-
-# 跳过选图步骤，直接用已有图片生成视频
-GPU=0 \
-  SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
-  WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
-  WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/02_generate_video.sh
-
-# 选出的图是背面？翻转正面判定方向
-GPU=0 FRONTAL_SIGN=-1 \
-  INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/01_pick_and_segment.sh
-
-# 用 SAM2 分割器（需提前放好 sam2 仓库 + checkpoint）
-GPU=0 SEGMENTOR_PATH=../sam2 \
-  INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/01_pick_and_segment.sh
 ```
 
 - 结果：分割图 → `../wan22_rotate_results/segmented_image.png`；视频 → `../wan22_rotate_results/rotate_360.mp4`；JPG 帧 → `../wan22_rotate_results/rotate_360/image/*.jpg`；Pi3 位姿 → `../wan22_rotate_results/rotate_360/pi3/{predictions.npz,poses.json,dense_cloud.ply}`；调试信息 → `frontal_scores.csv` + `debug_mask.png`。
