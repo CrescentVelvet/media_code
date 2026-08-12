@@ -291,11 +291,12 @@ GPU=0,1 NUM_GPUS=2 MODEL_PATH=../../model/MiniMax-H3 \
 > ```
 > 末尾看是否 `✅ sglang serve now supports --model-variant`。仍失败手动：`LD_LIBRARY_PATH= git clone --depth 1 https://github.com/sgl-project/sglang.git /tmp/sglang-src && SGLANG_BUILD_RUST_EXTS=none pip install -e "/tmp/sglang-src/python[diffusion]" --no-deps --config-settings editable_mode=compat`。
 > 若 editable 安装报 `cargo is required to discover the Rust extension modules`：设 `SGLANG_BUILD_RUST_EXTS=none` 跳过 Rust 扩展（00 已自动设）；运行时若报 Rust 相关错误再装工具链：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env`。
-> **依赖对齐**（sglang git main pin `transformers==5.12.1`）：00 自动 `-U diffusers peft transformers huggingface_hub xgrammar`。注意：
-> - transformers 5.x 重命名 `PreTrainedConfig→PretrainedConfig`，sglang git main 已适配新名，**不要降级到 4.x**（会报 `cannot import name 'PreTrainedConfig'`）。
+> **依赖对齐**（sglang git main pin `transformers==5.12.1`）：00 自动 `-U diffusers peft "transformers==5.12.1" huggingface_hub xgrammar`。注意：
+> - transformers **必须 pin `==5.12.1`**：不带版本 pip 会升到 5.15+，5.15 内置 `qwen3_asr` 与 sglang 注册冲突；4.x 缺 `PreTrainedConfig`（sglang 用了 5.x 新名 `PretrainedConfig`）。
 > - `HybridCache` 在 5.x 已移除（用 `DynamicCache`），sglang 不依赖它，00 已去掉自检。
 > - `huggingface_hub` 旧版缺 `is_offline_mode`，与 transformers 5.x 不兼容，必须一起升。
 > - `xgrammar>=0.2.1`（sglang git main 用了 `AnyTokensFormat` 等新 API）。
+> - **qwen3_asr 热修**：sglang git main 的 `sglang/srt/configs/qwen3_asr.py` 用 `AutoConfig.register("qwen3_asr", ...)` 没传 `exist_ok=True`，transformers 5.12+ 内置同名配置会报 `ValueError: 'qwen3_asr' is already used`。00 在 editable install 后自动用 python 脚本给两处 register 加 `try/except + exist_ok=True`（检测 `exist_ok` 已在文件里则跳过）。手动修：`python -c "import pathlib; p=pathlib.Path('/tmp/sglang-src/python/sglang/srt/configs/qwen3_asr.py'); s=p.read_text(); s=s.replace('AutoConfig.register(\"qwen3_asr\", Qwen3ASRConfig)', 'try:\n    AutoConfig.register(\"qwen3_asr\", Qwen3ASRConfig, exist_ok=True)\nexcept ValueError:\n    pass'); p.write_text(s)"`
 
 **9. `02_serve.sh` 后台模式一直 `not ready`**
 看 `../MiniMax-H3/logs/serve_<variant>_<port>.log` 末尾：常见是权重路径错（`model_index.json` 缺 → 重跑 `01`）、CUDA/torch 不匹配、或多卡初始化卡住。脚本会在进程死掉时自动 `tail -n 40` 报错。健康检查超时可 `HEALTH_TIMEOUT_MINS=60 bash minimax_h3/02_serve.sh` 放宽。

@@ -58,7 +58,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # 已适配新名；如果降级到 4.x 会报 `cannot import name 'PreTrainedConfig'`。
     # HybridCache 在 5.x 中已移除（用 DynamicCache 替代），sglang 内部不依赖它。
     echo "📦 aligning diffusers/peft/transformers ---"
-    python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers
+    python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft "transformers==5.12.1"
     # huggingface_hub 版本须与 transformers 5.x 兼容（旧版缺 is_offline_mode 等 API）。
     python -m pip install "${PIP_FLAGS[@]}" -U huggingface_hub
     echo "📦 installed. Verify with: python -c 'import sglang; print(\"ok\")'"
@@ -101,11 +101,31 @@ else
         # 源码目录到 sys.path，Python 直接遍历子目录，所有子包都能 import。
         SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python[diffusion]" --no-deps --config-settings editable_mode=compat || \
             SGLANG_BUILD_RUST_EXTS=none python -m pip install "${PIP_FLAGS[@]}" -e "$SGLANG_SRC/python" --no-deps --config-settings editable_mode=compat
+        # 修复 sglang git main 的 qwen3_asr 重复注册（transformers 5.12+ 内置同名配置，
+        # sglang 代码 AutoConfig.register 没 exist_ok=True 会报 ValueError）。
+        QWEN3_ASR_PY="$SGLANG_SRC/python/sglang/srt/configs/qwen3_asr.py"
+        if [ -f "$QWEN3_ASR_PY" ] && ! grep -q 'exist_ok=True' "$QWEN3_ASR_PY"; then
+            QWEN3_ASR_PY="$QWEN3_ASR_PY" python - <<'PYEOF'
+import os, pathlib
+p = pathlib.Path(os.environ["QWEN3_ASR_PY"])
+s = p.read_text()
+s = s.replace(
+    'AutoConfig.register("qwen3_asr", Qwen3ASRConfig)',
+    'try:\n    AutoConfig.register("qwen3_asr", Qwen3ASRConfig, exist_ok=True)\nexcept ValueError:\n    pass'
+)
+s = s.replace(
+    'AutoConfig.register("qwen3_asr_thinker", Qwen3ASRThinkerConfig)',
+    'try:\n    AutoConfig.register("qwen3_asr_thinker", Qwen3ASRThinkerConfig, exist_ok=True)\nexcept ValueError:\n    pass'
+)
+p.write_text(s)
+print("    ✅ patched qwen3_asr.py (exist_ok=True)")
+PYEOF
+        fi
         # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐。
-        # sglang git main pin transformers==5.12.1，5.x 重命名 PreTrainedConfig→PretrainedConfig，
-        # 降级到 4.x 会报 import 错误。huggingface_hub 须与 transformers 5.x 配套。
+        # transformers 须 pin ==5.12.1（5.15+ 有 qwen3_asr 重复注册冲突；4.x 缺 PreTrainedConfig）。
+        # huggingface_hub 须与 transformers 5.x 配套（旧版缺 is_offline_mode）。
         # xgrammar 须 >=0.2.1（sglang git main 用了 AnyTokensFormat 等新 API）。
-        python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft transformers huggingface_hub xgrammar
+        python -m pip install "${PIP_FLAGS[@]}" -U diffusers peft "transformers==5.12.1" huggingface_hub xgrammar
     else
         echo "❌ ERROR: clone sglang repo failed. Manual: LD_LIBRARY_PATH= git clone https://github.com/sgl-project/sglang.git $SGLANG_SRC && SGLANG_BUILD_RUST_EXTS=none pip install -e \"$SGLANG_SRC/python[diffusion]\" --no-deps" >&2
     fi
