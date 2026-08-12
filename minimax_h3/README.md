@@ -89,6 +89,12 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 - 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
 - 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
 - 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
+- **停止服务 / 清残留**：任务失败后 worker 僵死（HTTP server 活着但不占显存，`grep sglang` 找不到因为进程名是 `python`），任务卡 `status=queue`。跑 `stop.sh` 按端口找 PID 自动 kill：
+  ```bash
+  bash minimax_h3/stop.sh                    # 默认 fl2va :30010
+  MODEL_VARIANT=ref2va bash minimax_h3/stop.sh   # ref2va :30011
+  ```
+  或重启时设 `AUTO_STOP=1` 让 02_serve.sh 自动清理残留再起。
 
 ## 首次准备
 ```bash

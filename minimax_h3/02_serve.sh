@@ -94,6 +94,19 @@ if ! command -v sglang >/dev/null 2>&1 && ! python -c "import sglang" 2>/dev/nul
     echo "❌ ERROR: sglang not installed in env '$CONDA_ENV'. Run INSTALL_DEPS=1 bash minimax_h3/00_setup_env.sh." >&2; exit 1
 fi
 
+# 检测端口是否被残留进程占（任务失败后 worker 僵死，HTTP server 还活着但不占显存）
+if command -v lsof >/dev/null 2>&1 && lsof -ti ":$PORT" 2>/dev/null | grep -q .; then
+    echo "⚠️ port $PORT already occupied by residual process (worker may be hung)" >&2
+    if [ "${AUTO_STOP:-0}" = "1" ]; then
+        echo "  AUTO_STOP=1, running stop.sh..." >&2
+        bash "$SCRIPT_DIR/stop.sh"
+    else
+        echo "  Run first: bash minimax_h3/stop.sh  (or: AUTO_STOP=1 bash minimax_h3/02_serve.sh)" >&2
+        echo "  Or force:  kill -9 \$(lsof -ti :$PORT)" >&2
+        exit 1
+    fi
+fi
+
 # --- build the flag list ---
 SERVE_ARGS=(
     --model-path "$MODEL_PATH"
