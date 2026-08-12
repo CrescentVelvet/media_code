@@ -105,21 +105,23 @@ else
         # sglang 代码 AutoConfig.register 没 exist_ok=True 会报 ValueError）。
         QWEN3_ASR_PY="$SGLANG_SRC/python/sglang/srt/configs/qwen3_asr.py"
         if [ -f "$QWEN3_ASR_PY" ] && ! grep -q 'exist_ok=True' "$QWEN3_ASR_PY"; then
-            QWEN3_ASR_PY="$QWEN3_ASR_PY" python - <<'PYEOF'
-import os, pathlib
-p = pathlib.Path(os.environ["QWEN3_ASR_PY"])
-s = p.read_text()
-s = s.replace(
+            python - "$QWEN3_ASR_PY" <<'PYFIX'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+content = content.replace(
     'AutoConfig.register("qwen3_asr", Qwen3ASRConfig)',
     'try:\n    AutoConfig.register("qwen3_asr", Qwen3ASRConfig, exist_ok=True)\nexcept ValueError:\n    pass'
 )
-s = s.replace(
+content = content.replace(
     'AutoConfig.register("qwen3_asr_thinker", Qwen3ASRThinkerConfig)',
     'try:\n    AutoConfig.register("qwen3_asr_thinker", Qwen3ASRThinkerConfig, exist_ok=True)\nexcept ValueError:\n    pass'
 )
-p.write_text(s)
-print("    ✅ patched qwen3_asr.py (exist_ok=True)")
-PYEOF
+with open(path, 'w') as f:
+    f.write(content)
+print(f"    ✅ patched {path} (exist_ok=True)")
+PYFIX
         fi
         # --no-deps 跳过了 [diffusion] extra 的依赖，单独对齐。
         # transformers 须 pin ==5.12.1（5.15+ 有 qwen3_asr 重复注册冲突；4.x 缺 PreTrainedConfig）。
