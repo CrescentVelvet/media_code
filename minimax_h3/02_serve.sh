@@ -29,6 +29,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
+# JIT kernel 编译需要 C++20（<concepts>），系统 g++ 9 不支持，导致 JIT 失败 →
+# worker 僵死 → 任务永远 queue。00_setup_env.sh 用 conda 装了 gxx_linux-64=12，
+# 优先用它；否则找系统的 g++-12/g++-11。设 CXX/CC 让 sglang JIT 用高版本 g++。
+if [ -z "${CXX:-}" ]; then
+    CONDA_GXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++"
+    CONDA_GCC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc"
+    if [ -x "$CONDA_GXX" ]; then
+        export CXX="$CONDA_GXX" CC="$CONDA_GCC"
+        echo "🎮 CXX=$CXX (conda g++ 12, C++20 JIT ok)"
+    elif command -v g++-12 >/dev/null 2>&1; then
+        export CXX=g++-12 CC=gcc-12
+        echo "🎮 CXX=g++-12 (C++20 JIT ok)"
+    elif command -v g++-11 >/dev/null 2>&1; then
+        export CXX=g++-11 CC=gcc-11
+        echo "🎮 CXX=g++-11 (C++20 JIT ok)"
+    else
+        echo "⚠️ no C++20-capable g++ found (need g++-11+); JIT kernel will fail → worker hang" >&2
+        echo "   Fix: conda install -y -c conda-forge gxx_linux-64=12 python=3.10" >&2
+    fi
+fi
+
+# 可选：清理 JIT 缓存（g++ 升级后旧失败产物可能残留，设 CLEAR_JIT_CACHE=1 清理）
+if [ "${CLEAR_JIT_CACHE:-0}" = "1" ]; then
+    echo "🧹 clearing JIT cache (~/.cache/tvm-ffi/sgl_kernel_jit_*)"
+    rm -rf ~/.cache/tvm-ffi/sgl_kernel_jit_* 2>/dev/null || true
+fi
+
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/MiniMax-H3}"
 MODEL_PATH="${MODEL_PATH:-$MODEL_DIR}"          # SGLang --model-path = HF snapshot root
 
