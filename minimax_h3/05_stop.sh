@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# stop.sh — kill 残留的 sglang serve 进程（按端口找，不依赖进程名）。
+# 05_stop.sh — kill 残留的 sglang serve 进程（按端口找，不依赖进程名）。
 #
 # 任务失败后 worker 僵死（HTTP server 还活着但不占显存），任务卡 status=queue。
 # 这时 grep sglang 找不到（进程名是 python 不是 sglang），nvidia-smi 也看不到
 # （不占显存）。最可靠是按端口找 PID：lsof -ti :PORT。
 #
 # Usage:
-#   bash minimax_h3/stop.sh                  # 默认 fl2va :30010
-#   MODEL_VARIANT=ref2va bash minimax_h3/stop.sh   # ref2va :30011
-#   PORT=30010 bash minimax_h3/stop.sh       # 指定端口
+#   bash minimax_h3/05_stop.sh                  # 默认 fl2va :30010
+#   MODEL_VARIANT=ref2va bash minimax_h3/05_stop.sh   # ref2va :30011
+#   PORT=30010 bash minimax_h3/05_stop.sh       # 指定端口
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

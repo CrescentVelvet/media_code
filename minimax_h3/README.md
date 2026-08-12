@@ -23,18 +23,18 @@ GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
   TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
   DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
   OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
-  bash minimax_h3/run.sh
+  bash minimax_h3/04_run.sh
 # I2VA 首帧生视频（FL2VA 变体，:30010）
 GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
   TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 \
   OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
-  bash minimax_h3/run.sh
+  bash minimax_h3/04_run.sh
 # Ref2VA 参考生成（变体 ref2va，端口 30011）
 GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va PORT=30011 \
   TASK=ref2va REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
   PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
   OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
-  bash minimax_h3/run.sh
+  bash minimax_h3/04_run.sh
 
 # ── 起服务（H3-Base 768p，长驻进程；服务占用 GPU，generate 是 HTTP 客户端不占）──
 # 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010，前台跑看日志
@@ -42,7 +42,7 @@ GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va PORT=30011 \
 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
   MODEL_PATH=../../model/MiniMax-H3 \
   bash minimax_h3/02_serve.sh
-# 1b) 后台起 + 等就绪（run.sh 自动用这种），前面参数照抄加 BG=1
+# 1b) 后台起 + 等就绪（04_run.sh 自动用这种），前面参数照抄加 BG=1
 GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
   MODEL_PATH=../../model/MiniMax-H3 \
   BG=1 bash minimax_h3/02_serve.sh
@@ -87,12 +87,12 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 ```
 
 - 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
-- 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
+- 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`04_run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
 - 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
-- **停止服务 / 清残留**：任务失败后 worker 僵死（HTTP server 活着但不占显存，`grep sglang` 找不到因为进程名是 `python`），任务卡 `status=queue`。跑 `stop.sh` 按端口找 PID 自动 kill：
+- **停止服务 / 清残留**：任务失败后 worker 僵死（HTTP server 活着但不占显存，`grep sglang` 找不到因为进程名是 `python`），任务卡 `status=queue`。跑 `05_stop.sh` 按端口找 PID 自动 kill：
   ```bash
-  bash minimax_h3/stop.sh                    # 默认 fl2va :30010
-  MODEL_VARIANT=ref2va bash minimax_h3/stop.sh   # ref2va :30011
+  bash minimax_h3/05_stop.sh                    # 默认 fl2va :30010
+  MODEL_VARIANT=ref2va bash minimax_h3/05_stop.sh   # ref2va :30011
   ```
   或重启时设 `AUTO_STOP=1` 让 02_serve.sh 自动清理残留再起。
 

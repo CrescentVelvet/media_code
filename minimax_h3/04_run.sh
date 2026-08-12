@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — one-shot: ensure server up -> submit generate -> download mp4.
+# 04_run.sh — one-shot: ensure server up -> submit generate -> download mp4.
 #
 # Wraps 02_serve.sh + 03_generate.sh into a single command. The 33B model
 # takes minutes to load, so this script:
@@ -16,7 +16,7 @@
 #   GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
 #     TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
 #     OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
-#     bash minimax_h3/run.sh
+#     bash minimax_h3/04_run.sh
 #
 # Server left running afterwards; stop with:  kill $(cat ../MiniMax-H3/logs/serve_<variant>_<port>.pid)
 set -o pipefail

@@ -98,10 +98,10 @@ fi
 if command -v lsof >/dev/null 2>&1 && lsof -ti ":$PORT" 2>/dev/null | grep -q .; then
     echo "⚠️ port $PORT already occupied by residual process (worker may be hung)" >&2
     if [ "${AUTO_STOP:-0}" = "1" ]; then
-        echo "  AUTO_STOP=1, running stop.sh..." >&2
-        bash "$SCRIPT_DIR/stop.sh"
+        echo "  AUTO_STOP=1, running 05_stop.sh..." >&2
+        bash "$SCRIPT_DIR/05_stop.sh"
     else
-        echo "  Run first: bash minimax_h3/stop.sh  (or: AUTO_STOP=1 bash minimax_h3/02_serve.sh)" >&2
+        echo "  Run first: bash minimax_h3/05_stop.sh  (or: AUTO_STOP=1 bash minimax_h3/02_serve.sh)" >&2
         echo "  Or force:  kill -9 \$(lsof -ti :$PORT)" >&2
         exit 1
     fi
