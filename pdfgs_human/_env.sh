@@ -68,7 +68,32 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV" 2>/dev/null || true  # may not exist yet (00 creates it)
+
+# In non-interactive bash, `conda activate <env>` often silently fails (shell
+# hooks not installed) and `|| true` swallows the error → CONDA_PREFIX stays at
+# base (/root/miniconda3, Python 3.9) → pip installs land in base, CC points at
+# a non-existent gcc, nvcc build breaks. _conda_activate tries the real
+# activate, verifies CONDA_PREFIX actually changed, and falls back to manually
+# exporting PATH/LD_LIBRARY_PATH if it didn't.
+_conda_activate() {
+    local _env="$1" _base _expected
+    _base="$(conda info --base 2>/dev/null)"
+    _expected="$_base/envs/$_env"
+    conda activate "$_env" 2>/dev/null || true
+    if [ "$CONDA_PREFIX" = "$_expected" ]; then
+        return 0
+    fi
+    if [ -d "$_expected" ]; then
+        echo "⚠️ 'conda activate $_env' failed (non-interactive shell?); manually exporting PATH/LD_LIBRARY_PATH -> $_expected" >&2
+        export CONDA_PREFIX="$_expected"
+        export CONDA_DEFAULT_ENV="$_env"
+        export PATH="$_expected/bin:$PATH"
+        export LD_LIBRARY_PATH="$_expected/lib:${LD_LIBRARY_PATH:-}"
+        return 0
+    fi
+    echo "⚠️ conda env '$_env' not found at $_expected (00_setup_env.sh will create it)" >&2
+}
+_conda_activate "$CONDA_ENV"
 
 # Pin GPU (0-indexed) via GPU=N.
 if [ -n "${GPU:-}" ]; then

@@ -62,6 +62,31 @@ PYEOF
     echo "--- SSL_VERIFY=false: injected sitecustomize (ssl unverified) -> $_f ---"
 }
 
+# Resolve CC/CXX to a working compiler. Prefer the conda env's gcc12 (matches
+# CUDA 12.x); if that binary doesn't exist (conda activate failed → CONDA_PREFIX
+# is base which has no gcc, or gxx_linux-64 not yet installed), fall back to
+# system gcc/g++; if neither, warn that CUDA ext compile will fail.
+_resolve_cc() {
+    local _gcc="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc"
+    local _gpp="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++"
+    if [ -x "$_gcc" ] && [ -x "$_gpp" ]; then
+        export CC="$_gcc"; export CXX="$_gpp"
+        echo "  CC/CXX = conda gcc12: $_gcc"
+        return 0
+    fi
+    echo "  ⚠️ conda gcc not found at $_gcc; trying system gcc/g++" >&2
+    local _sysgcc _sysgpp
+    _sysgcc="$(command -v gcc || true)"
+    _sysgpp="$(command -v g++ || true)"
+    if [ -n "$_sysgcc" ] && [ -n "$_sysgpp" ]; then
+        export CC="$_sysgcc"; export CXX="$_sysgpp"
+        echo "  → using system gcc: $_sysgcc / $_sysgpp" >&2
+        return 0
+    fi
+    echo "  ⚠️ no gcc/g++ found (neither conda nor system) — CUDA ext compile will fail" >&2
+    return 1
+}
+
 # _env.sh tolerated a missing env; create it now if needed.
 # NB: this env MUST be python=3.10 CPython — local torch/triton wheels are cp310
 # (and PDF-GS environment.yml pins python=3.10). conda-forge may slip GraalPy
@@ -70,7 +95,7 @@ PYEOF
 if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     echo "--- conda env '$CONDA_ENV' not found; creating python=3.10 (CPython) ---"
     conda create -n "$CONDA_ENV" python=3.10 -y
-    conda activate "$CONDA_ENV"
+    _conda_activate "$CONDA_ENV"
     _conda_disable_ssl  # re-set env-level for the freshly activated pdfgs env
     impl="$(python -c 'import platform; print(platform.python_implementation())')"
     if [ "$impl" != "CPython" ]; then
@@ -81,6 +106,15 @@ if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
         exit 1
     fi
     echo "  [OK] python=$(python --version 2>&1 | cut -d ' ' -f2) ($impl)"
+fi
+# Guard: active python MUST be 3.10. If _conda_activate silently fell back to base
+# (Python 3.9), pip would install to base and everything downstream breaks.
+_pyver="$(python --version 2>&1 | grep -oP '\d+\.\d+' || echo unknown)"
+if [ "$_pyver" != "3.10" ]; then
+    echo "❌ ERROR: active python is $_pyver (expected 3.10). CONDA_PREFIX=$CONDA_PREFIX" >&2
+    echo "   'conda activate $CONDA_ENV' likely failed (non-interactive shell)." >&2
+    echo "   Re-run, or manually: source \$(conda info --base)/etc/profile.d/conda.sh && conda activate $CONDA_ENV" >&2
+    exit 1
 fi
 # Inject SSL-unverified sitecustomize into the (now-active) pdfgs env when
 # SSL_VERIFY=false — before any pip/hf download in INSTALL_DEPS.
@@ -159,8 +193,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10 || \
         echo "  ⚠️ gxx install failed; 用系统 gcc 编 CUDA 扩展可能失败" >&2
     verify_cpython
-    export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
-    export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+    _resolve_cc
     # numpy may have been touched; pin to a 3DGS-compatible 1.26.4 (PDF-GS works with 1.26.x)
     if ! python -c "import numpy" 2>/dev/null; then
         pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
@@ -307,17 +340,26 @@ PYEOF
             fi
         fi
         export PATH="$CUDA_HOME/bin:$PATH"
-        export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
-        export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+        _resolve_cc
         echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
-        echo "  building CUDA ext: diff-gaussian-rasterization"
-        pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index \
-            "$PDFGS_DIR/submodules/diff-gaussian-rasterization" || \
-            echo "  ⚠️ diff-gaussian-rasterization build failed (nvcc/gcc 版本不匹配? GLM 缺失?)" >&2
-        echo "  building CUDA ext: simple-knn"
-        pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index \
-            "$PDFGS_DIR/submodules/simple-knn" || \
-            echo "  ⚠️ simple-knn build failed" >&2
+        # Check submodule setup.py exists before pip install — a missing dir makes
+        # pip error with "Invalid requirement" (the path arg is passed verbatim).
+        _DGR="$PDFGS_DIR/submodules/diff-gaussian-rasterization"
+        if [ -f "$_DGR/setup.py" ] || [ -f "$_DGR/pyproject.toml" ]; then
+            echo "  building CUDA ext: diff-gaussian-rasterization"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index "$_DGR" || \
+                echo "  ⚠️ diff-gaussian-rasterization build failed (nvcc/gcc 版本不匹配? GLM 缺失?)" >&2
+        else
+            echo "  ⚠️ skip diff-gaussian-rasterization: $_DGR/setup.py not found (submodule not initialized — re-run 0c)" >&2
+        fi
+        _SK="$PDFGS_DIR/submodules/simple-knn"
+        if [ -f "$_SK/setup.py" ]; then
+            echo "  building CUDA ext: simple-knn"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index "$_SK" || \
+                echo "  ⚠️ simple-knn build failed" >&2
+        else
+            echo "  ⚠️ skip simple-knn: $_SK/setup.py not found (submodule not initialized — gitlab.inria.fr 可能被封, 见 0c zip fallback)" >&2
+        fi
         python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] PDF-GS CUDA exts')" || \
             echo "  ⚠️ CUDA exts built but not importable" >&2
     else
