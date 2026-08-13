@@ -1,0 +1,317 @@
+# PDF-GS Human — 真实环绕拍摄序列 → 抗微动人体三维高斯重建
+
+用 [PDF-GS (Progressive Distractor Filtering, CVPR 2026 Findings)](https://github.com/kangrnin/PDF-GS) 从一组**真实环绕拍摄的人物图像**重建三维高斯：逐 phase 用 DINOv3 特征把跨视图不一致的像素（呼吸 / 头发 / 衣物飘动等**真实微动**）识别为 distractor 并从 loss 里滤除，得到干净的静态人体重建。前置：SAM2 自动掩码把每张图的人物抠到白底（多视图集），Pi3 前馈出位姿 + COLMAP 场景。
+
+> 本目录与 [`wan22_rotate/`](../wan22_rotate/) 并列但**范式不同**：wan22_rotate 是"Wan2.2 生成旋转视频 → 3DGS 重建"（合成视频，吃 wan22 输出）；本目录是"**真实拍摄序列 → PDF-GS 抗微动重建**"（吃真实照片，不碰 Wan2.2）。两者不共用 env（pdfgs 用 torch 2.5.1+cu121，wan22_rotate 用 torch 2.6.0+cu124）。
+
+## 为什么用真实拍摄序列（而不是 Wan2.2 旋转视频）
+
+PDF-GS 的 distractor 模型有一个**核心假设**：干扰像素是**稀疏离群**，散布在大量静态一致的像素中。这个假设决定了输入该选什么：
+
+1. **真实拍摄序列**：人体微动（呼吸、头发飘动、衣物晃动、重心微移）在多视图间是**真实物理不一致**，且是**稀疏、局部**的——身体主体和背景是静态的，只有少数区域动。这**正好满足 PDF-GS 的稀疏离群假设**，是其设计目标场景。每个 phase 算"上一 phase 渲染图 vs GT"的 DINOv3 cosine 相似度：静态身体各 phase 渲染收敛到 GT → clean_mask≈1 保留；微动区域永远对不齐 → 标 distractor → 从 L1+SSIM loss 排除 → 干净静态身体重建。重建出的也是**真实人体**（而非模型想象），这才是人体数字化的目标。
+
+2. **Wan2.2 旋转视频**（wan22_rotate 的产物）：视频是扩散模型生成的**合成内容**，"微动"本质是视频扩散的**弥散性时间不一致**——每一帧都是模型"猜"的，没有真值 3D 锚点。这种不一致是**弥散的**（遍布全身细节），不满足稀疏离群假设；PDF-GS 的滤除可能误伤合理身体区域，或干脆无效。合成视频本身较干净（白底 + 居中 + 干净 360° 相机路径），干扰本就少，05/05a（2DGS/GOF）已经够用——PDF-GS 在那里价值有限。
+
+**结论**：真实微动是稀疏 distractor → 用真实序列；合成视频的弥散不一致不是稀疏 distractor → 不用。所以本目录吃真实拍摄序列，不复用 wan22_rotate 的 Wan2.2 视频。
+
+## 常用命令
+
+> 假设已进入容器（脚本自动激活 `pdfgs` env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> **铁律：每条命令都必须显式写出输入路径、输出路径，不能全靠脚本里的默认值。** 用具体路径，不要用 `...` 占位。
+
+```bash
+# ── 分步 ──
+# 1) 分割所有拍摄图 → 白底人物多视图集 (SAM2 auto-mask 主, rembg 兜底)
+#    INPUT_DIR 是环绕拍摄文件夹（含 image/ 子夹，或直接散图）
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/01_segment_all.sh
+
+# 输出：<RESULTS_DIR>/segmented_frames/<rel>.png   (白底人物, 保留输入相对子路径)
+
+# 2) Pi3 位姿估计 + COLMAP 导出 (喂上一步的白底图集)
+GPU=0 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/02_pi3_colmap.sh
+
+# 输出：<RESULTS_DIR>/orbit/pi3/
+#   source/images/*.png                 # COLMAP 训练图 (= 分割图 copy)
+#   source/sparse/0/{cameras,images,points3D}.txt
+#   predictions.npz / dense_cloud.ply / poses.json   # Pi3 原始输出 (可看)
+
+# 3) PDF-GS 训练 (progressive distractor filtering) + 渲染
+#    4 phase × 10000 iter, sim_thr 0.6/0.7/0.8 (逐 phase 收紧)
+GPU=0 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/03_train_pdfgs.sh
+
+# 输出：<RESULTS_DIR>/orbit/model_pdfgs/
+#   phase_1/ ... phase_4/                              # 每个 phase 的高斯
+#     point_cloud/iteration_10000/point_cloud.ply     # 该 phase 末的高斯
+#   cfg_args                                          # 训练参数 (3DGS 标准)
+# phase_4 (final) 还有:
+#   train/ours_10000/renders/*.png                    # 渲染图 (vs GT 看重建质量)
+#   train/ours_10000/gt/*.png                         # 对应 GT
+# ⚠️ v1 不出网格: PDF-GS 只含 train.py / render.py / metrics.py, 无 extract_mesh。
+#    要网格走 wan22_rotate step 05/05a/05b (或在本高斯上加 TSDF 步骤, future)。
+
+# 可选) 跑指标 (PSNR/SSIM/LPIPS) — 默认跳过 (无 held-out test, PSNR 只是 train fit)
+GPU=0 SKIP_METRICS=0 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/03_train_pdfgs.sh
+```
+
+- 结果：白底多视图集 → `segmented_frames/*.png`；COLMAP 场景 → `orbit/pi3/source/`；高斯 → `orbit/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply`；渲染 → `orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png`。
+
+## 首次准备
+
+本流程建一份独立的 `pdfgs` env（**CPython 3.10**，torch 2.5.1+cu121，按 PDF-GS 官方 environment.yml；与 wan22_rotate 的 torch 2.6.0+cu124 不兼容，故独立）。装：PDF-GS + 两个 CUDA 扩展（diff-gaussian-rasterization + simple-knn）、SAM2（分割用）、rembg（兜底）、Pi3、transformers/torchmetrics 等，并下 DINOv3（gated）+ Pi3 权重。
+
+```bash
+cd <your-code-dir>            # e.g. /data_3d/<uid>/code
+git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
+cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
+# ⚠️ 确认 proxy.env 中 http_proxy / https_proxy 两行已取消注释并填好地址，
+#    否则 pip 装依赖会报 "Network is unreachable"
+
+# 建 pdfgs env + 装依赖 + 编 CUDA 扩展 + 下权重 (一次性)
+# ⚠️ DINOv3 (facebook/dinov3-vitb16-pretrain-lvd1689m) 是 GATED:
+#    先到 https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m 点 "Request access",
+#    通过后用 HF_TOKEN 跑 00:
+HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+```
+
+需系统有 CUDA toolkit 12.x（`CUDA_HOME=/usr/local/cuda`，nvcc 可用；若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x`）。
+
+### 权重目录布局
+
+```
+$MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
+  Pi3/
+    model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
+  hf_home/                          # HuggingFace cache 根 (DINOv3 离线读这里)
+    hub/
+      models--facebook--dinov3-vitb16-pretrain-lvd1689m/   # DINOv3 (gated, 00 用 HF_TOKEN 下)
+```
+
+外部 clone 的官方代码（00 自动 clone，sibling of media_code）：
+```
+<code-dir>/
+  media_code/pdfgs_human/            # 本目录 (编排脚本)
+  PDF-GS/                            # 官方代码 + 子模块 (diff-gaussian-rasterization, simple-knn)
+  sam2/                              # SAM2 官方代码 + checkpoints/sam2.1_hiera_large.pt
+  Pi3/                               # Pi3 官方代码 (step 02 用)
+```
+
+---
+
+以下为详细参考（流程原理 / 各步骤参数 / 排错 / 目录布局）。
+
+## Pipeline（流程详解）
+
+```
+INPUT_DIR/image/               (环绕人物拍摄的多张真实图像)
+    │
+    ▼
+[01] SAM2 auto-mask 分割 (pdfgs env)
+    │  ├─ 遍历所有图 (不只最佳正面, 保留全部视图)
+    │  ├─ SAM2 SAM2AutomaticMaskGenerator → 取面积最大掩码 = 人物
+    │  │   (失败/无 SAM2 时回退 rembg remove → alpha 通道)
+    │  └─ 掩码应用: 人物像素保留, 背景 → 白 (255,255,255)
+    ▼
+$RESULTS_DIR/segmented_frames/<rel>.png   (白底人物多视图集)
+    │
+    ▼
+[02] Pi3 位姿 + COLMAP 导出 (pdfgs env, 调 pi3_3dgs/pi3_recon.py, 不带 --no_colmap)
+    │  ├─ Pi3 前向 (1 次推理 → 所有视角 c2w 位姿 + 稠密点云 + 置信度)
+    │  └─ COLMAP 文本格式导出:
+    │       cameras.txt   PINHOLE, fx=fy=max(W,H), cx=W/2, cy=H/2
+    │       images.txt    c2w→w2c 四元数+平移
+    │       points3D.txt  稠密点云 + RGB (体素下采样到 ≤100k, 3DGS 初始化)
+    ▼
+$RESULTS_DIR/orbit/pi3/source/{images, sparse/0/}   (COLMAP 场景)
+    │
+    ▼
+[03] PDF-GS 训练 (progressive distractor filtering)  (pdfgs env)
+    │  ├─ phase 1: 无过滤 (纯 3DGS 训练, 建初始高斯)
+    │  ├─ phase 2..N: DINOv3FeatureExtractor 算
+    │       cosine(上一 phase 渲染图特征, GT 图特征)
+    │       → 低于 sim_thr 的像素 = distractor (微动)
+    │       → 从 L1+SSIM loss 里 mask 掉 (clean_mask)
+    │       → 阈值逐 phase 升高 (0.6→0.7→0.8), 过滤渐严
+    │  └─ 每 phase 末存高斯到 $MODEL_DIR/phase_<N>/point_cloud/...
+    ▼
+$RESULTS_DIR/orbit/model_pdfgs/phase_<N>/point_cloud/iteration_<iter>/point_cloud.ply
+$RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png   (渲染图, final phase)
+$RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, final phase)
+```
+
+### Step 01 — 分割所有图 (`01_segment_all.sh` → `segment_all.py`)
+
+对环绕拍摄的**每一张**图分割人物到白底（不像 wan22_rotate step 01 只选最佳正面）。PDF-GS 需要多视图集来三角化身体 + 跨视图对齐 DINOv3 特征识别微动——视图越多，三角化越稳，distractor 过滤越准。
+
+**分割优先级**：SAM2 `SAM2AutomaticMaskGenerator`（生成所有 salient 掩码，取面积最大 = 人物，质量最好）→ rembg `remove`（alpha 通道，纯 pip 无 CUDA 编译，SAM2 不可用时兜底）。两者都没装则报错。设 `SEGMENTOR=sam2` 或 `rembg` 强制单方法；默认 `auto`（SAM2 优先，逐图回退 rembg）。
+
+**为何不用 SAM 3D Body**（像 wan22_rotate step 01）：本目录要的是**所有视图的掩码**，不需要正面评分、不需要 3D body 姿态。SAM 3D Body 绑了 detectron2 + GATED 权重 + MoGe2，对"逐图抠人物"是杀鸡用牛刀，且 detectron2 在 torch 2.5.1 上编译麻烦。SAM2 自动掩码更轻、自含于 pdfgs env。
+
+### Step 02 — Pi3 位姿 + COLMAP 导出 (`02_pi3_colmap.sh` → 调 `pi3_3dgs/pi3_recon.py`)
+
+复用 sibling `pi3_3dgs/pi3_recon.py`（共享 helper），**不带 `--no_colmap`**（与 wan22_rotate step 04 的 `--no_colmap` 区别——这里要导 COLMAP 场景给 PDF-GS）。Pi3 一次前向出所有视角位姿 + 稠密点云，再转 COLMAP 文本格式（`cameras.txt` / `images.txt` / `points3D.txt`），PDF-GS `train.py -s` 直接读。
+
+**为何用 Pi3 不用 COLMAP SfM**：真实人像低纹理（皮肤）+ 白底 + 重复衣物花纹，COLMAP 特征匹配容易失败或漂。Pi3 是单前馈模型，一次出位姿 + 稠密点云，无需特征匹配，鲁棒。位姿和点云同源，互相一致；PDF-GS 只固定位姿+内参优化高斯，即使内参近似（fx=fy=max(W,H)）也能重建出合理结果（高斯自适应）。
+
+### Step 03 — PDF-GS 训练 (`03_train_pdfgs.sh`)
+
+在 pdfgs env 里跑 PDF-GS 的 `train.py`（`cd $PDFGS_DIR` 内跑，保证相对 import）。核心是 `compute_clean_mask`（见 PDF-GS `train.py`）：
+
+- **phase 1**：`prev_feat = None` → `clean_mask = 全 1`（无过滤，纯 3DGS 训练建初始高斯）。
+- **phase 2..N**：`feature_extractor = DINOv3FeatureExtractor().cuda()`；对每个训练视角，算 `cosine_similarity(gt_feat, prev_feat)`（GT 的 DINOv3 特征 vs 上一 phase 渲染图的 DINOv3 特征），低于 `sim_thr` 的像素 = distractor → `clean_mask` 置 0 → 从 `L1_loss` 和 `ssim_loss` 里乘掉。阈值 `--sim_thr 0.6 0.7 0.8` 逐 phase 升高（`sim_thr[phase-2]`），过滤渐严。`prev_mask_dict` 还和上一 phase 的 mask 相乘累积过滤。
+
+> DINOv3 是 GATED（`facebook/dinov3-vitb16-pretrain-lvd1689m`），由 `DINOv3FeatureExtractor()` 经 `transformers.from_pretrained` 加载，首次运行自动从 HF 下；00 用 `HF_TOKEN` 预下到 `$HF_HOME/hub`，`_env.sh` 设 `HF_HUB_OFFLINE=1` 离线读，避免运行时联网（公司代理拦 HF）。
+
+**渲染**：`render.py -s SOURCE -m $MODEL_DIR/phase_$NUM_PHASES --iteration $ITER_PER_PHASE`。加载 final phase（phase_4）的高斯 + source 的相机，渲染所有训练视角到 `phase_4/train/ours_10000/{renders,gt}/`。没开 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过，只渲 train 集。
+
+**v1 不出网格**：PDF-GS 仓库只有 `train.py` / `render.py` / `metrics.py`，无 `extract_mesh`。出高斯点云 + 渲染图 + 可选指标。要网格走 wan22_rotate step 05/05a/05b（或在本高斯上加 TSDF-on-depth 步骤，future）。
+
+## Config (env vars, all optional)
+
+### Paths & envs
+| var | default | note |
+| --- | --- | --- |
+| `INPUT_DIR` | _(required for 01)_ | 环绕拍摄文件夹（含 `image/` 子夹，或直接散图） |
+| `GPU` | _(unset)_ | physical GPU id, e.g. `GPU=0` |
+| `CONDA_ENV` | `pdfgs` | conda env（torch 2.5.1+cu121） |
+| `PDFGS_DIR` | `../PDF-GS` | PDF-GS 官方代码（00 clone） |
+| `PI3_DIR` | `../Pi3` | Pi3 官方代码（00 clone; 02 兜底 auto-clone） |
+| `SAM2_DIR` | `../sam2` | SAM2 官方代码 + checkpoints（00 clone） |
+| `MODEL_DIR` | `../../model` | 权重根（code-dir 上一级，共享） |
+| `RESULTS_DIR` | `../pdfgs_human_results` | 输出目录 |
+| `OUTPUT_NAME` | `orbit` | 基名（影响 02/03 的默认子目录） |
+
+### Step 01 params
+| var | default | note |
+| --- | --- | --- |
+| `SEGMENTED_DIR` | `$RESULTS_DIR/segmented_frames` | 输出（白底多视图集） |
+| `SEGMENTOR` | `auto` | `auto`（SAM2 优先, rembg 兜底） \| `sam2` \| `rembg` |
+| `WHITE_BG` | `1` | `1`=白底（匹配 PDF-GS `--white_background`）；`0`=黑底 |
+| `MIN_MASK_FRAC` | `0.02` | 掩码面积 < 图像 2% 视为错误对象，丢弃 |
+| `DEVICE` | `cuda` | SAM2 设备；`cpu` 可用但慢 |
+| `SAM2_CHECKPOINT` | `$SAM2_DIR/checkpoints/sam2.1_hiera_large.pt` | SAM2 权重 |
+| `SAM2_CONFIG` | `configs/sam2.1/sam2.1_hiera_large.yaml` | SAM2 配置（包内相对路径） |
+
+### Step 02 params
+| var | default | note |
+| --- | --- | --- |
+| `INPUT` | `$RESULTS_DIR/segmented_frames` | 输入图集（step 01 输出） |
+| `PI3_OUTPUT_DIR` | `$RESULTS_DIR/<name>/pi3` | Pi3 输出 |
+| `SOURCE_DIR` | `$PI3_OUTPUT_DIR/source` | COLMAP 场景（PDF-GS `train.py -s` 读） |
+| `PI3_CKPT` | `$MODEL_DIR/Pi3/model.safetensors` | Pi3 checkpoint |
+| `FRAME_FPS` | `10` | 视频抽帧 fps（图集输入时忽略，copy 全部） |
+| `FRAME_MAX` | `60` | 最大帧数（Pi3 显存随 N 线性增长） |
+| `CONF_THRES` | `0.1` | sigmoid-conf 阈值，过滤低置信初始化点 |
+| `SKIP_PI3` | `0` | `1` = 复用已有 `source/` |
+
+### Step 03 params
+| var | default | note |
+| --- | --- | --- |
+| `SOURCE_DIR` | `$RESULTS_DIR/<name>/pi3/source` | COLMAP 场景 |
+| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯输出 |
+| `NUM_PHASES` | `4` | progressive filtering phase 数 |
+| `ITER_PER_PHASE` | `10000` | 每 phase 迭代数（总 = `NUM_PHASES × ITER_PER_PHASE`） |
+| `SIM_THR` | `0.6 0.7 0.8` | 每 phase 过渡的 distractor 阈值（长度 = `NUM_PHASES-1`，或单值全 phase） |
+| `COLOR_UPDATE_INTERVAL` | `30` | SH 颜色更新间隔（非末 phase） |
+| `WHITE_BG` | `1` | `1` = 光栅化白底（匹配分割输入） |
+| `RES` | _(unset)_ | `--resolution` 因子；**不设 = 全分辨率**（人像用全分辨率；README 的 `-r 8` 是 RobustSplat benchmark 降采样，别照搬） |
+| `SKIP_TRAIN` | `0` | `1` = 复用已有 `model_pdfgs/` |
+| `SKIP_RENDER` | `0` | `1` = 跳过渲染 |
+| `SKIP_METRICS` | `1` | `1` = 跳过 PSNR/SSIM/LPIPS（无 held-out test → PSNR 只是 train fit；`0` 跑） |
+| `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 `train.py` 的额外参数 |
+
+## 可能遇到的问题
+
+**1. `step 03` 报 DINOv3 加载失败 / `HF_HUB_OFFLINE` 下找不到权重**
+DINOv3 是 GATED，00 必须用 `HF_TOKEN` 预下。先到 [HF 模型页](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) 点 "Request access"，通过后重跑：
+```bash
+HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+```
+确认 `$MODEL_DIR/hf_home/hub/models--facebook--dinov3-vitb16-pretrain-lvd1689m/` 有 `snapshots/` 子夹。
+
+**2. `step 03` 报 `import diff_gaussian_rasterization` 失败 / CUDA 扩展没编成**
+00 没找到 nvcc。确认系统有 CUDA 12.x toolkit：`ls -d /usr/local/cuda-12*`。若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x` 并设 `CUDA_HOME`；手动：
+```bash
+export CUDA_HOME=/usr/local/cuda-12.4   # ⚠️ 不是 /usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+```
+GLM 缺失（`glm/glm.hpp: No such file`）时：`cd $PDFGS_DIR && git clone https://github.com/g-truc/glm.git third_party/glm`。
+
+**3. `step 01` 掩码全是矩形 / SAM2 没出掩码**
+SAM2 没装好或 checkpoint 没下。重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；或临时 `SEGMENTOR=rembg` 用 rembg 兜底（质量略降）。多人物图取面积最大掩码（离相机最近者）。
+
+**4. `step 02` Pi3 OOM**
+Pi3 显存随帧数线性增长。降 `FRAME_MAX=30` 或抽稀 `segmented_frames/`（保留环绕均匀分布的子集）。图集输入时 `FRAME_FPS` 被忽略。
+
+**5. `step 03` 渲染报找不到 `cfg_args` / 找不到 point_cloud**
+`render.py` 传的是 final phase 路径 `$MODEL_DIR/phase_$NUM_PHASES`（不是 `$MODEL_DIR` 根），且显式带 `-s $SOURCE_DIR`（因为 cfg_args 在根目录，phase 子夹里没有）。脚本已自动处理；若手改路径注意这点。
+
+**6. 跑 `.sh` 报 `syntax error near unexpected token '('`**
+CRLF 行尾污染。`find pdfgs_human -name '*.sh' -exec sed -i 's/\r$//' {} +` 或 `git checkout -- pdfgs_human/*.sh`（`.gitattributes` 强制 LF）。
+
+**7. NumPy 坏了 / `import numpy` 报 ABI 不兼容 / python 变成了 GraalPy**
+根因：往 pdfgs env `conda install` 任何包没加 `--no-update-deps` 时，conda 求解器会把 python 实现掉包成 GraalPy。00 的 gxx 步骤已加 `--no-update-deps` + `python=3.10` pin + 建完校验 CPython。若已中招，重建：
+```bash
+python -c "import platform; print(platform.python_implementation())"   # GraalPy 即中招
+conda env remove -n pdfgs
+conda create -n pdfgs python=3.10 -y && conda activate pdfgs
+INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+```
+> 铁律：往 pdfgs env 里 `conda install` 任何包都加 `--no-update-deps`。
+
+## 目录布局
+```
+<code-dir>/
+├── media_code/                    # 本仓
+│   ├── proxy.env                  # 代理 + 覆盖项, gitignored
+│   ├── pi3_3dgs/                   # Pi3+COLMAP 共享 helper (step 02 调 pi3_recon.py)
+│   └── pdfgs_human/               # ← 本目录（编排脚本）
+│       ├── _env.sh
+│       ├── 00_setup_env.sh
+│       ├── 01_segment_all.sh
+│       ├── 02_pi3_colmap.sh
+│       ├── 03_train_pdfgs.sh
+│       └── segment_all.py
+├── PDF-GS/                         # PDF-GS 官方代码 + 子模块 (00 clone)
+│   ├── submodules/
+│   │   ├── diff-gaussian-rasterization/   # 3DGS 光栅化器 (CUDA 扩展)
+│   │   └── simple-knn/                   # KNN (CUDA 扩展)
+│   └── train.py / render.py / metrics.py
+├── sam2/                           # SAM2 官方代码 + checkpoints (00 clone, step 01 分割用)
+│   └── checkpoints/sam2.1_hiera_large.pt
+├── Pi3/                            # Pi3 官方代码 (00 clone, step 02 用)
+├── model/                          # 权重根 (code-dir 上一级, 共享)
+│   ├── Pi3/model.safetensors
+│   └── hf_home/hub/                # DINOv3 离线缓存 (00 用 HF_TOKEN 下)
+└── pdfgs_human_results/            # 输出 (repo 外)
+    ├── segmented_frames/           # step 01: 白底人物多视图集
+    │   └── <rel>.png
+    └── orbit/                      # OUTPUT_NAME=orbit
+        ├── pi3/                    # step 02: Pi3 + COLMAP
+        │   ├── source/
+        │   │   ├── images/         # COLMAP 训练图 (= 分割图 copy)
+        │   │   └── sparse/0/{cameras,images,points3D}.txt
+        │   ├── predictions.npz
+        │   ├── dense_cloud.ply
+        │   └── poses.json
+        └── model_pdfgs/            # step 03: PDF-GS 高斯
+            ├── phase_1/ ... phase_4/
+            │   └── point_cloud/iteration_10000/point_cloud.ply
+            ├── cfg_args
+            └── phase_4/train/ours_10000/   # final phase 渲染
+                ├── renders/*.png   # 渲染图 (vs GT 看重建质量)
+                └── gt/*.png        # GT
+```
+
+## Notes
+- Official code & weights follow their own licenses (PDF-GS = MIT-style research license; Pi3 / SAM2 / DINOv3 = their respective licenses). This folder only orchestrates; no official code is copied.
+- `.gitattributes` (repo root) forces LF so Windows-pushed scripts run cleanly on Ubuntu.
+- `proxy.env` (proxy creds / env overrides) is gitignored — never committed.
