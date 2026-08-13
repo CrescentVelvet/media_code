@@ -1,6 +1,6 @@
 # PDF-GS Human — 真实环绕拍摄序列 → 抗微动人体三维高斯重建
 
-用 [PDF-GS (Progressive Distractor Filtering, CVPR 2026 Findings)](https://github.com/kangrnin/PDF-GS) 从一组**真实环绕拍摄的人物图像**重建三维高斯：逐 phase 用 DINOv3 特征把跨视图不一致的像素（呼吸 / 头发 / 衣物飘动等**真实微动**）识别为 distractor 并从 loss 里滤除，得到干净的静态人体重建。前置：SAM2 自动掩码把每张图的人物抠到白底（多视图集），Pi3 前馈出位姿 + COLMAP 场景。
+用 [PDF-GS (Progressive Distractor Filtering, CVPR 2026 Findings)](https://github.com/kangrnin/PDF-GS) 从一组**真实环绕拍摄的人物图像**重建三维高斯：逐 phase 用 DINOv3 特征把跨视图不一致的像素（呼吸 / 头发 / 衣物飘动等**真实微动**）识别为 distractor 并从 loss 里滤除，得到干净的静态人体重建。前置：SAM2 掩码把每张图的人物抠到白底（rembg 定位人物 → SAM2 bbox-prompted 抠干净边缘，多视图集），Pi3 前馈出位姿 + COLMAP 场景。
 
 > 本目录与 [`wan22_rotate/`](../wan22_rotate/) 并列但**范式不同**：wan22_rotate 是"Wan2.2 生成旋转视频 → 3DGS 重建"（合成视频，吃 wan22 输出）；本目录是"**真实拍摄序列 → PDF-GS 抗微动重建**"（吃真实照片，不碰 Wan2.2）。两者不共用 env（pdfgs 用 torch 2.5.1+cu121，wan22_rotate 用 torch 2.6.0+cu124）。
 
@@ -21,7 +21,7 @@ PDF-GS 的 distractor 模型有一个**核心假设**：干扰像素是**稀疏�
 
 ```bash
 # ── 分步 ──
-# 1) 分割所有拍摄图 → 白底人物多视图集 (SAM2 auto-mask 主, rembg 兜底)
+# 1) 分割所有拍摄图 → 白底人物多视图集 (rembg 定位 → SAM2 bbox-prompted 抠边; 自动/rembg 兜底)
 #    INPUT_DIR 是环绕拍摄文件夹（含 image/ 子夹，或直接散图）
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/pdfgs_human_results \
@@ -126,10 +126,11 @@ $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, �
 INPUT_DIR/image/               (环绕人物拍摄的多张真实图像)
     │
     ▼
-[01] SAM2 auto-mask 分割 (pdfgs env)
-    │  ├─ 遍历所有图 (不只最佳正面, 保留全部视图)
-    │  ├─ SAM2 SAM2AutomaticMaskGenerator → 取面积最大掩码 = 人物
-    │  │   (失败/无 SAM2 时回退 rembg remove → alpha 通道)
+[01] 人物分割 → 白底 (pdfgs env)  — 参考 wan22_rotate "person bbox → SAM2"
+    │  ├─ 遍历所有图 (保留全部视图, 不只最佳正面)
+    │  ├─ rembg 粗掩码 → 人物 bbox (轻量定位, 替 ViTDet)
+    │  ├─ SAM2 image predictor + bbox prompt → 干净人物掩码 (无黑边)
+    │  │   (兜底: SAM2 自动掩码 → rembg alpha)
     │  └─ 掩码应用: 人物像素保留, 背景 → 白 (255,255,255)
     ▼
 $RESULTS_DIR/segmented_frames/<rel>.png   (白底人物多视图集)
@@ -163,9 +164,11 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 
 对环绕拍摄的**每一张**图分割人物到白底（不像 wan22_rotate step 01 只选最佳正面）。PDF-GS 需要多视图集来三角化身体 + 跨视图对齐 DINOv3 特征识别微动——视图越多，三角化越稳，distractor 过滤越准。
 
-**分割优先级**：SAM2 `SAM2AutomaticMaskGenerator`（生成所有 salient 掩码，取面积最大 = 人物，质量最好）→ rembg `remove`（alpha 通道，纯 pip 无 CUDA 编译，SAM2 不可用时兜底）。两者都没装则报错。设 `SEGMENTOR=sam2` 或 `rembg` 强制单方法；默认 `auto`（SAM2 优先，逐图回退 rembg）。
+**分割优先级**（`auto`，默认）：rembg 粗掩码 → 人物 bbox → **SAM2 image predictor + bbox prompt** → 干净人物掩码（边缘贴合真实轮廓，无黑边）→ 兜底 SAM2 自动掩码（取面积最大 salient）→ rembg alpha。这条路径**参考 wan22_rotate step 01c** 的"person bbox → SAM2"思路：那里用 ViTDet 出 bbox，这里没有 detectron2，用 rembg 当轻量人物定位器（纯 pip，无 GATED 权重），SAM2 那侧完全一致——bbox prompt 约束 SAM2 只抠框内人物，边缘自然干净。`REMBG_ALPHA_THRESH` 默认 128（旧值 16 会保留半透明边缘带 → 白底上显成黑边，已修）。
 
-**为何不用 SAM 3D Body**（像 wan22_rotate step 01）：本目录要的是**所有视图的掩码**，不需要正面评分、不需要 3D body 姿态。SAM 3D Body 绑了 detectron2 + GATED 权重 + MoGe2，对"逐图抠人物"是杀鸡用牛刀，且 detectron2 在 torch 2.5.1 上编译麻烦。SAM2 自动掩码更轻、自含于 pdfgs env。
+设 `SEGMENTOR=sam2`（仅 SAM2 自动掩码，无 rembg 定位）或 `rembg`（仅 rembg alpha）强制单方法；默认 `auto`。
+
+**为何不用 SAM 3D Body**（像 wan22_rotate step 01）：本目录要的是**所有视图的掩码**，不需要正面评分、不需要 3D body 姿态。SAM 3D Body 绑了 detectron2 + GATED 权重 + MoGe2，对"逐图抠人物"是杀鸡用牛刀，且 detectron2 在 torch 2.5.1 上编译麻烦。rembg + SAM2 更轻、自含于 pdfgs env。
 
 ### Step 02 — Pi3 位姿 + COLMAP 导出 (`02_pi3_colmap.sh` → 调 `pi3_3dgs/pi3_recon.py`)
 
@@ -208,9 +211,11 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | var | default | note |
 | --- | --- | --- |
 | `SEGMENTED_DIR` | `$RESULTS_DIR/segmented_frames` | 输出（白底多视图集） |
-| `SEGMENTOR` | `auto` | `auto`（SAM2 优先, rembg 兜底） \| `sam2` \| `rembg` |
+| `SEGMENTOR` | `auto` | `auto`（rembg 定位 → SAM2 bbox-prompted; 自动/rembg 兜底） \| `sam2`（仅自动掩码） \| `rembg`（仅 rembg alpha） |
 | `WHITE_BG` | `1` | `1`=白底（匹配 PDF-GS `--white_background`）；`0`=黑底 |
 | `MIN_MASK_FRAC` | `0.02` | 掩码面积 < 图像 2% 视为错误对象，丢弃 |
+| `REMBG_ALPHA_THRESH` | `128` | rembg alpha 阈值（旧 16 → 半透明边缘带显成黑边；128 修复。调高更紧） |
+| `BBOX_PADDING` | `0.05` | rembg 掩码外扩比例，喂给 SAM2 的 bbox 含住头发/四肢 |
 | `DEVICE` | `cuda` | SAM2 设备；`cpu` 可用但慢 |
 | `SAM2_CHECKPOINT` | `$SAM2_DIR/checkpoints/sam2.1_hiera_large.pt` | SAM2 权重 |
 | `SAM2_CONFIG` | `configs/sam2.1/sam2.1_hiera_large.yaml` | SAM2 配置（包内相对路径） |
@@ -267,8 +272,9 @@ INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 ```
 GLM 缺失（`glm/glm.hpp: No such file`）时：`cd $PDFGS_DIR && git clone https://github.com/g-truc/glm.git third_party/glm`。
 
-**3. `step 01` 掩码全是矩形 / SAM2 没出掩码**
-SAM2 没装好或 checkpoint 没下。重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；或临时 `SEGMENTOR=rembg` 用 rembg 兜底（质量略降）。多人物图取面积最大掩码（离相机最近者）。
+**3. `step 01` 人物边缘有黑边 / 掩码全是矩形 / SAM2 没出掩码**
+- **黑边**：旧版 rembg alpha 阈值 16 会保留半透明边缘带（多为暗背景）→ 白底上显成黑边。现默认 `auto` 走 rembg→bbox→SAM2 predictor（边缘干净），且 `REMBG_ALPHA_THRESH` 默认 128。若仍残留，调高 `REMBG_ALPHA_THRESH=180`，或确认走的是 `auto`（不是 `rembg`）。
+- **SAM2 没出掩码 / 矩形掩码**：SAM2 没装好或 checkpoint 没下。重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；或临时 `SEGMENTOR=rembg` 用 rembg 兜底（质量略降）。多人物图取面积最大掩码（离相机最近者）。
 
 **4. `step 02` Pi3 OOM**
 Pi3 显存随帧数线性增长。降 `FRAME_MAX=30` 或抽稀 `segmented_frames/`（保留环绕均匀分布的子集）。图集输入时 `FRAME_FPS` 被忽略。

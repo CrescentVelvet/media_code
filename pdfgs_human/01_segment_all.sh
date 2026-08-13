@@ -21,9 +21,11 @@
 # Env (all optional, defaults shown):
 #   INPUT_DIR=             # orbit shoot folder (with image/ subdir or raw images)
 #   SEGMENTED_DIR=         # output (default: $RESULTS_DIR/segmented_frames)
-#   SEGMENTOR=auto         # auto (SAM2 then rembg) | sam2 | rembg
+#   SEGMENTOR=auto         # auto (SAM2 bbox-prompted -> SAM2 auto -> rembg) | sam2 | rembg
 #   WHITE_BG=1             # 1=white bg (matches PDF-GS --white_background); 0=black
 #   MIN_MASK_FRAC=0.02     # reject masks < 2% of image (wrong object)
+#   REMBG_ALPHA_THRESH=128 # rembg alpha cutoff (was 16 -> dark halo/black border; 128 fixes it)
+#   BBOX_PADDING=0.05      # padding around rembg-derived person bbox before prompting SAM2
 #   DEVICE=cuda            # SAM2 device; cpu works but slow
 #   JPG_QUALITY=95         # only used if output ext is .jpg (we save .png by default)
 set -o pipefail
@@ -50,6 +52,8 @@ WHITE_BG="${WHITE_BG:-1}"
 MIN_MASK_FRAC="${MIN_MASK_FRAC:-0.02}"
 DEVICE="${DEVICE:-cuda}"
 JPG_QUALITY="${JPG_QUALITY:-95}"
+REMBG_ALPHA_THRESH="${REMBG_ALPHA_THRESH:-128}"
+BBOX_PADDING="${BBOX_PADDING:-0.05}"
 
 # Sanity: SAM2 OR rembg must be importable (00 should have installed at least one).
 if ! python -c "from sam2 import build_sam2" 2>/dev/null && \
@@ -63,12 +67,14 @@ mkdir -p "$SEGMENTED_DIR"
 # segment_all.py reads OUTPUT_DIR (not SEGMENTED_DIR) for the save dir.
 export OUTPUT_DIR="$SEGMENTED_DIR"
 export INPUT_DIR SEGMENTED_DIR OUTPUT_DIR SEGMENTOR WHITE_BG MIN_MASK_FRAC DEVICE JPG_QUALITY
+export REMBG_ALPHA_THRESH BBOX_PADDING
 
 echo "🚀 [01] segment all images (white-bg person, multi-view set for PDF-GS)"
 echo "  📂 input:       $INPUT_DIR"
 echo "  💾 output:       $SEGMENTED_DIR"
-echo "  ✂️ segmentor:    $SEGMENTOR  (SAM2 primary, rembg fallback)"
-echo "  🎨 white_bg:     $WHITE_BG  min_mask: ${MIN_MASK_FRAC}"
+echo "  ✂️ segmentor:    $SEGMENTOR  (auto = SAM2 bbox-prompted -> SAM2 auto -> rembg)"
+echo "  🎯 primary:     rembg locates person -> SAM2 cuts crisp (mirrors wan22_rotate)"
+echo "  🎨 white_bg:     $WHITE_BG  min_mask: ${MIN_MASK_FRAC}  rembg_alpha: ${REMBG_ALPHA_THRESH}"
 echo "  🎮 device:       $DEVICE"
 echo ""
 
