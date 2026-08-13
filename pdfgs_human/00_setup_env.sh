@@ -169,21 +169,37 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     #     versions have different filenames — pip --find-links picks by version spec).
     WHEELHOUSE="${WHEELHOUSE:-$MODEL_DIR/wheels}"
     mkdir -p "$WHEELHOUSE"
-    if compgen -G "$WHEELHOUSE/torch-2.5.1-*.whl" >/dev/null; then
-        echo "--- torch wheels cached in $WHEELHOUSE (skipping download) ---"
+    # Detect cached torch wheel. Match BOTH "torch-2.5.1-*.whl" (PyPI default,
+    # no local tag) AND "torch-2.5.1+*.whl" (e.g. +cu121 from a pytorch mirror) —
+    # the old glob "torch-2.5.1-*" required a '-' after 2.5.1 and missed the
+    # "+cu121" naming, so it thought "not cached" and re-downloaded every run.
+    _torch_cached=""
+    for _f in "$WHEELHOUSE"/torch-2.5.1-*.whl "$WHEELHOUSE"/torch-2.5.1+*.whl; do
+        if [ -f "$_f" ]; then _torch_cached="$_f"; break; fi
+    done
+    if [ -n "$_torch_cached" ]; then
+        echo "--- torch wheel cached: $(basename "$_torch_cached") (skipping download) ---"
     else
         echo "--- downloading torch wheels -> $WHEELHOUSE (one-time; torch+nvidia deps ~2-3GB) ---"
+        echo "  (current $WHEELHOUSE contents: $(ls -1 "$WHEELHOUSE" 2>/dev/null | wc -l) files)"
         pip download "${PIP_FLAGS[@]}" -d "$WHEELHOUSE" \
             torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
             echo "  ⚠️ pip download incomplete; install will fetch missing from PyPI" >&2
     fi
-    echo "--- installing PyTorch 2.5.1 + cu121 (from $WHEELHOUSE; PyPI fallback for missing) ---"
+    echo "--- installing PyTorch 2.5.1 + cu121 (offline from $WHEELHOUSE; no torch re-download) ---"
     if ! pip install "${PIP_FLAGS[@]}" --no-index --find-links "$WHEELHOUSE" \
             torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1; then
-        echo "  ⚠️ local-only install incomplete, fetching missing from PyPI..." >&2
-        pip install "${PIP_FLAGS[@]}" --find-links "$WHEELHOUSE" \
-            torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
-            echo "  ⚠️ torch 2.5.1 install failed (PyPI/代理?). 手动: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1" >&2
+        echo "  ⚠️ offline install incomplete (a dep missing in wheelhouse); fetching missing -> $WHEELHOUSE..." >&2
+        # Re-download just fills missing wheels (pip skips files already in -d).
+        pip download "${PIP_FLAGS[@]}" -d "$WHEELHOUSE" \
+            torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 2>/dev/null || true
+        if ! pip install "${PIP_FLAGS[@]}" --no-index --find-links "$WHEELHOUSE" \
+                torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1; then
+            echo "  ⚠️ still failing, falling back to online install (may re-download missing)..." >&2
+            pip install "${PIP_FLAGS[@]}" --find-links "$WHEELHOUSE" \
+                torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
+                echo "  ⚠️ torch 2.5.1 install failed. 手动: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1" >&2
+        fi
     fi
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null)"
 
