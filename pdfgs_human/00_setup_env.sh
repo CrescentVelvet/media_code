@@ -26,7 +26,10 @@ source "$SCRIPT_DIR/_env.sh"
 # ⚠️ 必须在 `conda create` 之前调，否则建 env 时下 python 就 SSL 失败。
 _conda_disable_ssl() {
     local _val="false"
-    if [ -n "${CA_FILE:-}" ] && [ -f "$CA_FILE" ]; then _val="$CA_FILE"; fi
+    # -s = file exists AND non-empty. An EMPTY CA bundle (0 bytes, e.g. an unset-up
+    # ~/.ca-bundle.crt) pointed at conda means "trust no CAs" → SSL still fails.
+    # So only use the bundle if it has content; else just disable verification.
+    if [ -n "${CA_FILE:-}" ] && [ -s "$CA_FILE" ]; then _val="$CA_FILE"; fi
     conda config --system --set ssl_verify "$_val" 2>/dev/null || true
     conda config         --set ssl_verify "$_val" 2>/dev/null || true
     conda config --env   --set ssl_verify "$_val" 2>/dev/null || true
