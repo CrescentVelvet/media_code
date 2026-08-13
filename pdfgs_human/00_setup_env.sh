@@ -80,6 +80,17 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
 
+    # conda 不读 REQUESTS_CA_BUNDLE / SSL_CERT_FILE —— 公司代理 TLS 拦截会让
+    # `conda install` (gxx / cmake / gmp / cgal) 报 SSL 错。关掉 conda 的 ssl_verify
+    # (写 ~/.condarc)，和上面 pip 的 --trusted-host 等价。若有可用 CA bundle 优先用它。
+    if [ -n "${CA_FILE:-}" ] && [ -f "$CA_FILE" ]; then
+        conda config --set ssl_verify "$CA_FILE"
+        echo "--- conda ssl_verify -> CA bundle: $CA_FILE ---"
+    else
+        conda config --set ssl_verify false
+        echo "--- conda ssl_verify -> false (公司代理 TLS 拦截 workaround) ---"
+    fi
+
     # 0a. PyTorch 2.5.1 + cu121 (PDF-GS environment.yml pin).
     #     PyPI default wheels are cu121 — do NOT use download.pytorch.org (代理封 403).
     echo "--- installing PyTorch 2.5.1 + cu121 (from PyPI default index) ---"
