@@ -97,10 +97,26 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
     # 0a. PyTorch 2.5.1 + cu121 (PDF-GS environment.yml pin).
     #     PyPI default wheels are cu121 — do NOT use download.pytorch.org (代理封 403).
-    echo "--- installing PyTorch 2.5.1 + cu121 (from PyPI default index) ---"
-    pip install "${PIP_FLAGS[@]}" \
-        torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
-        echo "  ⚠️ torch 2.5.1 install failed (PyPI/代理?). 手动: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1" >&2
+    #     Cache the wheels in $WHEELHOUSE (one-time download ~2-3GB incl. nvidia deps);
+    #     subsequent 00 trial runs install from local — no re-download.
+    WHEELHOUSE="${WHEELHOUSE:-$MODEL_DIR/wheels_pdfgs}"
+    mkdir -p "$WHEELHOUSE"
+    if compgen -G "$WHEELHOUSE/torch-2.5.1-*.whl" >/dev/null; then
+        echo "--- torch wheels cached in $WHEELHOUSE (skipping download) ---"
+    else
+        echo "--- downloading torch wheels -> $WHEELHOUSE (one-time; torch+nvidia deps ~2-3GB) ---"
+        pip download "${PIP_FLAGS[@]}" -d "$WHEELHOUSE" \
+            torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
+            echo "  ⚠️ pip download incomplete; install will fetch missing from PyPI" >&2
+    fi
+    echo "--- installing PyTorch 2.5.1 + cu121 (from $WHEELHOUSE; PyPI fallback for missing) ---"
+    if ! pip install "${PIP_FLAGS[@]}" --no-index --find-links "$WHEELHOUSE" \
+            torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1; then
+        echo "  ⚠️ local-only install incomplete, fetching missing from PyPI..." >&2
+        pip install "${PIP_FLAGS[@]}" --find-links "$WHEELHOUSE" \
+            torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 || \
+            echo "  ⚠️ torch 2.5.1 install failed (PyPI/代理?). 手动: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1" >&2
+    fi
     echo "  torch.version.cuda = $(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null)"
 
     # 0b. gcc 12 into the conda env (system gcc too old for CUDA 12.x rasterizer build).

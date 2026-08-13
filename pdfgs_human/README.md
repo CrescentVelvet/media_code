@@ -87,6 +87,7 @@ HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 
 ```
 $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
+  wheels_pdfgs/                     # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB)
   Pi3/
     model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
   hf_home/                          # HuggingFace cache 根 (DINOv3 离线读这里)
