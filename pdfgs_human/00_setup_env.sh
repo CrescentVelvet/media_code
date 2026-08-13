@@ -20,6 +20,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
+# conda 不读 REQUESTS_CA_BUNDLE / SSL_CERT_FILE —— 公司代理 TLS 拦截会让 conda
+# (create + install) 报 SSL 错。conda condarc 优先级: env 级 ($CONDA_PREFIX/.condarc)
+# > user 级 (~/.condarc) > system 级——env 级会覆盖 user 级，故三层都设。
+# ⚠️ 必须在 `conda create` 之前调，否则建 env 时下 python 就 SSL 失败。
+_conda_disable_ssl() {
+    local _val="false"
+    if [ -n "${CA_FILE:-}" ] && [ -f "$CA_FILE" ]; then _val="$CA_FILE"; fi
+    conda config --system --set ssl_verify "$_val" 2>/dev/null || true
+    conda config         --set ssl_verify "$_val" 2>/dev/null || true
+    conda config --env   --set ssl_verify "$_val" 2>/dev/null || true
+    echo "--- conda ssl_verify = $_val (set at system+user+env levels) ---"
+}
+_conda_disable_ssl
+
 # _env.sh tolerated a missing env; create it now if needed.
 # NB: this env MUST be python=3.10 CPython — local torch/triton wheels are cp310
 # (and PDF-GS environment.yml pins python=3.10). conda-forge may slip GraalPy
@@ -29,6 +43,7 @@ if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     echo "--- conda env '$CONDA_ENV' not found; creating python=3.10 (CPython) ---"
     conda create -n "$CONDA_ENV" python=3.10 -y
     conda activate "$CONDA_ENV"
+    _conda_disable_ssl  # re-set env-level for the freshly activated pdfgs env
     impl="$(python -c 'import platform; print(platform.python_implementation())')"
     if [ "$impl" != "CPython" ]; then
         echo "ERROR: env '$CONDA_ENV' python 实现是 $impl（应为 CPython）。" >&2
@@ -79,17 +94,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "WARNING: no proxy set (http_proxy/https_proxy); pip may fail if no direct internet." >&2
         echo "         Create proxy.env at repo root: see proxy.env.example" >&2
     fi
-
-    # conda 不读 REQUESTS_CA_BUNDLE / SSL_CERT_FILE —— 公司代理 TLS 拦截会让
-    # `conda install` (gxx / cmake / gmp / cgal) 报 SSL 错。关掉 conda 的 ssl_verify
-    # (写 ~/.condarc)，和上面 pip 的 --trusted-host 等价。若有可用 CA bundle 优先用它。
-    if [ -n "${CA_FILE:-}" ] && [ -f "$CA_FILE" ]; then
-        conda config --set ssl_verify "$CA_FILE"
-        echo "--- conda ssl_verify -> CA bundle: $CA_FILE ---"
-    else
-        conda config --set ssl_verify false
-        echo "--- conda ssl_verify -> false (公司代理 TLS 拦截 workaround) ---"
-    fi
+    _conda_disable_ssl  # env-level may need refresh after any env activation
 
     # 0a. PyTorch 2.5.1 + cu121 (PDF-GS environment.yml pin).
     #     PyPI default wheels are cu121 — do NOT use download.pytorch.org (代理封 403).
