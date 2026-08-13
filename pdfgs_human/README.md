@@ -21,11 +21,18 @@ PDF-GS 的 distractor 模型有一个**核心假设**：干扰像素是**稀疏�
 
 ```bash
 # ── 分步 ──
-# 1) 分割所有拍摄图 → 白底人物多视图集 (rembg 定位 → SAM2 bbox-prompted 抠边; 自动/rembg 兜底)
-#    INPUT_DIR 是环绕拍摄文件夹（含 image/ 子夹，或直接散图）
+# 1) 分割所有拍摄图 → 白底人物多视图集
+#    两套等价方案, 输出布局相同 (segmented_frames/<rel>.png), step 02 都能直接吃:
+#    a) 01a (推荐, 质量最好): 复用 wan22_rotate 的 ViTDet + SAM2 (sam-3d-body),
+#       跑在 wan22_rotate conda env 里 — 不用单建分割环境。需要先做过 wan22_rotate 的首次准备。
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/pdfgs_human_results \
-  bash pdfgs_human/01_segment_all.sh
+  bash pdfgs_human/01a_segment_all.sh
+#    b) 01 (自含于 pdfgs env): rembg 定位 → SAM2 bbox-prompted 抠边; 自动/rembg 兜底。
+#       没配过 wan22 env、只想用 pdfgs env 时用它。
+# GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+#   RESULTS_DIR=../../output/pdfgs_human_results \
+#   bash pdfgs_human/01_segment_all.sh
 
 # 输出：<RESULTS_DIR>/segmented_frames/<rel>.png   (白底人物, 保留输入相对子路径)
 
@@ -160,15 +167,15 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png   (渲染�
 $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, final phase)
 ```
 
-### Step 01 — 分割所有图 (`01_segment_all.sh` → `segment_all.py`)
+### Step 01 — 分割所有图（两套等价方案，输出布局相同）
 
-对环绕拍摄的**每一张**图分割人物到白底（不像 wan22_rotate step 01 只选最佳正面）。PDF-GS 需要多视图集来三角化身体 + 跨视图对齐 DINOv3 特征识别微动——视图越多，三角化越稳，distractor 过滤越准。
+对环绕拍摄的**每一张**图分割人物到白底（不像 wan22_rotate step 01 只选最佳正面）。PDF-GS 需要多视图集来三角化身体 + 跨视图对齐 DINOv3 特征识别微动——视图越多，三角化越稳，distractor 过滤越准。两套脚本都输出 `segmented_frames/<rel>.png`，step 02 都能直接吃。
 
-**分割优先级**（`auto`，默认）：rembg 粗掩码 → 人物 bbox → **SAM2 image predictor + bbox prompt** → 干净人物掩码（边缘贴合真实轮廓，无黑边）→ 兜底 SAM2 自动掩码（取面积最大 salient）→ rembg alpha。这条路径**参考 wan22_rotate step 01c** 的"person bbox → SAM2"思路：那里用 ViTDet 出 bbox，这里没有 detectron2，用 rembg 当轻量人物定位器（纯 pip，无 GATED 权重），SAM2 那侧完全一致——bbox prompt 约束 SAM2 只抠框内人物，边缘自然干净。`REMBG_ALPHA_THRESH` 默认 128（旧值 16 会保留半透明边缘带 → 白底上显成黑边，已修）。
+**方案 a — `01a_segment_all.sh`（推荐，质量最好）**：复用 `wan22_rotate` 的 ViTDet + SAM2（sam-3d-body `HumanDetector`/`HumanSegmentor`），就是 wan22_rotate step 01c 那套"person bbox → SAM2"——边缘最干净。脚本 source `wan22_rotate/_env.sh`，跑在 `wan22_rotate` conda env 里（已有 detectron2 + sam-3d-body + SAM2 + ViTDet 权重），不用为分割单建环境。它本质是 01c 的近拷贝，但设 `SEGMENT_ALL=1` 让 `pick_and_segment_mediapipe.py` 跳过 MediaPipe 正面评分、对**每张**图跑同一套 ViTDet 检测 + SAM2 分割（不是只选一张）。前提：先做过 wan22_rotate 的首次准备（建好 wan22 env + sam-3d-body/ViTDet 权重）。Steps 02/03 仍用 pdfgs env；只有 step 01 借 wan22 env。
 
-设 `SEGMENTOR=sam2`（仅 SAM2 自动掩码，无 rembg 定位）或 `rembg`（仅 rembg alpha）强制单方法；默认 `auto`。
+**方案 b — `01_segment_all.sh`（自含于 pdfgs env）**：rembg 粗掩码 → 人物 bbox → **SAM2 image predictor + bbox prompt** → 干净人物掩码（边缘贴合真实轮廓，无黑边）→ 兜底 SAM2 自动掩码（取面积最大 salient）→ rembg alpha。这条路径**参考 wan22_rotate step 01c** 的"person bbox → SAM2"思路：那里用 ViTDet 出 bbox，这里没有 detectron2，用 rembg 当轻量人物定位器（纯 pip，无 GATED 权重），SAM2 那侧完全一致——bbox prompt 约束 SAM2 只抠框内人物，边缘自然干净。`REMBG_ALPHA_THRESH` 默认 128（旧值 16 会保留半透明边缘带 → 白底上显成黑边，已修）。没配过 wan22 env、只想用 pdfgs env 时用它。设 `SEGMENTOR=sam2`（仅 SAM2 自动掩码，无 rembg 定位）或 `rembg`（仅 rembg alpha）强制单方法；默认 `auto`。
 
-**为何不用 SAM 3D Body**（像 wan22_rotate step 01）：本目录要的是**所有视图的掩码**，不需要正面评分、不需要 3D body 姿态。SAM 3D Body 绑了 detectron2 + GATED 权重 + MoGe2，对"逐图抠人物"是杀鸡用牛刀，且 detectron2 在 torch 2.5.1 上编译麻烦。rembg + SAM2 更轻、自含于 pdfgs env。
+> 01a 质量更稳（ViTDet 人物检测比 rembg 准，SAM2 prompt 一致），优先用；01 作不依赖 wan22 env 的备选。
 
 ### Step 02 — Pi3 位姿 + COLMAP 导出 (`02_pi3_colmap.sh` → 调 `pi3_3dgs/pi3_recon.py`)
 

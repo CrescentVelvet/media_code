@@ -52,6 +52,11 @@ WHITE_BG = os.environ.get("WHITE_BG", "1") == "1"
 PADDING = float(os.environ.get("PADDING", "0.1"))
 MP_MIN_CONFIDENCE = float(os.environ.get("MP_MIN_CONFIDENCE", "0.5"))
 SKIP_SEGMENTATION = os.environ.get("SKIP_SEGMENTATION", "0") == "1"
+# SEGMENT_ALL=1: skip MediaPipe frontal pick, segment EVERY image with the same
+# ViTDet+SAM2 machinery, save <rel>.png per image (used by pdfgs_human/01a, which
+# needs the full multi-view set — not the single best frontal). Off by default so
+# 01c's pick-one behavior is unchanged.
+SEGMENT_ALL = os.environ.get("SEGMENT_ALL", "0") == "1"
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff"}
 
@@ -392,6 +397,66 @@ def center_person(image_bgr, mask, white_bg=True):
     return result
 
 
+def segment_all(image_dir, images):
+    """SEGMENT_ALL mode — segment EVERY image (not just the best frontal) with the
+    same ViTDet -> person bbox -> SAM2 machinery as the pick-one path, saving each
+    as <rel>.png (white-bg) under OUTPUT_DIR, preserving the input rel subpath.
+
+    PDF-GS (pdfgs_human/01a) needs the full multi-view set, so it sets
+    SEGMENT_ALL=1 instead of letting 01c pick one. Reuses build_tools /
+    detect_persons / segment_with_segmentor / bbox_to_mask / apply_mask unchanged.
+    Skips MediaPipe (no frontal scoring needed) and center_person (PDF-GS needs
+    the original framing for cross-view triangulation).
+    """
+    print("🚀 [SEGMENT_ALL] ViTDet + SAM2 on EVERY image (reuses 01c machinery)")
+    print(f"  💾 output: {OUTPUT_DIR}")
+    out_dir = Path(OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("\n📦 loading ViTDet + SAM2 ...")
+    human_detector, human_segmentor = build_tools()
+
+    n_ok = n_fail = 0
+    t0 = time.time()
+    for i, fp in enumerate(images, 1):
+        rel = fp.relative_to(image_dir)
+        t1 = time.time()
+        image_bgr = cv2.imread(str(fp))
+        if image_bgr is None:
+            print(f"[{i}/{len(images)}] {rel}  ⚠️  cannot read")
+            n_fail += 1
+            continue
+        img_h, img_w = image_bgr.shape[:2]
+
+        bboxes = detect_persons(human_detector, image_bgr)
+        best_bbox = (max(bboxes, key=lambda b: max(0, b[2]-b[0]) * max(0, b[3]-b[1]))
+                     if bboxes else None)
+
+        mask = None
+        if human_segmentor is not None and best_bbox is not None:
+            mask = segment_with_segmentor(human_segmentor, image_bgr, [best_bbox])
+        if mask is None and best_bbox is not None:
+            mask = bbox_to_mask(best_bbox, img_h, img_w, PADDING)
+
+        if mask is None:
+            print(f"[{i}/{len(images)}] {rel}  ❌  no mask ({time.time()-t1:.1f}s)")
+            n_fail += 1
+            continue
+
+        result_img = apply_mask(image_bgr, mask, white_bg=WHITE_BG)
+        out_path = out_dir / rel.with_suffix(".png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_path), result_img)
+        frac = mask.sum() / (img_h * img_w)
+        print(f"[{i}/{len(images)}] {rel}  ✅ {frac*100:.0f}%  ({time.time()-t1:.1f}s)")
+        n_ok += 1
+
+    print(f"\n⏱️  {n_ok}/{len(images)} segmented, {n_fail} failed in {time.time()-t0:.1f}s")
+    if n_ok == 0:
+        sys.exit("❌ no image segmented (check ViTDet/SAM2 setup via wan22_rotate/00_setup_env.sh).")
+    print(f"✅ saved: {out_dir}/*.png")
+
+
 def main():
     if not INPUT_DIR:
         sys.exit("❌ INPUT_DIR not set")
@@ -414,6 +479,11 @@ def main():
     if not images:
         sys.exit(f"❌ no images in {image_dir}")
     print(f"🖼️  {len(images)} images in {image_dir}")
+
+    # SEGMENT_ALL mode (pdfgs_human/01a): skip MediaPipe frontal pick, segment
+    # EVERY image with the same ViTDet+SAM2 machinery, save <rel>.png per image.
+    if SEGMENT_ALL:
+        return segment_all(image_dir, images)
 
     # Trigger MediaPipe import early so a missing install fails fast.
     get_face_mesh()
