@@ -91,7 +91,7 @@ HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 
 ```
 $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
-  wheels_pdfgs/                     # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB)
+  wheels/                          # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB; 跨项目共享, 不同版本文件名不同不冲突)
   dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 (本地放这, 00 自动用, 免 gated 下载; PDF-GS 默认是 vitb16, vitl16 架构兼容能跑)
   Pi3/
     model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
@@ -295,7 +295,7 @@ INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 │   └── checkpoints/sam2.1_hiera_large.pt
 ├── Pi3/                            # Pi3 官方代码 (00 clone, step 02 用)
 ├── model/                          # 权重根 (code-dir 上一级, 共享)
-│   ├── wheels_pdfgs/               # torch wheel 缓存 (00 首跑 pip download)
+│   ├── wheels/                    # torch wheel 缓存 (00 首跑 pip download; 跨项目共享)
 │   ├── dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 本地 (放这, 00 自动用, 免 gated)
 │   ├── Pi3/model.safetensors
 │   └── hf_home/hub/                # DINOv3 离线缓存 (仅走 gated vitb16 时, 00 用 HF_TOKEN 下)

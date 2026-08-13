@@ -99,7 +99,9 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     #     PyPI default wheels are cu121 — do NOT use download.pytorch.org (代理封 403).
     #     Cache the wheels in $WHEELHOUSE (one-time download ~2-3GB incl. nvidia deps);
     #     subsequent 00 trial runs install from local — no re-download.
-    WHEELHOUSE="${WHEELHOUSE:-$MODEL_DIR/wheels_pdfgs}"
+    #     Default $MODEL_DIR/wheels is SHARED across projects (different torch/nvidia
+    #     versions have different filenames — pip --find-links picks by version spec).
+    WHEELHOUSE="${WHEELHOUSE:-$MODEL_DIR/wheels}"
     mkdir -p "$WHEELHOUSE"
     if compgen -G "$WHEELHOUSE/torch-2.5.1-*.whl" >/dev/null; then
         echo "--- torch wheels cached in $WHEELHOUSE (skipping download) ---"
