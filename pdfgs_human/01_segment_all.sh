@@ -60,7 +60,9 @@ if ! python -c "from sam2 import build_sam2" 2>/dev/null && \
 fi
 
 mkdir -p "$SEGMENTED_DIR"
-export INPUT_DIR SEGMENTED_DIR SEGMENTOR WHITE_BG MIN_MASK_FRAC DEVICE JPG_QUALITY
+# segment_all.py reads OUTPUT_DIR (not SEGMENTED_DIR) for the save dir.
+export OUTPUT_DIR="$SEGMENTED_DIR"
+export INPUT_DIR SEGMENTED_DIR OUTPUT_DIR SEGMENTOR WHITE_BG MIN_MASK_FRAC DEVICE JPG_QUALITY
 
 echo "🚀 [01] segment all images (white-bg person, multi-view set for PDF-GS)"
 echo "  📂 input:       $INPUT_DIR"
