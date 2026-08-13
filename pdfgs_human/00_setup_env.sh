@@ -33,6 +33,35 @@ _conda_disable_ssl() {
 }
 _conda_disable_ssl
 
+# When SSL_VERIFY=false, inject sitecustomize.py into the ACTIVE conda env's
+# site-packages so every Python process (huggingface_hub snapshot_download,
+# requests, urllib) skips SSL cert verification — sitecustomize is auto-imported
+# at interpreter start. NB: needs the env created+activated (to find its
+# site-packages), so it's CALLED below after the env-creation block, before any
+# pip/hf download runs (the "before conda create" placement is impossible since
+# the env doesn't exist yet; this is the earliest point that works).
+_inject_ssl_unverified() {
+    [ "${SSL_VERIFY:-true}" = "false" ] || return 0
+    local _sp
+    _sp="$(python -c 'import site;print(site.getsitepackages()[0])' 2>/dev/null)"
+    if [ -z "$_sp" ] || [ ! -d "$_sp" ]; then
+        echo "  ⚠️ cannot locate site-packages for SSL_VERIFY injection" >&2
+        return 0
+    fi
+    local _f="$_sp/sitecustomize.py"
+    if [ -f "$_f" ] && grep -q "_create_unverified_context" "$_f" 2>/dev/null; then
+        echo "--- SSL_VERIFY=false: sitecustomize already injected ($_f) ---"
+        return 0
+    fi
+    cat >> "$_f" <<'PYEOF'
+# --- pdfgs_human SSL_VERIFY=false: disable SSL cert verification globally ---
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+PYEOF
+    export PYTHONHTTPSVERIFY=0
+    echo "--- SSL_VERIFY=false: injected sitecustomize (ssl unverified) -> $_f ---"
+}
+
 # _env.sh tolerated a missing env; create it now if needed.
 # NB: this env MUST be python=3.10 CPython — local torch/triton wheels are cp310
 # (and PDF-GS environment.yml pins python=3.10). conda-forge may slip GraalPy
@@ -53,6 +82,9 @@ if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     fi
     echo "  [OK] python=$(python --version 2>&1 | cut -d ' ' -f2) ($impl)"
 fi
+# Inject SSL-unverified sitecustomize into the (now-active) pdfgs env when
+# SSL_VERIFY=false — before any pip/hf download in INSTALL_DEPS.
+_inject_ssl_unverified
 
 echo "=== [00] Verify prerequisites for pdfgs_human ==="
 echo "  conda env: $CONDA_ENV  (python $(python --version 2>&1 | cut -d ' ' -f2))"

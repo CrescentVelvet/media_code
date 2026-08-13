@@ -75,14 +75,20 @@ cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 #    否则 pip 装依赖会报 "Network is unreachable"
 
 # 建 pdfgs env + 装依赖 + 编 CUDA 扩展 + 下权重 (一次性)
+# 公司代理做 TLS 拦截、代理根 CA 不在系统 bundle 里 → SSL 验证失败。
+# SSL_VERIFY=false 一键解决: _env.sh unset 掉 CA bundle 环境变量 + PYTHONHTTPSVERIFY=0,
+# 00 往 pdfgs env 的 site-packages 注入 sitecustomize.py (ssl._create_unverified_context),
+# 让 conda/pip/git/hf/requests/urllib 全部跳过证书验证。不用再手动 unset 任何变量。
+SSL_VERIFY=false INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+#
 # DINOv3 有两种拿法 (二选一):
 #   A) 本地放一份到 $MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m/  (ViT-L/16, 免 token)
 #      —— 00 会自动探测并 patch train.py 指向它, 跳过 gated 下载。推荐, 省事。
 #   B) 用 PDF-GS 默认的 facebook/dinov3-vitb16-pretrain-lvd1689m (ViT-B/16, GATED):
 #      先到 https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m 点 "Request access",
 #      通过后用 HF_TOKEN 跑 00:
-HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
-#      (有本地 vitl16 时可省掉 HF_TOKEN, 直接: INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh)
+#      SSL_VERIFY=false HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+#      (有本地 vitl16 时可省掉 HF_TOKEN, 直接用上面那条命令)
 ```
 
 需系统有 CUDA toolkit 12.x（`CUDA_HOME=/usr/local/cuda`，nvcc 可用；若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x`）。
@@ -188,6 +194,7 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | `GPU` | _(unset)_ | physical GPU id, e.g. `GPU=0` |
 | `CONDA_ENV` | `pdfgs` | conda env（torch 2.5.1+cu121） |
 | `PDFGS_DIR` | `../PDF-GS` | PDF-GS 官方代码（00 clone） |
+| `SSL_VERIFY` | `true` | `false` = 公司代理 TLS 拦截下彻底关 SSL：unset CA bundle 环境变量 + `PYTHONHTTPSVERIFY=0` + 00 往 pdfgs env 注入 `sitecustomize.py`（`ssl._create_unverified_context`）。conda 已单独 `ssl_verify=false`（不受此开关控制，默认关） |
 | `PI3_DIR` | `../Pi3` | Pi3 官方代码（00 clone; 02 兜底 auto-clone） |
 | `SAM2_DIR` | `../sam2` | SAM2 官方代码 + checkpoints（00 clone） |
 | `MODEL_DIR` | `../../model` | 权重根（code-dir 上一级，共享） |
@@ -235,6 +242,13 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 `train.py` 的额外参数 |
 
 ## 可能遇到的问题
+
+**0. SSL 验证失败（conda / pip / hf / requests 都报证书错）**
+公司代理做 TLS 拦截，代理根 CA 不在系统 bundle 里。手动 `unset SSL_CERT_FILE REQUESTS_CA_BUNDLE` 没用——`_env.sh` 被 source 时会重新 export 它们。用开关：
+```bash
+SSL_VERIFY=false INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+```
+`SSL_VERIFY=false` 时：`_env.sh` unset 掉所有 CA bundle 环境变量 + `PYTHONHTTPSVERIFY=0`；00 往 pdfgs env 的 `site-packages/sitecustomize.py` 注入 `ssl._create_default_https_context = ssl._create_unverified_context`，让所有 Python 进程（含 huggingface_hub）跳过证书验证。conda 单独由 `_conda_disable_ssl` 设 `ssl_verify false`（默认关，不受此开关控制）。
 
 **1. `step 03` 报 DINOv3 加载失败 / `HF_HUB_OFFLINE` 下找不到权重**
 DINOv3 两种拿法（见「首次准备」）：
