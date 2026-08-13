@@ -20,10 +20,13 @@ fi
 [ -n "${https_proxy:-}" ] && export HTTPS_PROXY="$https_proxy"
 
 # --- Corporate proxy TLS interception workaround (pip/hf/git) ---
+# -s = exists AND non-empty. An EMPTY bundle (e.g. unset-up ~/.ca-bundle.crt)
+# pointed at a tool = "trust no CAs" → SSL fails. Prefer non-empty user bundle,
+# else non-empty system bundle, else leave unset (tools fall back to certifi).
 SYS_CA=/etc/ssl/certs/ca-certificates.crt
 USER_CA="$HOME/.ca-bundle.crt"
-if [ -f "$USER_CA" ]; then CA_FILE="$USER_CA"
-elif [ -f "$SYS_CA" ]; then CA_FILE="$SYS_CA"
+if [ -s "$USER_CA" ]; then CA_FILE="$USER_CA"
+elif [ -s "$SYS_CA" ]; then CA_FILE="$SYS_CA"
 else CA_FILE=""; fi
 if [ -n "$CA_FILE" ]; then
     : "${REQUESTS_CA_BUNDLE:=$CA_FILE}"
