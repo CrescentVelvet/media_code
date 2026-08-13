@@ -87,12 +87,23 @@ export SAM2_CONFIG="${SAM2_CONFIG:-configs/sam2.1/sam2.1_hiera_large.yaml}"
 # Pi3 checkpoint (feed-forward pose estimation, step 02).
 export PI3_CKPT="${PI3_CKPT:-$MODEL_DIR/Pi3/model.safetensors}"
 
-# DINOv3 (gated, step 03 — PDF-GS DINOv3FeatureExtractor loads via transformers
-# from_pretrained("facebook/dinov3-vitb16-pretrain-lvd1689m"); pre-downloaded by 00
-# into $HF_HOME/hub, read offline here).
+# DINOv3 (step 03 — PDF-GS DINOv3FeatureExtractor loads via transformers
+# from_pretrained(repo). PDF-GS hardcodes facebook/dinov3-vitb16-pretrain-lvd1689m
+# (ViT-B/16, GATED). We prefer a LOCAL dir if present — e.g. dinov3-vitl16-pretrain-lvd1689m
+# (ViT-L/16, larger but architecture-compatible: patch=16 + 4 register tokens, just
+# 1024-dim features vs 768; runs fine, avoids the gated download). 00 patches train.py
+# to honor DINOV3_REPO; override DINOV3_REPO=... to force a path or HF repo id.
 export HF_HOME="${HF_HOME:-$MODEL_DIR/hf_home}"
-# DINOv3 needs an HF token for the gated repo; only used by 00 at download time.
-# At runtime (offline) no token is read.
+if [ -z "${DINOV3_REPO:-}" ]; then
+    if [ -d "$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m" ]; then
+        DINOV3_REPO="$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m"
+    else
+        DINOV3_REPO="facebook/dinov3-vitb16-pretrain-lvd1689m"
+    fi
+fi
+export DINOV3_REPO
+# HF_TOKEN only needed at download time, and only when DINOV3_REPO is the gated HF
+# repo id (not a local dir). At runtime (offline) a local dir loads without token.
 
 # Output dir (outside the repo, like wan22_rotate_results / pi3_3dgs_results).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../pdfgs_human_results}"

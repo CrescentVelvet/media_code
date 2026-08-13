@@ -91,12 +91,20 @@ if ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; the
     echo "       Run: INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh (needs nvcc)" >&2
     exit 1
 fi
-# DINOv3 offline cache (DINOv3FeatureExtractor loads via transformers from HF cache).
-if [ -z "$(ls -A "$HF_HOME/hub" 2>/dev/null)" ]; then
-    echo "⚠️ WARNING: DINOv3 HF cache empty at $HF_HOME/hub" >&2
-    echo "       Training will fail when DINOv3FeatureExtractor() loads." >&2
-    echo "       Run: HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
-    echo "       (first Request access: https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m)" >&2
+# DINOv3: DINOV3_REPO (from _env.sh) is either a local dir (e.g. vitl16, loads
+# offline without token) OR the gated HF repo id (loaded from $HF_HOME/hub cache).
+# Also verify train.py was patched to honor DINOV3_REPO (00 does this idempotently).
+if [ -d "$DINOV3_REPO" ]; then
+    echo "  🏋️ DINOv3 local: $DINOV3_REPO"
+elif [ -n "$(ls -A "$HF_HOME/hub" 2>/dev/null)" ]; then
+    echo "  🏋️ DINOv3 HF cache populated ($DINOV3_REPO)"
+else
+    echo "⚠️ WARNING: DINOv3 not found (DINOV3_REPO=$DINOV3_REPO, HF cache empty)." >&2
+    echo "       Put a local dir at $MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m, or" >&2
+    echo "       HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
+fi
+if ! grep -qF "DINOV3_REPO" "$PDFGS_DIR/train.py" 2>/dev/null; then
+    echo "⚠️ WARNING: train.py not patched to honor DINOV3_REPO — re-run INSTALL_DEPS=1 bash $SCRIPT_DIR/00_setup_env.sh" >&2
 fi
 
 # ── 1. PDF-GS training (progressive distractor filtering) ─────────────────

@@ -75,10 +75,14 @@ cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
 #    否则 pip 装依赖会报 "Network is unreachable"
 
 # 建 pdfgs env + 装依赖 + 编 CUDA 扩展 + 下权重 (一次性)
-# ⚠️ DINOv3 (facebook/dinov3-vitb16-pretrain-lvd1689m) 是 GATED:
-#    先到 https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m 点 "Request access",
-#    通过后用 HF_TOKEN 跑 00:
+# DINOv3 有两种拿法 (二选一):
+#   A) 本地放一份到 $MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m/  (ViT-L/16, 免 token)
+#      —— 00 会自动探测并 patch train.py 指向它, 跳过 gated 下载。推荐, 省事。
+#   B) 用 PDF-GS 默认的 facebook/dinov3-vitb16-pretrain-lvd1689m (ViT-B/16, GATED):
+#      先到 https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m 点 "Request access",
+#      通过后用 HF_TOKEN 跑 00:
 HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+#      (有本地 vitl16 时可省掉 HF_TOKEN, 直接: INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh)
 ```
 
 需系统有 CUDA toolkit 12.x（`CUDA_HOME=/usr/local/cuda`，nvcc 可用；若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x`）。
@@ -88,11 +92,12 @@ HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 ```
 $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
   wheels_pdfgs/                     # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB)
+  dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 (本地放这, 00 自动用, 免 gated 下载; PDF-GS 默认是 vitb16, vitl16 架构兼容能跑)
   Pi3/
     model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
-  hf_home/                          # HuggingFace cache 根 (DINOv3 离线读这里)
+  hf_home/                          # HuggingFace cache 根 (仅当走 B) gated vitb16 时用)
     hub/
-      models--facebook--dinov3-vitb16-pretrain-lvd1689m/   # DINOv3 (gated, 00 用 HF_TOKEN 下)
+      models--facebook--dinov3-vitb16-pretrain-lvd1689m/   # DINOv3 vitb16 (gated, 00 用 HF_TOKEN 下)
 ```
 
 外部 clone 的官方代码（00 自动 clone，sibling of media_code）：
@@ -166,9 +171,9 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 在 pdfgs env 里跑 PDF-GS 的 `train.py`（`cd $PDFGS_DIR` 内跑，保证相对 import）。核心是 `compute_clean_mask`（见 PDF-GS `train.py`）：
 
 - **phase 1**：`prev_feat = None` → `clean_mask = 全 1`（无过滤，纯 3DGS 训练建初始高斯）。
-- **phase 2..N**：`feature_extractor = DINOv3FeatureExtractor().cuda()`；对每个训练视角，算 `cosine_similarity(gt_feat, prev_feat)`（GT 的 DINOv3 特征 vs 上一 phase 渲染图的 DINOv3 特征），低于 `sim_thr` 的像素 = distractor → `clean_mask` 置 0 → 从 `L1_loss` 和 `ssim_loss` 里乘掉。阈值 `--sim_thr 0.6 0.7 0.8` 逐 phase 升高（`sim_thr[phase-2]`），过滤渐严。`prev_mask_dict` 还和上一 phase 的 mask 相乘累积过滤。
+- **phase 2..N**：`feature_extractor = DINOv3FeatureExtractor(...)`；对每个训练视角，算 `cosine_similarity(gt_feat, prev_feat)`（GT 的 DINOv3 特征 vs 上一 phase 渲染图的 DINOv3 特征），低于 `sim_thr` 的像素 = distractor → `clean_mask` 置 0 → 从 `L1_loss` 和 `ssim_loss` 里乘掉。阈值 `--sim_thr 0.6 0.7 0.8` 逐 phase 升高（`sim_thr[phase-2]`），过滤渐严。`prev_mask_dict` 还和上一 phase 的 mask 相乘累积过滤。
 
-> DINOv3 是 GATED（`facebook/dinov3-vitb16-pretrain-lvd1689m`），由 `DINOv3FeatureExtractor()` 经 `transformers.from_pretrained` 加载，首次运行自动从 HF 下；00 用 `HF_TOKEN` 预下到 `$HF_HOME/hub`，`_env.sh` 设 `HF_HUB_OFFLINE=1` 离线读，避免运行时联网（公司代理拦 HF）。
+> DINOv3：PDF-GS 默认 `facebook/dinov3-vitb16-pretrain-lvd1689m`（ViT-B/16，GATED）。00 patch 了 train.py 让它读 `DINOV3_REPO` 环境变量——`_env.sh` 自动探测：若 `$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m`（ViT-L/16）本地存在就用它（架构兼容能跑，免 gated 下载），否则用 vitb16（00 用 `HF_TOKEN` 预下到 `$HF_HOME/hub`）。`_env.sh` 设 `HF_HUB_OFFLINE=1`，本地目录或缓存离线读，避免运行时联网（公司代理拦 HF）。
 
 **渲染**：`render.py -s SOURCE -m $MODEL_DIR/phase_$NUM_PHASES --iteration $ITER_PER_PHASE`。加载 final phase（phase_4）的高斯 + source 的相机，渲染所有训练视角到 `phase_4/train/ours_10000/{renders,gt}/`。没开 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过，只渲 train 集。
 
@@ -186,6 +191,7 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | `PI3_DIR` | `../Pi3` | Pi3 官方代码（00 clone; 02 兜底 auto-clone） |
 | `SAM2_DIR` | `../sam2` | SAM2 官方代码 + checkpoints（00 clone） |
 | `MODEL_DIR` | `../../model` | 权重根（code-dir 上一级，共享） |
+| `DINOV3_REPO` | _(auto)_ | DINOv3 加载源：本地有 `$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m` 就用它（vitl16，免 gated），否则 `facebook/dinov3-vitb16-pretrain-lvd1689m`（gated，需 HF_TOKEN）。可强制覆盖 |
 | `RESULTS_DIR` | `../pdfgs_human_results` | 输出目录 |
 | `OUTPUT_NAME` | `orbit` | 基名（影响 02/03 的默认子目录） |
 
@@ -231,11 +237,10 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 ## 可能遇到的问题
 
 **1. `step 03` 报 DINOv3 加载失败 / `HF_HUB_OFFLINE` 下找不到权重**
-DINOv3 是 GATED，00 必须用 `HF_TOKEN` 预下。先到 [HF 模型页](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) 点 "Request access"，通过后重跑：
-```bash
-HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
-```
-确认 `$MODEL_DIR/hf_home/hub/models--facebook--dinov3-vitb16-pretrain-lvd1689m/` 有 `snapshots/` 子夹。
+DINOv3 两种拿法（见「首次准备」）：
+- **有本地 vitl16**：把 DINOv3 ViT-L/16 放到 `$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m/`（含 `config.json` + 权重），`_env.sh` 自动探测、00 patch train.py 指向它，免 token。
+- **走 gated vitb16**：先到 [HF 模型页](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) 点 "Request access"，通过后重跑 `HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；确认 `$MODEL_DIR/hf_home/hub/models--facebook--dinov3-vitb16-pretrain-lvd1689m/` 有 `snapshots/` 子夹。
+若报 train.py 没读到 `DINOV3_REPO`（03 会 warn），重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh` 让 00 重新 patch。
 
 **2. `step 03` 报 `import diff_gaussian_rasterization` 失败 / CUDA 扩展没编成**
 00 没找到 nvcc。确认系统有 CUDA 12.x toolkit：`ls -d /usr/local/cuda-12*`。若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x` 并设 `CUDA_HOME`；手动：
@@ -290,8 +295,10 @@ INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 │   └── checkpoints/sam2.1_hiera_large.pt
 ├── Pi3/                            # Pi3 官方代码 (00 clone, step 02 用)
 ├── model/                          # 权重根 (code-dir 上一级, 共享)
+│   ├── wheels_pdfgs/               # torch wheel 缓存 (00 首跑 pip download)
+│   ├── dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 本地 (放这, 00 自动用, 免 gated)
 │   ├── Pi3/model.safetensors
-│   └── hf_home/hub/                # DINOv3 离线缓存 (00 用 HF_TOKEN 下)
+│   └── hf_home/hub/                # DINOv3 离线缓存 (仅走 gated vitb16 时, 00 用 HF_TOKEN 下)
 └── pdfgs_human_results/            # 输出 (repo 外)
     ├── segmented_frames/           # step 01: 白底人物多视图集
     │   └── <rel>.png

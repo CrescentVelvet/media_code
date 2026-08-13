@@ -183,6 +183,25 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         fi
     fi
 
+    # 0c-bis. Patch PDF-GS train.py: DINOv3FeatureExtractor() honors DINOV3_REPO env
+    # so it can load a LOCAL DINOv3 dir (e.g. vitl16) instead of the hardcoded gated
+    # HF repo facebook/dinov3-vitb16-pretrain-lvd1689m. Idempotent (only if the
+    # original unpatched call is still there).
+    if [ -f "$PDFGS_DIR/train.py" ] && \
+       grep -qF "feature_extractor = DINOv3FeatureExtractor().cuda()" "$PDFGS_DIR/train.py" 2>/dev/null; then
+        echo "  patching train.py: DINOv3FeatureExtractor honors DINOV3_REPO"
+        python - "$PDFGS_DIR/train.py" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+s = s.replace(
+    "feature_extractor = DINOv3FeatureExtractor().cuda()",
+    "feature_extractor = DINOv3FeatureExtractor(repo=os.environ.get('DINOV3_REPO', 'facebook/dinov3-vitb16-pretrain-lvd1689m')).cuda()",
+)
+open(p, "w", encoding="utf-8").write(s)
+PYEOF
+    fi
+
     # 0d. PDF-GS Python deps (torch/numpy already installed). Per environment.yml:
     #     transformers>=4.56 (DINOv3), torchmetrics==1.2.0 (metrics.py), mediapy,
     #     opencv_python, scipy, joblib, plyfile, tqdm, matplotlib. Plus lpips
@@ -282,32 +301,35 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "    wget -O $MODEL_DIR/Pi3/model.safetensors https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors" >&2
     fi
 
-    # 0j. DINOv3 checkpoint (GATED, step 03 needs it). facebook/dinov3-vitb16-pretrain-lvd1689m.
-    #     Must "Request access" on the HF model page first, then pass HF_TOKEN.
-    #     Pre-downloaded into $HF_HOME/hub so _env.sh's HF_HUB_OFFLINE=1 can read it at train time.
-    echo "--- downloading DINOv3 (gated: facebook/dinov3-vitb16-pretrain-lvd1689m) ---"
-    mkdir -p "$HF_HOME"
-    if [ -z "${HF_TOKEN:-}" ]; then
-        echo "  ⚠️ HF_TOKEN not set — DINOv3 is GATED." >&2
-        echo "     1) Request access: https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m" >&2
-        echo "     2) Re-run: HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash $0" >&2
-        echo "     (skipping DINOv3 download; step 03 will fail at runtime until this is done)" >&2
+    # 0j. DINOv3 (step 03 needs it). DINOV3_REPO comes from _env.sh: a LOCAL dir
+    #     if present (e.g. $MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m, ViT-L/16 —
+    #     avoids the gated download entirely), else the gated HF repo id
+    #     facebook/dinov3-vitb16-pretrain-lvd1689m. 03 loads via the patched train.py.
+    echo "--- DINOv3 setup (DINOV3_REPO=$DINOV3_REPO) ---"
+    if [ -d "$DINOV3_REPO" ]; then
+        echo "  [OK] DINOv3 local dir: $DINOV3_REPO (skipping gated HF download)"
     else
-        # Temporarily disable offline so snapshot_download can reach HF.
-        if HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 HF_TOKEN="$HF_TOKEN" python -c "
+        # DINOV3_REPO is a HF repo id (gated) → download to $HF_HOME/hub.
+        mkdir -p "$HF_HOME"
+        if [ -z "${HF_TOKEN:-}" ]; then
+            echo "  ⚠️ HF_TOKEN not set — DINOv3 repo '$DINOV3_REPO' is GATED." >&2
+            echo "     Option A (no token): put a local DINOv3 dir at $MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m" >&2
+            echo "     Option B (token):    1) Request access: https://huggingface.co/$DINOV3_REPO" >&2
+            echo "                          2) Re-run: HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash $0" >&2
+            echo "     (skipping; step 03 will fail at runtime until one is done)" >&2
+        else
+            # Temporarily disable offline so snapshot_download can reach HF.
+            if HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 HF_TOKEN="$HF_TOKEN" python -c "
 from huggingface_hub import snapshot_download
-snapshot_download(
-    repo_id='facebook/dinov3-vitb16-pretrain-lvd1689m',
-    cache_dir='${HF_HOME}/hub',
-    token='${HF_TOKEN}',
-)
+snapshot_download(repo_id='${DINOV3_REPO}', cache_dir='${HF_HOME}/hub', token='${HF_TOKEN}')
 print('  [OK] DINOv3 downloaded to ${HF_HOME}/hub')
 " 2>&1; then
-            : # downloaded
-        else
-            echo "  ⚠️ DINOv3 download failed (HF blocked / token invalid?). Manual:" >&2
-            echo "    from huggingface_hub import snapshot_download" >&2
-            echo "    snapshot_download(repo_id='facebook/dinov3-vitb16-pretrain-lvd1689m', cache_dir='$HF_HOME/hub', token=...)" >&2
+                : # downloaded
+            else
+                echo "  ⚠️ DINOv3 download failed (HF blocked / token invalid?). Manual:" >&2
+                echo "    from huggingface_hub import snapshot_download" >&2
+                echo "    snapshot_download(repo_id='$DINOV3_REPO', cache_dir='$HF_HOME/hub', token=...)" >&2
+            fi
         fi
     fi
 
