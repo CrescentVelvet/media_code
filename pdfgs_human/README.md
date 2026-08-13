@@ -115,7 +115,7 @@ SSL_VERIFY=false INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
   wheels/                          # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB; 跨项目共享, 不同版本文件名不同不冲突)
   dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 (本地放这, 00 自动用, 免 gated 下载; PDF-GS 默认是 vitb16, vitl16 架构兼容能跑)
-  u2net/                           # rembg 的 u2net 模型 (本地放 u2net.onnx, _env.sh 设 U2NET_HOME 指向这, 免 rembg 联网下; SAM2 不可用时 step 01 兜底用)
+  u2net/                           # rembg 的 u2net 模型 (00 自动 wget 下载 u2net.onnx + symlink 到 ~/.local/share/.u2net; SAM2 不可用时 step 01 兜底用)
   Pi3/
     model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
   hf_home/                          # HuggingFace cache 根 (仅当走 B) gated vitb16 时用)
@@ -314,18 +314,52 @@ DINOv3 两种拿法（见「首次准备」）：
 - **走 gated vitb16**：先到 [HF 模型页](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) 点 "Request access"，通过后重跑 `HF_TOKEN=hf_xxx INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；确认 `$MODEL_DIR/hf_home/hub/models--facebook--dinov3-vitb16-pretrain-lvd1689m/` 有 `snapshots/` 子夹。
 若报 train.py 没读到 `DINOV3_REPO`（03 会 warn），重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh` 让 00 重新 patch。
 
-**2. `step 03` 报 `import diff_gaussian_rasterization` 失败 / CUDA 扩展没编成**
-00 没找到 nvcc。确认系统有 CUDA 12.x toolkit：`ls -d /usr/local/cuda-12*`。若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x` 并设 `CUDA_HOME`；手动：
-```bash
-export CUDA_HOME=/usr/local/cuda-12.4   # ⚠️ 不是 /usr/local/cuda
-export PATH=$CUDA_HOME/bin:$PATH
-INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
-```
-GLM 缺失（`glm/glm.hpp: No such file`）时：`cd $PDFGS_DIR && git clone https://github.com/g-truc/glm.git third_party/glm`。
+**2. `step 03` 报 `import diff_gaussian_rasterization` / `import simple_knn` 失败 / CUDA 扩展没编成**
+两个根因，00 都已自动处理，但首次若失败需手动兜底：
+
+- **simple-knn 源码缺失**：PDF-GS 的 simple-knn 子模块指向 `gitlab.inria.fr/bkerbl/simple-knn`（公司代理封了 gitlab.inria.fr）。00 会按序尝试 gitlab.inria.fr → GitHub 镜像（`yindaheng98/simple-knn`、`jteng2127/simple-knn`）clone。若全失败，手动：
+  ```bash
+  cd $PDFGS_DIR/submodules && rm -rf simple-knn
+  git clone https://github.com/yindaheng98/simple-knn.git simple-knn
+  INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh   # 重新编译
+  ```
+
+- **conda gcc 没装**：CUDA 扩展编译需要 gcc 12（系统 gcc 太老编不过 CUDA 12.x rasterizer）。00 先 `conda install --no-update-deps gxx_linux-64=12 python=3.10`，失败则去掉 `--no-update-deps` 重试。若仍失败：
+  ```bash
+  conda install -y -c conda-forge gxx_linux-64=12 python=3.10
+  python -c "import platform; print(platform.python_implementation())"  # 必须 CPython
+  INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+  ```
+
+- **nvcc 找不到**：确认系统有 CUDA 12.x toolkit：`ls -d /usr/local/cuda-12*`。若 `/usr/local/cuda` 指向 11.8，00 会自动找 `cuda-12.x` 并设 `CUDA_HOME`；手动：
+  ```bash
+  export CUDA_HOME=/usr/local/cuda-12.4   # ⚠️ 不是 /usr/local/cuda
+  export PATH=$CUDA_HOME/bin:$PATH
+  INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+  ```
+  GLM 缺失（`glm/glm.hpp: No such file`）时：`cd $PDFGS_DIR && git clone https://github.com/g-truc/glm.git third_party/glm`。
 
 **3. `step 01` 人物边缘有黑边 / 掩码全是矩形 / SAM2 没出掩码**
 - **黑边**：旧版 rembg alpha 阈值 16 会保留半透明边缘带（多为暗背景）→ 白底上显成黑边。现默认 `auto` 走 rembg→bbox→SAM2 predictor（边缘干净），且 `REMBG_ALPHA_THRESH` 默认 128。若仍残留，调高 `REMBG_ALPHA_THRESH=180`，或确认走的是 `auto`（不是 `rembg`）。
 - **SAM2 没出掩码 / 矩形掩码**：SAM2 没装好或 checkpoint 没下。重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh`；或临时 `SEGMENTOR=rembg` 用 rembg 兜底（质量略降）。多人物图取面积最大掩码（离相机最近者）。
+
+**3b. `step 01` rembg 报 SSL / u2net 模型下载失败 / 找不到 u2net.onnx**
+rembg 用 pooch+requests 下载 u2net 模型，requests 用 certifi 的 CA bundle（**不遵守** `sitecustomize.py` 的 ssl hack），公司代理 TLS 拦截会直接断掉下载。且 rembg 的 `u2net_home()` 在 `U2NET_HOME` 未设时 fallback 到 `$XDG_DATA_HOME/.u2net`（如 `~/.local/share/.u2net`），而非 `_env.sh` 设的 `$MODEL_DIR/u2net`。
+
+00 自动处理：① `wget --no-check-certificate` 下载 `u2net.onnx` 到 `$MODEL_DIR/u2net/`；② symlink 到 `~/.local/share/.u2net/` 和 `~/.u2net/`（覆盖 rembg fallback 路径）；③ `_env.sh` 设 `U2NET_HOME` + `MODEL_CHECKSUM_DISABLED`。若仍失败（如 GitHub 也被封），手动：
+```bash
+# 1. 手动下 u2net.onnx (从能联网的机器下，拷到容器里)
+wget --no-check-certificate -O $MODEL_DIR/u2net/u2net.onnx \
+  https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
+
+# 2. symlink 到 rembg fallback 路径 (~/.local/share/.u2net 和 ~/.u2net)
+mkdir -p ~/.local/share/.u2net ~/.u2net
+ln -sf $MODEL_DIR/u2net/u2net.onnx ~/.local/share/.u2net/u2net.onnx
+ln -sf $MODEL_DIR/u2net/u2net.onnx ~/.u2net/u2net.onnx
+
+# 3. 验证 (在 pdfgs env 里, source 了 _env.sh 后)
+python -c "from rembg import new_session; s=new_session('u2net'); print('✅ rembg ok')"
+```
 
 **4. `step 02` Pi3 OOM**
 Pi3 显存随帧数线性增长。降 `FRAME_MAX=30` 或抽稀 `segmented_frames/`（保留环绕均匀分布的子集）。图集输入时 `FRAME_FPS` 被忽略。

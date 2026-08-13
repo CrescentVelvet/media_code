@@ -127,11 +127,15 @@ export SAM2_CONFIG="${SAM2_CONFIG:-configs/sam2.1/sam2.1_hiera_large.yaml}"
 export PI3_CKPT="${PI3_CKPT:-$MODEL_DIR/Pi3/model.safetensors}"
 
 # rembg (fallback segmentor in step 01, when SAM2 unavailable). rembg loads its
-# u2net model from $U2NET_HOME (default ~/.u2net, auto-downloads if missing — the
-# corporate proxy blocks the model host). Point it at the local $MODEL_DIR/u2net so
-# a pre-downloaded u2net.onnx is used without network. MODEL_CHECKSUM_DISABLED
-# skips the checksum check (a manually-downloaded u2net.onnx may differ from rembg's
-# pinned version, which would otherwise trigger a re-download).
+# u2net model via pooch, which uses certifi's CA bundle (NOT sitecustomize.py's
+# ssl hack) → corporate proxy TLS MITM breaks the download. So 00 pre-downloads
+# u2net.onnx via wget --no-check-certificate + symlinks it to rembg's fallback
+# cache paths (~/.local/share/.u2net, ~/.u2net). Here we set U2NET_HOME so rembg
+# reads $MODEL_DIR/u2net directly (when _env.sh is sourced). rembg u2net_home():
+# $U2NET_HOME or fallback $XDG_DATA_HOME/.u2net (~/.local/share/.u2net on systems
+# with XDG_DATA_HOME set). MODEL_CHECKSUM_DISABLED skips pooch's hash check (a
+# manually-downloaded u2net.onnx may differ from rembg's pinned md5, which would
+# otherwise trigger a re-download).
 export U2NET_HOME="${U2NET_HOME:-$MODEL_DIR/u2net}"
 export MODEL_CHECKSUM_DISABLED="${MODEL_CHECKSUM_DISABLED:-1}"
 

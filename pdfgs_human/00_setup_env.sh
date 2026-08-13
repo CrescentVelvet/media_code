@@ -221,9 +221,14 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
     # 0b. gcc 12 into the conda env (system gcc too old for CUDA 12.x rasterizer build).
     #     ⚠️ pin python=3.10 防 GraalPy 掉包 (see AGENTS.md §6 conda pitfalls).
+    #     --no-update-deps can block install if deps conflict; retry without it
+    #     (still pin python=3.10 to prevent GraalPy swap).
     echo "--- installing gcc 12 into conda env (for CUDA ext compilation) ---"
-    conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10 || \
-        echo "  ⚠️ gxx install failed; 用系统 gcc 编 CUDA 扩展可能失败" >&2
+    if ! conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10; then
+        echo "  ⚠️ --no-update-deps blocked gxx install; retrying without it (python=3.10 pinned)" >&2
+        conda install -y -c conda-forge gxx_linux-64=12 python=3.10 || \
+            echo "  ⚠️ gxx install failed; 用系统 gcc 编 CUDA 扩展可能失败" >&2
+    fi
     verify_cpython
     _resolve_cc
     # numpy may have been touched; pin to a 3DGS-compatible 1.26.4 (PDF-GS works with 1.26.x)
@@ -254,23 +259,30 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
             LD_LIBRARY_PATH= git clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git "$SUBMOD_DIR/diff-gaussian-rasterization" || \
                 LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git "$SUBMOD_DIR/diff-gaussian-rasterization"
         fi
-        # simple-knn (gitlab.inria.fr, may be blocked/slow → zip fallback)
+        # simple-knn (original at gitlab.inria.fr/bkerbl/simple-knn — corporate proxy
+        # blocks gitlab.inria.fr; fall back to GitHub mirrors that are forks of the
+        # same repo). Try original first in case it's reachable, then GitHub mirrors.
         if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
-            echo "  cloning simple-knn (gitlab.inria.fr, may be slow)"
+            echo "  cloning simple-knn (gitlab.inria.fr may be blocked; GitHub mirrors as fallback)"
             rm -rf "$SUBMOD_DIR/simple-knn"
-            LD_LIBRARY_PATH= git clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || \
-                LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://gitlab.inria.fr/bkerbl/simple-knn.git "$SUBMOD_DIR/simple-knn" || {
-                    echo "  git clone failed, trying zip download..."
-                    _zip="/tmp/simple-knn-main.zip"
-                    curl -k -L --connect-timeout 30 --max-time 300 -o "$_zip" \
-                        "https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip" && \
-                        unzip -o "$_zip" -d "$SUBMOD_DIR" && \
-                        mv "$SUBMOD_DIR/simple-knn-main" "$SUBMOD_DIR/simple-knn" || \
-                        echo "  ❌ simple-knn download failed — manual:" >&2
-                    echo "     cd $SUBMOD_DIR" >&2
-                    echo "     curl -kL -o sk.zip https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip" >&2
-                    echo "     unzip sk.zip && mv simple-knn-main simple-knn" >&2
-                }
+            _sk_done=false
+            for _sk_url in \
+                "https://gitlab.inria.fr/bkerbl/simple-knn.git" \
+                "https://github.com/yindaheng98/simple-knn.git" \
+                "https://github.com/jteng2127/simple-knn.git"; do
+                echo "  trying: $_sk_url"
+                if LD_LIBRARY_PATH= git clone "$_sk_url" "$SUBMOD_DIR/simple-knn" 2>/dev/null || \
+                   LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$_sk_url" "$SUBMOD_DIR/simple-knn" 2>/dev/null; then
+                    _sk_done=true
+                    echo "  ✅ cloned from $_sk_url"
+                    break
+                fi
+                rm -rf "$SUBMOD_DIR/simple-knn"
+            done
+            if [ "$_sk_done" != "true" ]; then
+                echo "  ❌ simple-knn clone failed (all mirrors) — manual:" >&2
+                echo "     cd $SUBMOD_DIR && git clone https://github.com/yindaheng98/simple-knn.git simple-knn" >&2
+            fi
         fi
         # GLM (header-only math lib, diff-gaussian-rasterization needs it)
         GLM_DIR="$PDFGS_DIR/third_party/glm"
@@ -339,6 +351,39 @@ PYEOF
     echo "--- installing rembg (fallback segmentor) ---"
     pip install "${PIP_FLAGS[@]}" rembg onnxruntime==1.18.1 || \
         echo "  ⚠️ rembg install failed; step 01 仅靠 SAM2 (若 SAM2 也没装好则分割失败)" >&2
+
+    # 0f-bis. u2net model for rembg. rembg loads u2net.onnx via pooch, which uses
+    #     certifi's CA bundle (NOT sitecustomize.py's ssl hack) → corporate proxy
+    #     TLS MITM breaks the download. Fix: pre-download via wget
+    #     --no-check-certificate (bypasses SSL) + symlink to rembg's fallback
+    #     cache paths so rembg finds the local model without downloading.
+    #     rembg u2net_home() = $U2NET_HOME (set by _env.sh -> $MODEL_DIR/u2net) or
+    #     fallback $XDG_DATA_HOME/.u2net (~/.local/share/.u2net on many systems).
+    #     _env.sh sets U2NET_HOME when sourced; the symlink covers the fallback
+    #     path for when rembg runs without _env.sh (e.g. direct python -c).
+    _U2NET_DIR="$MODEL_DIR/u2net"
+    mkdir -p "$_U2NET_DIR"
+    if [ ! -f "$_U2NET_DIR/u2net.onnx" ]; then
+        echo "--- downloading u2net.onnx (rembg model; wget --no-check-certificate) ---"
+        wget --no-check-certificate -q -O "$_U2NET_DIR/u2net.onnx" \
+            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx" || \
+            echo "  ⚠️ u2net.onnx download failed; rembg step 01 兜底会失败。手动:" >&2
+        echo "    wget --no-check-certificate -O $_U2NET_DIR/u2net.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx" >&2
+    else
+        echo "  ✅ u2net.onnx already at $_U2NET_DIR/u2net.onnx"
+    fi
+    # Symlink to rembg's fallback cache paths (covers U2NET_HOME-unset case).
+    # Only create symlink if target doesn't exist or is already a symlink (don't
+    # clobber a real file the user may have placed).
+    _xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
+    for _rembg_cache in "$_xdg_data/.u2net" "$HOME/.u2net"; do
+        mkdir -p "$_rembg_cache"
+        _target="$_rembg_cache/u2net.onnx"
+        if [ -f "$_U2NET_DIR/u2net.onnx" ] && { [ ! -e "$_target" ] || [ -L "$_target" ]; }; then
+            ln -sf "$_U2NET_DIR/u2net.onnx" "$_target"
+            echo "  🔗 symlinked u2net.onnx -> $_target"
+        fi
+    done
 
     # 0g. Pi3 (feed-forward pose estimation, step 02). Clone official repo.
     if [ ! -d "$PI3_DIR/.git" ]; then
