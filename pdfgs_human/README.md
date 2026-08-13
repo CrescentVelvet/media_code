@@ -62,13 +62,22 @@ GPU=0 \
 # ⚠️ v1 不出网格: PDF-GS 只含 train.py / render.py / metrics.py, 无 extract_mesh。
 #    要网格走 wan22_rotate step 05/05a/05b (或在本高斯上加 TSDF 步骤, future)。
 
+# 4) 渲染转盘/环绕展示视频 (环绕人物的新视角轨道 → mp4)
+#    03 只渲输入视角的重建图; 这步生成一条绕人物转一圈的新相机路径, 出旋转展示 mp4。
+#    相机中心/竖轴/半径从高斯点云自动估算 (PCA), FoV 取 COLMAP 内参。
+GPU=0 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/04_render_orbit.sh
+# 输出：<RESULTS_DIR>/orbit/model_pdfgs/orbit_render/orbit_orbit.mp4  (+ frames/*.png)
+# 构图不理想时调: ORBIT_RADIUS_MULT=3.0 (近) | 4.0 (远), UP_AXIS=y (强制竖轴), ORBIT_HEIGHT=0.1 (抬高)
+
 # 可选) 跑指标 (PSNR/SSIM/LPIPS) — 默认跳过 (无 held-out test, PSNR 只是 train fit)
 GPU=0 SKIP_METRICS=0 \
   RESULTS_DIR=../../output/pdfgs_human_results \
   bash pdfgs_human/03_train_pdfgs.sh
 ```
 
-- 结果：白底多视图集 → `segmented_frames/*.png`；COLMAP 场景 → `orbit/pi3/source/`；高斯 → `orbit/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply`；渲染 → `orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png`。
+- 结果：白底多视图集 → `segmented_frames/*.png`；COLMAP 场景 → `orbit/pi3/source/`；高斯 → `orbit/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply`；重建渲染 → `orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png`；转盘展示视频 → `orbit/model_pdfgs/orbit_render/orbit_orbit.mp4`。
 
 ## 首次准备
 
@@ -163,8 +172,17 @@ $RESULTS_DIR/orbit/pi3/source/{images, sparse/0/}   (COLMAP 场景)
     │  └─ 每 phase 末存高斯到 $MODEL_DIR/phase_<N>/point_cloud/...
     ▼
 $RESULTS_DIR/orbit/model_pdfgs/phase_<N>/point_cloud/iteration_<iter>/point_cloud.ply
-$RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png   (渲染图, final phase)
+$RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png   (重建渲染图, final phase; vs GT)
 $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, final phase)
+    │
+    ▼
+[04] 转盘/环绕展示视频 (pdfgs env) — 03 只渲输入视角; 这步生成新视角轨道 → mp4
+    │  ├─ 加载 final-phase 高斯 → 质心=轨道中心, PCA=人物竖轴, 水平半幅=半径
+    │  ├─ FoV/画幅取 COLMAP cameras.txt
+    │  └─ 每角度 MiniCam + render() → mp4 + frames/
+    ▼
+$RESULTS_DIR/orbit/model_pdfgs/orbit_render/orbit_orbit.mp4   (环绕展示视频)
+$RESULTS_DIR/orbit/model_pdfgs/orbit_render/frames/*.png      (逐帧)
 ```
 
 ### Step 01 — 分割所有图（两套等价方案，输出布局相同）
@@ -195,6 +213,14 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 **渲染**：`render.py -s SOURCE -m $MODEL_DIR/phase_$NUM_PHASES --iteration $ITER_PER_PHASE`。加载 final phase（phase_4）的高斯 + source 的相机，渲染所有训练视角到 `phase_4/train/ours_10000/{renders,gt}/`。没开 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过，只渲 train 集。
 
 **v1 不出网格**：PDF-GS 仓库只有 `train.py` / `render.py` / `metrics.py`，无 `extract_mesh`。出高斯点云 + 渲染图 + 可选指标。要网格走 wan22_rotate step 05/05a/05b（或在本高斯上加 TSDF-on-depth 步骤，future）。
+
+### Step 04 — 转盘/环绕展示视频 (`04_render_orbit.sh` → `render_orbit.py`)
+
+03 的 `render.py` 只渲**输入训练视角**（重建 vs GT 静态图），没有绕人物转一圈的展示视频。这步生成一条**新视角轨道**（相机绕人物的竖轴转一圈）渲染成 mp4 —— 人像 3DGS 重建的招牌展示输出。
+
+做法（不读图片，轻量快）：加载 final-phase 高斯（`point_cloud.ply`）→ 质心 = 轨道中心；PCA → 人物竖轴（方差最大的方向 = 身高）；水平半幅 → 轨道半径（`× ORBIT_RADIUS_MULT`）；FoV/画幅取 COLMAP `cameras.txt`（内参不受归一化影响，和训练一致）。每个角度 θ 用 `MiniCam`（矩阵约定和 `scene.cameras.Camera` 一致：`world_view_transform = w2c.T`、`full_proj = wvt @ proj.T`）+ `gaussian_renderer.render()` 出一帧 → mp4 + `frames/*.png`。全程在 pdfgs env（要 `diff_gaussian_rasterization`，和 03 同）。
+
+**构图调参**：人物太大/太小调 `ORBIT_RADIUS_MULT`（3.0 近 / 4.0 远）；竖轴猜错（人物歪倒）设 `UP_AXIS=y`（或 `x`/`z`）；想抬高视点设 `ORBIT_HEIGHT=0.1`；转两圈 `ORBIT_TURNS=2.0`；降分辨率出图快 `RES=1280`。
 
 ## Config (env vars, all optional)
 
@@ -255,6 +281,24 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | `SKIP_METRICS` | `1` | `1` = 跳过 PSNR/SSIM/LPIPS（无 held-out test → PSNR 只是 train fit；`0` 跑） |
 | `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 `train.py` 的额外参数 |
 
+### Step 04 params
+| var | default | note |
+| --- | --- | --- |
+| `SOURCE_DIR` | `$RESULTS_DIR/<name>/pi3/source` | COLMAP 场景（取 cameras.txt 的 FoV/画幅） |
+| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯根（= step 03 `--model_path`） |
+| `PHASE` | `4` | 渲哪个 phase（final = step 03 的 `NUM_PHASES`） |
+| `ITER` | _(auto)_ | 加载的 iteration（空 = `phase_<PHASE>/point_cloud/` 下最大 `iteration_*`） |
+| `ORBIT_FRAMES` | `120` | 轨道视频帧数 |
+| `ORBIT_TURNS` | `1.0` | 转几圈（1.0 = 360°，2.0 = 720°） |
+| `ORBIT_RADIUS_MULT` | `3.5` | 轨道半径 = `MULT × 人物水平半幅`（调构图：3.0 近 / 4.0 远） |
+| `ORBIT_HEIGHT` | `0.0` | 相机沿竖轴抬高量 = `值 × 人物半高`（0.1 ≈ 抬高到胸口上方） |
+| `UP_AXIS` | _(auto)_ | 人物竖轴：空 = PCA 自动（最大方差方向）；猜错时设 `x`/`y`/`z` 强制 |
+| `WHITE_BG` | `1` | `1` = 白底（匹配分割输入）；`0` = 黑底 |
+| `FPS` | `30` | 输出 mp4 帧率 |
+| `RES` | _(unset)_ | 限最大边像素（如 `1280`）；不设 = COLMAP 原始画幅 |
+| `SH_DEGREE` | `3` | PDF-GS 训练的 SH 阶（ModelParams 默认 3；`cfg_args` 里看 `sh_degree`） |
+| `DEVICE` | `cuda` | 光栅化设备（PDF-GS 需 CUDA） |
+
 ## 可能遇到的问题
 
 **0. SSL 验证失败（conda / pip / hf / requests 都报证书错）**
@@ -312,9 +356,12 @@ INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 │       ├── _env.sh
 │       ├── 00_setup_env.sh
 │       ├── 01_segment_all.sh
+│       ├── 01a_segment_all.sh
 │       ├── 02_pi3_colmap.sh
 │       ├── 03_train_pdfgs.sh
-│       └── segment_all.py
+│       ├── 04_render_orbit.sh
+│       ├── segment_all.py
+│       └── render_orbit.py
 ├── PDF-GS/                         # PDF-GS 官方代码 + 子模块 (00 clone)
 │   ├── submodules/
 │   │   ├── diff-gaussian-rasterization/   # 3DGS 光栅化器 (CUDA 扩展)
@@ -343,9 +390,12 @@ INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
             ├── phase_1/ ... phase_4/
             │   └── point_cloud/iteration_10000/point_cloud.ply
             ├── cfg_args
-            └── phase_4/train/ours_10000/   # final phase 渲染
-                ├── renders/*.png   # 渲染图 (vs GT 看重建质量)
-                └── gt/*.png        # GT
+            ├── phase_4/train/ours_10000/   # final phase 渲染 (重建 vs GT)
+            │   ├── renders/*.png   # 渲染图 (vs GT 看重建质量)
+            │   └── gt/*.png        # GT
+            └── orbit_render/               # step 04: 转盘展示视频
+                ├── orbit_orbit.mp4         # 环绕人物的新视角轨道视频
+                └── frames/*.png            # 逐帧 png
 ```
 
 ## Notes
