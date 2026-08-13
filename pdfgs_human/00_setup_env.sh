@@ -21,19 +21,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 # conda 不读 REQUESTS_CA_BUNDLE / SSL_CERT_FILE —— 公司代理 TLS 拦截会让 conda
-# (create + install) 报 SSL 错。conda condarc 优先级: env 级 ($CONDA_PREFIX/.condarc)
-# > user 级 (~/.condarc) > system 级——env 级会覆盖 user 级，故三层都设。
+# (create + install) 报 SSL 错。彻底关闭 conda 的 SSL 验证（不指向任何 CA bundle，
+# 因为代理根 CA 未必在 bundle 里；false = 不验证任何证书，最稳）。
+# condarc 优先级: env 级 > user 级 > system 级——env 级会覆盖 user 级，故三层都设。
 # ⚠️ 必须在 `conda create` 之前调，否则建 env 时下 python 就 SSL 失败。
 _conda_disable_ssl() {
-    local _val="false"
-    # -s = file exists AND non-empty. An EMPTY CA bundle (0 bytes, e.g. an unset-up
-    # ~/.ca-bundle.crt) pointed at conda means "trust no CAs" → SSL still fails.
-    # So only use the bundle if it has content; else just disable verification.
-    if [ -n "${CA_FILE:-}" ] && [ -s "$CA_FILE" ]; then _val="$CA_FILE"; fi
-    conda config --system --set ssl_verify "$_val" 2>/dev/null || true
-    conda config         --set ssl_verify "$_val" 2>/dev/null || true
-    conda config --env   --set ssl_verify "$_val" 2>/dev/null || true
-    echo "--- conda ssl_verify = $_val (set at system+user+env levels) ---"
+    conda config --system --set ssl_verify false 2>/dev/null || true
+    conda config         --set ssl_verify false 2>/dev/null || true
+    conda config --env   --set ssl_verify false 2>/dev/null || true
+    echo "--- conda ssl_verify = false (彻底关闭, system+user+env levels) ---"
 }
 _conda_disable_ssl
 
