@@ -99,6 +99,7 @@ SSL_VERIFY=false INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
 $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
   wheels/                          # torch + nvidia 依赖 wheel 缓存 (00 首跑 pip download, 后续直接本地装, 免重下 ~2-3GB; 跨项目共享, 不同版本文件名不同不冲突)
   dinov3-vitl16-pretrain-lvd1689m/  # DINOv3 ViT-L/16 (本地放这, 00 自动用, 免 gated 下载; PDF-GS 默认是 vitb16, vitl16 架构兼容能跑)
+  u2net/                           # rembg 的 u2net 模型 (本地放 u2net.onnx, _env.sh 设 U2NET_HOME 指向这, 免 rembg 联网下; SAM2 不可用时 step 01 兜底用)
   Pi3/
     model.safetensors               # Pi3 checkpoint (~1GB, 公开免 token)
   hf_home/                          # HuggingFace cache 根 (仅当走 B) gated vitb16 时用)
@@ -199,6 +200,7 @@ $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/gt/*.png        (GT, fin
 | `SAM2_DIR` | `../sam2` | SAM2 官方代码 + checkpoints（00 clone） |
 | `MODEL_DIR` | `../../model` | 权重根（code-dir 上一级，共享） |
 | `DINOV3_REPO` | _(auto)_ | DINOv3 加载源：本地有 `$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m` 就用它（vitl16，免 gated），否则 `facebook/dinov3-vitb16-pretrain-lvd1689m`（gated，需 HF_TOKEN）。可强制覆盖 |
+| `U2NET_HOME` | `$MODEL_DIR/u2net` | rembg 模型目录（本地放 `u2net.onnx`，免联网下载；SAM2 不可用时 step 01 兜底） |
 | `RESULTS_DIR` | `../pdfgs_human_results` | 输出目录 |
 | `OUTPUT_NAME` | `orbit` | 基名（影响 02/03 的默认子目录） |
 

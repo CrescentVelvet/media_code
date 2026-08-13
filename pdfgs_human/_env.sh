@@ -126,6 +126,15 @@ export SAM2_CONFIG="${SAM2_CONFIG:-configs/sam2.1/sam2.1_hiera_large.yaml}"
 # Pi3 checkpoint (feed-forward pose estimation, step 02).
 export PI3_CKPT="${PI3_CKPT:-$MODEL_DIR/Pi3/model.safetensors}"
 
+# rembg (fallback segmentor in step 01, when SAM2 unavailable). rembg loads its
+# u2net model from $U2NET_HOME (default ~/.u2net, auto-downloads if missing — the
+# corporate proxy blocks the model host). Point it at the local $MODEL_DIR/u2net so
+# a pre-downloaded u2net.onnx is used without network. MODEL_CHECKSUM_DISABLED
+# skips the checksum check (a manually-downloaded u2net.onnx may differ from rembg's
+# pinned version, which would otherwise trigger a re-download).
+export U2NET_HOME="${U2NET_HOME:-$MODEL_DIR/u2net}"
+export MODEL_CHECKSUM_DISABLED="${MODEL_CHECKSUM_DISABLED:-1}"
+
 # DINOv3 (step 03 — PDF-GS DINOv3FeatureExtractor loads via transformers
 # from_pretrained(repo). PDF-GS hardcodes facebook/dinov3-vitb16-pretrain-lvd1689m
 # (ViT-B/16, GATED). We prefer a LOCAL dir if present — e.g. dinov3-vitl16-pretrain-lvd1689m

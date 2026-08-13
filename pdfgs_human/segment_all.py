@@ -137,11 +137,19 @@ def _load_rembg():
     except Exception as e:
         print(f"⚠️ rembg import failed: {e}")
         return None
+    # rembg reads the model from $U2NET_HOME (set by _env.sh -> $MODEL_DIR/u2net).
+    # If u2net.onnx is missing there, rembg tries to download (blocked by corporate
+    # proxy). Pre-check and point the user at where to put it.
+    _u2home = os.environ.get("U2NET_HOME", os.path.expanduser("~/.u2net"))
+    if not os.path.isfile(os.path.join(_u2home, "u2net.onnx")):
+        print(f"⚠️ rembg u2net.onnx not found at {_u2home}/u2net.onnx")
+        print(f"   Put it there (or set U2NET_HOME); rembg will otherwise try to download (proxy blocks it).")
     try:
         _rembg_session = new_session("u2net")
         print("🏋️ rembg session loaded (u2net)")
     except Exception as e:
         print(f"⚠️ rembg session failed (model download blocked?): {e}")
+        print(f"   Expected u2net.onnx at {_u2home}/u2net.onnx")
         return None
     return _rembg_session
 
