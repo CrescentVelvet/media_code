@@ -94,7 +94,31 @@ _resolve_cc() {
 # conda install.
 if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     echo "--- conda env '$CONDA_ENV' not found; creating python=3.10 (CPython) ---"
-    conda create -n "$CONDA_ENV" python=3.10 -y
+    # Retry conda create up to 3x — the internal conda proxy occasionally 504s
+    # mid-create; without checking the return code the script continued with no
+    # env (everything ran in base / Python 3.9). Also clean a partial env dir
+    # between attempts so a 504 half-creation doesn't block the retry with
+    # "already exists".
+    _expected_env="$(conda info --base 2>/dev/null)/envs/$CONDA_ENV"
+    _conda_create_ok=false
+    for _attempt in 1 2 3; do
+        echo "  conda create attempt $_attempt/3 ..."
+        if [ "$_attempt" -gt 1 ] && [ -d "$_expected_env" ]; then
+            echo "  removing partial env from previous attempt: $_expected_env"
+            rm -rf "$_expected_env"
+        fi
+        if conda create -n "$CONDA_ENV" python=3.10 -y; then
+            _conda_create_ok=true
+            break
+        fi
+        echo "  ⚠️ conda create failed (attempt $_attempt/3); retrying in 5s..." >&2
+        sleep 5
+    done
+    if [ "$_conda_create_ok" != "true" ]; then
+        echo "❌ ERROR: conda create -n $CONDA_ENV python=3.10 failed after 3 attempts." >&2
+        echo "   Proxy 504? Check: curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://10.155.124.25:8088/repository/conda-proxy/" >&2
+        exit 1
+    fi
     _conda_activate "$CONDA_ENV"
     _conda_disable_ssl  # re-set env-level for the freshly activated pdfgs env
     impl="$(python -c 'import platform; print(platform.python_implementation())')"
