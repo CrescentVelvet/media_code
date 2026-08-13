@@ -294,6 +294,33 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         fi
     fi
 
+    # 0c-ter. Ensure diff-gaussian-rasterization is on the dr_aa branch (PDF-GS
+    #       .gitmodules specifies branch=dr_aa — antialiased 3DGS rasterizer).
+    #       A plain `git clone` defaults to `main` (original 3DGS, no antialiasing);
+    #       PDF-GS train.py imports features only present on dr_aa. Also: dr_aa's
+    #       third_party/glm dir is empty (submodule not initialized) → symlink to
+    #       the GLM cloned at PDF-GS root (0c above) so the rasterizer build finds
+    #       glm.hpp. Both checks run every time (not just on clone) to catch a
+    #       previously-cloned wrong-branch state.
+    _DGR="$PDFGS_DIR/submodules/diff-gaussian-rasterization"
+    _DGR_BRANCH="${DGR_BRANCH:-dr_aa}"
+    if [ -d "$_DGR/.git" ]; then
+        _cur_branch="$(cd "$_DGR" && git branch --show-current 2>/dev/null || echo '')"
+        if [ "$_cur_branch" != "$_DGR_BRANCH" ]; then
+            echo "  switching diff-gaussian-rasterization: '$_cur_branch' -> '$_DGR_BRANCH' (PDF-GS needs antialiased rasterizer)"
+            ( cd "$_DGR" && LD_LIBRARY_PATH= git checkout "$_DGR_BRANCH" ) || \
+                echo "  ⚠️ checkout $_DGR_BRANCH failed — PDF-GS needs dr_aa (antialiased 3DGS), main branch won't work" >&2
+        fi
+        # GLM symlink: dr_aa branch's third_party/glm is empty → link to PDF-GS root's GLM.
+        _DGR_GLM="$_DGR/third_party/glm"
+        _PDFGS_GLM="$PDFGS_DIR/third_party/glm"
+        if [ ! -f "$_DGR_GLM/glm/glm.hpp" ] && [ -f "$_PDFGS_GLM/glm/glm.hpp" ]; then
+            echo "  symlinking GLM -> $_DGR_GLM (dr_aa branch has empty third_party/glm)"
+            rm -rf "$_DGR_GLM"
+            ln -sf "$_PDFGS_GLM" "$_DGR_GLM"
+        fi
+    fi
+
     # 0c-bis. Patch PDF-GS train.py: DINOv3FeatureExtractor() honors DINOV3_REPO env
     # so it can load a LOCAL DINOv3 dir (e.g. vitl16) instead of the hardcoded gated
     # HF repo facebook/dinov3-vitb16-pretrain-lvd1689m. Idempotent (only if the
@@ -424,8 +451,11 @@ PYEOF
         _DGR="$PDFGS_DIR/submodules/diff-gaussian-rasterization"
         if [ -f "$_DGR/setup.py" ] || [ -f "$_DGR/pyproject.toml" ]; then
             echo "  building CUDA ext: diff-gaussian-rasterization"
-            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index "$_DGR" || \
-                echo "  ⚠️ diff-gaussian-rasterization build failed (nvcc/gcc 版本不匹配? GLM 缺失?)" >&2
+            # Clear stale build artifacts (e.g. from a previous build on wrong branch)
+            # so the dr_aa source recompiles cleanly.
+            rm -rf "$_DGR/build" "$_DGR/dist" "$_DGR"/*.egg-info
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps --no-index --force-reinstall "$_DGR" || \
+                echo "  ⚠️ diff-gaussian-rasterization build failed (nvcc/gcc 版本不匹配? GLM 缺失? dr_aa branch?)" >&2
         else
             echo "  ⚠️ skip diff-gaussian-rasterization: $_DGR/setup.py not found (submodule not initialized — re-run 0c)" >&2
         fi

@@ -315,7 +315,18 @@ DINOv3 两种拿法（见「首次准备」）：
 若报 train.py 没读到 `DINOV3_REPO`（03 会 warn），重跑 `INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh` 让 00 重新 patch。
 
 **2. `step 03` 报 `import diff_gaussian_rasterization` / `import simple_knn` 失败 / CUDA 扩展没编成**
-两个根因，00 都已自动处理，但首次若失败需手动兜底：
+三个根因，00 都已自动处理，但首次若失败需手动兜底：
+
+- **diff-gaussian-rasterization 分支错（main 而非 dr_aa）**：PDF-GS `.gitmodules` 指定 `branch=dr_aa`（antialiased 3DGS rasterizer），但 `git clone` 默认 checkout `main`（原版 3DGS，无 antialiasing）。00 会在 clone 后自动 `git checkout dr_aa` + 清除旧 build 缓存重编。若仍失败，手动：
+  ```bash
+  cd $PDFGS_DIR/submodules/diff-gaussian-rasterization
+  git checkout dr_aa
+  # dr_aa 分支 third_party/glm 为空 → symlink 到 PDF-GS 根的 GLM
+  rm -rf third_party/glm && ln -sf $PDFGS_DIR/third_party/glm third_party/glm
+  # 清 build 缓存重编
+  rm -rf build dist *.egg-info
+  INSTALL_DEPS=1 bash pdfgs_human/00_setup_env.sh
+  ```
 
 - **simple-knn 源码缺失**：PDF-GS 的 simple-knn 子模块指向 `gitlab.inria.fr/bkerbl/simple-knn`（公司代理封了 gitlab.inria.fr）。00 会按序尝试 gitlab.inria.fr → GitHub 镜像（`yindaheng98/simple-knn`、`jteng2127/simple-knn`）clone。若全失败，手动：
   ```bash
