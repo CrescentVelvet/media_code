@@ -153,6 +153,14 @@ else
     echo ""
 fi
 
+# train.py writes cfg_args at $GAUSSIAN_DIR/ (model root), but render.py / metrics.py
+# use -m $PHASE_MODEL and get_combined_args() looks for cfg_args there. Copy it so
+# both render.py and metrics.py find it without error.
+if [ -f "$GAUSSIAN_DIR/cfg_args" ] && [ ! -f "$PHASE_MODEL/cfg_args" ]; then
+    cp "$GAUSSIAN_DIR/cfg_args" "$PHASE_MODEL/cfg_args"
+    echo "  📋 copied cfg_args -> $PHASE_MODEL/cfg_args"
+fi
+
 # ── 2. Rendering (novel views / reconstruction-vs-GT) ────────────────────
 # render.py loads gaussians from $PHASE_MODEL (final phase) + cameras from
 # $SOURCE_DIR. Renders all training views (no held-out test split without --eval,

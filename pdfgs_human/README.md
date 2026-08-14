@@ -376,7 +376,10 @@ python -c "from rembg import new_session; s=new_session('u2net'); print('✅ rem
 Pi3 显存随帧数线性增长。降 `FRAME_MAX=30` 或抽稀 `segmented_frames/`（保留环绕均匀分布的子集）。图集输入时 `FRAME_FPS` 被忽略。
 
 **5. `step 03` 渲染报找不到 `cfg_args` / 找不到 point_cloud**
-`render.py` 传的是 final phase 路径 `$GAUSSIAN_DIR/phase_$NUM_PHASES`（不是 `$GAUSSIAN_DIR` 根），且显式带 `-s $SOURCE_DIR`（因为 cfg_args 在根目录，phase 子夹里没有）。脚本已自动处理；若手改路径注意这点。
+`train.py` 把 `cfg_args` 写在 `$GAUSSIAN_DIR/`（model 根目录），但 `render.py` / `metrics.py` 用 `-m $PHASE_MODEL`（phase 子目录）调用，`get_combined_args()` 在 `$PHASE_MODEL/cfg_args` 找不到。脚本已在训练后自动 `cp $GAUSSIAN_DIR/cfg_args $PHASE_MODEL/cfg_args`。若仍报错，手动复制：
+```bash
+cp $GAUSSIAN_DIR/cfg_args $GAUSSIAN_DIR/phase_4/cfg_args
+```
 
 **6. 跑 `.sh` 报 `syntax error near unexpected token '('`**
 CRLF 行尾污染。`find pdfgs_human -name '*.sh' -exec sed -i 's/\r$//' {} +` 或 `git checkout -- pdfgs_human/*.sh`（`.gitattributes` 强制 LF）。
