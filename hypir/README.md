@@ -34,12 +34,14 @@ GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia
 #      注：BEAUTY_PASSES=2 会一次性产出 A/B/C 三套 parquet(rest / rest_beauty / rest_beauty_strong)，
 #      A/B 产物与 BEAUTY_PASSES=1 完全一致；故要么单独跑这条跑 C、要么 A/B 也直接用这条。
 GPU=0 BEAUTY_PASSES=2 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+# 04b) A/B/C 三组并行训练(各分 3 卡: A=0,1,2 / B=3,4,5 / C=6,7,8；N_TRAIN_GPU=3 无需先 accelerate config；
+#       不设 BG=默认后台同时跑，各自日志见提示。卡不够/卡 4 不可用就按机子调 GPU= 列表，N_TRAIN_GPU 对齐)：
 # 04b) A 基线(只高斯模糊，预期会长痘变丑)：
-GPU=0 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
 # 04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
-GPU=0 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
+GPU=3,4,5 N_TRAIN_GPU=3 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
 # 04b) C 加强美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
-GPU=0 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
+GPU=6,7,8 N_TRAIN_GPU=3 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
