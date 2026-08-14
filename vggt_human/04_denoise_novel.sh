@@ -87,4 +87,4 @@ fi
 
 echo ""
 echo "🎉 [04] Done. Augmented scene: $SOURCE_AUG_DIR"
-echo "  Next: GPU=0 bash $SCRIPT_DIR/05_train_denoise.sh"
+echo "  Next: GPU=0 bash $SCRIPT_DIR/05_face_enhance.sh"

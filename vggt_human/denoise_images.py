@@ -223,7 +223,7 @@ def main():
     print(f"  ✅ points3D.txt (copied)")
     print(f"  ⏱️ {time.time() - t0:.1f}s")
     print(f"\n🎉 Done. Augmented COLMAP: {SOURCE_AUG_DIR}")
-    print(f"  Next: bash vggt_human/05_train_denoise.sh")
+    print(f"  Next: bash vggt_human/06_train_denoise.sh")
 
 
 def _parse_image_full(img_tuple):

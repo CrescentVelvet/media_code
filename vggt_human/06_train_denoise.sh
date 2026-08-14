@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 05_train_denoise.sh — 3DGS training on the augmented scene (original + denoised
-# virtual cameras from step 04).
+# 06_train_denoise.sh — 3DGS training on the face-enhanced + denoised augmented scene
+# (original + denoised virtual cameras from step 04 + face-enhanced from step 05).
 #
 # Trains from scratch on the augmented COLMAP scene. The original training images
 # provide the ground truth; the denoised novel-view images provide additional
@@ -9,15 +9,16 @@
 # ⚠️ Resuming from step 03's checkpoint: 3DGS saves chkpnt{N}.pth only when
 #    --checkpoint_iterations is set. If you ran 03 with CHECKPOINT_ITERATIONS=30000,
 #    you can resume here by pointing train.py at the old model dir:
-#      MODEL_PATH=$RESULTS_DIR/model_3dgs LOADED_ITER=30000 bash 05_train_denoise.sh
+#      MODEL_PATH=$RESULTS_DIR/model_3dgs LOADED_ITER=30000 bash 06_train_denoise.sh
 #    Otherwise, training starts from scratch on the augmented scene (re-does
 #    initial training, but the extra cameras usually improve the result).
 #
-# Prerequisites: step 04 (augmented COLMAP at $SOURCE_AUG_DIR) already run.
+# Prerequisites: step 04 (source_aug) + step 05 (source_aug_face) already run.
+# If step 05 skipped, falls back to source_aug (step 04).
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=                # output root
-#   SOURCE_AUG_DIR=             # augmented COLMAP (default: $RESULTS_DIR/source_aug)
+#   SOURCE_AUG_DIR=             # face-enhanced scene (default: source_aug_face; fallback: source_aug)
 #   GAUSSIAN_DENOISE_DIR=        # model output (default: $RESULTS_DIR/model_3dgs_denoise)
 #   ITERATIONS=30000             # training iterations
 #   RES=                         # --resolution factor (UNSET = full-res)
@@ -33,7 +34,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/source_aug}"
+SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/source_aug_face}"
+# Fallback: if source_aug_face doesn't exist, use source_aug (step 04 only)
+if [ ! -d "$SOURCE_AUG_DIR/images" ] && [ -d "$RESULTS_DIR/source_aug/images" ]; then
+    SOURCE_AUG_DIR="$RESULTS_DIR/source_aug"
+fi
 GAUSSIAN_DENOISE_DIR="${GAUSSIAN_DENOISE_DIR:-$RESULTS_DIR/model_3dgs_denoise}"
 ITERATIONS="${ITERATIONS:-30000}"
 RES="${RES:-}"
@@ -43,7 +48,7 @@ SKIP_METRICS="${SKIP_METRICS:-1}"
 MODEL_PATH="${MODEL_PATH:-}"
 LOADED_ITER="${LOADED_ITER:-}"
 
-echo "🏋️ [05] 3DGS training on augmented scene (orig + denoised virtual cameras)"
+echo "🏋️ [06] 3DGS training on face-enhanced + denoised scene"
 echo "  🤖 3DGS:        $GS_DIR"
 echo "  📂 source_aug:  $SOURCE_AUG_DIR"
 echo "  💾 model:       $GAUSSIAN_DENOISE_DIR"
@@ -63,7 +68,7 @@ if [ ! -f "$GS_DIR/train.py" ]; then
 fi
 if [ ! -d "$SOURCE_AUG_DIR/images" ] || [ ! -d "$SOURCE_AUG_DIR/sparse/0" ]; then
     echo "❌ ERROR: augmented COLMAP scene not ready: $SOURCE_AUG_DIR" >&2
-    echo "       Run step 04 first: DENOISER=diffbir bash $SCRIPT_DIR/04_denoise_novel.sh" >&2
+    echo "       Run step 04+05 first" >&2
     exit 1
 fi
 if ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; then
@@ -135,7 +140,7 @@ else
 fi
 
 echo ""
-echo "🎉 [05] Done. 3DGS training on augmented scene complete."
+echo "🎉 [06] Done. 3DGS training complete."
 echo "  🏋️ Gaussians: $GAUSSIAN_DENOISE_DIR/point_cloud/iteration_$ITERATIONS/point_cloud.ply"
 echo ""
 echo "  Compare with step 03 (no denoise):"

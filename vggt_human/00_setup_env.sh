@@ -104,10 +104,10 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     pip install "${PIP_FLAGS[@]}" "numpy<2" Pillow einops safetensors opencv-python \
         huggingface_hub
 
-    # 3DGS runtime deps
-    echo "--- installing 3DGS runtime deps ---"
+    # 3DGS runtime deps + mediapipe (face detection, step 05)
+    echo "--- installing 3DGS + mediapipe runtime deps ---"
     pip install "${PIP_FLAGS[@]}" plyfile tqdm torchmetrics lpips \
-        scipy trimesh matplotlib
+        scipy trimesh matplotlib mediapipe
 
     # gcc 12 for CUDA ext compilation (pin python=3.10 to prevent GraalPy swap)
     echo "--- installing gcc 12 (for CUDA ext compilation) ---"

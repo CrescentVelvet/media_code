@@ -100,12 +100,24 @@ bash vggt_human/04_denoise_novel.sh
 #   novel_poses.json        # 虚拟相机参数
 #   source_aug/             # 增强COLMAP场景 (原图 + 去噪图)
 
-# 5) 用增强场景训练 3DGS (原图 + 去噪虚拟相机共同监督)
+# 5) 人脸增强 (MediaPipe 检测 → HYPIR 美颜 → 渐变融合)
+#    用 hypir conda env (有 diffusers/transformers/peft); 需先装 mediapipe:
+#    conda activate hypir && pip install mediapipe
+#    HYPIR_WEIGHT 指向 beauty_ppr50k 训练的 checkpoint
 GPU=0 \
-ITERATION=30000 \
-WHITE_BG=0 \
-RESULTS_DIR=../../output/vggt_human_results \
-bash vggt_human/05_train_denoise.sh
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/05_face_enhance.sh
+
+# 输出：<RESULTS_DIR>/source_aug_face/
+#   images/  # 原图 + 去噪图, 人脸区域已 HYPIR 增强 + 渐变融合
+#   sparse/0/  # COLMAP 相机/点云 (原样复制)
+
+# 6) 用增强场景训练 3DGS (原图 + 去噪虚拟相机 + 人脸增强 共同监督)
+GPU=0 \
+  ITERATION=30000 \
+  WHITE_BG=0 \
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/06_train_denoise.sh
 
 # 输出：<RESULTS_DIR>/model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
@@ -212,8 +224,18 @@ $RESULTS_DIR/source_aug/
     sparse/0/{cameras,images,points3D}.txt  # 原相机 + 虚拟相机
     │
     ▼
-[05] 3DGS 训练 (增强场景) — 原图 + 去噪虚拟相机共同监督
-    │  └─ train.py -s source_aug -m model_3dgs_denoise --iterations 30000
+[05] 人脸增强 (hypir env) — MediaPipe 检测 → HYPIR 美颜 → 渐变融合
+    │  ├─ MediaPipe BlazeFace → 人脸框 → 放大 20% → 裁剪
+    │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图
+    │  └─ 二次衰减渐变 mask: 中心=增强, 边缘=原图 → 无缝融合
+    ▼
+$RESULTS_DIR/source_aug_face/
+    images/  # 原图 + 去噪图 (人脸区域已增强+融合)
+    sparse/0/  # COLMAP 原样复制
+    │
+    ▼
+[06] 3DGS 训练 (增强场景) — 原图 + 去噪虚拟相机 + 人脸增强 共同监督
+    │  └─ train.py -s source_aug_face -m model_3dgs_denoise --iterations 30000
     ▼
 $RESULTS_DIR/model_3dgs_denoise/
     point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
@@ -261,9 +283,20 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 > **去噪模型可插拔**：`denoisers.py` 用 registry 模式，每个去噪器是一个函数 `(image, device) -> image`。加新模型只需写一个函数 + 注册到 `DENOISERS` 字典。`DENOISER=none` 跳过去噪（仅渲染 + AdaIN）。首次用 DiffBIR/SwinIR 需 `INSTALL_DENOISER=1` 让 00 clone 仓库 + 下权重。
 
-### Step 05 — 增强场景训练 (`05_train_denoise.sh`)
+### Step 05 — 人脸增强 (`05_face_enhance.sh` → `face_enhance.py`)
 
-在 `doll` env 里用增强 COLMAP 场景训练 3DGS（`-s $SOURCE_AUG_DIR -m $GAUSSIAN_DENOISE_DIR`）。原图提供 GT 监督，去噪虚拟相机提供稀疏区域的额外监督。默认从头训（增强场景有更多相机，结果通常更好）；可选从 03 的 checkpoint 续训（需 03 加 `--checkpoint_iterations`）。
+**用 `hypir` conda env**（有 diffusers/transformers/peft，通过 `CONDA_ENV=hypir` 自动切换）。对 `source_aug/images/`（或 `source/images/`）中的每张图：
+
+1. **MediaPipe BlazeFace** 检测人脸框 → 放大 `FACE_PADDING`（默认 20%）后裁剪。
+2. **HYPIR 增强**：裁剪图喂给 `SD2Enhancer`（加载 `HYPIR_WEIGHT` 指向的 beauty_ppr50k LoRA checkpoint），`upscale=1`（只增强不超分）。
+3. **渐变融合**：二次衰减 mask（中心=1, 边缘=0）把增强结果无缝融合回原图——中心区域完全用 HYPIR 结果，边缘平滑过渡到原图，避免硬边。
+4. COLMAP `sparse/` 原样复制（只增强图像，不改相机参数）。
+
+> ⚠️ 需先做过 hypir 的首次准备（`hypir/00_setup_env.sh`）+ 在 hypir env 装 mediapipe（`conda activate hypir && pip install mediapipe`）。`HYPIR_WEIGHT` 默认指向 `beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth`，可改。
+
+### Step 06 — 增强场景训练 (`06_train_denoise.sh`)
+
+在 `doll` env 里用增强 COLMAP 场景训练 3DGS（`-s $SOURCE_AUG_DIR -m $GAUSSIAN_DENOISE_DIR`）。原图提供 GT 监督，去噪虚拟相机提供稀疏区域的额外监督，人脸增强图提供更好的面部质量。默认从头训；可选从 03 的 checkpoint 续训（需 03 加 `--checkpoint_iterations`）。
 
 ## Config (env vars, all optional)
 
@@ -282,6 +315,9 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `WEIGHTS_ROOT` | `../../model` | 去噪模型权重根（与 VGGT-Omega 分开） |
 | `DIFFBIR_DIR` | `../DiffBIR` | DiffBIR 官方代码（DENOISER=diffbir 时需要） |
 | `SWINIR_DIR` | `../SwinIR` | SwinIR 官方代码（DENOISER=swinir 时需要） |
+| `HYPIR_DIR` | `../HYPIR` | HYPIR 官方代码（step 05 人脸增强用） |
+| `HYPIR_WEIGHT` | `$HYPIR_DIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth` | HYPIR LoRA checkpoint |
+| `HYPIR_BASE_MODEL` | `$WEIGHTS_ROOT/HYPIR/sd2_base` | SD2 base model dir |
 
 ### Step 01 params
 | var | default | note |
@@ -324,10 +360,21 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `GAUSSIAN_DIR` | `$RESULTS_DIR/model_3dgs` | 3DGS 模型目录（03 的输出） |
 | `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug` | 增强 COLMAP 输出 |
 
-### Step 05 params
+### Step 05 params (face enhance)
 | var | default | note |
 | --- | --- | --- |
-| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug` | 增强场景（04 的输出） |
+| `HYPIR_WEIGHT` | `$HYPIR_DIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth` | HYPIR LoRA checkpoint |
+| `HYPIR_BASE_MODEL` | `$WEIGHTS_ROOT/HYPIR/sd2_base` | SD2 base model dir |
+| `FACE_PADDING` | `0.2` | 人脸框放大比例 (0.2 = 20%) |
+| `UPSCALE` | `1` | HYPIR upscale (1 = 不超分, 只增强) |
+| `PATCH_SIZE` | `512` | HYPIR patch size |
+| `STRIDE` | `256` | HYPIR stride |
+| `SOURCE_FACE_DIR` | `$RESULTS_DIR/source_aug_face` | 输出目录 |
+
+### Step 06 params (train on enhanced scene)
+| var | default | note |
+| --- | --- | --- |
+| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug_face` | 增强场景（05 的输出; fallback: source_aug） |
 | `GAUSSIAN_DENOISE_DIR` | `$RESULTS_DIR/model_3dgs_denoise` | 增强训练的模型输出 |
 | `ITERATIONS` | `30000` | 训练迭代数 |
 | `RES` | _(unset)_ | `--resolution` 因子；不设 = 全分辨率 |
@@ -401,13 +448,25 @@ INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 **9. `04` 渲染报 `Cannot import name 'Camera'` / 3DGS API 变化**
 3DGS 仓库的 `Camera` 类 API 可能因版本不同。`render_novel.py` 用标准 API（`Camera(colmap_id, R, T, FoVx, FoVy, image, ...)`），若报错检查 `$GS_DIR/scene/cameras.py` 的构造函数签名是否匹配。
 
-**10. `05` 想从 03 续训但找不到 checkpoint**
+**10. `06` 想从 03 续训但找不到 checkpoint**
 3DGS 默认不保存 `.pth` checkpoint（只存 PLY）。续训需在 03 加 `CHECKPOINT_ITERATIONS=30000`（透传 `--checkpoint_iterations 30000`），然后：
 ```bash
 GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
-  RESULTS_DIR=../../output/vggt_human_results bash vggt_human/05_train_denoise.sh
+  RESULTS_DIR=../../output/vggt_human_results bash vggt_human/06_train_denoise.sh
 ```
 不续训则从头训（增强场景有更多相机，结果通常更好）。
+
+**11. `05` 报 `mediapipe not installed` 或 `HYPIR code not found`**
+人脸增强用 `hypir` conda env（不是 doll）。需先做过 hypir 的首次准备，再装 mediapipe：
+```bash
+bash hypir/00_setup_env.sh          # clone HYPIR 仓 + 下 base model
+conda activate hypir
+pip install mediapipe
+GPU=0 bash vggt_human/05_face_enhance.sh
+```
+
+**12. `05` 人脸融合边缘有硬边**
+调大 `FACE_PADDING`（默认 0.2 → 0.3）让裁剪区域更大，渐变 mask 覆盖更广。或检查 `create_feather_mask` 的衰减函数（二次衰减，可改为余弦衰减更平滑）。
 
 > 通用：`proxy.env`（代理凭证 + `HF_TOKEN`）在仓内 gitignored，不入库。切勿把凭证写进脚本。
 
@@ -423,12 +482,14 @@ GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
 │       ├── 02_npz_to_colmap.sh     # npz -> COLMAP 转换
 │       ├── 03_train_3dgs.sh        # 原版 3DGS 训练 + 渲染
 │       ├── 04_denoise_novel.sh     # 渲染新视角 → 去噪 → AdaIN → 增强COLMAP
-│       ├── 05_train_denoise.sh     # 增强场景训练 3DGS
+│       ├── 05_face_enhance.sh      # MediaPipe人脸检测 → HYPIR增强 → 渐变融合
+│       ├── 06_train_denoise.sh     # 增强场景训练 3DGS
 │       ├── run_batch.py            # VGGT-Omega 批量重建 (vggt-omega 副本)
 │       ├── npz_to_colmap.py        # npz -> COLMAP 转换 (Otsu + 体素降采样)
 │       ├── render_novel.py         # 3DGS 渲染新视角 (stage 1 of 04)
 │       ├── denoise_images.py       # 去噪 + AdaIN + 增强COLMAP (stage 2 of 04)
-│       └── denoisers.py            # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
+│       ├── denoisers.py            # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
+│       └── face_enhance.py         # MediaPipe + HYPIR + 渐变融合 (step 05)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)
 │   ├── submodules/
@@ -439,9 +500,11 @@ GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
 ├── model/                          # 权重根 (共享)
 │   └── VGGT-Omega/                 # checkpoint (gated HF 下载, 复用 vggt-omega)
 │   ├── DiffBIR/                   # DiffBIR checkpoint (INSTALL_DENOISER=1 下载)
-│   └── SwinIR/                    # SwinIR checkpoint
+│   ├── SwinIR/                    # SwinIR checkpoint
+│   └── HYPIR/                     # SD2 base model + beauty LoRA (hypir/01 下载)
 ├── DiffBIR/                         # DiffBIR 官方代码 (00 clone, DENOISER=diffbir 时)
 ├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
+├── HYPIR/                           # HYPIR 官方代码 (hypir/00 clone, step 05 用)
 └── output/vggt_human_results/      # 输出 (repo 外)
     ├── vggt/<scene>/               # step 01: VGGT-Omega 推理
     │   ├── predictions.npz          #   原始输出
@@ -464,13 +527,17 @@ GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
     ├── source_aug/                 # step 04 stage 2: 增强 COLMAP 场景
     │   ├── images/                 #   原图 + 去噪虚拟视角图
     │   └── sparse/0/               #   原相机 + 虚拟相机
-    └── model_3dgs_denoise/         # step 05: 增强训练后的高斯
+    ├── source_aug_face/            # step 05: 人脸增强后的场景
+    │   ├── images/                 #   原图 + 去噪图 (人脸已 HYPIR 增强 + 渐变融合)
+    │   └── sparse/0/               #   COLMAP 原样复制
+    └── model_3dgs_denoise/         # step 06: 增强训练后的高斯
         └── point_cloud/iteration_30000/point_cloud.ply
 ```
 
 ## Notes
 - Pipeline: VGGT-Omega（前馈位姿+深度）→ COLMAP（格式转换）→ 3DGS（优化训练）。前馈给初始化，优化给质量。
-- **去噪增强（04/05，可选）**：3DGS 在稀疏视角区域有伪影 → 渲染新视角 → 去噪（DiffBIR/SwinIR 可切换）→ AdaIN 颜色校正 → 虚拟相机加入训练。`DENOISER=none` 关闭去噪。加新去噪模型：在 `denoisers.py` 写一个函数 + 注册到 `DENOISERS` 字典。
+- **去噪增强（04，可选）**：3DGS 在稀疏视角区域有伪影 → 渲染新视角 → 去噪（DiffBIR/SwinIR 可切换）→ AdaIN 颜色校正 → 虚拟相机加入训练。`DENOISER=none` 关闭去噪。加新去噪模型：在 `denoisers.py` 写一个函数 + 注册到 `DENOISERS` 字典。
+- **人脸增强（05，可选）**：MediaPipe 检测人脸 → HYPIR 美颜增强 → 二次衰减渐变 mask 无缝融合回原图。用 `hypir` conda env（非 doll）。`HYPIR_WEIGHT` 指向 beauty_ppr50k 训练的 LoRA checkpoint。
 - VGGT-Omega 的 `extrinsic` 是 w2c（OpenCV 约定），与 COLMAP 一致——无需 c2w→w2c 转换。`intrinsic` 是模型预测的实际内参——无需假设 fx=fy=max(W,H)。
 - 自适应置信度过滤用 Otsu's method（最大化类间方差），比固定阈值更鲁棒。体素降采样每体素保留最高置信度点。
 - 原版 3DGS 无 distractor filtering（不做微动过滤）。静态场景够用；有微动用 pdfgs_human（PDF-GS）。
