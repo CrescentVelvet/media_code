@@ -1,0 +1,17 @@
+subject_definitions:
+<Subject 1> is the subject shown in <Picture 1>, whose full appearance, proportions, clothing, and features are to be preserved throughout the rotation.
+
+summary:
+[image reference + 360 orbit] The target video shows <Subject 1> standing centered in frame while the camera performs a slow, continuous 360-degree orbit around them, revealing every side. The subject's identity and appearance from <Picture 1> are fully preserved.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - the subject retains their exact identity, clothing, proportions, and features from <Picture 1> throughout the entire rotation.
+
+detailed_description:
+[Shot 1] Cinematic medium-wide shot on a neutral, softly lit studio backdrop. <Subject 1> stands centered in frame, fully visible from head to toe. The camera begins directly facing <Subject 1>, then initiates a slow, steady, continuous 360-degree orbit, arcing laterally to the right. As the camera moves, the front, side, back, and opposite side of <Subject 1> are progressively revealed in sharp, crisp detail. The lighting remains even and diffused throughout the revolution, keeping every surface of <Subject 1> well-lit and clearly visible as the perspective shifts. The background subtly parallaxes behind the subject, confirming the smooth circular camera path. At 00:06.000, the camera completes the full 360-degree revolution and returns to the starting front-facing angle, gently easing to a stop on the original frontal view of <Subject 1>.
+
+overall_soundscape:
+A quiet, neutral room tone with a faint, steady ambient hum. Soft, barely perceptible footsteps of the camera operator pacing in a slow circle around the subject, and the gentle rustle of air movement as the camera glides steadily.
+
+non_diegetic_music:
+A minimalist, atmospheric ambient drone, slow tempo, with a single sustained synth pad that holds continuously throughout, providing a calm, unobtrusive backdrop that complements the visual rotation without competing for attention.
