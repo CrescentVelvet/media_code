@@ -236,7 +236,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 ## 生成 360° 旋转视频
 
-参考 `wan22_rotate` 的思路（选正面图+分割 → Wan2.2+LoRA 旋转），但 **MiniMax-H3 不需要 LoRA**——prompt 自带 360° 旋转指令（H3-Context-IR 格式长描述，逐镜头写明 camera 360-degree orbit）。`examples/run_rotate.sh` 支持三种输入方式：
+参考 `wan22_rotate` 的思路（选正面图+分割 → Wan2.2+LoRA 旋转），但 **MiniMax-H3 不需要 LoRA**——prompt 自带 360° 旋转指令（H3-Context-IR 格式长描述，逐镜头写明 camera 360-degree orbit）。`07_rotate.sh` 支持三种输入方式：
 
 | 方式 | 输入 | task | 说明 |
 |---|---|---|---|
@@ -252,20 +252,20 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 # 1) 纯文生旋转（无图，prompt 描述主体旋转一圈）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
   OUTPUT_DIR=../MiniMax-H3/results/rotate \
-  bash minimax_h3/examples/run_rotate.sh
+  bash minimax_h3/07_rotate.sh
 
 # 2) 首帧生旋转（传入一张图作首帧，从首帧开始绕主体旋转一圈）
 #    图可以是原始拍摄图 / 分割白底图 / 任意主体图
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
   FIRST_FRAME=/data/subject.png \
   OUTPUT_DIR=../MiniMax-H3/results/rotate \
-  bash minimax_h3/examples/run_rotate.sh
+  bash minimax_h3/07_rotate.sh
 
 # 3) 参考生旋转（Ref2VA 服务 :30011；<Picture 1> 的主体 360° 旋转）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
   REF_IMAGES=/data/subject.png \
   OUTPUT_DIR=../MiniMax-H3/results/rotate \
-  bash minimax_h3/examples/run_rotate.sh
+  bash minimax_h3/07_rotate.sh
 ```
 
 - prompt 文件：`examples/rotate_prompt.txt`（t2va/fl2va 用）/ `rotate_ref_prompt.txt`（ref2va 用，引用 `<Picture 1>`）。可覆盖：`PROMPT_FILE=/your/prompt.txt bash ...`。

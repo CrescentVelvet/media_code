@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_rotate.sh — 生成 360° 旋转视频（MiniMax-H3）。
+# 07_rotate.sh — 生成 360° 旋转视频（MiniMax-H3）。
 #
 # 参考 wan22_rotate 的思路（选正面图+分割 → Wan2.2+LoRA 旋转），但 MiniMax-H3
 # 不需要 LoRA——prompt 自带 360° 旋转指令。支持三种输入方式（按需选一）：
@@ -14,7 +14,8 @@
 # Prereq: 服务已起（FL2VA :30010 或 Ref2VA :30011）。
 # Output: ../MiniMax-H3/results/rotate/rotate_360.mp4
 set -o pipefail
-EX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EX_DIR="$SCRIPT_DIR/examples"
 
 # 默认旋转 prompt（H3-Context-IR 格式；ref2va 用 rotate_ref_prompt.txt）
 PROMPT_FILE="${PROMPT_FILE:-$EX_DIR/rotate_prompt.txt}"
@@ -40,7 +41,7 @@ if [ -n "$REF_IMAGES" ]; then
     REF_IMAGES="$REF_IMAGES" \
     DURATION="$DURATION" SHORT_EDGE="$SHORT_EDGE" SEED="$SEED" \
     OUTPUT_NAME="$OUTPUT_NAME" \
-    bash "$EX_DIR/../03_generate.sh"
+    bash "$SCRIPT_DIR/03_generate.sh"
 elif [ -n "$FIRST_FRAME" ]; then
     # 2) fl2va：首帧图 + 旋转 prompt
     SERVER_URL="${SERVER_URL:-http://localhost:30010}" \
@@ -49,7 +50,7 @@ elif [ -n "$FIRST_FRAME" ]; then
     PROMPT_FILE="$PROMPT_FILE" \
     DURATION="$DURATION" SHORT_EDGE="$SHORT_EDGE" SEED="$SEED" \
     OUTPUT_NAME="$OUTPUT_NAME" \
-    bash "$EX_DIR/../03_generate.sh"
+    bash "$SCRIPT_DIR/03_generate.sh"
 else
     # 1) t2va：纯文生旋转视频（无图）
     SERVER_URL="${SERVER_URL:-http://localhost:30010}" \
@@ -58,5 +59,5 @@ else
     DURATION="$DURATION" ASPECT_RATIO="16:9" \
     SHORT_EDGE="$SHORT_EDGE" SEED="$SEED" \
     OUTPUT_NAME="$OUTPUT_NAME" \
-    bash "$EX_DIR/../03_generate.sh"
+    bash "$SCRIPT_DIR/03_generate.sh"
 fi
