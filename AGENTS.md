@@ -275,6 +275,17 @@ $MODEL_DIR/
   ```
   手动 clone 后再 `pip install -e <local_dir>`，不用 `pip install 'git+https://...'`
 
+### webfetch / curl 下载文件（查文档/源码）
+- **webfetch 下载 `raw.githubusercontent.com` 报 `Transport error`**：URL 本身没问题，是公司代理 TLS 拦截导致 webfetch 的 HTTP 客户端连不上。**别反复重试 webfetch**（换 URL/加参数都没用），直接换 curl：
+  ```bash
+  # curl 默认也会 SSL 失败（代理根 CA 不在系统 bundle），加 --insecure 绕过
+  curl.exe -sL --insecure --max-time 120 "https://raw.githubusercontent.com/xxx/xxx.md" -o "$env:TEMP\opencode\doc.md"
+  # 然后用 Read 工具分析（别用 bash 的 Get-Content）
+  ```
+- **PowerShell 里用 `curl.exe` 不是 `curl`**：`curl` 是 `Invoke-WebRequest` 的别名，参数不兼容（`-sL --insecure` 会报错）。显式写 `curl.exe` 调真正的 curl。
+- **下载到 `$env:TEMP\opencode\` 再 Read**：这个目录已预批准可访问，Read 工具能直接读。别下到工作区（会污染 git）。
+- 临时目录路径：`$env:TEMP\opencode\`（PowerShell 展开），或 `C:\Users\<user>\AppData\Local\Temp\opencode\`（绝对路径，Read 工具用这个）。
+
 ### 版本 pin（最后装，覆盖依赖升级）
 ```bash
 # numpy 2.x 和 detectron2 不兼容
