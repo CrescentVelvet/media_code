@@ -15,32 +15,37 @@
 
 ```bash
 # ── 分步 ──
-# 1a) 选图+分割 完整版（SAM 3D Body: 3D 姿态估计选正面图 + SAM 分割）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/01_pick_and_segment.sh
+# # 1) 选图+分割 完整版（SAM 3D Body: 3D 姿态估计选正面图 + SAM 分割）
+# GPU=0 \
+#   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+#   RESULTS_DIR=../../output/wan22_rotate_results \
+#   bash wan22_rotate/01_pick_and_segment.sh
 
-# 1b) 用 SAM2 分割器（需提前放好 sam2 仓库 + checkpoint）
-GPU=0 SEGMENTOR_PATH=../sam2 \
-  INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/01_pick_and_segment.sh
+# # 1b) 用 SAM2 分割器（需提前放好 sam2 仓库 + checkpoint）
+# GPU=0 \
+#   SEGMENTOR_PATH=../sam2 \
+#   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+#   RESULTS_DIR=../../output/wan22_rotate_results \
+#   bash wan22_rotate/01_pick_and_segment.sh
 
-# 1c) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/wan22_rotate_results \
-  bash wan22_rotate/01b_pick_and_segment.sh
+# # 1b) 选图+分割 简化版（只 ViTDet 检测 + SAM 分割, 按人物面积最大选图, 不加载 3D body 模型, 更快）
+# GPU=0 \
+#   INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+#   RESULTS_DIR=../../output/wan22_rotate_results \
+#   bash wan22_rotate/01b_pick_and_segment.sh
 
-# 1d) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
+# 1c) 选图+分割 MediaPipe 版（Face Mesh 算正面评分: 鼻尖居中 + 双眼距离最大; CPU 即可, 无需 GATED 权重）
 #     比 01c 更能锁定"正面"（01b 选面积最大, 可能选到侧面）; 比 01 快很多（不用 3D body 模型）
 #     仅选图不分割: SKIP_SEGMENTATION=1（快速看哪帧是正面）
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+GPU=0 \
+  INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/01c_pick_and_segment.sh
 
 # 2) 只做视频生成（用上一步的分割图）
 #    模型: Wan2.2-TI2V-5B, 从 WAN_MODEL_PATH 直接加载 (ModelConfig(path=...))
-GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
+GPU=0 \
+  SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered.png \
   WEIGHT_PATH=../../model/Wan2.2-TI2V-5B_lora_add_data_reload/step-66900.safetensors \
   WAN_MODEL_PATH=../../model/Wan2.2-TI2V-5B \
   RESULTS_DIR=../../output/wan22_rotate_results \
@@ -50,7 +55,8 @@ GPU=0 SEGMENTED_IMAGE=../../output/wan22_rotate_results/segmented_image_centered
 
 # 3) 拆分视频为 JPG 帧（输出到 <视频同名>/image/，匹配 INPUT_DIR/image/ 模式）
 #    默认抽每一帧（FPS=0）；指定 FPS 则按该 fps 采样
-GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
+GPU=0 \
+  VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   FPS=0 \
   bash wan22_rotate/03_extract_frames.sh
@@ -64,7 +70,8 @@ GPU=0 VIDEO_PATH=../../output/wan22_rotate_results/rotate_360.mp4 \
 # 4) Pi3 位姿估计（不进行三维重建，只出位姿 + 稠密点云）
 #    复用 wan22_rotate env（已有 Pi3 全部依赖）；调 pi3_3dgs/pi3_recon.py --no_colmap
 #    自动用步骤 03 的 JPG（若已跑），否则自动调 03 抽帧
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+GPU=0 \
+  PI3_CKPT=../../model/Pi3/model.safetensors \
   INPUT=../../output/wan22_rotate_results/rotate_360/image \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/04_pi3_pose.sh
@@ -75,7 +82,9 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 # 5) 三维高斯重建（Pi3 → COLMAP → 2DGS 训练 → 渲染 + 网格）
 #    在 wan22_rotate env 里跑（首次需 INSTALL_2DGS=1 编 2DGS CUDA 扩展，见下方「首次准备」）
 #    一键全流程：Pi3 + COLMAP 导出 → 2DGS 训练 → 渲染 + 网格
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+GPU=0 \
+  PI3_CKPT=../../model/Pi3/model.safetensors \
+  SKIP_PI3=1 \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05_3dgs_recon.sh
@@ -92,7 +101,9 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 #     与 05 (2DGS) 并列的替代方案。GOF 网格质量在多数 benchmark 上超 2DGS。
 #     首次需 INSTALL_GOF=1 编 GOF 的 3 个扩展（见下方「首次准备」）
 #     一键全流程：Pi3 + COLMAP 导出 → GOF 训练 → Marching Tetrahedra 提网格
-GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
+GPU=0 \
+  PI3_CKPT=../../model/Pi3/model.safetensors \
+  SKIP_PI3=1 \
   INPUT=../../output/wan22_rotate_results/rotate_360.mp4 \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05a_3dgs_recon.sh
@@ -109,14 +120,16 @@ GPU=0 PI3_CKPT=../../model/Pi3/model.safetensors \
 #     输入直接用 step 01 的 segmented_image.png；输出网格/动画到 model_lhm/。
 #     首次需 INSTALL_LHM=1 建独立 lhm env（torch 2.3.0，与 wan22_rotate 不兼容，见下方「首次准备」）
 #     一键全流程：单图 → LLM mesh 导出（canonical pose 静止网格）
-GPU=0 IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
+GPU=0 \
+  IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
   MODEL_NAME=LHM-500M-HF \
   RESULTS_DIR=../../output/wan22_rotate_results \
   bash wan22_rotate/05b_lhm_recon.sh
 
 # 5b 可选）渲染旋转动画：从 step 02 的 rotate_360.mp4 提取 SMPL-X 动作再驱动
 #          （需 00 装 LHM_DOWNLOAD_POSE=1 下 yolov8x + vitpose）
-GPU=0 IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
+GPU=0 \
+  IMAGE_INPUT=../../output/wan22_rotate_results/segmented_image.png \
   SRC_VIDEO=../../output/wan22_rotate_results/rotate_360.mp4 \
   EXTRACT_MOTION=1 SKIP_MESH=1 \
   RESULTS_DIR=../../output/wan22_rotate_results \
