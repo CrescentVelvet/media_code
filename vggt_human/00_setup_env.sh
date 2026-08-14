@@ -243,4 +243,4 @@ python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] CUDA ex
 
 echo ""
 echo "=== [00] Done. Next:"
-echo "  GPU=0 INPUT_DIR=../<images> RESULTS_DIR=../../output/vggt_human_results bash vggt_human/01_run_inference.sh"
+echo "  GPU=0 INPUT_DIR=../<images> RESULTS_DIR=../../output/vggt_human_results bash vggt_human/01_face_enhance.sh"

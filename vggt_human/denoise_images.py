@@ -15,7 +15,7 @@ Then writes an augmented COLMAP scene (SOURCE_AUG_DIR):
   - sparse/0/images.txt: original images + novel images (w2c quaternion + translation)
   - sparse/0/points3D.txt: copy of original (unchanged)
 
-Env vars (set by 04_denoise_novel.sh):
+Env vars (set by 05_denoise_novel.sh):
   DENOISER, ALPHA_THRESH, ADAIN_REF, SOURCE_DIR, SOURCE_AUG_DIR, RESULTS_DIR, DEVICE
 """
 import os
@@ -223,7 +223,7 @@ def main():
     print(f"  ✅ points3D.txt (copied)")
     print(f"  ⏱️ {time.time() - t0:.1f}s")
     print(f"\n🎉 Done. Augmented COLMAP: {SOURCE_AUG_DIR}")
-    print(f"  Next: bash vggt_human/06_train_denoise.sh")
+    print(f"  Next: bash vggt_human/06_face_enhance.sh")
 
 
 def _parse_image_full(img_tuple):

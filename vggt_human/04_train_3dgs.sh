@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 03_train_3dgs.sh — Original 3DGS (graphdeco-inria/gaussian-splatting) training.
+# 04_train_3dgs.sh — Original 3DGS (graphdeco-inria/gaussian-splatting) training.
 #
 # Consumes the COLMAP scene from step 02. Trains gaussians via gradient descent
 # on L1+SSIM loss, with adaptive density control (split/clone/prune). Renders
@@ -53,7 +53,7 @@ if [ ! -f "$GS_DIR/train.py" ]; then
 fi
 if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
     echo "❌ ERROR: COLMAP scene not ready: $SOURCE_DIR" >&2
-    echo "       Run step 02 first: bash $SCRIPT_DIR/02_npz_to_colmap.sh" >&2
+    echo "       Run step 03 first: bash $SCRIPT_DIR/03_npz_to_colmap.sh" >&2
     exit 1
 fi
 if ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; then

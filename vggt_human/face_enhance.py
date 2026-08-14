@@ -12,7 +12,7 @@ For each image in the input directory:
 
 Uses the hypir conda env (has diffusers/transformers/peft for HYPIR).
 
-Env vars (set by 05_face_enhance.sh):
+Env vars (set by 01_face_enhance.sh or 06_face_enhance.sh):
   HYPIR_DIR, HYPIR_BASE_MODEL, HYPIR_WEIGHT, INPUT_SOURCE_DIR, SOURCE_FACE_DIR,
   FACE_PADDING, UPSCALE, PATCH_SIZE, STRIDE, DEVICE
 """
@@ -149,7 +149,13 @@ def main():
     print(f"  ✅ HYPIR loaded (weight={WEIGHT_PATH})")
 
     # ── 3. Process images ────────────────────────────────────────────────────
+    # Input can be: COLMAP scene (images/ subdir), test_task folder (image/ subdir),
+    # or a plain image folder (images directly in INPUT_SOURCE_DIR).
     input_images_dir = os.path.join(INPUT_SOURCE_DIR, "images")
+    if not os.path.isdir(input_images_dir):
+        input_images_dir = os.path.join(INPUT_SOURCE_DIR, "image")
+    if not os.path.isdir(input_images_dir):
+        input_images_dir = INPUT_SOURCE_DIR  # plain image folder
     output_images_dir = os.path.join(SOURCE_FACE_DIR, "images")
     output_sparse_dir = os.path.join(SOURCE_FACE_DIR, "sparse", "0")
     os.makedirs(output_images_dir, exist_ok=True)
@@ -227,13 +233,15 @@ def main():
         Image.fromarray(enhanced).save(os.path.join(output_images_dir, name))
         print(f"  [{i}/{len(images)}] {name} — {face_count} face(s) enhanced")
 
-    # ── 4. Copy COLMAP sparse/ (unchanged) ──────────────────────────────────
+    # ── 4. Copy COLMAP sparse/ (unchanged, only in post-processing mode) ──────
     input_sparse = os.path.join(INPUT_SOURCE_DIR, "sparse", "0")
     if os.path.isdir(input_sparse):
         for fname in os.listdir(input_sparse):
             shutil.copy(os.path.join(input_sparse, fname),
                         os.path.join(output_sparse_dir, fname))
         print(f"  ✅ copied sparse/0/ ({len(os.listdir(output_sparse_dir))} files)")
+    else:
+        print("  (no sparse/ — pre-processing mode)")
 
     # Free GPU
     del model
@@ -243,7 +251,7 @@ def main():
     print(f"\n🎉 Done. {total_faces} faces enhanced in {len(images)} images. "
           f"{time.time() - t0:.1f}s")
     print(f"  output: {SOURCE_FACE_DIR}")
-    print(f"  Next: bash vggt_human/06_train_denoise.sh")
+    print(f"  Next: bash vggt_human/07_train_denoise.sh")
 
 
 if __name__ == "__main__":

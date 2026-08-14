@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 01_run_inference.sh — VGGT-Omega feed-forward reconstruction (poses + depth -> point cloud).
+# 02_run_inference.sh — VGGT-Omega feed-forward reconstruction (poses + depth -> point cloud).
 # Loads the model once, processes all scenes in INPUT_DIR. Each scene produces
 # predictions.npz (raw model outputs: extrinsic, intrinsic, world_points_from_depth,
 # depth_conf, images, pose_enc) + scene.ply + scene.glb + frames/.
@@ -79,4 +79,4 @@ fi
 
 echo ""
 echo "✅ [01] Done. Reconstructions in: $VGGT_OUTPUT_DIR"
-echo "  Next: bash $SCRIPT_DIR/02_npz_to_colmap.sh"
+echo "  Next: bash $SCRIPT_DIR/03_npz_to_colmap.sh"

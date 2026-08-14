@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 05_face_enhance.sh — MediaPipe 人脸检测 + HYPIR 人脸增强 + 渐变融合.
+# 06_face_enhance.sh — 后处理: MediaPipe 人脸检测 + HYPIR 人脸增强 + 渐变融合.
 #
 # 对增强 COLMAP 场景中的每张图:
 #   1. MediaPipe BlazeFace 检测人脸框
@@ -94,4 +94,4 @@ fi
 
 echo ""
 echo "✅ [05] Done. Face-enhanced scene: $SOURCE_FACE_DIR"
-echo "  Next: GPU=0 bash $SCRIPT_DIR/06_train_denoise.sh"
+echo "  Next: GPU=0 bash $SCRIPT_DIR/07_train_denoise.sh"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """render_novel.py — Load 3DGS model, select novel viewpoints, render + save.
 
-Stage 1 of the denoise-augment pipeline (called by 04_denoise_novel.sh):
+Stage 1 of the denoise-augment pipeline (called by 05_denoise_novel.sh):
   1. Load 3DGS gaussians from step 03's PLY checkpoint.
   2. Parse COLMAP cameras.txt + images.txt to get training camera trajectory.
   3. Find angular gaps in the camera trajectory; insert NUM_NOVEL_VIEWS
@@ -13,7 +13,7 @@ Stage 1 of the denoise-augment pipeline (called by 04_denoise_novel.sh):
 Stage 2 (denoise_images.py) reads these outputs, denoises, AdaIN-corrects,
 and writes the augmented COLMAP scene.
 
-Env vars (set by 04_denoise_novel.sh):
+Env vars (set by 05_denoise_novel.sh):
   GS_DIR, GAUSSIAN_DIR, SOURCE_DIR, RESULTS_DIR, ITERATION,
   NUM_NOVEL_VIEWS, RENDER_WIDTH, RENDER_HEIGHT, DEVICE
 """

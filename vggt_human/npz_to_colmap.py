@@ -22,7 +22,7 @@ Per voxel, the highest-confidence point is kept.
 Coordinate alignment: scene is centered at the point-cloud centroid (camera
 translations adjusted accordingly). Helps 3DGS training stability.
 
-Env vars (set by 02_npz_to_colmap.sh):
+Env vars (set by 03_npz_to_colmap.sh):
   NPZ_PATH, FRAMES_DIR, SOURCE_DIR, TARGET_POINTS, ALIGN
 """
 import os
@@ -353,7 +353,7 @@ def main():
           f"extent=[{extent[0]:.2f}, {extent[1]:.2f}, {extent[2]:.2f}])")
     print(f"  ⏱️ {time.time() - t0:.1f}s")
     print(f"\n🎉 Done. COLMAP source: {source_dir}")
-    print(f"  Next: bash vggt_human/03_train_3dgs.sh")
+    print(f"  Next: bash vggt_human/04_train_3dgs.sh")
 
 
 if __name__ == "__main__":

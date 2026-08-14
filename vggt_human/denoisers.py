@@ -7,7 +7,7 @@ Models are lazy-loaded on first call and cached. Switch via env DENOISER=diffbir
 Add a new denoiser:
   1. Write a function denoise_my_model(image, device, **kw) -> np.ndarray
   2. Register it: DENOISERS["my_model"] = denoise_my_model
-  3. Use: DENOISER=my_model bash 04_denoise_novel.sh
+  3. Use: DENOISER=my_model bash 05_denoise_novel.sh
 """
 import os
 import sys

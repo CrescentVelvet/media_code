@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 06_train_denoise.sh — 3DGS training on the face-enhanced + denoised augmented scene
+# 07_train_denoise.sh — 3DGS training on the face-enhanced + denoised augmented scene
 # (original + denoised virtual cameras from step 04 + face-enhanced from step 05).
 #
 # Trains from scratch on the augmented COLMAP scene. The original training images
@@ -9,7 +9,7 @@
 # ⚠️ Resuming from step 03's checkpoint: 3DGS saves chkpnt{N}.pth only when
 #    --checkpoint_iterations is set. If you ran 03 with CHECKPOINT_ITERATIONS=30000,
 #    you can resume here by pointing train.py at the old model dir:
-#      MODEL_PATH=$RESULTS_DIR/model_3dgs LOADED_ITER=30000 bash 06_train_denoise.sh
+#      MODEL_PATH=$RESULTS_DIR/model_3dgs LOADED_ITER=30000 bash 07_train_denoise.sh
 #    Otherwise, training starts from scratch on the augmented scene (re-does
 #    initial training, but the extra cameras usually improve the result).
 #
@@ -48,7 +48,7 @@ SKIP_METRICS="${SKIP_METRICS:-1}"
 MODEL_PATH="${MODEL_PATH:-}"
 LOADED_ITER="${LOADED_ITER:-}"
 
-echo "🏋️ [06] 3DGS training on face-enhanced + denoised scene"
+echo "🏋️ [07] 3DGS training on face-enhanced + denoised scene"
 echo "  🤖 3DGS:        $GS_DIR"
 echo "  📂 source_aug:  $SOURCE_AUG_DIR"
 echo "  💾 model:       $GAUSSIAN_DENOISE_DIR"
@@ -68,7 +68,7 @@ if [ ! -f "$GS_DIR/train.py" ]; then
 fi
 if [ ! -d "$SOURCE_AUG_DIR/images" ] || [ ! -d "$SOURCE_AUG_DIR/sparse/0" ]; then
     echo "❌ ERROR: augmented COLMAP scene not ready: $SOURCE_AUG_DIR" >&2
-    echo "       Run step 04+05 first" >&2
+    echo "       Run step 05+06 first" >&2
     exit 1
 fi
 if ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; then
@@ -140,7 +140,7 @@ else
 fi
 
 echo ""
-echo "🎉 [06] Done. 3DGS training complete."
+echo "🎉 [07] Done. 3DGS training complete."
 echo "  🏋️ Gaussians: $GAUSSIAN_DENOISE_DIR/point_cloud/iteration_$ITERATIONS/point_cloud.ply"
 echo ""
 echo "  Compare with step 03 (no denoise):"

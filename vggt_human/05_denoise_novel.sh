@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 04_denoise_novel.sh — Render novel views → denoise → AdaIN → augmented COLMAP.
+# 05_denoise_novel.sh — Render novel views → denoise → AdaIN → augmented COLMAP.
 #
 # Two-stage pipeline (separate Python processes to avoid GPU memory conflicts):
 #   Stage 1 (render_novel.py): Load 3DGS model from step 03 → find angular gaps
@@ -52,12 +52,12 @@ echo ""
 # Sanity checks
 if [ ! -f "$GAUSSIAN_DIR/point_cloud/iteration_$ITERATION/point_cloud.ply" ]; then
     echo "❌ ERROR: 3DGS checkpoint not found at $GAUSSIAN_DIR/point_cloud/iteration_$ITERATION/point_cloud.ply" >&2
-    echo "       Run step 03 first: bash $SCRIPT_DIR/03_train_3dgs.sh" >&2
+    echo "       Run step 04 first: bash $SCRIPT_DIR/04_train_3dgs.sh" >&2
     exit 1
 fi
 if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
     echo "❌ ERROR: COLMAP scene not ready: $SOURCE_DIR" >&2
-    echo "       Run step 02 first: bash $SCRIPT_DIR/02_npz_to_colmap.sh" >&2
+    echo "       Run step 03 first: bash $SCRIPT_DIR/03_npz_to_colmap.sh" >&2
     exit 1
 fi
 
@@ -87,4 +87,4 @@ fi
 
 echo ""
 echo "🎉 [04] Done. Augmented scene: $SOURCE_AUG_DIR"
-echo "  Next: GPU=0 bash $SCRIPT_DIR/05_face_enhance.sh"
+echo "  Next: GPU=0 bash $SCRIPT_DIR/06_face_enhance.sh"

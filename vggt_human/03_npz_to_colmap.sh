@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 02_npz_to_colmap.sh — Convert VGGT-Omega predictions.npz to COLMAP text format.
+# 03_npz_to_colmap.sh — Convert VGGT-Omega predictions.npz to COLMAP text format.
 #
 # Reads the npz from step 01 (predictions.npz: extrinsic w2c, intrinsic,
 # world_points_from_depth, depth_conf, images) and produces a COLMAP scene:
@@ -57,7 +57,7 @@ echo ""
 
 if [ ! -f "$NPZ_PATH" ]; then
     echo "❌ ERROR: predictions.npz not found at $NPZ_PATH" >&2
-    echo "       Run step 01 first: INPUT_DIR=... bash $SCRIPT_DIR/01_run_inference.sh" >&2
+    echo "       Run step 02 first: INPUT_DIR=... bash $SCRIPT_DIR/02_run_inference.sh" >&2
     exit 1
 fi
 
@@ -70,4 +70,4 @@ fi
 
 echo ""
 echo "✅ [02] Done. COLMAP scene at: $SOURCE_DIR"
-echo "  Next: GPU=0 bash $SCRIPT_DIR/03_train_3dgs.sh"
+echo "  Next: GPU=0 bash $SCRIPT_DIR/04_train_3dgs.sh"
