@@ -148,6 +148,13 @@ def main():
           f"  height: {ORBIT_HEIGHT}  up: {UP_AXIS or 'auto'}")
 
     # ── 1. Load gaussians ──────────────────────────────────────────────────
+    # PDF-GS modules (gaussian_renderer, scene, utils) are relative imports —
+    # they require cwd or sys.path to include the PDF-GS repo dir. 04_render_orbit.sh
+    # cd's there before running this script, but add a sys.path fallback in case
+    # cwd is wrong (e.g. cd failed silently).
+    _pdfgs = os.environ.get("PDFGS_DIR", "")
+    if _pdfgs and _pdfgs not in sys.path:
+        sys.path.insert(0, _pdfgs)
     from gaussian_renderer import GaussianModel, render
     from scene.cameras import MiniCam
     from utils.graphics_utils import getProjectionMatrix

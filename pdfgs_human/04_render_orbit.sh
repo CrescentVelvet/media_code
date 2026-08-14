@@ -95,8 +95,10 @@ if ! python -c "import diff_gaussian_rasterization" 2>/dev/null; then
 fi
 
 # Run inside the PDF-GS repo for relative imports (scene/, gaussian_renderer/,
-# arguments/, utils/) — same as 03.
-( cd "$PDFGS_DIR" && python "$SCRIPT_DIR/render_orbit.py" )
+# arguments/, utils/) — same as 03. If cd fails, exit immediately (don't let
+# python run in the wrong dir → "ModuleNotFoundError: gaussian_renderer").
+( cd "$PDFGS_DIR" || { echo "❌ cd $PDFGS_DIR failed — PDF-GS repo not found" >&2; exit 1; }; \
+  python "$SCRIPT_DIR/render_orbit.py" )
 if [ $? -ne 0 ]; then
     echo "❌ FAILED. Orbit render did not complete." >&2
     exit 1
