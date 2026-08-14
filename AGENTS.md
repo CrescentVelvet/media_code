@@ -28,7 +28,7 @@
 
 ### 命名规范
 - 算法目录名：小写 + 下划线，如 `wan22_rotate`、`sam_3d_body`、`hunyuanvideo_1.5`
-- 脚本编号：`00_setup_env.sh` → `01_download_models.sh` → `02_run_inference.sh` → `03_build_dataset.sh` → `04_train_lora.sh`
+- **脚本必须数字编号**：`00_setup_env.sh` → `01_download_models.sh` → `02_run_inference.sh` → `03_build_dataset.sh` → `04_train_lora.sh`。**不要写无编号的 `run_xxx.sh` / `stop_xxx.sh`**（如一键生成、停服务等 wrapper 也要编号：`04_run.sh`、`05_stop.sh`）。类型相似（同一步骤的多个变体）用同一数字编号 + 字母区分：`01_pick_and_segment.sh` / `01b_pick_and_segment.sh` / `01c_pick_and_segment.sh`。
 - Python 脚本：动词 + 名词，如 `run_inference.py`、`build_dataset.py`、`pick_and_segment.py`
 - 官方仓目录名：与 GitHub repo 同名（去掉 `.git`），如 `sam-3d-body`、`DiffSynth-Studio`
 
