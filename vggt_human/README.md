@@ -43,13 +43,16 @@ VGGT-Omega 的优势：**实际内参**（不是假设的）+ **置信度过滤*
 ```bash
 # ── 分步 ──
 # 0) clone 仓 + 装依赖 + 编 CUDA 扩展 (一次性)
-GPU=0 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
+# GPU=0 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
+GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 
 # 1) VGGT-Omega 前馈推理 (图像 -> 位姿+深度 -> predictions.npz + scene.ply)
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  MODEL_DIR=../../model/VGGT-Omega \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/01_run_inference.sh
+GPU=0 \
+INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+MODEL_DIR=../../model/VGGT-Omega \
+RESULTS_DIR=../../output/vggt_human_results \
+MAX_POINTS=2000000 \
+bash vggt_human/01_run_inference.sh
 
 # 输出：<RESULTS_DIR>/vggt/<scene>/
 #   predictions.npz   # 原始输出 (extrinsic w2c, intrinsic, world_points, depth_conf, images)
@@ -58,8 +61,9 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a
 
 # 2) npz -> COLMAP 转换 (自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐)
 GPU=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/02_npz_to_colmap.sh
+TARGET_POINTS=200000 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/02_npz_to_colmap.sh
 
 # 输出：<RESULTS_DIR>/source/
 #   images/*.png                      # 训练图 (从 frames/ 复制, 内参自动缩放)
@@ -69,8 +73,10 @@ GPU=0 \
 
 # 3) 原版 3DGS 训练 + 渲染
 GPU=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/03_train_3dgs.sh
+ITERATIONS=30000 \
+WHITE_BG=0 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/03_train_3dgs.sh
 
 # 输出：<RESULTS_DIR>/model_3dgs/
 #   point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
@@ -81,9 +87,12 @@ GPU=0 \
 # 4) 渲染新视角 → 去噪 → AdaIN → 增强COLMAP场景
 #    DENOISER 可选: diffbir (扩散, 质量高) | swinir (前馈, 快) | none (跳过去噪)
 #    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
-GPU=0 DENOISER=diffbir NUM_NOVEL_VIEWS=10 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/04_denoise_novel.sh
+GPU=0 \
+DENOISER=diffbir \
+NUM_NOVEL_VIEWS=10 \
+ITERATION=30000 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/04_denoise_novel.sh
 
 # 输出：<RESULTS_DIR>/
 #   novel_renders/*.png     # 3DGS 渲染的新视角 (有伪影)
@@ -93,8 +102,10 @@ GPU=0 DENOISER=diffbir NUM_NOVEL_VIEWS=10 \
 
 # 5) 用增强场景训练 3DGS (原图 + 去噪虚拟相机共同监督)
 GPU=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/05_train_denoise.sh
+ITERATION=30000 \
+WHITE_BG=0 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/05_train_denoise.sh
 
 # 输出：<RESULTS_DIR>/model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
