@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# 00_setup_env.sh — clone VGGT-Omega + gaussian-splatting repos, verify torch,
+# install deps, compile CUDA extensions (diff-gaussian-rasterization, simple-knn).
+# Reuses the existing `doll` conda env (torch>=2.3); no new env created.
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
+
+echo "=== [00] Setup vggt_human env '$CONDA_ENV' ==="
+echo "  VGGT-Omega:  $VGGT_DIR"
+echo "  3DGS:        $GS_DIR"
+echo "  weights:     $MODEL_DIR"
+echo "  output:      $RESULTS_DIR"
+echo ""
+
+# ── 1. Clone VGGT-Omega official repo ──────────────────────────────────────
+if [ ! -d "$VGGT_DIR" ]; then
+    echo "--- cloning VGGT-Omega -> $VGGT_DIR ---"
+    mkdir -p "$(dirname "$VGGT_DIR")"
+    git clone "$VGGT_REPO" "$VGGT_DIR" || \
+        git -c http.sslVerify=false clone "$VGGT_REPO" "$VGGT_DIR"
+else
+    echo "--- VGGT-Omega already present: $VGGT_DIR ---"
+fi
+
+# ── 2. Clone gaussian-splatting (original 3DGS) ────────────────────────────
+if [ ! -d "$GS_DIR/.git" ]; then
+    echo "--- cloning gaussian-splatting -> $GS_DIR ---"
+    mkdir -p "$(dirname "$GS_DIR")"
+    LD_LIBRARY_PATH= git clone "$GS_REPO" "$GS_DIR" || \
+        LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$GS_REPO" "$GS_DIR"
+fi
+
+# Ensure submodules (diff-gaussian-rasterization on GitHub, simple-knn on gitlab.inria.fr).
+SUBMOD_DIR="$GS_DIR/submodules"
+if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ] || \
+   [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
+    echo "  ensuring gaussian-splatting submodules"
+    ( cd "$GS_DIR" && LD_LIBRARY_PATH= git submodule update --init --recursive ) || \
+        ( cd "$GS_DIR" && LD_LIBRARY_PATH= git -c http.sslVerify=false submodule update --init --recursive ) || true
+
+    # diff-gaussian-rasterization (original 3DGS rasterizer, main branch — no antialiasing)
+    if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ]; then
+        echo "  cloning diff-gaussian-rasterization"
+        rm -rf "$SUBMOD_DIR/diff-gaussian-rasterization"
+        LD_LIBRARY_PATH= git clone https://github.com/graphdeco-inria/diff-gaussian-rasterization.git \
+            "$SUBMOD_DIR/diff-gaussian-rasterization" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone \
+                https://github.com/graphdeco-inria/diff-gaussian-rasterization.git \
+                "$SUBMOD_DIR/diff-gaussian-rasterization"
+    fi
+
+    # simple-knn (gitlab.inria.fr may be blocked; fall back to GitHub mirrors)
+    if [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
+        echo "  cloning simple-knn (gitlab.inria.fr may be blocked; GitHub mirrors as fallback)"
+        rm -rf "$SUBMOD_DIR/simple-knn"
+        _sk_done=false
+        for _sk_url in \
+            "https://gitlab.inria.fr/bkerbl/simple-knn.git" \
+            "https://github.com/yindaheng98/simple-knn.git" \
+            "https://github.com/jteng2127/simple-knn.git"; do
+            echo "    trying: $_sk_url"
+            if LD_LIBRARY_PATH= git clone "$_sk_url" "$SUBMOD_DIR/simple-knn" 2>/dev/null || \
+               LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$_sk_url" "$SUBMOD_DIR/simple-knn" 2>/dev/null; then
+                _sk_done=true
+                echo "    ✅ cloned from $_sk_url"
+                break
+            fi
+            rm -rf "$SUBMOD_DIR/simple-knn"
+        done
+        if [ "$_sk_done" != "true" ]; then
+            echo "  ❌ simple-knn clone failed (all mirrors) — manual:" >&2
+            echo "     cd $SUBMOD_DIR && git clone https://github.com/yindaheng98/simple-knn.git simple-knn" >&2
+        fi
+    fi
+
+    # GLM (header-only math lib, diff-gaussian-rasterization needs it)
+    GLM_DIR="$GS_DIR/third_party/glm"
+    if [ ! -f "$GLM_DIR/glm/glm.hpp" ]; then
+        echo "  cloning GLM (diff-gaussian-rasterization dependency)"
+        rm -rf "$GLM_DIR"
+        LD_LIBRARY_PATH= git clone https://github.com/g-truc/glm.git "$GLM_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/g-truc/glm.git "$GLM_DIR"
+    fi
+fi
+
+# ── 3. Verify torch + CUDA ──────────────────────────────────────────────────
+python - <<'PY'
+import torch
+print(f"torch: {torch.__version__}  cuda: {torch.version.cuda}  available: {torch.cuda.is_available()}")
+if not torch.cuda.is_available():
+    raise SystemExit("ERROR: torch.cuda not available in env '$CONDA_ENV'.")
+PY
+
+# ── 4. Install deps (first time) ────────────────────────────────────────────
+if [ "${INSTALL_DEPS:-0}" = "1" ]; then
+    PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
+        --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
+
+    # VGGT-Omega runtime deps (torch NOT reinstalled)
+    echo "--- installing VGGT-Omega runtime deps ---"
+    pip install "${PIP_FLAGS[@]}" "numpy<2" Pillow einops safetensors opencv-python \
+        huggingface_hub
+
+    # 3DGS runtime deps
+    echo "--- installing 3DGS runtime deps ---"
+    pip install "${PIP_FLAGS[@]}" plyfile tqdm torchmetrics lpips \
+        scipy trimesh matplotlib
+
+    # gcc 12 for CUDA ext compilation (pin python=3.10 to prevent GraalPy swap)
+    echo "--- installing gcc 12 (for CUDA ext compilation) ---"
+    if ! conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10; then
+        echo "  ⚠️ --no-update-deps blocked; retrying without it (python=3.10 pinned)" >&2
+        conda install -y -c conda-forge gxx_linux-64=12 python=3.10 || \
+            echo "  ⚠️ gxx install failed; system gcc will be used (may fail)" >&2
+    fi
+
+    # Pin numpy (conda may have touched it)
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+
+    # ── Compile CUDA extensions ──────────────────────────────────────────────
+    export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+    if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+        _nvcc_ver="$($CUDA_HOME/bin/nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+' || echo '')"
+        _torch_ver="$(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null || echo '')"
+        if [ -n "$_nvcc_ver" ] && [ -n "$_torch_ver" ]; then
+            _nvcc_major="${_nvcc_ver%%.*}"
+            _torch_major="${_torch_ver%%.*}"
+            if [ "$_nvcc_major" != "$_torch_major" ]; then
+                echo "  ⚠️ CUDA_HOME=$CUDA_HOME is $_nvcc_ver but torch is $_torch_ver"
+                for _d in /usr/local/cuda-${_torch_major}*; do
+                    if [ -x "$_d/bin/nvcc" ]; then
+                        export CUDA_HOME="$_d"
+                        echo "  → switched CUDA_HOME to $CUDA_HOME"
+                        break
+                    fi
+                done
+            fi
+        fi
+        export PATH="$CUDA_HOME/bin:$PATH"
+
+        # Resolve CC/CXX to conda gcc12 (matches CUDA 12.x)
+        _gcc="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc"
+        _gpp="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++"
+        if [ -x "$_gcc" ] && [ -x "$_gpp" ]; then
+            export CC="$_gcc"; export CXX="$_gpp"
+            echo "  CC/CXX = conda gcc12: $_gcc"
+        else
+            echo "  ⚠️ conda gcc not found; trying system gcc/g++" >&2
+            command -v gcc >/dev/null 2>&1 && export CC="$(command -v gcc)" || true
+            command -v g++ >/dev/null 2>&1 && export CXX="$(command -v g++)" || true
+        fi
+        echo "  nvcc: $($CUDA_HOME/bin/nvcc --version | tail -1 | xargs)"
+
+        _DGR="$SUBMOD_DIR/diff-gaussian-rasterization"
+        if [ -f "$_DGR/setup.py" ] || [ -f "$_DGR/pyproject.toml" ]; then
+            echo "  building CUDA ext: diff-gaussian-rasterization (main branch, original 3DGS)"
+            rm -rf "$_DGR/build" "$_DGR/dist" "$_DGR"/*.egg-info
+            # GLM symlink: diff-gaussian-rasterization's third_party/glm may be empty
+            if [ ! -f "$_DGR/third_party/glm/glm/glm.hpp" ] && [ -f "$GS_DIR/third_party/glm/glm/glm.hpp" ]; then
+                rm -rf "$_DGR/third_party/glm"
+                ln -sf "$GS_DIR/third_party/glm" "$_DGR/third_party/glm"
+            fi
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps "$_DGR" || \
+                echo "  ⚠️ diff-gaussian-rasterization build failed" >&2
+        else
+            echo "  ⚠️ skip diff-gaussian-rasterization: setup.py not found" >&2
+        fi
+
+        _SK="$SUBMOD_DIR/simple-knn"
+        if [ -f "$_SK/setup.py" ]; then
+            echo "  building CUDA ext: simple-knn"
+            pip install "${PIP_FLAGS[@]}" --no-build-isolation --no-deps "$_SK" || \
+                echo "  ⚠️ simple-knn build failed" >&2
+        fi
+
+        python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] CUDA exts importable')" || \
+            echo "  ⚠️ CUDA exts not importable" >&2
+    else
+        echo "  ⚠️ nvcc not found at $CUDA_HOME/bin/nvcc — CUDA exts NOT built." >&2
+        echo "         Install CUDA toolkit and re-run: INSTALL_DEPS=1 bash $0" >&2
+    fi
+fi
+
+# ── 5. Verify ───────────────────────────────────────────────────────────────
+echo ""
+echo "--- verification ---"
+[ -d "$VGGT_DIR/vggt_omega" ] && echo "  [OK] VGGT-Omega code" || echo "  [MISS] VGGT-Omega code: $VGGT_DIR"
+[ -f "$GS_DIR/train.py" ] && echo "  [OK] 3DGS train.py" || echo "  [MISS] 3DGS: $GS_DIR"
+python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] CUDA exts')" 2>/dev/null || \
+    echo "  [MISS] CUDA exts (run INSTALL_DEPS=1)"
+
+echo ""
+echo "=== [00] Done. Next:"
+echo "  GPU=0 INPUT_DIR=../<images> RESULTS_DIR=../../output/vggt_human_results bash vggt_human/01_run_inference.sh"

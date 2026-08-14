@@ -1,0 +1,73 @@
+# _env.sh — shared setup: proxy + CA bundle + conda env activation + GPU + paths.
+# Sourced by 00/01/02/03. Expects SCRIPT_DIR (this dir) to be set by the caller.
+#
+# Reuses the vggt-omega conda env (default `doll`, torch>=2.3). No new env.
+# VGGT-Omega provides the feed-forward model (poses + depth -> point cloud);
+# gaussian-splatting (original 3DGS) provides train.py / render.py.
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Optional proxy (gitignored proxy.env at repo root).
+if [ -f "$REPO_DIR/proxy.env" ]; then
+    set -a; # shellcheck disable=SC1090
+    source "$REPO_DIR/proxy.env"; set +a
+fi
+
+[ -n "${http_proxy:-}" ]  && export HTTP_PROXY="$http_proxy"
+[ -n "${https_proxy:-}" ] && export HTTPS_PROXY="$https_proxy"
+
+# --- Corporate proxy TLS interception workaround (pip/hf/git) ---
+SYS_CA=/etc/ssl/certs/ca-certificates.crt
+USER_CA="$HOME/.ca-bundle.crt"
+if [ -f "$USER_CA" ]; then CA_FILE="$USER_CA"
+elif [ -f "$SYS_CA" ]; then CA_FILE="$SYS_CA"
+else CA_FILE=""; fi
+if [ -n "$CA_FILE" ]; then
+    : "${REQUESTS_CA_BUNDLE:=$CA_FILE}"
+    : "${SSL_CERT_FILE:=$CA_FILE}"
+    : "${GIT_SSL_CAINFO:=$CA_FILE}"
+    : "${PIP_CERT:=$CA_FILE}"
+    export REQUESTS_CA_BUNDLE SSL_CERT_FILE GIT_SSL_CAINFO PIP_CERT
+fi
+
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+
+# Activate the existing conda env (torch already installed; reuse).
+CONDA_ENV="${CONDA_ENV:-doll}"
+export CONDA_ENV
+if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
+
+# Pin GPU (0-indexed) via GPU=N.
+if [ -n "${GPU:-}" ]; then
+    export CUDA_VISIBLE_DEVICES="$GPU"
+fi
+
+# CUDA library paths (libcupti.so.12 etc.).
+for _cuda_lib in \
+    "/usr/local/cuda/extras/CUPTI/lib64" \
+    "/usr/local/cuda/lib64" \
+    "$CONDA_PREFIX/lib"; do
+    [ -d "$_cuda_lib" ] && export LD_LIBRARY_PATH="${_cuda_lib}:${LD_LIBRARY_PATH:-}"
+done
+
+# --- Paths ---
+# VGGT-Omega official code (sibling of media_code; 00 clones it).
+VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
+VGGT_REPO="${VGGT_REPO:-https://github.com/facebookresearch/vggt-omega.git}"
+
+# Original 3DGS official code (sibling of media_code; 00 clones it).
+GS_DIR="${GS_DIR:-$REPO_DIR/../gaussian-splatting}"
+GS_REPO="${GS_REPO:-https://github.com/graphdeco-inria/gaussian-splatting.git}"
+
+# Shared weight root (code-dir's parent, same as other algos).
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
+
+# Output (siblings of media_code, per AGENTS.md convention).
+RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../vggt_human_results}"
+
+export REPO_DIR VGGT_DIR VGGT_REPO GS_DIR GS_REPO MODEL_DIR RESULTS_DIR
