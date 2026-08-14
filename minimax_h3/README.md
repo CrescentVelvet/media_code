@@ -36,6 +36,20 @@ GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va PORT=30011 \
   OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
   bash minimax_h3/04_run.sh
 
+# ── diffusers 直接推理（无需起服务；单卡 auto offload，比 SGLang 慢但简单）──
+# T2VA 文生视频（无 keyframe）
+GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
+  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
+  NUM_FRAMES=124 SEED=0 \
+  OUTPUT_DIR=../MiniMax-H3/results/diffusers OUTPUT_NAME=t2va.mp4 \
+  bash minimax_h3/06_diffusers_inference.sh
+# FL2VA 首帧生视频（输入图像 + 文字 -> 视频 + 音频）
+GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
+  TASK=fl2va FIRST_FRAME=/data/imgs/first.png PROMPT="..." \
+  NUM_FRAMES=124 SEED=0 \
+  OUTPUT_DIR=../MiniMax-H3/results/diffusers OUTPUT_NAME=fl2va.mp4 \
+  bash minimax_h3/06_diffusers_inference.sh
+
 # ── 起服务（H3-Base 768p，长驻进程；服务占用 GPU，generate 是 HTTP 客户端不占）──
 # 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010，前台跑看日志
 #    A100 80GB 上默认 resident 易 OOM，必上 FSDP 容量配方
@@ -88,6 +102,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 - 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
 - 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`04_run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
+- **两种推理方式**：① **SGLang serve**（02+03 / 04_run.sh）——多卡并行（Ulysses/TP，8 卡跑满），长驻进程复用，快；② **diffusers 直接推理**（06_diffusers_inference.sh）——Python 库直接调 pipeline，无需起服务，但单卡 auto offload（CPU↔GPU 搬运 124GB，比 SGLang 慢）。需要多卡速度用 SGLang，只想单次跑/不想起服务用 diffusers。
 - 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
 - **停止服务 / 清残留**：任务失败后 worker 僵死（HTTP server 活着但不占显存，`grep sglang` 找不到因为进程名是 `python`），任务卡 `status=queue`。跑 `05_stop.sh` 按端口找 PID 自动 kill：
   ```bash
