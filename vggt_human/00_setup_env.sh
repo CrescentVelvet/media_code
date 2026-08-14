@@ -182,6 +182,47 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "  ⚠️ nvcc not found at $CUDA_HOME/bin/nvcc — CUDA exts NOT built." >&2
         echo "         Install CUDA toolkit and re-run: INSTALL_DEPS=1 bash $0" >&2
     fi
+
+    # ── Denoiser models (optional, step 04) ────────────────────────────────
+    # Set INSTALL_DENOISER=1 to clone + download weights for DiffBIR / SwinIR.
+    if [ "${INSTALL_DENOISER:-0}" = "1" ]; then
+        echo "--- installing denoiser models (INSTALL_DENOISER=1) ---"
+
+        # DiffBIR (generative diffusion prior, higher quality, slower)
+        if [ ! -d "$DIFFBIR_DIR/.git" ]; then
+            echo "  cloning DiffBIR -> $DIFFBIR_DIR"
+            mkdir -p "$(dirname "$DIFFBIR_DIR")"
+            LD_LIBRARY_PATH= git clone "$DIFFBIR_REPO" "$DIFFBIR_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$DIFFBIR_REPO" "$DIFFBIR_DIR"
+        fi
+        mkdir -p "$(dirname "$DIFFBIR_CKPT")"
+        if [ ! -f "$DIFFBIR_CKPT" ]; then
+            echo "  downloading DiffBIR checkpoint..."
+            wget --no-check-certificate -q -O "$DIFFBIR_CKPT" \
+                "https://huggingface.co/zhonghuiyi/ckpt/resolve/main/cldm.pth" || \
+                echo "  ⚠️ DiffBIR checkpoint download failed. Manual:" >&2
+            echo "    wget -O $DIFFBIR_CKPT <download_url>" >&2
+        fi
+        # DiffBIR Python deps (diffusers, omegaconf, einops)
+        pip install "${PIP_FLAGS[@]}" diffusers omegaconf einops kornia || \
+            echo "  ⚠️ DiffBIR deps install failed (some packages may be missing)" >&2
+
+        # SwinIR (single-forward, faster, good for real-image denoising)
+        if [ ! -d "$SWINIR_DIR/.git" ]; then
+            echo "  cloning SwinIR -> $SWINIR_DIR"
+            mkdir -p "$(dirname "$SWINIR_DIR")"
+            LD_LIBRARY_PATH= git clone "$SWINIR_REPO" "$SWINIR_DIR" || \
+                LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$SWINIR_REPO" "$SWINIR_DIR"
+        fi
+        mkdir -p "$(dirname "$SWINIR_CKPT")"
+        if [ ! -f "$SWINIR_CKPT" ]; then
+            echo "  downloading SwinIR denoising checkpoint..."
+            wget --no-check-certificate -q -O "$SWINIR_CKPT" \
+                "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DIV2K_s128w8_SwinIR-M_x4.pth" || \
+                echo "  ⚠️ SwinIR checkpoint download failed. Manual:" >&2
+            echo "    See: https://github.com/JingyunLiang/SwinIR#model-zoo" >&2
+        fi
+    fi
 fi
 
 # ── 5. Verify ───────────────────────────────────────────────────────────────
@@ -191,6 +232,14 @@ echo "--- verification ---"
 [ -f "$GS_DIR/train.py" ] && echo "  [OK] 3DGS train.py" || echo "  [MISS] 3DGS: $GS_DIR"
 python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] CUDA exts')" 2>/dev/null || \
     echo "  [MISS] CUDA exts (run INSTALL_DEPS=1)"
+
+# Denoiser models (optional, step 04)
+[ -d "$DIFFBIR_DIR/.git" ] && echo "  [OK] DiffBIR code" || \
+    echo "  [---] DiffBIR (INSTALL_DENOISER=1; needed for DENOISER=diffbir)"
+[ -f "$DIFFBIR_CKPT" ] && echo "  [OK] DiffBIR ckpt" || true
+[ -d "$SWINIR_DIR/.git" ] && echo "  [OK] SwinIR code" || \
+    echo "  [---] SwinIR (INSTALL_DENOISER=1; needed for DENOISER=swinir)"
+[ -f "$SWINIR_CKPT" ] && echo "  [OK] SwinIR ckpt" || true
 
 echo ""
 echo "=== [00] Done. Next:"

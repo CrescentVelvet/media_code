@@ -66,8 +66,23 @@ GS_REPO="${GS_REPO:-https://github.com/graphdeco-inria/gaussian-splatting.git}"
 
 # Shared weight root (code-dir's parent, same as other algos).
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
+# Separate weights root for denoiser models (DiffBIR / SwinIR, not VGGT-Omega).
+WEIGHTS_ROOT="${WEIGHTS_ROOT:-$REPO_DIR/../../model}"
 
 # Output (siblings of media_code, per AGENTS.md convention).
 RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../vggt_human_results}"
 
-export REPO_DIR VGGT_DIR VGGT_REPO GS_DIR GS_REPO MODEL_DIR RESULTS_DIR
+# DiffBIR (denoising, step 04; optional — only when DENOISER=diffbir).
+DIFFBIR_DIR="${DIFFBIR_DIR:-$REPO_DIR/../DiffBIR}"
+DIFFBIR_REPO="${DIFFBIR_REPO:-https://github.com/csxliang/DiffBIR.git}"
+DIFFBIR_CKPT="${DIFFBIR_CKPT:-$WEIGHTS_ROOT/DiffBIR/cldm.pth}"
+DIFFBIR_CONFIG="${DIFFBIR_CONFIG:-$DIFFBIR_DIR/configs/inference/cldm.yaml}"
+
+# SwinIR (denoising, step 04; optional — only when DENOISER=swinir).
+SWINIR_DIR="${SWINIR_DIR:-$REPO_DIR/../SwinIR}"
+SWINIR_REPO="${SWINIR_REPO:-https://github.com/JingyunLiang/SwinIR.git}"
+SWINIR_CKPT="${SWINIR_CKPT:-$WEIGHTS_ROOT/SwinIR/model_gaussian_gray_denoising_blind.pth}"
+
+export REPO_DIR VGGT_DIR VGGT_REPO GS_DIR GS_REPO MODEL_DIR RESULTS_DIR \
+       WEIGHTS_ROOT DIFFBIR_DIR DIFFBIR_REPO DIFFBIR_CKPT DIFFBIR_CONFIG \
+       SWINIR_DIR SWINIR_REPO SWINIR_CKPT

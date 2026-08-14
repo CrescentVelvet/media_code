@@ -76,6 +76,28 @@ GPU=0 \
 #   point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
 #   train/ours_30000/renders/*.png                 # 重建渲染 (vs GT)
 #   train/ours_30000/gt/*.png                      # GT
+
+# ── 去噪增强（可选，提升稀疏区域质量）──
+# 4) 渲染新视角 → 去噪 → AdaIN → 增强COLMAP场景
+#    DENOISER 可选: diffbir (扩散, 质量高) | swinir (前馈, 快) | none (跳过去噪)
+#    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
+GPU=0 DENOISER=diffbir NUM_NOVEL_VIEWS=10 \
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/04_denoise_novel.sh
+
+# 输出：<RESULTS_DIR>/
+#   novel_renders/*.png     # 3DGS 渲染的新视角 (有伪影)
+#   novel_alpha/*.png       # 覆盖度图 (低 alpha = 稀疏区)
+#   novel_poses.json        # 虚拟相机参数
+#   source_aug/             # 增强COLMAP场景 (原图 + 去噪图)
+
+# 5) 用增强场景训练 3DGS (原图 + 去噪虚拟相机共同监督)
+GPU=0 \
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/05_train_denoise.sh
+
+# 输出：<RESULTS_DIR>/model_3dgs_denoise/
+#   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 ```
 
 - 结果：VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。
@@ -168,6 +190,22 @@ $RESULTS_DIR/model_3dgs/
     point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
     train/ours_30000/renders/*.png                 # 重建渲染
     train/ours_30000/gt/*.png                      # GT
+    │
+     ▼ (可选: 去噪增强)
+[04] 渲染新视角 → 去噪 → AdaIN → 增强COLMAP (doll env)
+    │  ├─ Stage 1 (render_novel.py): 加载3DGS → 轨迹找间隙 → 插入虚拟相机 → 渲染 (black+white bg for alpha)
+    │  └─ Stage 2 (denoise_images.py): alpha<阈值=稀疏 → DENOISER去噪 → AdaIN颜色校正 → 写增强COLMAP
+    ▼
+$RESULTS_DIR/source_aug/
+    images/*.png + novel_*.png     # 原图 + 去噪虚拟视角图
+    sparse/0/{cameras,images,points3D}.txt  # 原相机 + 虚拟相机
+    │
+    ▼
+[05] 3DGS 训练 (增强场景) — 原图 + 去噪虚拟相机共同监督
+    │  └─ train.py -s source_aug -m model_3dgs_denoise --iterations 30000
+    ▼
+$RESULTS_DIR/model_3dgs_denoise/
+    point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 ```
 
 ### Step 00 — clone 仓 + 装依赖 + 编 CUDA 扩展 (`00_setup_env.sh`)
@@ -202,6 +240,20 @@ $RESULTS_DIR/model_3dgs/
 
 > 无 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过。无网格输出（3DGS 仓库无 `extract_mesh`）。
 
+### Step 04 — 渲染新视角 → 去噪 → AdaIN → 增强 COLMAP (`04_denoise_novel.sh`)
+
+**两阶段 pipeline**（分进程执行，避免 GPU 显存冲突）：
+
+**Stage 1 — `render_novel.py`**：从 step 03 的 checkpoint 加载 3DGS 高斯 → 解析 COLMAP 相机轨迹 → 按绕场景中心的方位角排序 → 找最大间隙 → 插入 `NUM_NOVEL_VIEWS` 个中间视角（位置线性插值 + 旋转 SLERP）→ 渲染每个新视角（黑底 + 白底两次渲染算 alpha）→ 保存 PNG + `novel_poses.json`。
+
+**Stage 2 — `denoise_images.py`**：逐视角检查 alpha → `avg_alpha < ALPHA_THRESH` 的 = 稀疏区（3DGS 有伪影）→ `DENOISER` 去噪（DiffBIR / SwinIR / none 可切换）→ AdaIN 颜色校正（去噪图的均值/标准差对齐到最近训练图）→ 写增强 COLMAP 场景（原图 + 去噪图，原相机 + 虚拟相机）。
+
+> **去噪模型可插拔**：`denoisers.py` 用 registry 模式，每个去噪器是一个函数 `(image, device) -> image`。加新模型只需写一个函数 + 注册到 `DENOISERS` 字典。`DENOISER=none` 跳过去噪（仅渲染 + AdaIN）。首次用 DiffBIR/SwinIR 需 `INSTALL_DENOISER=1` 让 00 clone 仓库 + 下权重。
+
+### Step 05 — 增强场景训练 (`05_train_denoise.sh`)
+
+在 `doll` env 里用增强 COLMAP 场景训练 3DGS（`-s $SOURCE_AUG_DIR -m $GAUSSIAN_DENOISE_DIR`）。原图提供 GT 监督，去噪虚拟相机提供稀疏区域的额外监督。默认从头训（增强场景有更多相机，结果通常更好）；可选从 03 的 checkpoint 续训（需 03 加 `--checkpoint_iterations`）。
+
 ## Config (env vars, all optional)
 
 ### Paths & envs
@@ -215,6 +267,10 @@ $RESULTS_DIR/model_3dgs/
 | `MODEL_DIR` | `../../model/VGGT-Omega` | VGGT-Omega checkpoint（gated） |
 | `RESULTS_DIR` | `../vggt_human_results` | 输出根 |
 | `INSTALL_DEPS` | `0` | `1` = 00 装依赖 + 编 CUDA 扩展 |
+| `INSTALL_DENOISER` | `0` | `1` = 00 额外 clone + 下权重 DiffBIR / SwinIR |
+| `WEIGHTS_ROOT` | `../../model` | 去噪模型权重根（与 VGGT-Omega 分开） |
+| `DIFFBIR_DIR` | `../DiffBIR` | DiffBIR 官方代码（DENOISER=diffbir 时需要） |
+| `SWINIR_DIR` | `../SwinIR` | SwinIR 官方代码（DENOISER=swinir 时需要） |
 
 ### Step 01 params
 | var | default | note |
@@ -242,6 +298,31 @@ $RESULTS_DIR/model_3dgs/
 | `ITERATIONS` | `30000` | 训练迭代数 |
 | `RES` | _(unset)_ | `--resolution` 因子；不设 = 全分辨率 |
 | `WHITE_BG` | `0` | `1` = 白底光栅化 |
+| `SKIP_RENDER` | `0` | `1` = 跳过渲染 |
+| `SKIP_METRICS` | `1` | `1` = 跳过 PSNR/SSIM/LPIPS |
+| `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 train.py 的额外参数 |
+
+### Step 04 params
+| var | default | note |
+| --- | --- | --- |
+| `DENOISER` | `none` | `diffbir` \| `swinir` \| `nafnet` \| `none`（可插拔，见 denoisers.py） |
+| `NUM_NOVEL_VIEWS` | `10` | 插入多少个虚拟相机 |
+| `ALPHA_THRESH` | `0.3` | 渲染 alpha 低于此值 = 稀疏区，需去噪 |
+| `ADAIN_REF` | `nearest` | AdaIN 颜色参考：`nearest`（最近训练图） \| `mean`（全局均值色） |
+| `ITERATION` | `30000` | 加载 03 的哪个 iteration 的 checkpoint |
+| `GAUSSIAN_DIR` | `$RESULTS_DIR/model_3dgs` | 3DGS 模型目录（03 的输出） |
+| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug` | 增强 COLMAP 输出 |
+
+### Step 05 params
+| var | default | note |
+| --- | --- | --- |
+| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug` | 增强场景（04 的输出） |
+| `GAUSSIAN_DENOISE_DIR` | `$RESULTS_DIR/model_3dgs_denoise` | 增强训练的模型输出 |
+| `ITERATIONS` | `30000` | 训练迭代数 |
+| `RES` | _(unset)_ | `--resolution` 因子；不设 = 全分辨率 |
+| `WHITE_BG` | `0` | `1` = 白底光栅化 |
+| `MODEL_PATH` | _(unset)_ | 续训：从哪个 model_path 加载 checkpoint |
+| `LOADED_ITER` | _(unset)_ | 续训：加载第几轮的 checkpoint |
 | `SKIP_RENDER` | `0` | `1` = 跳过渲染 |
 | `SKIP_METRICS` | `1` | `1` = 跳过 PSNR/SSIM/LPIPS |
 | `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 train.py 的额外参数 |
@@ -299,6 +380,24 @@ INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 **7. 跑 `.sh` 报 `syntax error near unexpected token '('`**
 CRLF 行尾污染。`find vggt_human -name '*.sh' -exec sed -i 's/\r$//' {} +`（`.gitattributes` 强制 LF）。
 
+**8. `04` 报 DiffBIR / SwinIR 仓库或权重未找到**
+首次用去噪模型需 clone 仓库 + 下权重：
+```bash
+INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
+```
+或只装某一个：确认 `DIFFBIR_DIR` / `SWINIR_DIR` 指向已 clone 的仓库，`DIFFBIR_CKPT` / `SWINIR_CKPT` 指向已下载的权重。用 `DENOISER=none` 可跳过去噪（仅渲染 + AdaIN，虚拟相机仍加入训练）。
+
+**9. `04` 渲染报 `Cannot import name 'Camera'` / 3DGS API 变化**
+3DGS 仓库的 `Camera` 类 API 可能因版本不同。`render_novel.py` 用标准 API（`Camera(colmap_id, R, T, FoVx, FoVy, image, ...)`），若报错检查 `$GS_DIR/scene/cameras.py` 的构造函数签名是否匹配。
+
+**10. `05` 想从 03 续训但找不到 checkpoint**
+3DGS 默认不保存 `.pth` checkpoint（只存 PLY）。续训需在 03 加 `CHECKPOINT_ITERATIONS=30000`（透传 `--checkpoint_iterations 30000`），然后：
+```bash
+GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
+  RESULTS_DIR=../../output/vggt_human_results bash vggt_human/05_train_denoise.sh
+```
+不续训则从头训（增强场景有更多相机，结果通常更好）。
+
 > 通用：`proxy.env`（代理凭证 + `HF_TOKEN`）在仓内 gitignored，不入库。切勿把凭证写进脚本。
 
 ## 目录布局
@@ -312,8 +411,13 @@ CRLF 行尾污染。`find vggt_human -name '*.sh' -exec sed -i 's/\r$//' {} +`�
 │       ├── 01_run_inference.sh     # VGGT-Omega 前馈推理
 │       ├── 02_npz_to_colmap.sh     # npz -> COLMAP 转换
 │       ├── 03_train_3dgs.sh        # 原版 3DGS 训练 + 渲染
+│       ├── 04_denoise_novel.sh     # 渲染新视角 → 去噪 → AdaIN → 增强COLMAP
+│       ├── 05_train_denoise.sh     # 增强场景训练 3DGS
 │       ├── run_batch.py            # VGGT-Omega 批量重建 (vggt-omega 副本)
-│       └── npz_to_colmap.py        # npz -> COLMAP 转换 (Otsu + 体素降采样)
+│       ├── npz_to_colmap.py        # npz -> COLMAP 转换 (Otsu + 体素降采样)
+│       ├── render_novel.py         # 3DGS 渲染新视角 (stage 1 of 04)
+│       ├── denoise_images.py       # 去噪 + AdaIN + 增强COLMAP (stage 2 of 04)
+│       └── denoisers.py            # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)
 │   ├── submodules/
@@ -323,6 +427,10 @@ CRLF 行尾污染。`find vggt_human -name '*.sh' -exec sed -i 's/\r$//' {} +`�
 │   └── train.py / render.py / metrics.py
 ├── model/                          # 权重根 (共享)
 │   └── VGGT-Omega/                 # checkpoint (gated HF 下载, 复用 vggt-omega)
+│   ├── DiffBIR/                   # DiffBIR checkpoint (INSTALL_DENOISER=1 下载)
+│   └── SwinIR/                    # SwinIR checkpoint
+├── DiffBIR/                         # DiffBIR 官方代码 (00 clone, DENOISER=diffbir 时)
+├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
 └── output/vggt_human_results/      # 输出 (repo 外)
     ├── vggt/<scene>/               # step 01: VGGT-Omega 推理
     │   ├── predictions.npz          #   原始输出
@@ -339,10 +447,19 @@ CRLF 行尾污染。`find vggt_human -name '*.sh' -exec sed -i 's/\r$//' {} +`�
         └── train/ours_30000/        # 渲染 (重建 vs GT)
             ├── renders/*.png
             └── gt/*.png
+    ├── novel_renders/               # step 04 stage 1: 渲染的新视角
+    ├── novel_alpha/                #   覆盖度图 (低 alpha = 稀疏区)
+    ├── novel_poses.json            #   虚拟相机参数
+    ├── source_aug/                 # step 04 stage 2: 增强 COLMAP 场景
+    │   ├── images/                 #   原图 + 去噪虚拟视角图
+    │   └── sparse/0/               #   原相机 + 虚拟相机
+    └── model_3dgs_denoise/         # step 05: 增强训练后的高斯
+        └── point_cloud/iteration_30000/point_cloud.ply
 ```
 
 ## Notes
 - Pipeline: VGGT-Omega（前馈位姿+深度）→ COLMAP（格式转换）→ 3DGS（优化训练）。前馈给初始化，优化给质量。
+- **去噪增强（04/05，可选）**：3DGS 在稀疏视角区域有伪影 → 渲染新视角 → 去噪（DiffBIR/SwinIR 可切换）→ AdaIN 颜色校正 → 虚拟相机加入训练。`DENOISER=none` 关闭去噪。加新去噪模型：在 `denoisers.py` 写一个函数 + 注册到 `DENOISERS` 字典。
 - VGGT-Omega 的 `extrinsic` 是 w2c（OpenCV 约定），与 COLMAP 一致——无需 c2w→w2c 转换。`intrinsic` 是模型预测的实际内参——无需假设 fx=fy=max(W,H)。
 - 自适应置信度过滤用 Otsu's method（最大化类间方差），比固定阈值更鲁棒。体素降采样每体素保留最高置信度点。
 - 原版 3DGS 无 distractor filtering（不做微动过滤）。静态场景够用；有微动用 pdfgs_human（PDF-GS）。
