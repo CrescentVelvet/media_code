@@ -169,7 +169,7 @@ $RESULTS_DIR/orbit/pi3/source/{images, sparse/0/}   (COLMAP 场景)
     │       → 低于 sim_thr 的像素 = distractor (微动)
     │       → 从 L1+SSIM loss 里 mask 掉 (clean_mask)
     │       → 阈值逐 phase 升高 (0.6→0.7→0.8), 过滤渐严
-    │  └─ 每 phase 末存高斯到 $MODEL_DIR/phase_<N>/point_cloud/...
+    │  └─ 每 phase 末存高斯到 $GAUSSIAN_DIR/phase_<N>/point_cloud/...
     ▼
 $RESULTS_DIR/orbit/model_pdfgs/phase_<N>/point_cloud/iteration_<iter>/point_cloud.ply
 $RESULTS_DIR/orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png   (重建渲染图, final phase; vs GT)
@@ -210,7 +210,7 @@ $RESULTS_DIR/orbit/model_pdfgs/orbit_render/frames/*.png      (逐帧)
 
 > DINOv3：PDF-GS 默认 `facebook/dinov3-vitb16-pretrain-lvd1689m`（ViT-B/16，GATED）。00 patch 了 train.py 让它读 `DINOV3_REPO` 环境变量——`_env.sh` 自动探测：若 `$MODEL_DIR/dinov3-vitl16-pretrain-lvd1689m`（ViT-L/16）本地存在就用它（架构兼容能跑，免 gated 下载），否则用 vitb16（00 用 `HF_TOKEN` 预下到 `$HF_HOME/hub`）。`_env.sh` 设 `HF_HUB_OFFLINE=1`，本地目录或缓存离线读，避免运行时联网（公司代理拦 HF）。
 
-**渲染**：`render.py -s SOURCE -m $MODEL_DIR/phase_$NUM_PHASES --iteration $ITER_PER_PHASE`。加载 final phase（phase_4）的高斯 + source 的相机，渲染所有训练视角到 `phase_4/train/ours_10000/{renders,gt}/`。没开 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过，只渲 train 集。
+**渲染**：`render.py -s SOURCE -m $GAUSSIAN_DIR/phase_$NUM_PHASES --iteration $ITER_PER_PHASE`。加载 final phase（phase_4）的高斯 + source 的相机，渲染所有训练视角到 `phase_4/train/ours_10000/{renders,gt}/`。没开 `--eval` → 无 held-out test split → `scene.getTestCameras()` 为空，"test" 集自动跳过，只渲 train 集。
 
 **v1 不出网格**：PDF-GS 仓库只有 `train.py` / `render.py` / `metrics.py`，无 `extract_mesh`。出高斯点云 + 渲染图 + 可选指标。要网格走 wan22_rotate step 05/05a/05b（或在本高斯上加 TSDF-on-depth 步骤，future）。
 
@@ -269,7 +269,7 @@ $RESULTS_DIR/orbit/model_pdfgs/orbit_render/frames/*.png      (逐帧)
 | var | default | note |
 | --- | --- | --- |
 | `SOURCE_DIR` | `$RESULTS_DIR/<name>/pi3/source` | COLMAP 场景 |
-| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯输出 |
+| `GAUSSIAN_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯输出（⚠️ 不是 `$MODEL_DIR`，那是权重根） |
 | `NUM_PHASES` | `4` | progressive filtering phase 数 |
 | `ITER_PER_PHASE` | `10000` | 每 phase 迭代数（总 = `NUM_PHASES × ITER_PER_PHASE`） |
 | `SIM_THR` | `0.6 0.7 0.8` | 每 phase 过渡的 distractor 阈值（长度 = `NUM_PHASES-1`，或单值全 phase） |
@@ -285,7 +285,7 @@ $RESULTS_DIR/orbit/model_pdfgs/orbit_render/frames/*.png      (逐帧)
 | var | default | note |
 | --- | --- | --- |
 | `SOURCE_DIR` | `$RESULTS_DIR/<name>/pi3/source` | COLMAP 场景（取 cameras.txt 的 FoV/画幅） |
-| `MODEL_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯根（= step 03 `--model_path`） |
+| `GAUSSIAN_DIR` | `$RESULTS_DIR/<name>/model_pdfgs` | 高斯根（= step 03 `--model_path`；⚠️ 不是 `$MODEL_DIR`，那是权重根） |
 | `PHASE` | `4` | 渲哪个 phase（final = step 03 的 `NUM_PHASES`） |
 | `ITER` | _(auto)_ | 加载的 iteration（空 = `phase_<PHASE>/point_cloud/` 下最大 `iteration_*`） |
 | `ORBIT_FRAMES` | `120` | 轨道视频帧数 |
@@ -376,7 +376,7 @@ python -c "from rembg import new_session; s=new_session('u2net'); print('✅ rem
 Pi3 显存随帧数线性增长。降 `FRAME_MAX=30` 或抽稀 `segmented_frames/`（保留环绕均匀分布的子集）。图集输入时 `FRAME_FPS` 被忽略。
 
 **5. `step 03` 渲染报找不到 `cfg_args` / 找不到 point_cloud**
-`render.py` 传的是 final phase 路径 `$MODEL_DIR/phase_$NUM_PHASES`（不是 `$MODEL_DIR` 根），且显式带 `-s $SOURCE_DIR`（因为 cfg_args 在根目录，phase 子夹里没有）。脚本已自动处理；若手改路径注意这点。
+`render.py` 传的是 final phase 路径 `$GAUSSIAN_DIR/phase_$NUM_PHASES`（不是 `$GAUSSIAN_DIR` 根），且显式带 `-s $SOURCE_DIR`（因为 cfg_args 在根目录，phase 子夹里没有）。脚本已自动处理；若手改路径注意这点。
 
 **6. 跑 `.sh` 报 `syntax error near unexpected token '('`**
 CRLF 行尾污染。`find pdfgs_human -name '*.sh' -exec sed -i 's/\r$//' {} +` 或 `git checkout -- pdfgs_human/*.sh`（`.gitattributes` 强制 LF）。

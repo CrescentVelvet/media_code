@@ -18,7 +18,7 @@
 #   OUTPUT_NAME=orbit          # base name (must match step 02/03)
 #   RESULTS_DIR=               # output root
 #   SOURCE_DIR=                # COLMAP scene (default: $RESULTS_DIR/<name>/pi3/source)
-#   MODEL_DIR=                 # gaussians root (default: $RESULTS_DIR/<name>/model_pdfgs)
+#   GAUSSIAN_DIR=             # gaussians root (default: $RESULTS_DIR/<name>/model_pdfgs)
 #   PHASE=4                    # which phase to render (final = NUM_PHASES from step 03)
 #   ITER=                      # iteration to load (default: auto-detect max under phase_<PHASE>/point_cloud/)
 #   ORBIT_FRAMES=120           # frames in the orbit video
@@ -39,7 +39,9 @@ source "$SCRIPT_DIR/_env.sh"
 
 OUTPUT_NAME="${OUTPUT_NAME:-orbit}"
 SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/$OUTPUT_NAME/pi3/source}"
-MODEL_DIR="${MODEL_DIR:-$RESULTS_DIR/$OUTPUT_NAME/model_pdfgs}"
+# ⚠️ _env.sh exports MODEL_DIR as the WEIGHT root; use GAUSSIAN_DIR for gaussians
+#    output to avoid the name collision (same bug as step 03).
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/$OUTPUT_NAME/model_pdfgs}"
 PHASE="${PHASE:-4}"
 ITER="${ITER:-}"
 ORBIT_FRAMES="${ORBIT_FRAMES:-120}"
@@ -53,11 +55,11 @@ RES="${RES:-}"
 SH_DEGREE="${SH_DEGREE:-3}"
 DEVICE="${DEVICE:-cuda}"
 
-export OUTPUT_NAME SOURCE_DIR MODEL_DIR PHASE ITER ORBIT_FRAMES ORBIT_TURNS
+export OUTPUT_NAME SOURCE_DIR GAUSSIAN_DIR PHASE ITER ORBIT_FRAMES ORBIT_TURNS
 export ORBIT_RADIUS_MULT ORBIT_HEIGHT UP_AXIS WHITE_BG FPS RES SH_DEGREE DEVICE
 
 echo "🚀 [04] render orbit/turntable video from PDF-GS gaussians"
-echo "  🏋️ gaussians:   $MODEL_DIR/phase_$PHASE/point_cloud/iteration_*/point_cloud.ply"
+echo "  🏋️ gaussians:   $GAUSSIAN_DIR/phase_$PHASE/point_cloud/iteration_*/point_cloud.ply"
 echo "  📂 source:      $SOURCE_DIR"
 echo "  🎬 frames:      $ORBIT_FRAMES  turns: $ORBIT_TURNS  fps: $FPS"
 echo "  📐 radius_mult: $ORBIT_RADIUS_MULT  height: $ORBIT_HEIGHT  up: ${UP_AXIS:-auto}"
@@ -80,7 +82,7 @@ if [ ! -d "$SOURCE_DIR/sparse/0" ]; then
     echo "       Run step 02 first: bash $SCRIPT_DIR/02_pi3_colmap.sh" >&2
     exit 1
 fi
-_ply_dir="$MODEL_DIR/phase_$PHASE/point_cloud"
+_ply_dir="$GAUSSIAN_DIR/phase_$PHASE/point_cloud"
 if [ ! -d "$_ply_dir" ]; then
     echo "❌ ERROR: final-phase gaussians not found under $_ply_dir." >&2
     echo "       Run step 03 first: bash $SCRIPT_DIR/03_train_pdfgs.sh" >&2

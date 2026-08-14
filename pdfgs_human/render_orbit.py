@@ -21,7 +21,7 @@ Run inside the PDF-GS repo (cd $PDFGS_DIR) so scene/ gaussian_renderer/ utils/
 arguments/ relative imports resolve, same as 03_train_pdfgs.sh.
 
 Env vars (set by 04_render_orbit.sh):
-  SOURCE_DIR, MODEL_DIR, PHASE, ITER, OUTPUT_NAME,
+  SOURCE_DIR, GAUSSIAN_DIR, PHASE, ITER, OUTPUT_NAME,
   ORBIT_FRAMES, ORBIT_TURNS, ORBIT_RADIUS_MULT, ORBIT_HEIGHT, UP_AXIS,
   WHITE_BG, FPS, RES, SH_DEGREE, DEVICE
 """
@@ -36,7 +36,7 @@ import torch
 import cv2
 
 SOURCE_DIR = os.environ.get("SOURCE_DIR", "")
-MODEL_DIR = os.environ.get("MODEL_DIR", "")
+GAUSSIAN_DIR = os.environ.get("GAUSSIAN_DIR", "")
 PHASE = int(os.environ.get("PHASE", "4"))
 ITER = os.environ.get("ITER", "")  # empty = auto-detect max iteration_* dir
 OUTPUT_NAME = os.environ.get("OUTPUT_NAME", "orbit")
@@ -118,9 +118,9 @@ def main():
     if not os.path.isfile(os.path.join(sparse0, "cameras.txt")):
         sys.exit(f"❌ COLMAP cameras.txt not found at {sparse0}/cameras.txt")
 
-    if not MODEL_DIR:
-        sys.exit("❌ MODEL_DIR not set (PDF-GS gaussians root, = step 03 --model_path)")
-    phase_dir = os.path.join(MODEL_DIR, f"phase_{PHASE}")
+    if not GAUSSIAN_DIR:
+        sys.exit("❌ GAUSSIAN_DIR not set (PDF-GS gaussians root, = step 03 --model_path)")
+    phase_dir = os.path.join(GAUSSIAN_DIR, f"phase_{PHASE}")
     if not os.path.isdir(phase_dir):
         sys.exit(f"❌ phase dir not found: {phase_dir} (check PHASE / step 03 output)")
 
@@ -134,7 +134,7 @@ def main():
     if not os.path.isfile(ply_path):
         sys.exit(f"❌ gaussians not found: {ply_path}")
 
-    out_dir = os.path.join(MODEL_DIR, "orbit_render")
+    out_dir = os.path.join(GAUSSIAN_DIR, "orbit_render")
     frames_dir = os.path.join(out_dir, "frames")
     os.makedirs(frames_dir, exist_ok=True)
     mp4_path = os.path.join(out_dir, f"{OUTPUT_NAME}_orbit.mp4")

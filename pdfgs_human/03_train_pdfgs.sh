@@ -29,7 +29,7 @@
 #   OUTPUT_NAME=orbit          # base name (must match step 02)
 #   RESULTS_DIR=               # output root
 #   SOURCE_DIR=                # COLMAP scene (default: $RESULTS_DIR/<name>/pi3/source)
-#   MODEL_DIR=                 # gaussians output (default: $RESULTS_DIR/<name>/model_pdfgs)
+#   GAUSSIAN_DIR=              # gaussians output (default: $RESULTS_DIR/<name>/model_pdfgs)
 #   NUM_PHASES=4               # progressive filtering phases
 #   ITER_PER_PHASE=10000      # iters per phase (total = NUM_PHASES × this)
 #   SIM_THR=0.6 0.7 0.8        # per-transition thresholds (len = NUM_PHASES-1, OR single value)
@@ -50,7 +50,10 @@ source "$SCRIPT_DIR/_env.sh"
 
 OUTPUT_NAME="${OUTPUT_NAME:-orbit}"
 SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/$OUTPUT_NAME/pi3/source}"
-MODEL_DIR="${MODEL_DIR:-$RESULTS_DIR/$OUTPUT_NAME/model_pdfgs}"
+# ⚠️ _env.sh already exports MODEL_DIR as the WEIGHT root ($REPO_DIR/../../model).
+#    Using ${MODEL_DIR:-default} would keep the weight root (bug: gaussians written
+#    to weight dir). Use a separate GAUSSIAN_DIR to avoid the name collision.
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/$OUTPUT_NAME/model_pdfgs}"
 NUM_PHASES="${NUM_PHASES:-4}"
 ITER_PER_PHASE="${ITER_PER_PHASE:-10000}"
 SIM_THR="${SIM_THR:-0.6 0.7 0.8}"
@@ -61,13 +64,13 @@ SKIP_TRAIN="${SKIP_TRAIN:-0}"
 SKIP_RENDER="${SKIP_RENDER:-0}"
 SKIP_METRICS="${SKIP_METRICS:-1}"
 
-# Final-phase output (train.py saves each phase under $MODEL_DIR/phase_<N>/).
-PHASE_MODEL="$MODEL_DIR/phase_$NUM_PHASES"
+# Final-phase output (train.py saves each phase under $GAUSSIAN_DIR/phase_<N>/).
+PHASE_MODEL="$GAUSSIAN_DIR/phase_$NUM_PHASES"
 
 echo "🚀 [03] PDF-GS progressive distractor filtering"
 echo "  🤖 PDF-GS:        $PDFGS_DIR"
 echo "  📂 source:        $SOURCE_DIR"
-echo "  💾 model:         $MODEL_DIR"
+echo "  💾 model:         $GAUSSIAN_DIR"
 echo "  📐 phases:        $NUM_PHASES × $ITER_PER_PHASE iters  (sim_thr: $SIM_THR)"
 echo "  🎨 white_bg:      $WHITE_BG  color_update_interval: $COLOR_UPDATE_INTERVAL"
 [ -n "$RES" ] && echo "  📐 resolution:    $RES"
@@ -109,22 +112,22 @@ fi
 
 # ── 1. PDF-GS training (progressive distractor filtering) ─────────────────
 if [ "$SKIP_TRAIN" = "1" ]; then
-    echo "⏭️ skip training (SKIP_TRAIN=1, reusing existing $MODEL_DIR)"
+    echo "⏭️ skip training (SKIP_TRAIN=1, reusing existing $GAUSSIAN_DIR)"
     if [ ! -f "$PHASE_MODEL/point_cloud/iteration_$ITER_PER_PHASE/point_cloud.ply" ]; then
         echo "❌ ERROR: final-phase gaussians not found at $PHASE_MODEL" >&2
         echo "       Run step 03 without SKIP_TRAIN first." >&2
         exit 1
     fi
 else
-    mkdir -p "$MODEL_DIR"
+    mkdir -p "$GAUSSIAN_DIR"
     echo "🏋️ PDF-GS training ($NUM_PHASES phases × $ITER_PER_PHASE iters)"
     echo "  📂 source:    $SOURCE_DIR"
-    echo "  💾 model:     $MODEL_DIR"
+    echo "  💾 model:     $GAUSSIAN_DIR"
     echo "  ✂️ sim_thr:   $SIM_THR  (distractor filter thresholds, rising per phase)"
     echo ""
     TRAIN_FLAGS=(
         -s "$SOURCE_DIR"
-        -m "$MODEL_DIR"
+        -m "$GAUSSIAN_DIR"
         --num_phases "$NUM_PHASES"
         --iter_per_phase "$ITER_PER_PHASE"
         # shellcheck disable=SC2206
