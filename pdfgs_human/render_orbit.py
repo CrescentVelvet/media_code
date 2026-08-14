@@ -173,7 +173,6 @@ def main():
             last = e
     if not loaded:
         sys.exit(f"❌ GaussianModel.load_ply failed: {last}")
-    gaussians.eval()
 
     xyz = gaussians.get_xyz.detach().cpu().numpy().astype(np.float64)
     if xyz.shape[0] == 0:
