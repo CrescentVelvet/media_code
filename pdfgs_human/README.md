@@ -79,6 +79,18 @@ GPU=0 SKIP_METRICS=0 \
 
 - 结果：白底多视图集 → `segmented_frames/*.png`；COLMAP 场景 → `orbit/pi3/source/`；高斯 → `orbit/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply`；重建渲染 → `orbit/model_pdfgs/phase_4/train/ours_10000/renders/*.png`；转盘展示视频 → `orbit/model_pdfgs/orbit_render/orbit_orbit.mp4`。
 
+### 方案 B — 原始图像（不分割，无白底）
+
+> 白底分割可致 3DGS 伪影：人物边缘放射状白色"翅膀"+ 全身模糊（平白底非真实 3D 几何，Gaussian 无法重建）。直接用原始图像（真实背景有正确多视图几何），PDF-GS 的 distractor filtering 照常过滤微动。
+```bash
+# 一键 (02 Pi3 → 03 训练 → 04 转盘), 跳过分割, WHITE_BG=0
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+  RESULTS_DIR=../../output/pdfgs_human_results \
+  bash pdfgs_human/05_run_raw.sh
+# 输出在 $RESULTS_DIR/orbit_raw/ (与分割流程 orbit/ 分开)
+```
+- 结果：COLMAP 场景 → `orbit_raw/pi3/source/`；高斯 → `orbit_raw/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply`；转盘视频 → `orbit_raw/model_pdfgs/orbit_render/orbit_raw_orbit.mp4`。
+
 ## 首次准备
 
 本流程建一份独立的 `pdfgs` env（**CPython 3.10**，torch 2.5.1+cu121，按 PDF-GS 官方 environment.yml；与 wan22_rotate 的 torch 2.6.0+cu124 不兼容，故独立）。装：PDF-GS + 两个 CUDA 扩展（diff-gaussian-rasterization + simple-knn）、SAM2（分割用）、rembg（兜底）、Pi3、transformers/torchmetrics 等，并下 DINOv3（gated）+ Pi3 权重。
