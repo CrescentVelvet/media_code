@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 00_setup_env.sh — activate conda env (torch preinstalled) & verify torch+CUDA.
-# Reuses an existing env to avoid re-downloading torch. No venv is created.
+# 00_setup_env.sh — clone official repo + activate conda env + verify torch+CUDA.
+# Reuses an existing env (torch preinstalled) to avoid re-downloading torch. No venv.
 # The vggt_omega package is imported via sys.path (run_batch.py adds VGGT_DIR),
 # so `pip install -e .` is NOT required (but still works if you prefer it).
 set -o pipefail
@@ -9,7 +9,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-echo "=== [00] Verify torch in conda env '$CONDA_ENV' ==="
+echo "=== [00] Setup VGGT-Omega env '$CONDA_ENV' ==="
+
+# Clone the official repo if not present yet.
+if [ ! -d "$VGGT_DIR" ]; then
+    echo "--- cloning official repo -> $VGGT_DIR ---"
+    mkdir -p "$(dirname "$VGGT_DIR")"
+    git clone "$VGGT_REPO" "$VGGT_DIR" || \
+        git -c http.sslVerify=false clone "$VGGT_REPO" "$VGGT_DIR"
+else
+    echo "--- official repo already present: $VGGT_DIR ---"
+fi
+
+# Verify torch + CUDA in the conda env.
 python - <<'PY'
 import torch
 print(f"torch: {torch.__version__}  cuda: {torch.version.cuda}  available: {torch.cuda.is_available()}")
@@ -33,4 +45,4 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         plyfile imageio imageio-ffmpeg gsplat
 fi
 
-echo "=== [00] Done. Env '$CONDA_ENV' ready. (Missing a dep? pip install it, or rerun with INSTALL_DEPS=1) ==="
+echo "=== [00] Done. Env '$CONDA_ENV' ready, official repo cloned. (Missing a dep? pip install it, or rerun with INSTALL_DEPS=1) ==="

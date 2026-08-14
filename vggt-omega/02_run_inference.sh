@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/_env.sh"
 VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
 INPUT_DIR="${INPUT_DIR:-$VGGT_DIR/examples}"
-OUTPUT_DIR="${OUTPUT_DIR:-$VGGT_DIR/output}"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_DIR/../vggt_omega_results}"
 VARIANT="${VARIANT:-1b_512}"          # 1b_512 | 1b_256_text  (must match 01)
 RESOLUTION="${RESOLUTION:-512}"       # 1b_512->512, 1b_256_text->256
 MODE="${MODE:-balanced}"              # balanced | max_size  (see load_fn.py)

@@ -1,145 +1,240 @@
-# VGGT-Omega runner
+# VGGT-Omega — 多视图图像前馈三维重建（位姿 + 深度 → 彩色点云）
 
-One-click orchestration to run [VGGT-Omega](https://github.com/facebookresearch/vggt-omega) (CVPR 2026 Oral) feed-forward 3D reconstruction on an Ubuntu + NVIDIA GPU server.
-This folder holds **only orchestration scripts** — no official code, no weights. The official VGGT-Omega repo is cloned automatically; the checkpoint is downloaded from HuggingFace.
+用 [VGGT-Omega (CVPR 2026 Oral)](https://github.com/facebookresearch/vggt-omega) 从一组**场景图像**（或视频）在**单次前向推理**中预测 per-view **相机位姿 + 深度图**（+ 置信度），反投影成彩色点云。它是 **feed-forward** 模型（一次模型推理 → 所有视图的位姿和深度），**不**优化场景表示——没有 per-scene fitting、没有 novel-view 高斯。`03_render_video.sh` 因此是把重建出的点云沿螺旋路径 splat 成 mp4，而非光栅化高斯。
 
-VGGT-Omega takes **a set of images of a scene** (or a video) and predicts, in a single forward pass, per-view **camera poses** + **depth maps** (+ confidence), which are unprojected into a colored point cloud. It is **not** a novel-view-synthesis / 3D-Gaussian model (unlike TripoSplat); `03_render_video.sh` therefore splats the reconstructed point cloud along an orbit rather than rasterizing gaussians.
+> 本目录与 [`pdfgs_human/`](../pdfgs_human/) 并列但**范式不同**：pdfgs_human 是"真实拍摄序列 → PDF-GS 抗微动 3DGS 重建"（优化场景表示，出高斯 + 渲染）；本目录是"**多视图图像 → 前馈重建**"（一次推理出位姿 + 深度 → 点云，无优化）。两者不共用 env（本目录复用已有 `doll` env，要求 torch>=2.3；pdfgs_human 用 `pdfgs` env，torch 2.5.1+cu121）。
 
-## Design
-- **Reuses an existing conda env** (default name `doll`) that already has a CUDA-enabled torch (>=2.3) — no torch download, no venv creation.
-- Runtime deps (numpy/einops/safetensors/opencv/scipy/trimesh/gsplat/…) are installed **on demand**; or run `INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh` to install the known set in one shot (torch is NOT reinstalled).
-- The `vggt_omega` package is imported via `sys.path` (no `pip install -e .` needed); `visual_util.py` (repo root) is reused for the official `.glb` export.
-- Code and weights live outside this repo (see Layout).
+## 为什么用前馈重建（而不是优化式 3DGS）
 
-## Layout (when this repo is cloned under your code dir)
+VGGT-Omega 的核心是**一次前向推理**即可从任意数量视图恢复相机位姿 + 深度，这决定了它适用与不适用的场景：
+
+1. **快速场景重建**：不需要特征匹配 / SfM / bundle adjustment / per-scene 训练——喂一组图，一次前向就出位姿 + 点云。几秒到几十秒出结果（视帧数），适合**快速预览 / 粗重建 / 后续 pipeline 的位姿初始化**。
+
+2. **无 novel-view 高斯**：VGGT-Omega 不优化场景表示，输出的是反投影的**彩色点云**（XYZ+RGB，无高斯属性）。要 novel-view 合成 / 3DGS 质量渲染，用 pdfgs_human（优化式 3DGS）或 wan22_rotate（合成视频 → 3DGS）。`03_render_video.sh` 的螺旋视频只是把点云 splat 出来给人看，不是高斯光栅化。
+
+**结论**：要快速位姿 + 粗点云 → 用 VGGT-Omega；要高质量 novel-view 重建 → 用 pdfgs_human。两者互补，不冲突。
+
+## 常用命令
+
+> 假设已进入容器（脚本自动激活 `doll` env）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> **铁律：每条命令都必须显式写出模型路径、输入路径、输出路径，不能全靠脚本里的默认值。** 用具体路径，不要用 `...` 占位。
+
+```bash
+# ── 分步 ──
+# 0) 激活 env + 校验 torch (INSTALL_DEPS=1 一次装齐已知依赖, torch 不重装)
+GPU=0 INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
+
+# 1) 下权重 (gated HF 仓库, 需 HF_TOKEN + 访问已批准)
+GPU=0 VARIANT=1b_512 \
+  MODEL_DIR=../../model/VGGT-Omega \
+  bash vggt-omega/01_download_models.sh
+
+# 输出：<MODEL_DIR>/vggt_omega_1b_512.pt   (512px 变体)
+#   或 VARIANT=1b_256_text -> vggt_omega_1b_256_text.pt   (256px text-aligned 变体)
+
+# 2) 前馈重建 (图像/视频/场景文件夹 -> 位姿+深度 -> 点云)
+GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
+  MODEL_DIR=../../model/VGGT-Omega \
+  OUTPUT_DIR=../../output/vggt_omega_results \
+  VARIANT=1b_512 RESOLUTION=512 \
+  bash vggt-omega/02_run_inference.sh
+
+# 输出：<OUTPUT_DIR>/<scene>/
+#   scene.ply            # 置信度过滤后的彩色点云 (原始世界坐标)
+#   predictions.npz      # 原始模型输出 (depth, depth_conf, extrinsic, intrinsic, ...)
+#   scene.glb            # 官方可视化 (点云 + 相机锥), 需 trimesh/scipy
+#   frames/              # 实际喂给模型的图 (复制/抽帧)
+
+# 3) 点云渲染视频 (.ply -> 螺旋环绕 mp4, gsplat splatting)
+GPU=0 PLY_INPUT=../../output/vggt_omega_results/image \
+  VIDEOS_DIR=../../output/vggt_omega_results/videos \
+  bash vggt-omega/03_render_video.sh
+
+# 输出：<VIDEOS_DIR>/image/scene.mp4  (+ scene.png 首帧, 用于快速检查相机朝向)
+```
+
+- 结果：点云 → `OUTPUT_DIR/<scene>/scene.ply`；原始预测 → `predictions.npz`；可视化 → `scene.glb`；螺旋展示视频 → `VIDEOS_DIR/<scene>/scene.mp4`。
+
+## 首次准备
+
+本流程**复用已有的 `doll` conda env**（要求 torch>=2.3，CUDA 可用），不为 VGGT-Omega 单建 env——避免重下 torch（几 GB）。runtime 依赖（numpy/einops/safetensors/opencv/scipy/trimesh/gsplat 等）按需装，或 `INSTALL_DEPS=1` 一次装齐（torch 不重装）。`vggt_omega` 包通过 `sys.path` 导入（`run_batch.py` 加 `VGGT_DIR`），无需 `pip install -e .`。
+
+> ⚠️ VGGT-Omega 权重是 **gated** 仓库（`facebook/VGGT-Omega`），需先申请访问 + 建 HF read token。这是与 pdfgs_human（DINOv3 可用本地 vitl16 免 token）的不同之处。
+
+```bash
+cd <your-code-dir>            # e.g. /data_3d/<uid>/code
+git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
+cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
+# ⚠️ 确认 proxy.env 中 http_proxy / https_proxy 两行已取消注释并填好地址,
+#    否则 pip / hf 下载会报 "Network is unreachable"
+
+# 申请 gated 权重访问 (一次性):
+#   1. 到 https://huggingface.co/facebook/VGGT-Omega 点 "Request access" (自动审核, 通常很快)
+#   2. 到 https://huggingface.co/settings/tokens 建一个 read token
+#   3. 写入 proxy.env:  echo 'export HF_TOKEN=hf_xxx' >> proxy.env
+
+# 建好 doll env (若还没有): torch>=2.3 + CUDA
+# conda create -n doll python=3.10 -y && conda activate doll
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# python -c "import torch;print(torch.__version__, torch.cuda.is_available())"  # 需 >=2.3 + True
+
+# 装依赖 + clone 官方代码 + 下权重 (一次性)
+GPU=0 INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
+GPU=0 VARIANT=1b_512 MODEL_DIR=../../model/VGGT-Omega bash vggt-omega/01_download_models.sh
+```
+
+需系统有 NVIDIA GPU（A100 40G/80G 理想）。显存随帧数线性增长：1 帧 ~6GB，100 帧 ~13GB，500 帧 ~43GB（624×416）。用 `RESOLUTION=256` 或 `MODE=max_size` 降显存。
+
+### 权重目录布局
+
+```
+$MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, 各算法共享)
+  VGGT-Omega/                        # VGGT-Omega checkpoint (HF gated 下载)
+    vggt_omega_1b_512.pt             # 默认变体 (512px, 无 text alignment)
+    vggt_omega_1b_256_text.pt        # 256px text-aligned 变体 (读 text_alignment_embedding)
+```
+
+外部 clone 的官方代码（`00` 自动 clone，sibling of media_code）：
 ```
 <code-dir>/
-├── media_code/              # this repo
-│   ├── proxy.env            # proxy + HF_TOKEN + optional overrides, gitignored
-│   └── vggt-omega/
-│       ├── _env.sh                # shared: proxy + CA bundle + conda activate
-│       ├── 00_setup_env.sh
-│       ├── 01_download_models.sh
-│       ├── 02_run_inference.sh
-│       ├── run_all.sh
-│       ├── setup_ca_bundle.sh     # one-time: extract proxy CA -> ~/.ca-bundle.crt
-│       ├── _extract_ca.py         #   helper used by setup_ca_bundle.sh
-│       ├── _hf_download.py        #   snapshot_download with SSL verify off (01 fallback)
-│       ├── run_batch.py           # batch reconstruction (load model once, loop scenes)
-│       ├── 03_render_video.sh     # render point-cloud .ply -> mp4 along a spiral (gsplat)
-│       └── render_video.py        #   spiral point-cloud renderer (gsplat + imageio-ffmpeg)
-├── vggt-omega/              # official code (auto-cloned to ../vggt-omega)
-└── ../../model/             # checkpoint lives one dir above <code-dir> (shared by all algos)
-    └── VGGT-Omega/          # checkpoint (hf download, gated)
-```
-Defaults: official code at `../vggt-omega`, weights at `../../model/VGGT-Omega` (relative to this repo). Override with `VGGT_DIR` / `MODEL_DIR`.
-
-## Prerequisites
-- Ubuntu, NVIDIA driver (CUDA 12.x OK), `git`, `conda`
-- A conda env with a CUDA-enabled **torch >= 2.3** already installed (default env name `doll`). Create one if needed:
-  ```bash
-  conda create -n doll python=3.10 -y && conda activate doll
-  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-  # VGGT-Omega needs torch>=2.3; cu118 gives 2.x. Verify:
-  python -c "import torch;print(torch.__version__, torch.cuda.is_available())"
-  ```
-- NVIDIA GPU (A100 40G/80G ideal). Memory scales with #frames: ~6GB for 1 frame, ~13GB for 100, ~43GB for 500 at 624x416 (see the [repo's memory table](https://github.com/facebookresearch/vggt-omega#runtime-and-gpu-memory)). Use `RESOLUTION=256` or `MODE=max_size` to cut memory.
-
-## ⚠️ Gated checkpoint (do this once, before running)
-The HF repo `facebook/VGGT-Omega` is **gated** (auto-reviewed access request):
-1. Request access at https://huggingface.co/facebook/VGGT-Omega (fill the form; usually approved quickly).
-2. Create a **read** token at https://huggingface.co/settings/tokens.
-3. Add it to `proxy.env` (repo root, gitignored):
-   ```bash
-   export HF_TOKEN="hf_your_token_here"
-   ```
-`01_download_models.sh` refuses to run without `HF_TOKEN`. (TripoSplat's weights were public; VGGT-Omega's are not.)
-
-## Setup (on the server)
-```bash
-cd <your-code-dir>   # e.g. /data_3d/<uid>/code
-git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
-cd media_code
-cp proxy.env.example proxy.env
-# edit proxy.env: http_proxy / https_proxy / HF_TOKEN / CONDA_ENV
-# bash vggt-omega/run_all.sh
-# `run_all.sh`: activate conda env -> verify torch -> clone official repo -> download checkpoint -> reconstruct.
-#   (Stops at 01 if HF_TOKEN missing or access not yet granted — add the token / wait for approval, then rerun 01.)
-
-## Step-by-step
-# bash vggt-omega/00_setup_env.sh        # activate env + verify torch (INSTALL_DEPS=1 to install deps)
-sudo docker exec -it ff3dgs_v3 /bin/bash
-conda activate doll
-VARIANT=1b_512 bash vggt-omega/01_download_models.sh         # gated hf download (needs HF_TOKEN)
-GPU=7 INPUT_DIR=/path/to/images bash vggt-omega/02_run_inference.sh   # folder of images -> scene.ply + .npz + .glb
-GPU=7 PLY_INPUT=../vggt-omega/output/<scene> bash vggt-omega/03_render_video.sh  # .ply -> mp4 (spiral)
-```
-Missing a package? Just `pip install <pkg>` in the conda env and rerun the failed step.
-
-## Inputs (what `INPUT_DIR` can be)
-`02` reconstructs **one scene per item**. `INPUT_DIR` is one of:
-- a **folder of images** (jpg/png/webp/…) → one scene, named after the folder
-- a **video file** (`.mp4`/`.mov`/…) → one scene; frames auto-extracted at `VIDEO_FPS` (default 1 fps), like the official Gradio demo
-- a **folder of scene folders** → one reconstruction per subfolder (batch; images directly in each subfolder, or under `<subfolder>/images/`)
-- a **folder of videos** → one reconstruction per video (batch)
-
-Out-of-the-box test: point `INPUT_DIR` at the repo's bundled example videos:
-```bash
-GPU=7 INPUT_DIR=../vggt-omega/examples VIDEO_FPS=1 bash vggt-omega/02_run_inference.sh
-# -> reconstructs desert_road / forest_road / lake_speedboat / snow_lift (one scene per video)
+  media_code/vggt-omega/             # 本目录 (编排脚本)
+  vggt-omega/                        # VGGT-Omega 官方代码 (含 vggt_omega/ 包 + visual_util.py)
 ```
 
-## Render to video (.ply -> mp4)
-Render a folder of point-cloud `.ply` (or a single `.ply`) along a spiral camera path (gsplat point splatting). Output path mirrors 02: `VIDEOS_DIR/<input_folder_name>/<stem>.mp4`.
-```bash
-git -c http.sslVerify=false pull
-GPU=7 PLY_INPUT=../vggt-omega/output/desert_road bash vggt-omega/03_render_video.sh
-# -> ../vggt-omega/videos/desert_road/scene.mp4  (+ scene.png first frame for a quick check)
+---
+
+以下为详细参考（流程原理 / 各步骤参数 / 排错 / 目录布局）。
+
+## Pipeline（流程详解）
+
 ```
-Deps: `pip install gsplat plyfile imageio imageio-ffmpeg`. VGGT-Omega's point cloud has no gaussian attributes, so each point is splatted as a small isotropic gaussian (`POINT_SCALE` × scene extent; default `0.002`). If the cloud looks dotty, raise `POINT_SCALE`; if blobby, lower it. If the scene is sideways: run once, check `scene.png` — if `ROLL=90` makes it upright, read the printed `image-up (world)` vector and set `UP_VEC` to it (with `ROLL=0`) for a clean, non-tilting orbit; `UP_AXIS` (x/y/z) is the axis-aligned shortcut. Default `UP_VEC="0 -1 0"` (OpenCV camera convention: y-down → up is −Y) suits typical forward-moving camera footage. If the frame is all black: `VIEWMAT_C2W=1` or `BG=0.5` to debug. Tweak via `TURNS ELEV START_ANGLE FRAMES FPS FOV RADIUS_SCALE WIDTH HEIGHT UP_AXIS UP_VEC ROLL POINT_SCALE BG`.
+INPUT_DIR/                           (一组场景图像 / 视频 / 场景文件夹)
+    │
+    ▼
+[02] VGGT-Omega 前馈推理 (doll env)  — 一次前向 → 所有视图位姿 + 深度图
+    │  ├─ discover_scenes: 图像文件夹 -> 1 场景; 视频文件夹 -> 逐视频; 场景文件夹 -> 批量
+    │  ├─ load_and_preprocess_images (balanced/max_size, RESOLUTION)
+    │  ├─ VGGTOmega(images) -> pose_enc + depth + depth_conf (一次推理, 所有视图)
+    │  ├─ encoding_to_camera(pose_enc) -> 外参 (N,3,4) + 内参 (N,3,3)
+    │  ├─ unproject_depth_map_to_point_map -> 世界坐标点云
+    │  └─ filter_points: 置信度百分位 + 深度边缘 + 可选背景过滤 -> scene.ply
+    ▼
+$OUTPUT_DIR/<scene>/
+    scene.ply            # 置信度过滤后的彩色点云 (原始世界坐标; MeshLab/SuperSplat 看)
+    predictions.npz      # 原始输出 (depth, depth_conf, extrinsic, intrinsic,
+                         #   world_points_from_depth, images, pose_enc, ...) — 同官方 demo
+    scene.glb            # 官方可视化 (点云 + 相机锥), visual_util.predictions_to_glb [需 trimesh]
+    frames/              # 实际喂给模型的图 (从输入复制, 或从视频抽帧)
+    │
+    ▼
+[03] 点云渲染视频 (doll env) — .ply -> 沿螺旋路径 splat -> mp4 (gsplat)
+    │  ├─ 加载 .ply -> XYZ + RGB (无高斯属性)
+    │  ├─ 每点 splat 为小各向同性高斯 (POINT_SCALE × 场景范围, 不透明度 1)
+    │  ├─ 螺旋相机轨迹 (TURNS 圈, ELEV 仰角) -> 逐帧 rasterization
+    │  └─ imageio -> mp4 + 首帧 png (检查相机朝向)
+    ▼
+$VIDEOS_DIR/<scene>/scene.mp4   (螺旋环绕展示视频)
+$VIDEOS_DIR/<scene>/scene.png   (首帧, 快速检查)
+```
+
+### Step 00 — clone 官方仓 + 激活 env + 校验 torch (`00_setup_env.sh`)
+
+脚本先 clone VGGT-Omega 官方仓到 `$VGGT_DIR`（若不存在），再 source `_env.sh`（代理 + CA bundle + conda activate + GPU 选卡），然后内联 Python 校验 `torch.cuda.is_available()` + 版本>=2.3（VGGT-Omega 要求）。`INSTALL_DEPS=1` 时一次装齐已知 runtime 依赖：核心（numpy<2, Pillow, einops, safetensors, opencv-python）、点云导出（scipy, trimesh, matplotlib, tqdm）、渲染（plyfile, imageio, imageio-ffmpeg, gsplat）。`vggt_omega` 包通过 `sys.path` 导入（`run_batch.py` 加 `VGGT_DIR`），无需 `pip install -e .`。
+
+### Step 01 — 下权重 (`01_download_models.sh`)
+
+从 HuggingFace `facebook/VGGT-Omega`（**gated**）下载 checkpoint。`VARIANT` 选变体：`1b_512`（512px，默认，无 text alignment）或 `1b_256_text`（256px，text-aligned，读 `predictions["text_alignment_embedding"]`；`02` 自动开 `VGGTOmega(enable_alignment=True)`）。只下选中的那个 `.pt` 文件（省带宽）。`HF_TOKEN` 必须设在 `proxy.env`，否则脚本拒绝运行。下载先试 `hf download`（走 CA bundle），SSL 失败后自动回退到 `_hf_download.py`（`snapshot_download` 禁用 SSL 校验）；`HF_DISABLE_SSL=1` 跳过首次尝试直接走回退。
+
+### Step 02 — 前馈重建 (`02_run_inference.sh` → `run_batch.py`)
+
+模型**加载一次**，跨场景复用（`run_batch.py`）。`INPUT_DIR` 支持四种输入（`discover_scenes`）：
+
+- **图像文件夹**（jpg/png/webp/…）→ 一个场景，以文件夹名命名
+- **视频文件**（.mp4/.mov/…）→ 一个场景，按 `VIDEO_FPS` 自动抽帧
+- **场景文件夹的文件夹**（每个子夹有图，直接放或 `<子夹>/images/` 下）→ 批量，每子夹一个重建
+- **视频文件夹** → 批量，每视频一个重建
+
+每个场景：图复制/抽帧到 `frames/` → `load_and_preprocess_images`（`MODE=balanced` 用 token 预算调大小，`MODE=max_size` 限最长边=RESOLUTION 省显存）→ `VGGTOmega(images)` 一次前向出 `pose_enc` + `depth` + `depth_conf` → `encoding_to_camera` 出外参+内参 → `unproject_depth_map_to_point_map` 反投影 → `filter_points`（置信度百分位过滤 + 深度边缘过滤 + 可选背景过滤 + `MAX_POINTS` 上限）→ `scene.ply` + `predictions.npz` + `scene.glb`（需 trimesh/scipy，缺则跳过）。
+
+> `predictions.npz` 的 key 与官方 `demo_gradio.py` 保存的一致：`depth`, `depth_conf`, `extrinsic`, `intrinsic`, `world_points_from_depth`, `images`, `pose_enc`, `camera_and_register_tokens`。
+
+### Step 03 — 点云渲染视频 (`03_render_video.sh` → `render_video.py`)
+
+VGGT-Omega 输出的点云是纯 XYZ+RGB（无高斯属性），`render_video.py` 把每点 splat 为一个小各向同性高斯（`POINT_SCALE × 场景范围`，不透明度 1，单位旋转），沿螺旋相机轨迹（`TURNS` 圈，`ELEV` 仰角）用 gsplat `rasterization` 逐帧渲染 → mp4 + 首帧 png。输出路径镜像 02：`VIDEOS_DIR/<scene>/<stem>.mp4`。
+
+> **相机朝向调参**：先跑一次看 `scene.png` 首帧——若歪了，脚本会打印 `image-up (world)` 向量，设 `UP_VEC` 为它（`ROLL=0`）得到不倾斜的环绕；`UP_AXIS`（x/y/z）是轴对齐快捷方式。默认 `UP_VEC="0 -1 0"`（OpenCV 相机约定：y-down → up 是 −Y），适合前向移动相机素材。全黑帧用 `VIEWMAT_C2W=1` 或 `BG=0.5` 调试。点云显稀疏（dotty）调大 `POINT_SCALE`；糊了（blobby）调小。
+
+## Config (env vars, all optional)
+
+### Paths & envs
+| var | default | note |
+| --- | --- | --- |
+| `INPUT_DIR` | `../vggt-omega/examples` | 图像文件夹 / 视频文件 / 场景文件夹（见 Step 02） |
+| `GPU` | _(unset)_ | physical GPU id, e.g. `GPU=0` |
+| `CONDA_ENV` | `doll` | conda env（torch>=2.3 预装；复用不重下 torch） |
+| `VGGT_DIR` | `../vggt-omega` | 官方代码路径（00 自动 clone） |
+| `VGGT_REPO` | `https://github.com/facebookresearch/vggt-omega.git` | clone 源 |
+| `MODEL_DIR` | `../../model/VGGT-Omega` | checkpoint 路径（gated HF 下载） |
+| `HF_REPO_ID` | `facebook/VGGT-Omega` | gated 权重仓库（需 `HF_TOKEN`） |
+| `OUTPUT_DIR` | `../vggt_omega_results` | 重建输出根；每场景 → `OUTPUT_DIR/<scene>/` |
+| `VIDEOS_DIR` | `../vggt_omega_results/videos` | 视频输出根；mp4 → `VIDEOS_DIR/<scene>/` |
+| `INSTALL_DEPS` | `0` | `1` = 在 00 一次装齐已知 runtime 依赖（torch 不重装） |
+| `HF_HUB_DISABLE_XET` | `1` | 禁 HF Xet/CAS Rust 通道（不认代理 CA） |
+| `HF_DISABLE_SSL` | `0` | `1` = 跳过 `hf download` 首次尝试, 直接走禁 SSL 校验的 `_hf_download.py` |
+
+### Step 02 params
+| var | default | note |
+| --- | --- | --- |
+| `VARIANT` | `1b_512` | checkpoint 变体: `1b_512`（512px）或 `1b_256_text`（256px, text-aligned; 02 自动开 `enable_alignment`） |
+| `RESOLUTION` | `512` | 输入图像分辨率（`1b_256_text` 用 `256`） |
+| `MODE` | `balanced` | resize 模式: `balanced`（token 预算）或 `max_size`（最长边=RESOLUTION, 省显存） |
+| `CONF_THRES` | `20` | 深度置信度百分位保留（0–100; 高 = 更稀疏但更干净） |
+| `MAX_POINTS` | `2000000` | `scene.ply` 点数上限（0 = 不限） |
+| `MASK_SKY` / `MASK_BLACK_BG` / `MASK_WHITE_BG` | `0` | 可选点过滤（sky 需 onnxruntime skyseg） |
+| `VIDEO_FPS` | `1` | `INPUT_DIR` 为视频时的抽帧 fps |
+| `DEVICE` | `cuda` | 推理设备 |
+
+### Step 03 params
+| var | default | note |
+| --- | --- | --- |
+| `PLY_INPUT` | `../vggt_omega_results` | .ply 文件或文件夹（渲染 03） |
+| `WIDTH` × `HEIGHT` | `1280` × `720` | 渲染分辨率 |
+| `TURNS` / `ELEV` / `FRAMES` / `FPS` | `1` / `-15°` / `120` / `30` | 螺旋轨迹参数 |
+| `START_ANGLE` | `0` | 起始方位角（度） |
+| `FOV` | `55` | 相机视场角（度） |
+| `RADIUS_SCALE` | `1.15` | 相机距离 = `半径 / tan(FoV/2) × RADIUS_SCALE` |
+| `UP_AXIS` | `y` | 相机 up 轴（x/y/z） |
+| `UP_VEC` | `0 -1 0` | 物体 up 向量 "x y z"（覆盖 `UP_AXIS`）；设为首帧 `image-up` 向量得到不倾斜环绕 |
+| `ROLL` | `0` | 相机绕前向轴 roll（度）；场景歪了试 90/-90/180 |
+| `POINT_SCALE` | `0.002` | splat 半径占场景范围比例（dotty 调大, blobby 调小） |
+| `VIEWMAT_C2W` | `0` | `1` = view matrix 用 c2w 约定（全黑帧调试用） |
+| `BG` | `0.0` | 背景（0=黑, 0.5=灰, 1=白；全黑帧调试用） |
 
 ## 可能遇到的问题
 
-公司代理做 HTTPS 中间人解密，下面按流水线阶段列出常见报错与修法（命令在服务器上、`doll` 环境已激活时执行）。
+**0. clone 本仓报 SSL / 认证**
+公开仓免认证，加 `-c http.sslVerify=false` 即可（见上文「首次准备」）。若克隆的是私有仓且提示不能用账号密码，是 GitHub 已停用密码认证——改用公开仓或只读 PAT。
 
-**1. clone 本仓报 SSL / 认证**
-公开仓免认证，加 `-c http.sslVerify=false` 即可（见上文 Setup）。若克隆的是私有仓且提示不能用账号密码，是 GitHub 已停用密码认证——改用公开仓或只读 PAT。
-
-**2. `01` 报 `HF_TOKEN not set` / `401 Unauthorized`**
+**1. `01` 报 `HF_TOKEN not set` / `401 Unauthorized`**
 VGGT-Omega 权重是 gated 仓库。先在 https://huggingface.co/facebook/VGGT-Omega 申请访问（自动审核），再在 https://huggingface.co/settings/tokens 建一个 read token，写入仓根 `proxy.env`：
 ```bash
 echo 'export HF_TOKEN=hf_xxx' >> proxy.env
-VARIANT=1b_512 bash vggt-omega/01_download_models.sh
+GPU=0 VARIANT=1b_512 MODEL_DIR=../../model/VGGT-Omega bash vggt-omega/01_download_models.sh
 ```
 若已带 token 仍 `401`，多半是访问尚未批准，等几分钟再试。
 
-**3. pip 装 torch 报 `SSL:CERTIFICATE_VERIFY_FAILED`**
-脚本已内置 `--trusted-host`。仍失败时手动信任：
-```bash
-pip config set global.trusted-host "pypi.org pypi.python.org files.pythonhosted.org download.pytorch.org"
-bash vggt-omega/00_setup_env.sh
-```
-
-**4. pip 装 torch 报 `HTTPSConnectionPool`（连接超时/断开）**
-不是 torch 版本问题，是代理对大文件超时。加超时重试，或退回 PyPI 默认 torch（自带 CUDA，A100 可用）：
-```bash
-pip install --timeout 600 --retries 10 --trusted-host download.pytorch.org \
-  --index-url https://download.pytorch.org/whl/cu118 torch torchvision
-python -c "import torch;print(torch.cuda.is_available(), torch.__version__)"  # 需 True + >=2.3
-```
-
-**5. `hf download` 报 `CAS service error : ReqwestMiddleware`**
+**2. `hf download` 报 `CAS service error : ReqwestMiddleware`**
 HF 的 Xet/Rust 通道不认代理。`_env.sh` 已设 `HF_HUB_DISABLE_XET=1`；仍报则彻底卸载：
 ```bash
 pip uninstall -y hf_xet
-VARIANT=1b_512 bash vggt-omega/01_download_models.sh
+GPU=0 VARIANT=1b_512 MODEL_DIR=../../model/VGGT-Omega bash vggt-omega/01_download_models.sh
 ```
 
-**6. `hf download` 报 `SSLCertVerificationError`**
+**3. `hf download` 报 `SSLCertVerificationError`**
 代理根 CA 不在系统证书包。先一次性建包，`_env.sh` 会自动用 `~/.ca-bundle.crt`：
 ```bash
-bash vggt-omega/setup_ca_bundle.sh    # 抓代理证书链 -> ~/.ca-bundle.crt，并自检
-VARIANT=1b_512 bash vggt-omega/01_download_models.sh
+bash vggt-omega/setup_ca_bundle.sh    # 抓代理证书链 -> ~/.ca-bundle.crt, 并自检
+GPU=0 VARIANT=1b_512 MODEL_DIR=../../model/VGGT-Omega bash vggt-omega/01_download_models.sh
 ```
 - 自检 `[OK]` → 直接重跑 `01`。
 - 自检 `[FAIL]`（代理握手没带根 CA）→ 把公司根 CA 追加后再重跑：
@@ -150,60 +245,73 @@ VARIANT=1b_512 bash vggt-omega/01_download_models.sh
 
 > 若建包后仍报 SSL（CDN 端点 `us.aws.cdn.hf.co` 等用了不同的 MITM 证书），`01` 会自动回退到禁用 SSL 校验的下载器（`_hf_download.py`）；或直接 `HF_DISABLE_SSL=1 bash vggt-omega/01_download_models.sh` 跳过首次尝试。代理已全程 MITM，此处关掉校验可接受。
 
-**7. `torch.cuda.OutOfMemoryError`**
+**4. pip 装 torch 报 `SSL:CERTIFICATE_VERIFY_FAILED`**
+脚本已内置 `--trusted-host`。仍失败时手动信任：
+```bash
+pip config set global.trusted-host "pypi.org pypi.python.org files.pythonhosted.org download.pytorch.org"
+GPU=0 INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
+```
+
+**5. pip 装 torch 报 `HTTPSConnectionPool`（连接超时/断开）**
+不是 torch 版本问题，是代理对大文件超时。加超时重试，或退回 PyPI 默认 torch（自带 CUDA，A100 可用）：
+```bash
+pip install --timeout 600 --retries 10 --trusted-host download.pytorch.org \
+  --index-url https://download.pytorch.org/whl/cu118 torch torchvision
+python -c "import torch;print(torch.cuda.is_available(), torch.__version__)"  # 需 True + >=2.3
+```
+
+**6. `torch.cuda.OutOfMemoryError`**
 显存随帧数线性增长。降压：`RESOLUTION=256`、`MODE=max_size`，或喂更少帧（视频则降 `VIDEO_FPS`）。`run_batch.py` 会捕获 OOM 并继续下一个场景。
 
-**8. 缺包 `ModuleNotFoundError`**
+**7. 缺包 `ModuleNotFoundError`**
 按需补，或一次性装齐已知小依赖：
 ```bash
 pip install <包名>
-# 或：
-INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
+# 或:
+GPU=0 INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
 ```
 `scene.glb` 导出需要 `trimesh scipy matplotlib`（缺则跳过，仅产出 `.ply`/`.npz`）。`03` 渲染需要 `gsplat plyfile imageio imageio-ffmpeg`。
 
+**8. 跑 `.sh` 报 `syntax error near unexpected token '('`**
+CRLF 行尾污染。`find vggt-omega -name '*.sh' -exec sed -i 's/\r$//' {} +` 或 `git checkout -- vggt-omega/*.sh`（`.gitattributes` 强制 LF）。
+
 > 通用：`proxy.env`（代理凭证 + `HF_TOKEN`）在仓内 gitignored，`~/.ca-bundle.crt` 在家目录，都不入库；切勿把凭证写进脚本。
 
-## Config (env vars, all optional)
-| var | default | note |
-|---|---|---|
-| `CONDA_ENV` | `doll` | conda env to activate (must already have torch>=2.3) |
-| `GPU` | _(unset)_ | physical GPU id to pin, e.g. `GPU=3`; remaps `CUDA_VISIBLE_DEVICES` so in-process `cuda:0` == that card |
-| `VGGT_DIR` | `../vggt-omega` | official code path |
-| `MODEL_DIR` | `../../model/VGGT-Omega` | checkpoint path |
-| `VGGT_REPO` | official GitHub URL | clone source |
-| `HF_REPO_ID` | `facebook/VGGT-Omega` | gated weights repo (needs `HF_TOKEN`) |
-| `VARIANT` | `1b_512` | checkpoint variant: `1b_512` (512px) or `1b_256_text` (256px, text-aligned; auto sets `enable_alignment`) |
-| `RESOLUTION` | `512` | input image resolution (use `256` with `1b_256_text`) |
-| `MODE` | `balanced` | resize mode: `balanced` (token-budget) or `max_size` (longest side = RESOLUTION; less memory) |
-| `INPUT_DIR` | `../vggt-omega/examples` | folder of images/videos, or a single video (see Inputs) |
-| `OUTPUT_DIR` | `../vggt-omega/output` | reconstructions root; each scene -> `OUTPUT_DIR/<scene>/` |
-| `CONF_THRES` | `20` | depth-confidence percentile kept (0–100; higher = sparser but cleaner) |
-| `MAX_POINTS` | `2000000` | cap on points saved to `scene.ply` (0 = no cap) |
-| `MASK_SKY`/`MASK_BLACK_BG`/`MASK_WHITE_BG` | `0` | optional point filters (sky needs onnxruntime skyseg) |
-| `VIDEO_FPS` | `1` | frame sampling fps when `INPUT_DIR` is a video |
-| `INSTALL_DEPS` | `0` | set `1` to install known runtime deps in 00 |
-| `HF_HUB_DISABLE_XET` | `1` | disable HF Xet/CAS Rust path (proxy-unfriendly) |
-| `HF_DISABLE_SSL` | `0` | set `1` to download the checkpoint with SSL verification disabled |
-| `PLY_INPUT` | `../vggt-omega/output` | .ply file or folder to render (03) |
-| `VIDEOS_DIR` | `../vggt-omega/videos` | base video dir; mp4s go to `VIDEOS_DIR/<scene>/` |
-| `WIDTH`×`HEIGHT` | `1280`×`720` | render resolution (03) |
-| `TURNS`/`ELEV`/`FRAMES`/`FPS` | `1`/`-15°`/`120`/`30` | spiral trajectory params (03) |
-| `START_ANGLE` | `0` | starting azimuth in degrees (03) |
-| `FOV` | `55` | camera field of view in degrees (03) |
-| `UP_AXIS` | `y` | camera up axis (x/y/z) (03) |
-| `UP_VEC` | `0 -1 0` | object's up as "x y z" (overrides `UP_AXIS`); set to frame0 `image-up` for a clean orbit (03) |
-| `ROLL` | `0` | camera roll around forward axis (deg); try 90/-90/180 if the scene is sideways (03) |
-| `POINT_SCALE` | `0.002` | splat radius as a fraction of scene extent (03; raise if dotty, lower if blobby) |
-
-## Outputs
-`02` reconstructs each scene into `OUTPUT_DIR/<scene>/`. For each scene:
-- `scene.ply` — confidence-filtered colored point cloud (raw world coords; view in MeshLab/SuperSplat, or feed to `03`)
-- `predictions.npz` — raw model outputs: `depth`, `depth_conf`, `extrinsic`, `intrinsic`, `world_points_from_depth`, `images`, `pose_enc`, `camera_and_register_tokens` (same keys the official `demo_gradio.py` saves)
-- `scene.glb` — official visualization (point cloud + camera frustums), built via `visual_util.predictions_to_glb` (needs `trimesh/scipy`; skipped otherwise)
-- `frames/` — the images actually fed to the model (copied from the input folder, or extracted from the input video)
-
-`03` writes `VIDEOS_DIR/<scene>/<stem>.mp4` (+ `<stem>.png` first frame).
+## 目录布局
+```
+<code-dir>/
+├── media_code/                     # 本仓
+│   ├── proxy.env                   # 代理 + HF_TOKEN + 覆盖项, gitignored
+│   └── vggt-omega/                 # ← 本目录（编排脚本）
+│       ├── _env.sh                 # 共享: 代理 + CA bundle + conda activate + GPU
+│       ├── 00_setup_env.sh        # clone 官方仓 + 激活 env + 校验 torch (INSTALL_DEPS=1 装依赖)
+│       ├── 01_download_models.sh   # gated HF 下载 checkpoint
+│       ├── 02_run_inference.sh     # 前馈重建 (图像/视频 -> 点云)
+│       ├── 03_render_video.sh      # .ply -> 螺旋 mp4 (gsplat)
+│       ├── run_batch.py            # 批量重建 (加载模型一次, 循环场景)
+│       ├── render_video.py         # 螺旋点云渲染器 (gsplat + imageio-ffmpeg)
+│       ├── setup_ca_bundle.sh      # 一次性: 抓代理证书链 -> ~/.ca-bundle.crt
+│       ├── _extract_ca.py          #   helper (setup_ca_bundle.sh 调用)
+│       └── _hf_download.py         #   snapshot_download 禁 SSL 校验 (01 回退)
+├── vggt-omega/                     # VGGT-Omega 官方代码 (00 自动 clone)
+│   ├── vggt_omega/                 #   模型包 (models/, utils/)
+│   ├── visual_util.py              #   官方 .glb 导出 (predictions_to_glb)
+│   └── examples/                   #   自带示例视频
+├── model/                          # 权重根 (code-dir 上一级, 共享)
+│   └── VGGT-Omega/                 #   checkpoint (gated HF 下载)
+│       ├── vggt_omega_1b_512.pt     #   512px 变体 (默认)
+│       └── vggt_omega_1b_256_text.pt #  256px text-aligned 变体
+└── output/vggt_omega_results/      # 输出 (repo 外)
+    ├── <scene>/                    # step 02: 重建
+    │   ├── scene.ply               #   彩色点云 (置信度过滤)
+    │   ├── predictions.npz          #   原始模型输出
+    │   ├── scene.glb               #   官方可视化 (点云 + 相机锥)
+    │   └── frames/                 #   喂给模型的图 (复制/抽帧)
+    └── videos/                     # step 03: 渲染视频
+        └── <scene>/
+            ├── scene.mp4           #   螺旋环绕展示视频
+            └── scene.png           #   首帧 (检查相机朝向)
+```
 
 ## Notes
 - VGGT-Omega is **feed-forward** (one model pass → poses + depth for all input views). It does **not** optimize a scene representation, so there is no train/test split, no per-scene fitting, and no novel-view gaussians — the orbit video in `03` just splats the unprojected point cloud.
@@ -211,4 +319,4 @@ INSTALL_DEPS=1 bash vggt-omega/00_setup_env.sh
 - Official code & weights follow their own license. This folder only orchestrates; no official code is copied.
 - `.gitattributes` (repo root) forces LF so Windows-pushed scripts run cleanly on Ubuntu.
 - `proxy.env` (proxy creds + `HF_TOKEN` / path / env overrides) is gitignored — never committed. Don't put credentials in scripts.
-- SSL behind a TLS-intercepting corporate proxy: pip uses `--trusted-host`; `hf`/`git` use the CA bundle (`_env.sh` prefers `~/.ca-bundle.crt`, built by `setup_ca_bundle.sh`).
+- SSL behind a TLS-intercepting corporate proxy: pip uses `--trusted-host`; `hf`/`git` use the CA bundle (`_env.sh` prefers `~/.ca-bundle.crt`, built by `setup_ca_bundle.sh`); `01` falls back to `_hf_download.py` (SSL disabled) if the CDN endpoint uses a different MITM cert.

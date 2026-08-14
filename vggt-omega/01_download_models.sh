@@ -34,7 +34,7 @@ echo "  model:    $MODEL_DIR"
 
 if [ ! -d "$VGGT_DIR" ]; then
     echo "ERROR: VGGT-Omega code dir not found at $VGGT_DIR." >&2
-    echo "       Run run_all.sh first (it clones the official repo), or set VGGT_DIR." >&2
+    echo "       Run 00_setup_env.sh first (it clones the official repo), or set VGGT_DIR." >&2
     exit 1
 fi
 if ! python -c "import huggingface_hub" 2>/dev/null; then

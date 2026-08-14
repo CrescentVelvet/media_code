@@ -10,8 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
-PLY_INPUT="${PLY_INPUT:-$VGGT_DIR/output}"
-VIDEOS_DIR="${VIDEOS_DIR:-$VGGT_DIR/videos}"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_DIR/../vggt_omega_results}"
+PLY_INPUT="${PLY_INPUT:-$OUTPUT_DIR}"
+VIDEOS_DIR="${VIDEOS_DIR:-$OUTPUT_DIR/videos}"
 WIDTH="${WIDTH:-1280}"
 HEIGHT="${HEIGHT:-720}"
 FRAMES="${FRAMES:-120}"
@@ -49,7 +50,7 @@ if ! python -c "import gsplat, plyfile, imageio, imageio_ffmpeg" 2>/dev/null; th
 fi
 if [ ! -e "$PLY_INPUT" ]; then
     echo "ERROR: PLY_INPUT not found: $PLY_INPUT" >&2
-    echo "       Point it at a folder of .ply (e.g. ../vggt-omega/output) or a single .ply." >&2
+    echo "       Point it at a folder of .ply (e.g. ../vggt_omega_results/<scene>) or a single .ply." >&2
     exit 1
 fi
 

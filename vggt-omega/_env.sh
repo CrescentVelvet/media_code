@@ -50,3 +50,17 @@ conda activate "$CONDA_ENV"
 if [ -n "${GPU:-}" ]; then
     export CUDA_VISIBLE_DEVICES="$GPU"
 fi
+
+# --- Paths ---
+# Official code dir (sibling of media_code; 00_setup_env.sh clones it).
+VGGT_DIR="${VGGT_DIR:-$REPO_DIR/../vggt-omega}"
+VGGT_REPO="${VGGT_REPO:-https://github.com/facebookresearch/vggt-omega.git}"
+
+# Shared weight root (code-dir's parent, same as other algos).
+MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
+
+# Output dirs (siblings of media_code, per AGENTS.md convention).
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_DIR/../vggt_omega_results}"
+VIDEOS_DIR="${VIDEOS_DIR:-$OUTPUT_DIR/videos}"
+
+export REPO_DIR VGGT_DIR VGGT_REPO MODEL_DIR OUTPUT_DIR VIDEOS_DIR
