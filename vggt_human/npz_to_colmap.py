@@ -39,6 +39,10 @@ FRAMES_DIR = os.environ.get("FRAMES_DIR", "")
 SOURCE_DIR = os.environ.get("SOURCE_DIR", "./source")
 TARGET_POINTS = int(os.environ.get("TARGET_POINTS", "200000"))
 ALIGN = os.environ.get("ALIGN", "1") == "1"
+# If POSE_ADJUST=1, PoseAdjuster handles coordinate transform (step 04/07).
+# Disable ALIGN here to avoid double-transforming.
+if os.environ.get("POSE_ADJUST", "0") == "1":
+    ALIGN = False
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp")
 

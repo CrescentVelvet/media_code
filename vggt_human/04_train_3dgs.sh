@@ -79,7 +79,17 @@ if [ -n "${TRAIN_EXTRA_ARGS:-}" ]; then
     # shellcheck disable=SC2206
     TRAIN_FLAGS+=($TRAIN_EXTRA_ARGS)
 fi
-( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+
+# Use wrapper with pose optimization, or standard train.py
+if [ "${POSE_ADJUST:-0}" = "1" ] || [ "${POSE_REFINE:-0}" = "1" ]; then
+    echo "🏋️ using train_pose.py (POSE_ADJUST=$POSE_ADJUST POSE_REFINE=$POSE_REFINE)"
+    export SOURCE_DIR GAUSSIAN_DIR ITERATIONS SH_DEGREE WHITE_BG RES DEVICE
+    export POSE_ADJUST POSE_REFINE REFINE_INTRINSIC POSE_REFINE_WEIGHT
+    export POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_LR_I GRAVITY_PRIOR
+    ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_pose.py" )
+else
+    ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+fi
 if [ $? -ne 0 ]; then
     echo "❌ FAILED. 3DGS training did not complete." >&2
     exit 1
