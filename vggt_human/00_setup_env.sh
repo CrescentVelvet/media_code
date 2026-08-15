@@ -10,6 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 # Create vggt_human env by cloning doll (if not exists yet)
+# Disable conda SSL verification (corporate proxy TLS interception; _env.sh's
+# SSL_CERT_FILE only helps pip/git, not conda's internal HTTPS).
+conda config --set ssl_verify false 2>/dev/null || true
+
 if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
     echo "--- creating conda env '$CONDA_ENV' (clone from doll) ---"
     if ! conda env list 2>/dev/null | grep -qw "doll"; then
@@ -18,6 +22,14 @@ if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
         exit 1
     fi
     conda create -n "$CONDA_ENV" --clone doll -y
+    # Verify clone succeeded: conda-meta must exist
+    _env_path="$(conda info --base 2>/dev/null)/envs/$CONDA_ENV"
+    if [ ! -d "$_env_path/conda-meta" ]; then
+        echo "❌ ERROR: conda clone incomplete (conda-meta missing). Cleaning up..." >&2
+        rm -rf "$_env_path"
+        echo "       Retry: INSTALL_DEPS=1 bash $0" >&2
+        exit 1
+    fi
     # Re-activate the freshly created env
     # shellcheck disable=SC1091
     source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -254,12 +266,14 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
                 LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$DIFFBIR_REPO" "$DIFFBIR_DIR"
         fi
         mkdir -p "$(dirname "$DIFFBIR_CKPT")"
-        if [ ! -f "$DIFFBIR_CKPT" ]; then
+        if [ ! -s "$DIFFBIR_CKPT" ]; then
             echo "  downloading DiffBIR checkpoint..."
             wget --no-check-certificate -q -O "$DIFFBIR_CKPT" \
-                "https://huggingface.co/zhonghuiyi/ckpt/resolve/main/cldm.pth" || \
-                echo "  ⚠️ DiffBIR checkpoint download failed. Manual:" >&2
-            echo "    wget -O $DIFFBIR_CKPT <download_url>" >&2
+                "https://huggingface.co/zhonghuiyi/ckpt/resolve/main/cldm.pth" || true
+            if [ ! -s "$DIFFBIR_CKPT" ]; then
+                echo "  ⚠️ DiffBIR checkpoint download failed (empty/missing). Manual:" >&2
+                echo "    wget -O $DIFFBIR_CKPT <download_url>" >&2
+            fi
         fi
         # DiffBIR Python deps (diffusers, omegaconf, einops)
         pip install "${PIP_FLAGS[@]}" diffusers omegaconf einops kornia || \
@@ -273,12 +287,14 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
                 LD_LIBRARY_PATH= git -c http.sslVerify=false clone "$SWINIR_REPO" "$SWINIR_DIR"
         fi
         mkdir -p "$(dirname "$SWINIR_CKPT")"
-        if [ ! -f "$SWINIR_CKPT" ]; then
+        if [ ! -s "$SWINIR_CKPT" ]; then
             echo "  downloading SwinIR denoising checkpoint..."
             wget --no-check-certificate -q -O "$SWINIR_CKPT" \
-                "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DIV2K_s128w8_SwinIR-M_x4.pth" || \
-                echo "  ⚠️ SwinIR checkpoint download failed. Manual:" >&2
-            echo "    See: https://github.com/JingyunLiang/SwinIR#model-zoo" >&2
+                "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DIV2K_s128w8_SwinIR-M_x4.pth" || true
+            if [ ! -s "$SWINIR_CKPT" ]; then
+                echo "  ⚠️ SwinIR checkpoint download failed (empty/missing). Manual:" >&2
+                echo "    See: https://github.com/JingyunLiang/SwinIR#model-zoo" >&2
+            fi
         fi
     fi
 fi

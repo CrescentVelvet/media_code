@@ -74,7 +74,7 @@ RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../vggt_human_results}"
 
 # DiffBIR (denoising, step 04; optional — only when DENOISER=diffbir).
 DIFFBIR_DIR="${DIFFBIR_DIR:-$REPO_DIR/../DiffBIR}"
-DIFFBIR_REPO="${DIFFBIR_REPO:-https://github.com/csxliang/DiffBIR.git}"
+DIFFBIR_REPO="${DIFFBIR_REPO:-https://github.com/XPixelGroup/DiffBIR.git}"
 DIFFBIR_CKPT="${DIFFBIR_CKPT:-$WEIGHTS_ROOT/DiffBIR/cldm.pth}"
 DIFFBIR_CONFIG="${DIFFBIR_CONFIG:-$DIFFBIR_DIR/configs/inference/cldm.yaml}"
 
