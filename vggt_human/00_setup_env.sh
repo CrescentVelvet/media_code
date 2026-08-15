@@ -112,7 +112,18 @@ if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ] || \
     fi
 fi
 
-# ── 3. Verify torch + CUDA ──────────────────────────────────────────────────
+# ── 3. Install deps (first time) ────────────────────────────────────────────
+# Always ensure mediapipe is installed (lightweight, needed for step 01/06).
+# Full deps (3DGS exts, HYPIR, etc.) require INSTALL_DEPS=1.
+if ! python -c "import mediapipe" 2>/dev/null; then
+    echo "--- installing mediapipe (needed for step 01/06) ---"
+    _PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
+        --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
+    pip install "${_PIP_FLAGS[@]}" mediapipe || \
+        echo "  ⚠️ mediapipe install failed — run: pip install mediapipe" >&2
+fi
+
+# ── 4. Verify torch + CUDA ──────────────────────────────────────────────────
 python - <<'PY'
 import torch
 print(f"torch: {torch.__version__}  cuda: {torch.version.cuda}  available: {torch.cuda.is_available()}")
@@ -120,7 +131,7 @@ if not torch.cuda.is_available():
     raise SystemExit("ERROR: torch.cuda not available in env '$CONDA_ENV'.")
 PY
 
-# ── 4. Install deps (first time) ────────────────────────────────────────────
+# ── 5. Full deps install (first time) ───────────────────────────────────────
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
