@@ -9,38 +9,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-# Create vggt_human env by cloning doll (if not exists yet)
-# Disable conda SSL verification (corporate proxy TLS interception; _env.sh's
-# SSL_CERT_FILE only helps pip/git, not conda's internal HTTPS).
-conda config --set ssl_verify false 2>/dev/null || true
+# Create vggt_human env by copying doll directory (avoids conda's network-dependent
+# clone which fails on corporate proxy SSL — conda create --clone tries to re-download
+# packages like libnsl even though doll already has them; --offline fails on .partial
+# cache residue. cp -a + shebang fix is equivalent and fully offline).
+_doll_prefix="$(conda info --base 2>/dev/null)/envs/doll"
+_new_prefix="$(conda info --base 2>/dev/null)/envs/$CONDA_ENV"
 
-if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
-    echo "--- creating conda env '$CONDA_ENV' (clone from doll) ---"
-    if ! conda env list 2>/dev/null | grep -qw "doll"; then
-        echo "❌ ERROR: 'doll' env not found. Create it first:" >&2
-        echo "       bash vggt-omega/00_setup_env.sh" >&2
+if [ -d "$_new_prefix/conda-meta" ] && [ -f "$_new_prefix/conda-meta/history" ]; then
+    echo "--- $CONDA_ENV env already exists at $_new_prefix ---"
+else
+    if [ ! -d "$_doll_prefix" ]; then
+        echo "❌ ERROR: 'doll' env not found at $_doll_prefix" >&2
+        echo "       Create it first: bash vggt-omega/00_setup_env.sh" >&2
         exit 1
     fi
-    # Try offline clone first (doll already has all packages locally; avoids
-    # remote SSL issues with corporate proxy). Fall back to online if cache miss.
-    if ! conda create -n "$CONDA_ENV" --clone doll --offline -y; then
-        echo "  ⚠️ offline clone failed (package cache miss?), retrying online..."
-        conda create -n "$CONDA_ENV" --clone doll -y
-    fi
-    # Verify clone succeeded: conda-meta must exist
-    _env_path="$(conda info --base 2>/dev/null)/envs/$CONDA_ENV"
-    if [ ! -d "$_env_path/conda-meta" ]; then
-        echo "❌ ERROR: conda clone incomplete (conda-meta missing). Cleaning up..." >&2
-        rm -rf "$_env_path"
-        echo "       Retry: INSTALL_DEPS=1 bash $0" >&2
-        exit 1
-    fi
-    # Re-activate the freshly created env
-    # shellcheck disable=SC1091
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate "$CONDA_ENV"
-    echo "  ✅ cloned doll -> $CONDA_ENV"
+    # Clean up any broken/partial env from a previous failed conda clone
+    rm -rf "$_new_prefix"
+    echo "--- cloning doll -> $CONDA_ENV via cp -a (no network) ---"
+    cp -a "$_doll_prefix" "$_new_prefix"
+    # Fix shebangs: replace old doll path with new env path in bin/ scripts
+    # (pip, conda-trim, etc. have #!/.../envs/doll/bin/python hardcoded)
+    find "$_new_prefix/bin" -maxdepth 1 -type f -exec sed -i "s|$_doll_prefix|$_new_prefix|g" {} + 2>/dev/null || true
+    echo "  ✅ copied doll -> $CONDA_ENV (shebangs patched)"
 fi
+
+# Activate the env
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV" 2>/dev/null || true
 
 echo "=== [00] Setup vggt_human env '$CONDA_ENV' ==="
 echo "  VGGT-Omega:  $VGGT_DIR"
