@@ -21,7 +21,12 @@ if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
         echo "       bash vggt-omega/00_setup_env.sh" >&2
         exit 1
     fi
-    conda create -n "$CONDA_ENV" --clone doll -y
+    # Try offline clone first (doll already has all packages locally; avoids
+    # remote SSL issues with corporate proxy). Fall back to online if cache miss.
+    if ! conda create -n "$CONDA_ENV" --clone doll --offline -y; then
+        echo "  ⚠️ offline clone failed (package cache miss?), retrying online..."
+        conda create -n "$CONDA_ENV" --clone doll -y
+    fi
     # Verify clone succeeded: conda-meta must exist
     _env_path="$(conda info --base 2>/dev/null)/envs/$CONDA_ENV"
     if [ ! -d "$_env_path/conda-meta" ]; then
