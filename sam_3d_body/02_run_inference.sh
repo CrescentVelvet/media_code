@@ -29,7 +29,7 @@ FOV_PATH="${FOV_PATH:-$MODEL_DIR/moge-2-vitl-normal}"
 
 INPUT_DIR="${INPUT_DIR:-$SAM3D_DIR/notebook/images}"
 INPUT_NAME="$(basename "$INPUT_DIR")"
-OUTPUT_DIR="${OUTPUT_DIR:-$SAM3D_DIR/results/$INPUT_NAME}"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_DIR/../sam_3d_body_results/$INPUT_NAME}"
 
 # --- inference params (all overridable via env) ---
 DEVICE="${DEVICE:-cuda}"

@@ -56,9 +56,9 @@ INPUT_DIR="${INPUT_DIR:-$SAM3D_DIR/notebook/images}" bash "$SCRIPT_DIR/02_run_in
 
 echo "=== [run_all] All steps finished. ==="
 echo "    To run on your own images:"
-echo "      GPU=0 INPUT_DIR=/path/to/images bash $SCRIPT_DIR/02_run_inference.sh"
+echo "      GPU=0 MODEL_DIR=../../model/sam-3d-body INPUT_DIR=../data/my_images OUTPUT_DIR=../sam_3d_body_results bash $SCRIPT_DIR/02_run_inference.sh"
 echo "    To use the ViT-H backbone instead of DINOv3-H+:"
 echo "      HF_REPO_ID=facebook/sam-3d-body-vith bash $SCRIPT_DIR/01_download_models.sh"
-echo "      HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 INPUT_DIR=/path/to/images bash $SCRIPT_DIR/02_run_inference.sh"
+echo "      HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 MODEL_DIR=../../model/sam-3d-body INPUT_DIR=../data/my_images OUTPUT_DIR=../sam_3d_body_results bash $SCRIPT_DIR/02_run_inference.sh"
 echo "    ⚠️ The SAM 3D Body checkpoint is GATED — you must request access on"
 echo "       HuggingFace and pass HF_TOKEN to 01. See sam_3d_body/README.md."

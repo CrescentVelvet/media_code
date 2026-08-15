@@ -6,40 +6,81 @@
 
 ## 常用命令
 
-> 假设已进入容器并 `conda activate sam_3d_body`；路径取各脚本默认值（可改）；`GPU=0` 按需换卡。首次跑前先做下方「首次准备」。
+> 假设已进入容器；首次跑前先做下方「首次准备」。
+> **铁律：每条命令都必须显式写出模型地址、输入路径、输出路径，不能全靠脚本里的默认值。** 用具体路径，不要用 `...` 占位。
 
 ```bash
-# ── 推理(02) ── 默认 DINOv3-H+ 骨干 + ViTDet 检测器 + MoGe2 FOV，无分割器(掩码推理关)
+# ── 一键（clone 官方仓 + 装依赖 + 下权重 + 跑示例图）──
+INSTALL_DEPS=1 HF_TOKEN=hf_xxx GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../sam-3d-body/notebook/images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  bash sam_3d_body/run_all.sh
+
+# ── 分步推理(02) ── 默认 DINOv3-H+ 骨干 + ViTDet 检测器 + MoGe2 FOV，无分割器(掩码推理关)
 # 1) 测试官方自带示例图(notebook/images/dancing.jpg)
-GPU=0 bash sam_3d_body/02_run_inference.sh
-# 2) 指定输入路径(递归遍历子目录)
-GPU=0 INPUT_DIR=/path/to/images bash sam_3d_body/02_run_inference.sh
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../sam-3d-body/notebook/images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  bash sam_3d_body/02_run_inference.sh
+# 2) 指定自己的图像目录(递归遍历子目录)
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  bash sam_3d_body/02_run_inference.sh
 # 3) 换 ViT-H 骨干(631M，略小；先 01 下载该骨干权重)
-HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 INPUT_DIR=/path/to/images bash sam_3d_body/02_run_inference.sh
+HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  bash sam_3d_body/02_run_inference.sh
 # 4) 开掩码推理(需 SAM2 分割器，先装 sam2 并给 SEGMENTOR_PATH)
-GPU=0 INPUT_DIR=/path/to/images USE_MASK=1 SEGMENTOR_PATH=/path/to/sam2_checkpoint_dir bash sam_3d_body/02_run_inference.sh
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  SEGMENTOR_PATH=../sam2_checkpoint_dir \
+  USE_MASK=1 \
+  bash sam_3d_body/02_run_inference.sh
 # 5) 只跑 body 解码器(跳过手部细化，更快)
-GPU=0 INPUT_DIR=/path/to/images INFERENCE_TYPE=body bash sam_3d_body/02_run_inference.sh
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  INFERENCE_TYPE=body \
+  bash sam_3d_body/02_run_inference.sh
 ```
 
-- 结果：推理 → `../sam-3d-body/results/<输入夹名>/result/<相对路径>.jpg`（渲染叠加图）+ `mesh/<相对路径>_mesh_<pid>.ply`（每人 3D 网格，可用 [3dviewer.net](https://3dviewer.net) / Blender 打开）+ `npz/<相对路径>.npz`（每人数值输出）。
+- 结果：推理 → `OUTPUT_DIR/result/<相对路径>.jpg`（渲染叠加图）+ `mesh/<相对路径>_mesh_<pid>.ply`（每人 3D 网格，可用 [3dviewer.net](https://3dviewer.net) / Blender 打开）+ `npz/<相对路径>.npz`（每人数值输出）。
 
 ## 首次准备
 ```bash
-cd <your-code-dir>            # e.g. /data_3d/<uid>/code
+# clone 本仓 + proxy.env
+cd <code-dir>
 git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
-cd media_code && cp proxy.env.example proxy.env   # 填 http_proxy / https_proxy
+cd media_code && cp proxy.env.example proxy.env
+# ⚠️ 确认 proxy.env 中 http_proxy / https_proxy 已取消注释
+
+# 建 env + 装依赖（专用 env：detectron2 / networkx==3.2.1 pin 与其他算法冲突，别装进共享 env）
 conda create -n sam_3d_body python=3.11 -y && conda activate sam_3d_body
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-INSTALL_DEPS=1 bash sam_3d_body/00_setup_env.sh          # 装 INSTALL.md 全套依赖
-# ⚠️ 先在 HF 页面 Request access 并建 read token，然后：
-HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh   # 下 SAM 3D Body ckpt + MoGe2 FOV
-```
-⚠️ SAM 3D Body 的 `detectron2 / networkx==3.2.1` 版本 pin 与本仓其他算法冲突，务必用专用 env（`CONDA_ENV=sam_3d_body`），别装进共享的 `doll`。
+INSTALL_DEPS=1 bash sam_3d_body/00_setup_env.sh
 
-或一键（clone + 装依赖 + 下权重 + 跑示例图）：
-```bash
-INSTALL_DEPS=1 HF_TOKEN=hf_xxx bash sam_3d_body/run_all.sh
+# 下权重（⚠️ 先在 HF 页面 Request access 并建 read token）
+HF_TOKEN=hf_xxx bash sam_3d_body/01_download_models.sh
+```
+
+权重目录布局：
+```
+$MODEL_DIR/sam-3d-body/
+├── sam-3d-body-dinov3/      # facebook/sam-3d-body-dinov3 (GATED, 默认)
+│   ├── model.ckpt           # SAM 3D Body 主权重
+│   ├── model_config.yaml    # 模型配置
+│   └── assets/mhr_model.pt  # MHR 资产
+├── sam-3d-body-vith/       # facebook/sam-3d-body-vith (GATED, 可选)
+└── moge-2-vitl-normal/      # Ruicheng/moge-2-vitl-normal (公开, FOV 估计)
 ```
 
 ---
@@ -51,9 +92,22 @@ INSTALL_DEPS=1 HF_TOKEN=hf_xxx bash sam_3d_body/run_all.sh
 
 ```bash
 # 换输出目录 / 换骨干 / 只存渲染图(不要 ply+npz)：
-GPU=0 INPUT_DIR=/path/to/images OUTPUT_DIR=../sam-3d-body/results/runA bash sam_3d_body/02_run_inference.sh
-HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 INPUT_DIR=/path/to/images bash sam_3d_body/02_run_inference.sh
-GPU=0 INPUT_DIR=/path/to/images SAVE_NPZ=0 bash sam_3d_body/02_run_inference.sh
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results/runA \
+  bash sam_3d_body/02_run_inference.sh
+HF_REPO_ID=facebook/sam-3d-body-vith GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  bash sam_3d_body/02_run_inference.sh
+GPU=0 \
+  MODEL_DIR=../../model/sam-3d-body \
+  INPUT_DIR=../data/my_images \
+  OUTPUT_DIR=../sam_3d_body_results \
+  SAVE_NPZ=0 \
+  bash sam_3d_body/02_run_inference.sh
 ```
 
 ## Pipeline（推理流程详解）
@@ -176,7 +230,7 @@ git checkout -- sam_3d_body/*.sh   # git 同步的：.gitattributes 还原 LF
 | var | default | note |
 |---|---|---|
 | `INPUT_DIR` | `../sam-3d-body/notebook/images` | folder of images (walked recursively) |
-| `OUTPUT_DIR` | `../sam-3d-body/results/<input_folder_name>` | writes `result/` + `mesh/` + `npz/` under here |
+| `OUTPUT_DIR` | `../sam_3d_body_results/<input_folder_name>` | writes `result/` + `mesh/` + `npz/` under here（在 media_code 的 sibling，符合路径规范） |
 | `CHECKPOINT_PATH` | `$MODEL_DIR/<repo>/model.ckpt` | SAM 3D Body checkpoint |
 | `MHR_PATH` | `$MODEL_DIR/<repo>/assets/mhr_model.pt` | MHR asset |
 | `FOV_PATH` | `$MODEL_DIR/moge-2-vitl-normal` | MoGe2 local dir (passed to `from_pretrained`) |
@@ -200,15 +254,17 @@ git checkout -- sam_3d_body/*.sh   # git 同步的：.gitattributes 还原 LF
 ├── media_code/                  # 本仓
 │   ├── proxy.env                # 代理 + 覆盖项, gitignored
 │   └── sam_3d_body/             # 编排脚本(本目录)
-├── sam-3d-body/                 # 官方代码(自动 clone 到 ../sam-3d-body)
-└── ../../model/sam-3d-body/     # 权重(在 <code-dir> 上一级, 各算法共享)
-    ├── sam-3d-body-dinov3/      # facebook/sam-3d-body-dinov3 (GATED)
+├── sam-3d-body/                 # 官方代码(自动 clone, sibling of media_code)
+├── sam_3d_body_results/         # 推理输出(result/mesh/npz)
+└── ../model/sam-3d-body/        # 权重(在 <code-dir> 上一级, 各算法共享)
+    ├── sam-3d-body-dinov3/      # facebook/sam-3d-body-dinov3 (GATED, 默认)
     │   ├── model.ckpt           # SAM 3D Body 主权重
     │   ├── model_config.yaml    # 模型配置
     │   └── assets/mhr_model.pt  # MHR 资产
+    ├── sam-3d-body-vith/       # facebook/sam-3d-body-vith (GATED, 可选)
     └── moge-2-vitl-normal/      # Ruicheng/moge-2-vitl-normal (公开, FOV 估计)
 ```
-默认：官方代码 `../sam-3d-body`、权重 `../../model/sam-3d-body`（相对本目录）；用 `SAM3D_DIR` / `MODEL_DIR` 覆盖。复用现有 conda env（默认 `sam_3d_body`），但 SAM 3D Body 的 `detectron2 / networkx==3.2.1` pin 与其他算法冲突——建议专用 env。
+默认：官方代码 `../sam-3d-body`、权重 `../../model/sam-3d-body`、输出 `../sam_3d_body_results`（相对本目录）；用 `SAM3D_DIR` / `MODEL_DIR` / `OUTPUT_DIR` 覆盖。**务必用专用 conda env**（默认 `sam_3d_body`）：`detectron2 / networkx==3.2.1` pin 与其他算法冲突，别装进共享 env。
 
 ## Notes
 - Official code & weights follow their own license (SAM 3D Body = [SAM License](https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE)). This folder only orchestrates; no official code is copied.
