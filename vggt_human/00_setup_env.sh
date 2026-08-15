@@ -38,6 +38,15 @@ SUBMOD_DIR="$GS_DIR/submodules"
 if [ ! -f "$SUBMOD_DIR/diff-gaussian-rasterization/setup.py" ] || \
    [ ! -f "$SUBMOD_DIR/simple-knn/setup.py" ]; then
     echo "  ensuring gaussian-splatting submodules"
+    # Replace gitlab.inria.fr submodule URLs with GitHub mirrors (corporate proxy blocks gitlab.inria.fr)
+    cd "$GS_DIR"
+    if [ -f .gitmodules ]; then
+        git config -f .gitmodules submodule.submodules/simple-knn.url https://github.com/yindaheng98/simple-knn.git
+        git config -f .gitmodules submodule.third_party/glm.url https://github.com/g-truc/glm.git || true
+        git config -f .gitmodules submodule.submodules/SIBR_viewers.url https://github.com/graphdeco-inria/SIBR_viewers.git 2>/dev/null || true
+        git submodule sync
+    fi
+    cd - >/dev/null
     ( cd "$GS_DIR" && LD_LIBRARY_PATH= git submodule update --init --recursive ) || \
         ( cd "$GS_DIR" && LD_LIBRARY_PATH= git -c http.sslVerify=false submodule update --init --recursive ) || true
 
