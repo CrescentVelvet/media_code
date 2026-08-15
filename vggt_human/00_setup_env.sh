@@ -28,10 +28,7 @@ else
     rm -rf "$_new_prefix"
     echo "--- cloning doll -> $CONDA_ENV via cp -a (no network) ---"
     cp -a "$_doll_prefix" "$_new_prefix"
-    # Fix shebangs: replace old doll path with new env path in bin/ scripts
-    # (pip, conda-trim, etc. have #!/.../envs/doll/bin/python hardcoded)
-    find "$_new_prefix/bin" -maxdepth 1 -type f -exec sed -i "s|$_doll_prefix|$_new_prefix|g" {} + 2>/dev/null || true
-    echo "  ✅ copied doll -> $CONDA_ENV (shebangs patched)"
+    echo "  ✅ copied doll -> $CONDA_ENV"
 fi
 
 # Activate the env
