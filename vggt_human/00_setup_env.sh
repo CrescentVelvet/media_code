@@ -1,12 +1,29 @@
 #!/usr/bin/env bash
-# 00_setup_env.sh — clone VGGT-Omega + gaussian-splatting repos, verify torch,
+# 00_setup_env.sh — clone VGGT-Omega + gaussian-splatting + HYPIR repos, verify torch,
 # install deps, compile CUDA extensions (diff-gaussian-rasterization, simple-knn).
-# Reuses the existing `doll` conda env (torch>=2.3); no new env created.
+# Creates `vggt_human` conda env by cloning `doll` (has torch>=2.3); installs HYPIR
+# deps (diffusers/transformers/peft) + mediapipe on top.
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
+
+# Create vggt_human env by cloning doll (if not exists yet)
+if ! conda env list 2>/dev/null | grep -qw "$CONDA_ENV"; then
+    echo "--- creating conda env '$CONDA_ENV' (clone from doll) ---"
+    if ! conda env list 2>/dev/null | grep -qw "doll"; then
+        echo "❌ ERROR: 'doll' env not found. Create it first:" >&2
+        echo "       bash vggt-omega/00_setup_env.sh" >&2
+        exit 1
+    fi
+    conda create -n "$CONDA_ENV" --clone doll -y
+    # Re-activate the freshly created env
+    # shellcheck disable=SC1091
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate "$CONDA_ENV"
+    echo "  ✅ cloned doll -> $CONDA_ENV"
+fi
 
 echo "=== [00] Setup vggt_human env '$CONDA_ENV' ==="
 echo "  VGGT-Omega:  $VGGT_DIR"
@@ -113,10 +130,15 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     pip install "${PIP_FLAGS[@]}" "numpy<2" Pillow einops safetensors opencv-python \
         huggingface_hub
 
-    # 3DGS runtime deps + mediapipe (face detection, step 05)
+    # 3DGS runtime deps + mediapipe (face detection, step 01/06)
     echo "--- installing 3DGS + mediapipe runtime deps ---"
     pip install "${PIP_FLAGS[@]}" plyfile tqdm torchmetrics lpips \
         scipy trimesh matplotlib mediapipe
+
+    # HYPIR deps (face enhancement, step 01/06; diffusers/transformers/peft)
+    echo "--- installing HYPIR deps (diffusers, transformers, peft) ---"
+    pip install "${PIP_FLAGS[@]}" "diffusers==0.32.2" "transformers==4.49.0" "peft==0.14.0" \
+        omegaconf kornia accelerate
 
     # gcc 12 for CUDA ext compilation (pin python=3.10 to prevent GraalPy swap)
     echo "--- installing gcc 12 (for CUDA ext compilation) ---"
@@ -192,6 +214,22 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "         Install CUDA toolkit and re-run: INSTALL_DEPS=1 bash $0" >&2
     fi
 
+    # ── HYPIR repo + SD2 base model (face enhancement, step 01/06) ────────
+    if [ ! -d "$HYPIR_DIR/.git" ]; then
+        echo "--- cloning HYPIR -> $HYPIR_DIR ---"
+        mkdir -p "$(dirname "$HYPIR_DIR")"
+        LD_LIBRARY_PATH= git clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR"
+    fi
+    if [ ! -d "$HYPIR_BASE_MODEL" ]; then
+        echo "--- downloading SD2 base model -> $HYPIR_BASE_MODEL (large, ~5GB) ---"
+        mkdir -p "$HYPIR_MODEL_DIR"
+        LD_LIBRARY_PATH= git clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
+            echo "  ⚠️ SD2 base model download failed. Manual:" >&2
+        echo "    git clone https://huggingface.co/stabilityai/stable-diffusion-2-base $HYPIR_BASE_MODEL" >&2
+    fi
+
     # ── Denoiser models (optional, step 04) ────────────────────────────────
     # Set INSTALL_DENOISER=1 to clone + download weights for DiffBIR / SwinIR.
     if [ "${INSTALL_DENOISER:-0}" = "1" ]; then
@@ -249,6 +287,11 @@ python -c "import diff_gaussian_rasterization, simple_knn; print('  [OK] CUDA ex
 [ -d "$SWINIR_DIR/.git" ] && echo "  [OK] SwinIR code" || \
     echo "  [---] SwinIR (INSTALL_DENOISER=1; needed for DENOISER=swinir)"
 [ -f "$SWINIR_CKPT" ] && echo "  [OK] SwinIR ckpt" || true
+
+# HYPIR (face enhancement, step 01/06)
+[ -d "$HYPIR_DIR/.git" ] && echo "  [OK] HYPIR code" || echo "  [MISS] HYPIR code (INSTALL_DEPS=1)"
+[ -d "$HYPIR_BASE_MODEL" ] && echo "  [OK] SD2 base model" || echo "  [MISS] SD2 base model (INSTALL_DEPS=1)"
+python -c "import mediapipe; print('  [OK] mediapipe')" 2>/dev/null || echo "  [MISS] mediapipe (INSTALL_DEPS=1)"
 
 echo ""
 echo "=== [00] Done. Next:"

@@ -32,7 +32,7 @@ fi
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 # Activate the existing conda env (torch already installed; reuse).
-CONDA_ENV="${CONDA_ENV:-doll}"
+CONDA_ENV="${CONDA_ENV:-vggt_human}"
 export CONDA_ENV
 if ! command -v conda >/dev/null 2>&1; then
     echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
@@ -40,7 +40,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
+conda activate "$CONDA_ENV" 2>/dev/null || true  # env may not exist yet (00 creates it)
 
 # Pin GPU (0-indexed) via GPU=N.
 if [ -n "${GPU:-}" ]; then
@@ -83,7 +83,7 @@ SWINIR_DIR="${SWINIR_DIR:-$REPO_DIR/../SwinIR}"
 SWINIR_REPO="${SWINIR_REPO:-https://github.com/JingyunLiang/SwinIR.git}"
 SWINIR_CKPT="${SWINIR_CKPT:-$WEIGHTS_ROOT/SwinIR/model_gaussian_gray_denoising_blind.pth}"
 
-# HYPIR (face enhancement, step 05; uses hypir conda env via CONDA_ENV=hypir).
+# HYPIR (face enhancement, step 01/06; HYPIR deps installed in vggt_human env).
 HYPIR_DIR="${HYPIR_DIR:-$REPO_DIR/../HYPIR}"
 HYPIR_MODEL_DIR="${HYPIR_MODEL_DIR:-$WEIGHTS_ROOT/HYPIR}"
 HYPIR_BASE_MODEL="${HYPIR_BASE_MODEL:-$HYPIR_MODEL_DIR/sd2_base}"

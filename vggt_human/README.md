@@ -47,7 +47,7 @@ VGGT-Omega 的优势：**实际内参**（不是假设的）+ **置信度过滤*
 GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 
 # 1) 前处理人脸增强 (MediaPipe + HYPIR + 渐变融合, 对原始输入图)
-#    用 hypir conda env; 需先: conda activate hypir && pip install mediapipe
+#    INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh 建好 vggt_human env (含 mediapipe + HYPIR)
 #    HYPIR_WEIGHT 指向 beauty_ppr50k 训练的 checkpoint
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/vggt_human_results \
@@ -135,7 +135,7 @@ GPU=0 \
 
 ## 首次准备
 
-本流程**复用 vggt-omega 的 `doll` conda env**（torch>=2.3，已由 vggt-omega 首次准备建好），不为 vggt_human 单建 env。需要额外 clone 原版 3DGS 仓库 + 编译两个 CUDA 扩展（diff-gaussian-rasterization + simple-knn）。**人脸增强（step 01/06）用 `hypir` conda env**（需先做过 hypir 的首次准备 + 装 mediapipe）。
+本流程**创建 `vggt_human` conda env**（从 `doll` 克隆，继承 torch>=2.3 + 3DGS CUDA 扩展），额外安装 HYPIR 依赖（diffusers/transformers/peft）+ mediapipe。clone 原版 3DGS + HYPIR 仓库 + 编译 CUDA 扩展（diff-gaussian-rasterization + simple-knn）。所有步骤（01-07）共用 `vggt_human` env。
 
 > ⚠️ VGGT-Omega 权重是 gated 仓库，需先通过 `vggt-omega/01_download_models.sh` 下载（申请访问 + HF_TOKEN）。
 
@@ -186,7 +186,7 @@ $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, �
 INPUT_DIR/                           (一组场景图像 / 视频)
     │
     ▼
-[01] 前处理人脸增强 (hypir env) — MediaPipe → HYPIR → 渐变融合
+[01] 前处理人脸增强 (vggt_human env) — MediaPipe → HYPIR → 渐变融合
     │  ├─ MediaPipe BlazeFace → 人脸框 → 放大 20% → 裁剪
     │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图 (upscale=1)
     │  └─ 二次衰减渐变 mask: 中心=增强, 边缘=原图 → 无缝融合
@@ -240,7 +240,7 @@ $RESULTS_DIR/source_aug/
     sparse/0/{cameras,images,points3D}.txt  # 原相机 + 虚拟相机
     │
     ▼
-[06] 后处理人脸增强 (hypir env) — MediaPipe 检测 → HYPIR 美颜 → 渐变融合
+[06] 后处理人脸增强 (vggt_human env) — MediaPipe 检测 → HYPIR 美颜 → 渐变融合
     │  ├─ MediaPipe BlazeFace → 人脸框 → 放大 20% → 裁剪
     │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图
     │  └─ 二次衰减渐变 mask: 中心=增强, 边缘=原图 → 无缝融合
@@ -267,7 +267,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 ### Step 01 — 前处理人脸增强 (`01_face_enhance.sh` → `face_enhance.py`)
 
-**用 `hypir` conda env**。对原始输入图（`INPUT_DIR`）做前处理人脸增强。与 Step 06（后处理）调用**同一个 `face_enhance.py`**，区别是输入：01 对原始图（无 COLMAP 场景），06 对增强 COLMAP 场景中的图。`face_enhance.py` 自动适配输入结构（`images/` 子夹 / `image/` 子夹 / 散图夹）。输出到 `input_face/images/`，作为 Step 02 的输入。
+对原始输入图（`INPUT_DIR`）做前处理人脸增强。与 Step 06（后处理）调用**同一个 `face_enhance.py`**，区别是输入：01 对原始图（无 COLMAP 场景），06 对增强 COLMAP 场景中的图。`face_enhance.py` 自动适配输入结构（`images/` 子夹 / `image/` 子夹 / 散图夹）。输出到 `input_face/images/`，作为 Step 02 的输入。
 
 ### Step 02 — VGGT-Omega 前馈推理 (`02_run_inference.sh` → `run_batch.py`)
 
@@ -305,14 +305,14 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 ### Step 06 — 后处理人脸增强 (`06_face_enhance.sh` → `face_enhance.py`)
 
-**用 `hypir` conda env**（有 diffusers/transformers/peft，通过 `CONDA_ENV=hypir` 自动切换）。对 `source_aug/images/`（或 `source/images/`）中的每张图：
+**用 `vggt_human` env**（有 diffusers/transformers/peft + mediapipe）。对 `source_aug/images/`（或 `source/images/`）中的每张图：
 
 1. **MediaPipe BlazeFace** 检测人脸框 → 放大 `FACE_PADDING`（默认 20%）后裁剪。
 2. **HYPIR 增强**：裁剪图喂给 `SD2Enhancer`（加载 `HYPIR_WEIGHT` 指向的 beauty_ppr50k LoRA checkpoint），`upscale=1`（只增强不超分）。
 3. **渐变融合**：二次衰减 mask（中心=1, 边缘=0）把增强结果无缝融合回原图——中心区域完全用 HYPIR 结果，边缘平滑过渡到原图，避免硬边。
 4. COLMAP `sparse/` 原样复制（只增强图像，不改相机参数）。
 
-> ⚠️ 需先做过 hypir 的首次准备（`hypir/00_setup_env.sh`）+ 在 hypir env 装 mediapipe（`conda activate hypir && pip install mediapipe`）。`HYPIR_WEIGHT` 默认指向 `beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth`，可改。
+> ⚠️ `vggt_human` env 需先通过 `INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh` 建好（从 doll 克隆 + 装 HYPIR 依赖 + mediapipe + clone HYPIR 仓 + 下 SD2 base model）。`HYPIR_WEIGHT` 默认指向 `beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth`，可改。
 
 ### Step 07 — 增强场景训练 (`07_train_denoise.sh`)
 
@@ -477,11 +477,9 @@ GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
 不续训则从头训（增强场景有更多相机，结果通常更好）。
 
 **11. `01/06` 报 `mediapipe not installed` 或 `HYPIR code not found`**
-人脸增强用 `hypir` conda env（不是 doll）。需先做过 hypir 的首次准备，再装 mediapipe：
+`vggt_human` env 未建好或缺少 HYPIR 依赖。运行：
 ```bash
-bash hypir/00_setup_env.sh          # clone HYPIR 仓 + 下 base model
-conda activate hypir
-pip install mediapipe
+INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh   # 从 doll 克隆 + 装 HYPIR 依赖 + mediapipe + clone HYPIR + 下 SD2 base
 GPU=0 bash vggt_human/06_face_enhance.sh
 ```
 
@@ -522,10 +520,10 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │   └── VGGT-Omega/                 # checkpoint (gated HF 下载, 复用 vggt-omega)
 │   ├── DiffBIR/                   # DiffBIR checkpoint (INSTALL_DENOISER=1 下载)
 │   ├── SwinIR/                    # SwinIR checkpoint
-│   └── HYPIR/                     # SD2 base model + beauty LoRA (hypir/01 下载)
+│   └── HYPIR/                     # SD2 base model + beauty LoRA (00 下载)
 ├── DiffBIR/                         # DiffBIR 官方代码 (00 clone, DENOISER=diffbir 时)
 ├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
-├── HYPIR/                           # HYPIR 官方代码 (hypir/00 clone, step 01/06 用)
+├── HYPIR/                           # HYPIR 官方代码 (00 clone, step 01/06 用)
 └── output/vggt_human_results/      # 输出 (repo 外)
     ├── input_face/                 # step 01: 前处理人脸增强后的原始图
     │   └── images/                 #   人脸增强图
@@ -560,7 +558,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 ## Notes
 - Pipeline: VGGT-Omega（前馈位姿+深度）→ COLMAP（格式转换）→ 3DGS（优化训练）。前馈给初始化，优化给质量。
 - **去噪增强（04，可选）**：3DGS 在稀疏视角区域有伪影 → 渲染新视角 → 去噪（DiffBIR/SwinIR 可切换）→ AdaIN 颜色校正 → 虚拟相机加入训练。`DENOISER=none` 关闭去噪。加新去噪模型：在 `denoisers.py` 写一个函数 + 注册到 `DENOISERS` 字典。
-- **人脸增强（05，可选）**：MediaPipe 检测人脸 → HYPIR 美颜增强 → 二次衰减渐变 mask 无缝融合回原图。用 `hypir` conda env（非 doll）。`HYPIR_WEIGHT` 指向 beauty_ppr50k 训练的 LoRA checkpoint。
+- **人脸增强（05，可选）**：MediaPipe 检测人脸 → HYPIR 美颜增强 → 二次衰减渐变 mask 无缝融合回原图。`HYPIR_WEIGHT` 指向 beauty_ppr50k 训练的 LoRA checkpoint。
 - VGGT-Omega 的 `extrinsic` 是 w2c（OpenCV 约定），与 COLMAP 一致——无需 c2w→w2c 转换。`intrinsic` 是模型预测的实际内参——无需假设 fx=fy=max(W,H)。
 - 自适应置信度过滤用 Otsu's method（最大化类间方差），比固定阈值更鲁棒。体素降采样每体素保留最高置信度点。
 - 原版 3DGS 无 distractor filtering（不做微动过滤）。静态场景够用；有微动用 pdfgs_human（PDF-GS）。

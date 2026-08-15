@@ -10,7 +10,7 @@ For each image in the input directory:
      quadratic falloff mask (1 at center, 0 at edges) → seamless transition.
   5. The COLMAP sparse/ directory is copied unchanged (only images are enhanced).
 
-Uses the hypir conda env (has diffusers/transformers/peft for HYPIR).
+Uses the vggt_human conda env (has diffusers/transformers/peft for HYPIR + mediapipe).
 
 Env vars (set by 01_face_enhance.sh or 06_face_enhance.sh):
   HYPIR_DIR, HYPIR_BASE_MODEL, HYPIR_WEIGHT, INPUT_SOURCE_DIR, SOURCE_FACE_DIR,
