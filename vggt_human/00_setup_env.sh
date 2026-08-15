@@ -162,11 +162,13 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     pip install "${PIP_FLAGS[@]}" "diffusers==0.32.2" "transformers==4.49.0" "peft==0.14.0" \
         omegaconf kornia accelerate
 
-    # gcc 12 for CUDA ext compilation (pin python=3.10 to prevent GraalPy swap)
+    # gcc 12 for CUDA ext compilation (pin python=3.10 to prevent GraalPy swap).
+    # --offline: packages already in ~/miniconda3/pkgs/ cache; avoids fetching
+    # repodata.json which fails on corporate proxy SSL.
     echo "--- installing gcc 12 (for CUDA ext compilation) ---"
-    if ! conda install -y -c conda-forge --no-update-deps gxx_linux-64=12 python=3.10; then
+    if ! conda install -y -c conda-forge --offline --no-update-deps gxx_linux-64=12 python=3.10; then
         echo "  ⚠️ --no-update-deps blocked; retrying without it (python=3.10 pinned)" >&2
-        conda install -y -c conda-forge gxx_linux-64=12 python=3.10 || \
+        conda install -y -c conda-forge --offline gxx_linux-64=12 python=3.10 || \
             echo "  ⚠️ gxx install failed; system gcc will be used (may fail)" >&2
     fi
 
