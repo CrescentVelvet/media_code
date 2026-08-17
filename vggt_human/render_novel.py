@@ -242,7 +242,7 @@ def render_novel_views(novel_views):
         FoVx = 2 * math.atan(W / (2 * fx))
         FoVy = 2 * math.atan(H / (2 * fy))
 
-        dummy = torch.zeros(3, H, W)
+        dummy = PILImage.fromarray(np.zeros((H, W, 3), dtype=np.uint8))
         cam = Camera(resolution=(W, H), colmap_id=0, R=R, T=T, FoVx=FoVx, FoVy=FoVy,
                      depth_params=None, image=dummy, invdepthmap=None,
                      image_name=nv["name"], uid=i,
