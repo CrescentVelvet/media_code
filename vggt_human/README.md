@@ -422,6 +422,8 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `GROUNDING_DINO_ID` | `IDEA-Research/grounding-dino-tiny` | GroundingDINO HF model ID |
 | `BOX_THRESHOLD` | `0.3` | GroundingDINO box 置信度阈值 |
 | `TEXT_THRESHOLD` | `0.25` | GroundingDINO text 置信度阈值 |
+| `DYNAMIC_THRESHOLD` | `0.3` | 动态点过滤比率阈值（in_mask/valid > 阈值则移除） |
+| `DYNAMIC_DILATE_PX` | `5` | mask 膨胀像素数（投影前膨胀，避免边缘漏判） |
 | var | default | note |
 | --- | --- | --- |
 | `DENOISER` | `none` | `diffbir` \| `swinir` \| `nafnet` \| `none`（可插拔，见 denoisers.py） |
@@ -564,6 +566,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │       ├── face_enhance.py         # MediaPipe + HYPIR + 渐变融合 (step 01/06)
 │       ├── video_to_frames.py      # 视频抽帧 (step 01a, cv2)
 │       ├── dynamic_mask.py         # 动态物体掩码 (GroundingDINO+SAM2, step 04)
+│       ├── dynamic_filter.py       # 动态点云过滤 (多视角投影投票, step 04)
 │       └── train_pose.py           # 3DGS 训练 wrapper (PoseAdjuster + 动态掩码)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)

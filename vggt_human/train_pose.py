@@ -70,6 +70,8 @@ WHITE_BG = os.environ.get("WHITE_BG", "0") == "1"
 DEVICE = os.environ.get("DEVICE", "cuda")
 ENABLE_DYNAMIC = os.environ.get("ENABLE_DYNAMIC", "1") == "1"
 DYNAMIC_MASK_DIR = os.environ.get("DYNAMIC_MASK_DIR", "")
+DYNAMIC_THRESHOLD = float(os.environ.get("DYNAMIC_THRESHOLD", "0.3"))
+DYNAMIC_DILATE_PX = int(os.environ.get("DYNAMIC_DILATE_PX", "5"))
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif")
 
@@ -161,6 +163,35 @@ def main():
         points = pts_tensor.numpy().astype(np.float32)
     else:
         print("   [3/6] PoseAdjuster: OFF")
+
+    # ── 3b. Dynamic point filtering ──────────────────────────────────────
+    if dynamic_masks is not None:
+        print("✂️ [3b/6] filtering dynamic points (multi-view voting)")
+        from dynamic_filter import filter_dynamic_points
+        # Build camera dicts for projection
+        camera_params_list = []
+        for i, img_info in enumerate(images_info):
+            cam_id = img_info[3]
+            name = img_info[4]
+            _, W, H, params = cameras_info[cam_id]
+            fx, fy, cx, cy = params[0], params[1], params[2], params[3]
+            camera_params_list.append({
+                "R": w2c_r_list[i].float().numpy(),
+                "T": w2c_t_list[i].float().numpy(),
+                "fx": float(fx), "fy": float(fy),
+                "cx": float(cx), "cy": float(cy),
+                "W": int(W), "H": int(H),
+                "image_name": name,
+            })
+        pts_t = torch.tensor(points, dtype=torch.float32, device=DEVICE)
+        cols_t = torch.tensor(colors, dtype=torch.float32, device=DEVICE)
+        pts_t, cols_t = filter_dynamic_points(
+            pts_t, cols_t, camera_params_list, dynamic_masks,
+            threshold=DYNAMIC_THRESHOLD, dilate_px=DYNAMIC_DILATE_PX)
+        points = pts_t.cpu().numpy().astype(np.float32)
+        colors = cols_t.cpu().numpy().clip(0, 255).astype(np.uint8)
+    else:
+        print("   [3b/6] dynamic filter: OFF (no masks)")
 
     # ── 4. Create cameras ──────────────────────────────────────────────────
     print(f"🖼️ [4/6] creating cameras (pose_refine={POSE_REFINE})")
