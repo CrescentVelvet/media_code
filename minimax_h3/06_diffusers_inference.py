@@ -67,9 +67,12 @@ def main():
     manager = ComponentsManager()
     manager.enable_auto_cpu_offload(device=DEVICE)
 
-    # workflow 跟 TASK 一致（t2va / fl2va），不要硬编码 fl2va
-    pipe = ModularPipeline.from_pretrained(MODEL_PATH, workflow=TASK, components_manager=manager)
-    pipe.load_components(dtype=torch.bfloat16)
+    # 文档写法：from_pretrained 不传 workflow（保留所有 blocks），load_components
+    # 传 workflow 只加载该 workflow 的组件（text_encoder 等共享组件才会被加载）。
+    # 如果 from_pretrained 传 workflow + load_components 不传，text_encoder 可能 None。
+    workflow = "fl2va"  # fl2va 覆盖 t2va（t2va 是 fl2va 无 keyframe）
+    pipe = ModularPipeline.from_pretrained(MODEL_PATH, components_manager=manager)
+    pipe.load_components(workflow=workflow, dtype=torch.bfloat16)
     print("  ✅ pipeline loaded")
 
     generator = torch.Generator().manual_seed(SEED)
