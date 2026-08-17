@@ -68,6 +68,8 @@ LR_I = float(os.environ.get("POSE_REFINE_LR_I", "1e-4"))
 GRAVITY_PRIOR = os.environ.get("GRAVITY_PRIOR", "0") == "1"
 WHITE_BG = os.environ.get("WHITE_BG", "0") == "1"
 DEVICE = os.environ.get("DEVICE", "cuda")
+ENABLE_DYNAMIC = os.environ.get("ENABLE_DYNAMIC", "1") == "1"
+DYNAMIC_MASK_DIR = os.environ.get("DYNAMIC_MASK_DIR", "")
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif")
 
@@ -108,6 +110,19 @@ def main():
     images_info = parse_images_txt(os.path.join(sparse_dir, "images.txt"))
     points, colors = parse_points3D_txt(os.path.join(sparse_dir, "points3D.txt"))
     print(f"  {len(cameras_info)} cameras, {len(images_info)} images, {len(points)} points")
+
+    # ── 1b. Dynamic mask generation (if enabled) ─────────────────────────
+    dynamic_masks = None
+    if ENABLE_DYNAMIC:
+        print("✂️ [1b/6] generating dynamic masks (GroundingDINO + SAM2/SAM)")
+        from dynamic_mask import generate_dynamic_masks
+        dmask_dir = DYNAMIC_MASK_DIR or os.path.join(GAUSSIAN_DIR, "dynamic_mask")
+        dynamic_masks = generate_dynamic_masks(images_dir, dmask_dir)
+        for name, mask in dynamic_masks.items():
+            ratio = mask.sum() / mask.size * 100
+            print(f"  📊 {name}: {ratio:.1f}% dynamic")
+    else:
+        print("   [1b/6] dynamic mask: OFF (ENABLE_DYNAMIC=0)")
 
     # ── 2. Compute camera params (w2c_r, w2c_t, c2w_t, sight_dir) ──────────
     print("📐 [2/6] computing camera params")

@@ -409,6 +409,19 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `POSE_REFINE_LR_T` | `1e-3` | 平移学习率 |
 | `POSE_REFINE_LR_I` | `1e-4` | 内参学习率 |
 | `GRAVITY_PRIOR` | `0` | `0` = SVD 估计重力方向，`1` = 用 [0,-1,0] |
+
+### Dynamic mask params (step 04, P0-1)
+| var | default | note |
+| --- | --- | --- |
+| `ENABLE_DYNAMIC` | `1` | `1` = 训练前生成动态掩码（GroundingDINO + SAM2/SAM），`0` = 跳过 |
+| `DYNAMIC_MASK_DIR` | `$GAUSSIAN_DIR/dynamic_mask` | 动态掩码 debug 输出目录 |
+| `SAM2_MODEL_PATH` | `$MODEL_DIR/sam2` | SAM2 checkpoint 目录或 .pt 文件 |
+| `SAM2_CONFIG` | `configs/sam2.1/sam2.1_hiera_large.yaml` | SAM2 config yaml |
+| `SAM2_DIR` | _(unset)_ | sam2 仓目录（用于 config 路径解析） |
+| `SAM_MODEL_ID` | `facebook/sam-vit-base` | SAM 回退的 HF model ID |
+| `GROUNDING_DINO_ID` | `IDEA-Research/grounding-dino-tiny` | GroundingDINO HF model ID |
+| `BOX_THRESHOLD` | `0.3` | GroundingDINO box 置信度阈值 |
+| `TEXT_THRESHOLD` | `0.25` | GroundingDINO text 置信度阈值 |
 | var | default | note |
 | --- | --- | --- |
 | `DENOISER` | `none` | `diffbir` \| `swinir` \| `nafnet` \| `none`（可插拔，见 denoisers.py） |
@@ -549,7 +562,9 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │       ├── denoise_images.py       # 去噪 + AdaIN + 增强COLMAP (stage 2 of 05)
 │       ├── denoisers.py            # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
 │       ├── face_enhance.py         # MediaPipe + HYPIR + 渐变融合 (step 01/06)
-│       └── video_to_frames.py      # 视频抽帧 (step 01a, cv2)
+│       ├── video_to_frames.py      # 视频抽帧 (step 01a, cv2)
+│       ├── dynamic_mask.py         # 动态物体掩码 (GroundingDINO+SAM2, step 04)
+│       └── train_pose.py           # 3DGS 训练 wrapper (PoseAdjuster + 动态掩码)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)
 │   ├── submodules/
