@@ -67,8 +67,8 @@ def main():
     manager = ComponentsManager()
     manager.enable_auto_cpu_offload(device=DEVICE)
 
-    # fl2va workflow 覆盖 t2va（t2va 是 fl2va 无 keyframe）
-    pipe = ModularPipeline.from_pretrained(MODEL_PATH, workflow="fl2va", components_manager=manager)
+    # workflow 跟 TASK 一致（t2va / fl2va），不要硬编码 fl2va
+    pipe = ModularPipeline.from_pretrained(MODEL_PATH, workflow=TASK, components_manager=manager)
     pipe.load_components(dtype=torch.bfloat16)
     print("  ✅ pipeline loaded")
 
