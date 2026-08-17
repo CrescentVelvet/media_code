@@ -26,8 +26,7 @@ FIRST_FRAME=https://example.com/subject.png \
 bash minimax_h3/08_context_ir.sh
 
 # ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
-# 两卡分拆：text_encoder 放 cuda:1，rest（transformer/vae）放 cuda:0
-# 文生视频
+# 文生视频（两卡分拆：text_encoder 放 cuda:1，rest（transformer/vae）放 cuda:0）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
