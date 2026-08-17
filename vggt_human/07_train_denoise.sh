@@ -99,12 +99,17 @@ if [ -n "${TRAIN_EXTRA_ARGS:-}" ]; then
     TRAIN_FLAGS+=($TRAIN_EXTRA_ARGS)
 fi
 
-# Use wrapper with pose optimization, or standard train.py
-if [ "${POSE_ADJUST:-0}" = "1" ] || [ "${POSE_REFINE:-0}" = "1" ]; then
-    echo "🏋️ using train_pose.py (POSE_ADJUST=$POSE_ADJUST POSE_REFINE=$POSE_REFINE)"
+# Use wrapper (train_pose.py) when any enhancement is enabled, else standard train.py
+if [ "${POSE_ADJUST:-0}" = "1" ] || [ "${POSE_REFINE:-0}" = "1" ] || \
+   [ "${ENABLE_DYNAMIC_MASK:-0}" = "1" ] || [ "${ENABLE_DYNAMIC_FILTER:-0}" = "1" ] || \
+   [ "${ENABLE_MLP_DYNAMIC:-0}" = "1" ] || [ "${USE_DEPTH_NORMAL:-0}" = "1" ]; then
+    echo "🏋️ using train_pose.py (pose=$POSE_ADJUST/$POSE_REFINE dyn=$ENABLE_DYNAMIC_MASK/$ENABLE_DYNAMIC_FILTER/$ENABLE_MLP_DYNAMIC dn=$USE_DEPTH_NORMAL)"
     export SOURCE_DIR="$SOURCE_AUG_DIR" GAUSSIAN_DIR="$GAUSSIAN_DENOISE_DIR" ITERATIONS SH_DEGREE WHITE_BG RES DEVICE
     export POSE_ADJUST POSE_REFINE REFINE_INTRINSIC POSE_REFINE_WEIGHT
     export POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_LR_I GRAVITY_PRIOR
+    export ENABLE_DYNAMIC_MASK ENABLE_DYNAMIC_FILTER ENABLE_MLP_DYNAMIC
+    export USE_DEPTH_NORMAL DEPTH_NORMAL_WEIGHT
+    export DYNAMIC_MASK_DIR DYNAMIC_THRESHOLD DYNAMIC_DILATE_PX DINO_MODEL_PATH SAM2_MODEL_PATH
     ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_pose.py" )
 else
     ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )

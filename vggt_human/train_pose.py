@@ -68,7 +68,9 @@ LR_I = float(os.environ.get("POSE_REFINE_LR_I", "1e-4"))
 GRAVITY_PRIOR = os.environ.get("GRAVITY_PRIOR", "0") == "1"
 WHITE_BG = os.environ.get("WHITE_BG", "0") == "1"
 DEVICE = os.environ.get("DEVICE", "cuda")
-ENABLE_DYNAMIC = os.environ.get("ENABLE_DYNAMIC", "1") == "1"
+ENABLE_DYNAMIC_MASK = os.environ.get("ENABLE_DYNAMIC_MASK", "1") == "1"
+ENABLE_DYNAMIC_FILTER = os.environ.get("ENABLE_DYNAMIC_FILTER", "1") == "1"
+ENABLE_MLP_DYNAMIC = os.environ.get("ENABLE_MLP_DYNAMIC", "1") == "1"
 DYNAMIC_MASK_DIR = os.environ.get("DYNAMIC_MASK_DIR", "")
 DYNAMIC_THRESHOLD = float(os.environ.get("DYNAMIC_THRESHOLD", "0.3"))
 DYNAMIC_DILATE_PX = int(os.environ.get("DYNAMIC_DILATE_PX", "5"))
@@ -118,7 +120,7 @@ def main():
 
     # ── 1b. Dynamic mask generation (if enabled) ─────────────────────────
     dynamic_masks = None
-    if ENABLE_DYNAMIC:
+    if ENABLE_DYNAMIC_MASK:
         print("✂️ [1b/6] generating dynamic masks (GroundingDINO + SAM2/SAM)")
         from dynamic_mask import generate_dynamic_masks
         dmask_dir = DYNAMIC_MASK_DIR or os.path.join(GAUSSIAN_DIR, "dynamic_mask")
@@ -127,7 +129,7 @@ def main():
             ratio = mask.sum() / mask.size * 100
             print(f"  📊 {name}: {ratio:.1f}% dynamic")
     else:
-        print("   [1b/6] dynamic mask: OFF (ENABLE_DYNAMIC=0)")
+        print("   [1b/6] dynamic mask: OFF (ENABLE_DYNAMIC_MASK=0)")
 
     # ── 2. Compute camera params (w2c_r, w2c_t, c2w_t, sight_dir) ──────────
     print("📐 [2/6] computing camera params")
@@ -168,7 +170,7 @@ def main():
         print("   [3/6] PoseAdjuster: OFF")
 
     # ── 3b. Dynamic point filtering ──────────────────────────────────────
-    if dynamic_masks is not None:
+    if ENABLE_DYNAMIC_FILTER and dynamic_masks is not None:
         print("✂️ [3b/6] filtering dynamic points (multi-view voting)")
         from dynamic_filter import filter_dynamic_points
         # Build camera dicts for projection
@@ -259,7 +261,7 @@ def main():
     features_fine = None
     features_coarse = None
     historical_hist = None
-    if ENABLE_DYNAMIC:
+    if ENABLE_MLP_DYNAMIC:
         print("🧠 [5b/6] initializing DINOv2 + MLP (online dynamic mask learning)")
         from noise_negating import nn_initial
         mlp_model, mlp_optimizer, feature_extractor, \
@@ -270,6 +272,8 @@ def main():
     print(f"🚀 [6/6] training: {ITERATIONS} iters, {len(train_cameras)} cams")
     print(f"  pose_adjust={POSE_ADJUST} pose_refine={POSE_REFINE} "
           f"refine_intrinsic={REFINE_INTRINSIC} weight={POSE_REFINE_WEIGHT}")
+    print(f"  dyn_mask={ENABLE_DYNAMIC_MASK} dyn_filter={ENABLE_DYNAMIC_FILTER} "
+          f"mlp_dynamic={ENABLE_MLP_DYNAMIC} depth_normal={USE_DEPTH_NORMAL}")
 
     bg = torch.ones(3, device=DEVICE) if WHITE_BG else torch.zeros(3, device=DEVICE)
     pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False)
@@ -306,7 +310,7 @@ def main():
         gt = viewpoint_cam.original_image
 
         mask_mlp = None
-        if ENABLE_DYNAMIC:
+        if ENABLE_MLP_DYNAMIC:
             from noise_negating import nn_loss, mlp_update
             epoch_idx = iteration // (len(train_cameras) or 1)
             loss, mask_mlp = nn_loss(
@@ -337,7 +341,7 @@ def main():
             viewpoint_cam.pose_optimizer.zero_grad(set_to_none=True)
 
         # MLP online update (after 3DGS optimizer step)
-        if ENABLE_DYNAMIC:
+        if ENABLE_MLP_DYNAMIC:
             mlp_update(
                 epoch_idx, viewpoint_cam, mlp_model, mask_mlp,
                 mlp_optimizer, features_fine, features_coarse,
@@ -370,7 +374,7 @@ def main():
             print(f"  [iter {iteration}] ✅ saved PLY")
 
         if iteration % 1000 == 0:
-            if ENABLE_DYNAMIC and mask_mlp is not None:
+            if ENABLE_MLP_DYNAMIC and mask_mlp is not None:
                 dyn_pct = mask_mlp.mean().item() * 100
                 print(f"  [iter {iteration}/{ITERATIONS}] loss={loss.item():.4f} dyn={dyn_pct:.1f}%")
             else:

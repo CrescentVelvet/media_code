@@ -410,10 +410,12 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `POSE_REFINE_LR_I` | `1e-4` | 内参学习率 |
 | `GRAVITY_PRIOR` | `0` | `0` = SVD 估计重力方向，`1` = 用 [0,-1,0] |
 
-### Dynamic mask params (step 04, P0-1)
+### Dynamic mask & filtering & MLP params (step 04, P0-1/P0-2/P0-3, independently toggleable)
 | var | default | note |
 | --- | --- | --- |
-| `ENABLE_DYNAMIC` | `1` | `1` = 训练前生成动态掩码（GroundingDINO + SAM2/SAM），`0` = 跳过 |
+| `ENABLE_DYNAMIC_MASK` | `1` | `1` = 训练前生成动态掩码（GroundingDINO + SAM2/SAM），`0` = 跳过 |
+| `ENABLE_DYNAMIC_FILTER` | `1` | `1` = 过滤动态点云（多视角投影投票），`0` = 跳过（需 MASK 先开） |
+| `ENABLE_MLP_DYNAMIC` | `1` | `1` = DINOv2+MLP 在线动态掩码学习 + 动态感知损失，`0` = 标准 L1+SSIM |
 | `DYNAMIC_MASK_DIR` | `$GAUSSIAN_DIR/dynamic_mask` | 动态掩码 debug 输出目录 |
 | `SAM2_MODEL_PATH` | `$MODEL_DIR/sam2` | SAM2 checkpoint 目录或 .pt 文件 |
 | `SAM2_CONFIG` | `configs/sam2.1/sam2.1_hiera_large.yaml` | SAM2 config yaml |
@@ -696,5 +698,10 @@ GPU=0 SOURCE_DIR=$RESULTS_DIR/orbit_pose/pi3/source_adjusted \
 | vggt_human 关闭位姿优化 | `POSE_ADJUST=0 POSE_REFINE=0 bash ...04_train_3dgs.sh` |
 | vggt_human 只做训练前变换（不学内参） | `POSE_ADJUST=1 POSE_REFINE=0 bash ...04_train_3dgs.sh` |
 | vggt_human 全开 + 学内参 | `POSE_ADJUST=1 POSE_REFINE=1 REFINE_INTRINSIC=1 bash ...04_train_3dgs.sh` |
+| 关闭全部增强（等价原始 3DGS） | `POSE_ADJUST=0 POSE_REFINE=0 ENABLE_DYNAMIC_MASK=0 ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh` |
+| 只开动态掩码（P0-1） | `ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh` |
+| 只开动态点过滤（P0-1+P0-2） | `ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh` |
+| 只开 MLP 动态感知（P0-1+P0-3） | `ENABLE_DYNAMIC_FILTER=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh` |
+| 只开深度-法线约束（P1-1） | `ENABLE_DYNAMIC_MASK=0 ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 bash ...04_train_3dgs.sh` |
 | pdfgs_human 关闭 | 不跑 02b，直接 02→03 |
 | pdfgs_human 开启 | 跑 02→02b→03（换 SOURCE_DIR 指向 source_adjusted） |
