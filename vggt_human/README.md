@@ -46,9 +46,20 @@ VGGT-Omega 的优势：**实际内参**（不是假设的）+ **置信度过滤*
 # GPU=0 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 
+# 1a) 视频 → 图像夹 (抽帧, 喂给 01; 视频输入用, 不影响图像输入的原流程)
+#     INPUT_DIR 指向单个视频文件, 输出一夹散图 (000000.png, ...) 兼容 01 的 INPUT_DIR
+GPU=0 \
+  INPUT_DIR=../data/test.mp4 \
+  OUTPUT_DIR=../../output/vggt_human_results/input_frames \
+  VIDEO_FPS=2 \
+  bash vggt_human/01a_video_to_frames.sh
+
+# 输出：<RESULTS_DIR>/input_frames/  # 抽帧后的散图
+
 # 1) 前处理人脸增强 (MediaPipe + HYPIR + 渐变融合, 对原始输入图)
 #    INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh 建好 vggt_human env (含 mediapipe + HYPIR)
 #    HYPIR_WEIGHT 指向 beauty_ppr50k 训练的 checkpoint
+#    视频输入: 先跑 01a 抽帧, INPUT_DIR 指向 01a 的输出 (input_frames)
 GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
   RESULTS_DIR=../../output/vggt_human_results \
   bash vggt_human/01_face_enhance.sh
@@ -69,22 +80,6 @@ INPUT_DIR=../../output/vggt_human_results/input_face \
 #   scene.ply          # 置信度过滤后的彩色点云 (供检查)
 #   frames/            # 喂给模型的图 (复制/抽帧)
 
-# 2a) 单个视频 → VGGT-Omega 重建 + COLMAP (快速测视频用, 不影响原流程)
-#     INPUT_DIR 指向一个视频文件 (.mp4/.mov/.avi/.mkv)
-#     输出 predictions.npz + scene.ply + source/ (COLMAP), 自包含在 <scene>/ 子夹
-#     默认 VIDEO_FPS=2 (02 的 1fps 太稀), SKIP_COLMAP=1 可只跑推理看 scene.ply
-GPU=0 \
-  INPUT_DIR=../data/test.mp4 \
-  MODEL_DIR=../../model/VGGT-Omega \
-  RESULTS_DIR=../../output/vggt_human_results \
-  VIDEO_FPS=2 \
-  bash vggt_human/02a_run_video.sh
-
-# 输出：<RESULTS_DIR>/vggt/<scene>/
-#   predictions.npz   # 同 02
-#   scene.ply          # 点云 (MeshLab/SuperSplat 查看)
-#   frames/            # 抽帧
-#   source/            # COLMAP 场景 (images + sparse/0/, 02a 独有, 不与 03 冲突)
 # 3) npz -> COLMAP 转换 (自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐)
 GPU=0 \
   TARGET_POINTS=200000 \
@@ -204,6 +199,8 @@ $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, �
 INPUT_DIR/                           (一组场景图像 / 视频)
     │
     ▼
+[01a] 视频抽帧 (可选, 视频输入用) — cv2 按 VIDEO_FPS 抽帧 -> 散图夹
+    ▼
 [01] 前处理人脸增强 (vggt_human env) — MediaPipe → HYPIR → 渐变融合
     │  ├─ MediaPipe BlazeFace → 人脸框 → 放大 20% → 裁剪
     │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图 (upscale=1)
@@ -283,6 +280,10 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 需要 gcc 12（conda install gxx_linux-64=12 python=3.10）+ CUDA toolkit（nvcc）。00 自动检测 CUDA 版本与 torch 匹配，不匹配时自动找 `cuda-12.x`。
 
+### Step 01a — 视频 → 图像夹 (`01a_video_to_frames.sh` → `video_to_frames.py`)
+
+视频输入预处理：将单个视频文件（`.mp4/.mov/.avi/.mkv`）按 `VIDEO_FPS`（默认 2）抽帧成散图夹（`000000.png`、`000001.png`、…）。输出夹直接兼容 01 的 `INPUT_DIR`（`face_enhance.py` 自动检测散图夹）。所以视频输入走 `01a → 01 → 02 → 03 → 04` 全链路，原流程一行不改。用 cv2 抽帧（与 `run_batch.py` 的 `extract_frames` 同逻辑）。
+
 ### Step 01 — 前处理人脸增强 (`01_face_enhance.sh` → `face_enhance.py`)
 
 对原始输入图（`INPUT_DIR`）做前处理人脸增强。与 Step 06（后处理）调用**同一个 `face_enhance.py`**，区别是输入：01 对原始图（无 COLMAP 场景），06 对增强 COLMAP 场景中的图。`face_enhance.py` 自动适配输入结构（`images/` 子夹 / `image/` 子夹 / 散图夹）。输出到 `input_face/images/`，作为 Step 02 的输入。
@@ -292,10 +293,6 @@ $RESULTS_DIR/model_3dgs_denoise/
 复用 vggt-omega 的 `run_batch.py`（副本）。模型加载一次，循环场景。`INPUT_DIR` 支持图像文件夹 / 视频 / 场景文件夹（批量）。每个场景产出 `predictions.npz`（extrinsic w2c + intrinsic + world_points + depth_conf + images，与官方 demo 同 keys）+ `scene.ply` + `frames/`。
 
 > VGGT-Omega 的 `extrinsic` 是 **w2c**（world-to-camera [R | t]，OpenCV 约定），与 COLMAP 格式一致——无需 c2w→w2c 转换（Pi3 输出 c2w 需要转）。`intrinsic` 是模型预测的**实际内参**（不是 Pi3 假设的 fx=fy=max(W,H)）。
-
-### Step 02a — 单视频 → VGGT-Omega 重建 + COLMAP (`02a_run_video.sh`，快速测视频用)
-
-02 的单视频测试变体。`INPUT_DIR` 指向一个视频文件（`.mp4/.mov/.avi/.mkv`）。Stage 1 跑 `run_batch.py`（同 02）抽帧 + 推理；Stage 2 对该场景跑 `npz_to_colmap.py`，COLMAP 输出到 `$VGGT_OUTPUT_DIR/<scene>/source/`（与 predictions.npz 同级，**不与 03 的 `$RESULTS_DIR/source/` 冲突**）。Stage 2 设 `POSE_ADJUST=0` 使 ALIGN 生效（居中场景到原点，便于查看），因为无后续 04 的 PoseAdjuster。`SKIP_COLMAP=1` 跳过 Stage 2（只看 scene.ply）。`VIDEO_FPS` 默认 2（02 的 1fps 对视频太稀）。不影响原 01→02→03→04 流程。
 
 ### Step 03 — npz → COLMAP 转换 (`03_npz_to_colmap.sh` → `npz_to_colmap.py`)
 
@@ -372,13 +369,12 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `MAX_POINTS` | `2000000` | scene.ply 点数上限 |
 | `VIDEO_FPS` | `1` | 视频输入抽帧 fps |
 
-### Step 02a params (single video test)
+### Step 01a params (video → frames)
 | var | default | note |
 | --- | --- | --- |
-| `VIDEO_FPS` | `2` | 抽帧 fps（02 的 1 对视频太稀，02a 默认 2） |
-| `SKIP_COLMAP` | `0` | `1` = 只跑推理（看 scene.ply），跳过 npz→COLMAP |
-| `TARGET_POINTS` | `200000` | COLMAP 体素降采样目标点数 |
-| `VGGT_OUTPUT_DIR` | `$RESULTS_DIR/vggt` | 输出根（场景子夹含 source/） |
+| `INPUT_DIR` | _(required)_ | 单个视频文件路径 (.mp4/.mov/.avi/.mkv) |
+| `OUTPUT_DIR` | `$RESULTS_DIR/input_frames` | 抽帧输出夹（散图，兼容 01 的 INPUT_DIR） |
+| `VIDEO_FPS` | `2` | 抽帧 fps |
 
 ### Step 03 params
 | var | default | note |
@@ -536,9 +532,9 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │   └── vggt_human/                  # ← 本目录（编排脚本）
 │       ├── _env.sh                 # 共享: 代理 + CA + conda + GPU + paths
 │       ├── 00_setup_env.sh        # clone 3DGS 仓 + 装依赖 + 编 CUDA 扩展
+│       ├── 01a_video_to_frames.sh # 视频 → 图像夹 (抽帧, 喂给 01; 视频输入用)
 │       ├── 01_face_enhance.sh      # 前处理: MediaPipe+HYPIR 人脸增强 (原始输入图)
 │       ├── 02_run_inference.sh     # VGGT-Omega 前馈推理
-│       ├── 02a_run_video.sh        # 单视频 → VGGT-Omega + COLMAP (快速测视频, 不影响原流程)
 │       ├── 03_npz_to_colmap.sh     # npz -> COLMAP 转换
 │       ├── 04_train_3dgs.sh        # 原版 3DGS 训练 + 渲染
 │       ├── 05_denoise_novel.sh     # 渲染新视角 → 去噪 → AdaIN → 增强COLMAP
@@ -549,7 +545,8 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │       ├── render_novel.py         # 3DGS 渲染新视角 (stage 1 of 05)
 │       ├── denoise_images.py       # 去噪 + AdaIN + 增强COLMAP (stage 2 of 05)
 │       ├── denoisers.py            # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
-│       └── face_enhance.py         # MediaPipe + HYPIR + 渐变融合 (step 01/06)
+│       ├── face_enhance.py         # MediaPipe + HYPIR + 渐变融合 (step 01/06)
+│       └── video_to_frames.py      # 视频抽帧 (step 01a, cv2)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)
 │   ├── submodules/
@@ -566,6 +563,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 ├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
 ├── HYPIR/                           # HYPIR 官方代码 (00 clone, step 01/06 用)
 └── output/vggt_human_results/      # 输出 (repo 外)
+    ├── input_frames/               # step 01a: 视频抽帧后的散图 (可选, 视频输入用)
     ├── input_face/                 # step 01: 前处理人脸增强后的原始图
     │   └── images/                 #   人脸增强图
     ├── vggt/<scene>/               # step 02: VGGT-Omega 推理

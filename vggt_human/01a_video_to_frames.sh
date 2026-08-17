@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# 01a_video_to_frames.sh — Video → image folder (frames), to feed into 01_face_enhance.sh.
+#
+# Preprocessing step before 01: extracts frames from a single video at VIDEO_FPS
+# into a folder of loose PNGs (000000.png, 000001.png, ...). The output folder is
+# directly compatible with 01's INPUT_DIR (face_enhance.py auto-detects loose images).
+# So the full pipeline works unchanged:
+#   01a (video -> frames) -> 01 (face enhance) -> 02 (VGGT-Omega) -> 03 (COLMAP) -> 04 (3DGS)
+#
+# Env (all optional, defaults shown):
+#   INPUT_DIR=             # single video file (.mp4/.mov/.avi/.mkv), required
+#   RESULTS_DIR=           # output root
+#   OUTPUT_DIR=             # frames output (default: $RESULTS_DIR/input_frames)
+#   VIDEO_FPS=2            # frame sampling fps
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
+
+INPUT_DIR="${INPUT_DIR:-}"
+OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/input_frames}"
+VIDEO_FPS="${VIDEO_FPS:-2}"
+
+echo "🎬 [01a] Video → image folder (frames)"
+echo "  🎬 input video: $INPUT_DIR"
+echo "  💾 output:      $OUTPUT_DIR"
+echo "  📐 video_fps:   $VIDEO_FPS"
+echo ""
+
+if [ -z "$INPUT_DIR" ]; then
+    echo "❌ ERROR: INPUT_DIR not set (expect a video file path)" >&2
+    exit 1
+fi
+if [ ! -f "$INPUT_DIR" ]; then
+    echo "❌ ERROR: video not found: $INPUT_DIR" >&2
+    exit 1
+fi
+
+export INPUT_DIR OUTPUT_DIR VIDEO_FPS
+python "$SCRIPT_DIR/video_to_frames.py"
+if [ $? -ne 0 ]; then
+    echo "❌ FAILED" >&2
+    exit 1
+fi
+
+echo ""
+echo "✅ [01a] Done. Frames in: $OUTPUT_DIR"
+echo "  Next: GPU=0 INPUT_DIR=$OUTPUT_DIR bash $SCRIPT_DIR/01_face_enhance.sh"
