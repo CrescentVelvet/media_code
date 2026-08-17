@@ -222,7 +222,7 @@ def render_novel_views(novel_views):
     gaussians.load_ply(ply_path)
     gaussians.active_sh_degree = sh_degree
 
-    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False)
+    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False, debug=False)
     bg_black = torch.zeros(3, device=DEVICE)
     bg_white = torch.ones(3, device=DEVICE)
 
