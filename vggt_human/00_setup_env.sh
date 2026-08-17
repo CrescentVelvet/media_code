@@ -214,7 +214,15 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
 
         _DGR="$SUBMOD_DIR/diff-gaussian-rasterization"
         if [ -f "$_DGR/setup.py" ] || [ -f "$_DGR/pyproject.toml" ]; then
-            echo "  building CUDA ext: diff-gaussian-rasterization (main branch, original 3DGS)"
+            # Switch to dr_aa branch (antialiasing support; gaussian_renderer uses
+            # antialiasing=pipe.antialiasing which only exists on dr_aa, not main).
+            _cur_branch="$(cd "$_DGR" && git branch --show-current 2>/dev/null || echo '')"
+            if [ "$_cur_branch" != "dr_aa" ]; then
+                echo "  switching diff-gaussian-rasterization: '$_cur_branch' -> 'dr_aa'"
+                ( cd "$_DGR" && LD_LIBRARY_PATH= git checkout dr_aa ) || \
+                    echo "  ⚠️ checkout dr_aa failed" >&2
+            fi
+            echo "  building CUDA ext: diff-gaussian-rasterization (dr_aa branch, antialiasing)"
             rm -rf "$_DGR/build" "$_DGR/dist" "$_DGR"/*.egg-info
             # GLM symlink: diff-gaussian-rasterization's third_party/glm may be empty
             if [ ! -f "$_DGR/third_party/glm/glm/glm.hpp" ] && [ -f "$GS_DIR/third_party/glm/glm/glm.hpp" ]; then
