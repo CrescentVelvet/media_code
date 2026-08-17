@@ -73,6 +73,8 @@ DYNAMIC_MASK_DIR = os.environ.get("DYNAMIC_MASK_DIR", "")
 DYNAMIC_THRESHOLD = float(os.environ.get("DYNAMIC_THRESHOLD", "0.3"))
 DYNAMIC_DILATE_PX = int(os.environ.get("DYNAMIC_DILATE_PX", "5"))
 DINO_MODEL_PATH = os.environ.get("DINO_MODEL_PATH", "")
+USE_DEPTH_NORMAL = os.environ.get("USE_DEPTH_NORMAL", "1") == "1"
+DEPTH_NORMAL_WEIGHT = float(os.environ.get("DEPTH_NORMAL_WEIGHT", "0.05"))
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif")
 
@@ -243,6 +245,13 @@ def main():
     gaussians.create_from_pcd(pcd, camera_extent)
     gaussians.training_setup(camera_extent)
 
+    # ── 5a. Precompute point cloud normals (if depth-normal enabled) ───
+    point_normals = None
+    if USE_DEPTH_NORMAL:
+        print("📐 [5a/6] estimating point cloud normals (KNN+PCA)")
+        from depth_normal_cons import estimate_point_normals
+        point_normals = estimate_point_normals(pts_t, k=20)
+
     # ── 5b. DINOv2+MLP initialization (if dynamic enabled) ───────────────
     mlp_model = None
     mlp_optimizer = None
@@ -285,7 +294,14 @@ def main():
         gaussians.update_learning_rate(iteration)
         viewpoint_cam = random.choice(train_cameras)
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        # Render (try to get depth if depth-normal is enabled)
+        if USE_DEPTH_NORMAL:
+            try:
+                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, render_depth=True)
+            except TypeError:
+                render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        else:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
         image = render_pkg["render"]
         gt = viewpoint_cam.original_image
 
@@ -299,6 +315,16 @@ def main():
         else:
             loss = (1.0 - lambda_dssim) * l1_loss(image, gt) + \
                    lambda_dssim * (1.0 - ssim(image, gt))
+
+        # Depth-normal consistency loss (if render provides depth)
+        if USE_DEPTH_NORMAL and point_normals is not None \
+                and "render_depth" in render_pkg:
+            from depth_normal_cons import depth_normal_consistency_loss
+            depth_loss = depth_normal_consistency_loss(
+                render_pkg["render_depth"], render_pkg.get("render_normal"),
+                point_normals, gaussians.get_xyz, viewpoint_cam)
+            loss = loss + DEPTH_NORMAL_WEIGHT * depth_loss
+
         if POSE_REFINE:
             loss += POSE_REFINE_WEIGHT * viewpoint_cam.pose_module.reg_loss()
 

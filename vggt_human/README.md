@@ -425,6 +425,8 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `DYNAMIC_THRESHOLD` | `0.3` | 动态点过滤比率阈值（in_mask/valid > 阈值则移除） |
 | `DYNAMIC_DILATE_PX` | `5` | mask 膨胀像素数（投影前膨胀，避免边缘漏判） |
 | `DINO_MODEL_PATH` | `$MODEL_DIR/dinov2` | DINOv2 ViT-S/14 reg checkpoint 目录或 .pth |
+| `USE_DEPTH_NORMAL` | `1` | `1` = 启用深度-法线一致性约束（需 render 支持 render_depth） |
+| `DEPTH_NORMAL_WEIGHT` | `0.05` | 深度-法线一致性 loss 权重 |
 | var | default | note |
 | --- | --- | --- |
 | `DENOISER` | `none` | `diffbir` \| `swinir` \| `nafnet` \| `none`（可插拔，见 denoisers.py） |
@@ -569,6 +571,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │       ├── dynamic_mask.py         # 动态物体掩码 (GroundingDINO+SAM2, step 04)
 │       ├── dynamic_filter.py       # 动态点云过滤 (多视角投影投票, step 04)
 │       ├── noise_negating.py       # DINOv2+MLP 在线动态掩码学习 (step 04, P0-3)
+│       ├── depth_normal_cons.py     # 深度-法线一致性约束 (step 04, P1-1)
 │       └── train_pose.py           # 3DGS 训练 wrapper (PoseAdjuster + 动态掩码)
 ├── vggt-omega/                      # VGGT-Omega 官方代码 (vggt-omega/00 clone)
 ├── gaussian-splatting/             # 原版 3DGS 官方代码 (本目录 00 clone)
