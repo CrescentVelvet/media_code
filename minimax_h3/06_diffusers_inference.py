@@ -52,6 +52,9 @@ def main():
         import math
         n = math.ceil((DURATION * 24 - 5) / 17)
         NUM_FRAMES = 17 * n + 5
+    WIDTH = int(os.environ.get("WIDTH", "0"))   # 宽（0=默认，必须 32 倍数）
+    HEIGHT = int(os.environ.get("HEIGHT", "0"))  # 高（0=默认，必须 32 倍数）
+    FPS = int(os.environ.get("FPS", "24"))       # 输出 mp4 帧率（模型固定 24fps，改只影响 mp4 容器）
     SEED = int(os.environ.get("SEED", "0"))
 
     if not PROMPT and PROMPT_FILE:
@@ -68,6 +71,8 @@ def main():
     print(f"  🖼️ first_frame: {FIRST_FRAME or '(none)'}")
     print(f"  🖼️ last_frame: {LAST_FRAME or '(none)'}")
     print(f"  📐 num_frames: {NUM_FRAMES}")
+    print(f"  🖼️ resolution: {WIDTH or 'auto'}x{HEIGHT or 'auto'}")
+    print(f"  🎬 fps: {FPS}")
     print(f"  🎮 device: {TRANSFORMER_DEVICE} (rest) + {TEXT_ENCODER_DEVICE} (text_encoder)")
 
     import torch
@@ -104,6 +109,10 @@ def main():
     print("🎬 encoding prompt + generating...")
     state = conditioner(prompt=PROMPT)
     rest_kwargs = dict(state=state, num_frames=NUM_FRAMES, generator=generator, output=outputs)
+    if WIDTH > 0:
+        rest_kwargs["width"] = WIDTH
+    if HEIGHT > 0:
+        rest_kwargs["height"] = HEIGHT
     if FIRST_FRAME:
         rest_kwargs["image"] = load_image(FIRST_FRAME)
     if LAST_FRAME:
@@ -115,7 +124,7 @@ def main():
     out_path = os.path.join(OUTPUT_DIR, OUTPUT_NAME)
     encode_video(
         results["videos"][0],
-        fps=24,
+        fps=FPS,
         output_path=out_path,
         audio=results["audio"][0],
         audio_sample_rate=results["sampling_rate"],

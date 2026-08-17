@@ -31,6 +31,8 @@ bash minimax_h3/08_context_ir.sh
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
+WIDTH=1344 HEIGHT=768 FPS=24 \
+DURATION=10 \
 TASK=t2va \
 PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
 OUTPUT_DIR=../MiniMax-H3/results \
