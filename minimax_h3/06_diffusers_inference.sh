@@ -24,14 +24,15 @@ source "$SCRIPT_DIR/_env.sh"
 PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
     --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
 
-# diffusers 需要 ModularPipeline（MiniMax-H3 支持），PyPI 版本可能还没有，
+# diffusers 需要 MiniMax-H3 的 ModularPipeline（minimax_h3 模块），PyPI 版本可能还没有，
 # 先试 PyPI -U，还不行从 git main clone + editable --no-deps 装。
-if ! python -c "from diffusers import ComponentsManager, ModularPipeline" 2>/dev/null; then
-    echo "📦 diffusers too old or missing (need ModularPipeline for MiniMax-H3), installing -U diffusers ---"
+# 注意：检测的是 MiniMax-H3 特定模块，不是通用 ModularPipeline（PyPI 可能有通用类但无 minimax_h3）
+if ! python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline" 2>/dev/null; then
+    echo "📦 diffusers too old or missing MiniMax-H3 module, installing -U diffusers ---"
     python -m pip install "${PIP_FLAGS[@]}" -U diffusers
 fi
-if ! python -c "from diffusers import ModularPipeline" 2>/dev/null; then
-    echo "📦 PyPI diffusers still no ModularPipeline — cloning git main + editable install (--no-deps) ---"
+if ! python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline" 2>/dev/null; then
+    echo "📦 PyPI diffusers still no MiniMax-H3 module — cloning git main + editable install (--no-deps) ---"
     DIFFUSERS_SRC="${DIFFUSERS_SRC:-/tmp/diffusers-src}"
     if [ ! -d "$DIFFUSERS_SRC/src/diffusers" ]; then
         LD_LIBRARY_PATH= git clone --depth 1 https://github.com/huggingface/diffusers.git "$DIFFUSERS_SRC" || \
@@ -44,10 +45,10 @@ if ! python -c "from diffusers import ModularPipeline" 2>/dev/null; then
         echo "❌ clone diffusers failed" >&2; exit 1
     fi
 fi
-if ! python -c "from diffusers import ComponentsManager, ModularPipeline" 2>/dev/null; then
-    echo "❌ diffusers still no ModularPipeline after install" >&2; exit 1
+if ! python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline" 2>/dev/null; then
+    echo "❌ diffusers still no MiniMax-H3 module after install" >&2; exit 1
 fi
-echo "✅ diffusers ModularPipeline ok"
+echo "✅ diffusers MiniMax-H3 module ok"
 
 python "$SCRIPT_DIR/06_diffusers_inference.py"
 if [ $? -ne 0 ]; then
