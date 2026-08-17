@@ -202,7 +202,7 @@ def main():
           f"refine_intrinsic={REFINE_INTRINSIC} weight={POSE_REFINE_WEIGHT}")
 
     bg = torch.ones(3, device=DEVICE) if WHITE_BG else torch.zeros(3, device=DEVICE)
-    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False)
+    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False)
 
     densify_from = 500
     densify_until = 15000
