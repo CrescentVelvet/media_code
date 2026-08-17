@@ -262,8 +262,8 @@ $RESULTS_DIR/model_3dgs_denoise/
 ### Step 00 — clone 仓 + 装依赖 + 编 CUDA 扩展 (`00_setup_env.sh`)
 
 复用 `doll` conda env（torch>=2.3 预装）。clone 两个官方仓：VGGT-Omega（vggt-omega/00 已 clone，本步确认存在）+ gaussian-splatting（含 submodules）。编译两个 CUDA 扩展：
-- **diff-gaussian-rasterization**：3DGS 光栅化器（main 分支，原版无 antialiasing）
-- **simple-knn**：KNN 查询（gitlab.inria.fr 可能被公司代理封，00 自动 fallback 到 GitHub 镜像）
+- **diff-gaussian-rasterization**：3DGS 光栅化器（dr_aa 分支，antialiasing）
+- **simple-knn**：KNN 查询（gitlab.inria.fr 被 .gitmodules 替换为 GitHub 镜像）
 
 需要 gcc 12（conda install gxx_linux-64=12 python=3.10）+ CUDA toolkit（nvcc）。00 自动检测 CUDA 版本与 torch 匹配，不匹配时自动找 `cuda-12.x`。
 
@@ -327,7 +327,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 | --- | --- | --- |
 | `INPUT_DIR` | `../vggt-omega/examples` | 图像文件夹 / 视频 / 场景文件夹（见 Step 01） |
 | `GPU` | _(unset)_ | physical GPU id, e.g. `GPU=0` |
-| `CONDA_ENV` | `doll` | conda env（torch>=2.3 预装；复用不重下 torch） |
+| `CONDA_ENV` | `vggt_human` | conda env（从 doll 克隆，含 3DGS + HYPIR + mediapipe） |
 | `VGGT_DIR` | `../vggt-omega` | VGGT-Omega 官方代码 |
 | `GS_DIR` | `../gaussian-splatting` | 原版 3DGS 官方代码（00 clone） |
 | `MODEL_DIR` | `../../model/VGGT-Omega` | VGGT-Omega checkpoint（gated） |
@@ -371,7 +371,17 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `SKIP_METRICS` | `1` | `1` = 跳过 PSNR/SSIM/LPIPS |
 | `TRAIN_EXTRA_ARGS` | _(empty)_ | 透传给 train.py 的额外参数 |
 
-### Step 05 params
+### Pose optimization params (step 04/07, default ON)
+| var | default | note |
+| --- | --- | --- |
+| `POSE_ADJUST` | `1` | `1` = 训练前 PoseAdjuster（视线交点居中 + SVD 重力对齐 + 尺度归一化） |
+| `POSE_REFINE` | `1` | `1` = 训练中 PoseRefineModule（可学四元数+平移+内参精炼） |
+| `REFINE_INTRINSIC` | `0` | `1` = 同时学内参（fx/fy/cx/cy），0 = 只学位姿 |
+| `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则化损失权重（防偏离初始值太远） |
+| `POSE_REFINE_LR_Q` | `1e-3` | 四元数学习率 |
+| `POSE_REFINE_LR_T` | `1e-3` | 平移学习率 |
+| `POSE_REFINE_LR_I` | `1e-4` | 内参学习率 |
+| `GRAVITY_PRIOR` | `0` | `0` = SVD 估计重力方向，`1` = 用 [0,-1,0] |
 | var | default | note |
 | --- | --- | --- |
 | `DENOISER` | `none` | `diffbir` \| `swinir` \| `nafnet` \| `none`（可插拔，见 denoisers.py） |
@@ -566,3 +576,71 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 - 原版 3DGS 无 distractor filtering（不做微动过滤）。静态场景够用；有微动用 pdfgs_human（PDF-GS）。
 - 无网格输出（3DGS 仓库无 `extract_mesh`）。要网格走 wan22_rotate step 05/05a/05b。
 - `.gitattributes`（仓根）强制 LF。`proxy.env` gitignored。官方代码 & 权重遵循各自 license。
+
+---
+
+## 位姿优化 A/B 对比实验
+
+位姿优化（PoseAdjuster + PoseRefineModule）**默认开启**。以下命令方便跑有/无对比实验，用不同 `OUTPUT_NAME` 隔离结果。
+
+### vggt_human（本目录：VGGT-Omega → 原版 3DGS）
+
+```bash
+# ── A: 无位姿优化（关闭）──
+GPU=0 \
+  POSE_ADJUST=0 POSE_REFINE=0 \
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/04_train_3dgs.sh
+# → $RESULTS_DIR/model_3dgs/
+
+# ── B: 有位姿优化（默认开启，显式写出便于对比）──
+GPU=0 \
+  POSE_ADJUST=1 POSE_REFINE=1 \
+  RESULTS_DIR=../../output/vggt_human_results \
+  bash vggt_human/04_train_3dgs.sh
+# → $RESULTS_DIR/model_3dgs/ (同目录，B 覆盖 A — 惢保留则用不同 RESULTS_DIR)
+
+# 更清晰：用不同目录隔离
+GPU=0 POSE_ADJUST=0 POSE_REFINE=0 \
+  GAUSSIAN_DIR=../../output/vggt_human_results/model_3dgs_no_pose \
+  RESULTS_DIR=../../output/vggt_human_results bash vggt_human/04_train_3dgs.sh
+GPU=0 POSE_ADJUST=1 POSE_REFINE=1 \
+  GAUSSIAN_DIR=../../output/vggt_human_results/model_3dgs_pose \
+  RESULTS_DIR=../../output/vggt_human_results bash vggt_human/04_train_3dgs.sh
+
+# 对比渲染：
+#   model_3dgs_no_pose/point_cloud/iteration_30000/point_cloud.ply
+#   model_3dgs_pose/point_cloud/iteration_30000/point_cloud.ply
+```
+
+### pdfgs_human（Pi3 → PDF-GS，跨目录复用本目录的 pose_adjuster.py）
+
+pdfgs_human 新增了 `02b_pose_adjust.sh`，在 Pi3→COLMAP 之后、PDF-GS 训练之前对 COLMAP 场景做一次性 PoseAdjuster 变换（不改 train.py）。PoseRefineModule 暂不支持 PDF-GS（训练循环不同）。
+
+```bash
+# ── A: 无位姿优化（标准流程）──
+GPU=0 OUTPUT_NAME=orbit bash pdfgs_human/02_pi3_colmap.sh
+GPU=0 OUTPUT_NAME=orbit bash pdfgs_human/03_train_pdfgs.sh
+# → $RESULTS_DIR/orbit/model_pdfgs/
+
+# ── B: 有位姿优化（跑 02b 再训练）──
+GPU=0 OUTPUT_NAME=orbit_pose bash pdfgs_human/02_pi3_colmap.sh
+GPU=0 OUTPUT_NAME=orbit_pose bash pdfgs_human/02b_pose_adjust.sh
+GPU=0 SOURCE_DIR=$RESULTS_DIR/orbit_pose/pi3/source_adjusted \
+  OUTPUT_NAME=orbit_pose bash pdfgs_human/03_train_pdfgs.sh
+# → $RESULTS_DIR/orbit_pose/model_pdfgs/
+
+# 对比渲染：
+#   $RESULTS_DIR/orbit/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply
+#   $RESULTS_DIR/orbit_pose/model_pdfgs/phase_4/point_cloud/iteration_10000/point_cloud.ply
+```
+
+### 开关速查
+
+| 场景 | 命令 |
+|---|---|
+| vggt_human 关闭位姿优化 | `POSE_ADJUST=0 POSE_REFINE=0 bash ...04_train_3dgs.sh` |
+| vggt_human 只做训练前变换（不学内参） | `POSE_ADJUST=1 POSE_REFINE=0 bash ...04_train_3dgs.sh` |
+| vggt_human 全开 + 学内参 | `POSE_ADJUST=1 POSE_REFINE=1 REFINE_INTRINSIC=1 bash ...04_train_3dgs.sh` |
+| pdfgs_human 关闭 | 不跑 02b，直接 02→03 |
+| pdfgs_human 开启 | 跑 02→02b→03（换 SOURCE_DIR 指向 source_adjusted） |
