@@ -15,25 +15,23 @@
 > 用 diffusers 直接跑，**无需起服务**。要多卡并行更快见下方「Serving」段。
 
 ```bash
-# ── 360° 旋转视频 ──
-# ── 文生视频(T2VA) ──
+# ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
 # 两卡分拆：text_encoder 放 cuda:1，rest（transformer/vae）放 cuda:0
+# 纯文生旋转（无图）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-TASK=t2va \
-PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
+PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot on a neutral, softly lit studio backdrop. The subject stands centered in frame, fully visible from head to toe, facing the camera directly. The camera initiates a slow, steady, continuous 360-degree orbit around the subject, arcing laterally to the right. As the camera moves, the front, side, back, and opposite side of the subject are progressively revealed in sharp, crisp detail. The lighting remains even and diffused throughout the revolution, keeping every surface of the subject well-lit and clearly visible as the perspective shifts. The background subtly parallaxes behind the subject, confirming the smooth circular camera path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and returns to the starting front-facing angle, gently easing to a stop on the original frontal view of the subject.\noverall_soundscape: A quiet, neutral room tone with a faint, steady ambient hum. Soft, barely perceptible footsteps of the camera operator pacing in a slow circle around the subject, and the gentle rustle of air movement as the camera glides steadily.\nnon_diegetic_music: A minimalist, atmospheric ambient drone, slow tempo, with a single sustained synth pad that holds continuously throughout, providing a calm, unobtrusive backdrop that complements the visual rotation without competing for attention.' \
 OUTPUT_DIR=../MiniMax-H3/results \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
 
-# ── 图生视频(FL2VA) ──
+# 首帧生旋转（传入一张图作首帧，绕主体旋转一圈）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
-PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
+PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands centered, fully visible. The camera begins directly facing the subject, then initiates a slow, steady, continuous 360-degree orbit, arcing laterally to the right. As the camera moves, the front, side, back, and opposite side of the subject are progressively revealed in sharp detail. The lighting remains even and diffused throughout, keeping every surface well-lit as the perspective shifts. The background subtly parallaxes, confirming the circular camera path. [Shot 2] At 00:06.000, the camera completes the full revolution and returns to the starting front-facing angle, easing to a stop on the original frontal view.\noverall_soundscape: A quiet, neutral room tone with a faint, steady ambient hum. Soft, barely perceptible footsteps of the camera operator pacing in a slow circle, and the gentle rustle of air movement as the camera glides steadily.\nnon_diegetic_music: A minimalist, atmospheric ambient drone, slow tempo, with a single sustained synth pad holding continuously throughout, providing a calm, unobtrusive backdrop.' \
 OUTPUT_DIR=../MiniMax-H3/results \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
