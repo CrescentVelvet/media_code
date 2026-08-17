@@ -17,13 +17,16 @@
 ```bash
 # ── 文生视频(T2VA) ──
 GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
-  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
+  TASK=t2va \
+  PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
   OUTPUT_DIR=../MiniMax-H3/results \
   bash minimax_h3/06_diffusers_inference.sh
 
 # ── 图生视频(FL2VA) ──
 GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
-  TASK=fl2va FIRST_FRAME=/data/subject.png PROMPT="continue the scene naturally" \
+  TASK=fl2va \
+  FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
+  PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
   OUTPUT_DIR=../MiniMax-H3/results \
   bash minimax_h3/06_diffusers_inference.sh
 
@@ -34,7 +37,7 @@ GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
   bash minimax_h3/07_rotate.sh
 # 首帧生旋转（传入一张图作首帧，绕主体旋转一圈）
 GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
-  FIRST_FRAME=/data/subject.png \
+  FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
   OUTPUT_DIR=../MiniMax-H3/results/rotate \
   bash minimax_h3/07_rotate.sh
 ```
