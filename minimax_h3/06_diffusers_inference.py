@@ -30,7 +30,10 @@ except ImportError:
 
 
 def main():
-    MODEL_PATH = os.environ.get("MODEL_PATH", "MiniMaxAI/MiniMax-H3")
+    MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "../../model/MiniMax-H3"))
+    # modular_model_index.json 里组件的 pretrained_model_name_or_path 写的是
+    # "MiniMaxAI/MiniMax-H3"（HF Hub ID），load_components 会从 HF 下载。
+    # 传 pretrained_model_name_or_path=MODEL_PATH 覆盖，强制从本地路径加载。
     TASK = os.environ.get("TASK", "t2va")
     PROMPT = os.environ.get("PROMPT", "")
     PROMPT_FILE = os.environ.get("PROMPT_FILE", "")  # 读 prompt 文件（优先级低于 PROMPT）
@@ -72,7 +75,7 @@ def main():
     # 如果 from_pretrained 传 workflow + load_components 不传，text_encoder 可能 None。
     workflow = "fl2va"  # fl2va 覆盖 t2va（t2va 是 fl2va 无 keyframe）
     pipe = ModularPipeline.from_pretrained(MODEL_PATH, components_manager=manager)
-    pipe.load_components(workflow=workflow, dtype=torch.bfloat16)
+    pipe.load_components(workflow=workflow, dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
     print("  ✅ pipeline loaded")
 
     generator = torch.Generator().manual_seed(SEED)
