@@ -34,16 +34,24 @@ def main():
     # modular_model_index.json 里组件的 pretrained_model_name_or_path 写的是
     # "MiniMaxAI/MiniMax-H3"（HF Hub ID），load_components 会从 HF 下载。
     # 传 pretrained_model_name_or_path=MODEL_PATH 覆盖，强制从本地路径加载。
-    TASK = os.environ.get("TASK", "t2va")
+    TASK = os.environ.get("TASK", "")
     PROMPT = os.environ.get("PROMPT", "")
     PROMPT_FILE = os.environ.get("PROMPT_FILE", "")  # 读 prompt 文件（优先级低于 PROMPT）
     FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
     LAST_FRAME = os.environ.get("LAST_FRAME", "")
     OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "../MiniMax-H3/results/diffusers")
+    # TASK 不传时根据 FIRST_FRAME 自动决定：有首帧就 fl2va，没有就 t2va
+    if not TASK:
+        TASK = "fl2va" if FIRST_FRAME else "t2va"
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_seed{os.environ.get('SEED','0')}.mp4"
     TRANSFORMER_DEVICE = os.environ.get("TRANSFORMER_DEVICE", "cuda:0")
     TEXT_ENCODER_DEVICE = os.environ.get("TEXT_ENCODER_DEVICE", "cuda:1")
     NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
+    DURATION = int(os.environ.get("DURATION", "0"))  # 秒；设了就覆盖 NUM_FRAMES（24fps, 17*n+5）
+    if DURATION > 0:
+        import math
+        n = math.ceil((DURATION * 24 - 5) / 17)
+        NUM_FRAMES = 17 * n + 5
     SEED = int(os.environ.get("SEED", "0"))
 
     if not PROMPT and PROMPT_FILE:
