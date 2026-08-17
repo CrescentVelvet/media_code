@@ -60,20 +60,21 @@ def compute_sight_center(c2w_t_list, sight_dir_list):
     """Estimate scene center as the least-squares intersection of camera sight-lines.
 
     Each camera i: position c2w_t_i = center + t_i * sight_dir_i.
-    Solve [I_3 | -diag(sight_dir_i)] @ [center; t_1..t_n] = c2w_t_i.
+    Solve A @ [center; t_1..t_n] = c2w_t, where A is (3n, n+3):
+      rows 3i:3i+3 = [I_3 | 0 ... -sight_dir_i ... 0]  (col 3+i = -sight_dir_i).
     """
     n = len(c2w_t_list)
     c2w_t = torch.stack(c2w_t_list)                   # (n, 3)
     sight = torch.stack(sight_dir_list)                # (n, 3)
 
     # Build A: (3n, n+3), b: (3n,)
-    rows = []
+    # Each camera i: c2w_t_i = center + t_i * sight_dir_i
+    # Unknowns: center (3) + t_1..t_n (n) = n+3. For camera i, rows 3i:3i+3:
+    #   cols 0:3 = I_3 (center), col 3+i = -sight_dir_i (t_i coefficient).
+    A = torch.zeros(3 * n, n + 3, dtype=c2w_t.dtype, device=c2w_t.device)
     for i in range(n):
-        I3 = torch.eye(3, dtype=c2w_t.dtype, device=c2w_t.device)
-        diag = torch.diag(sight[i])                    # (3, 3)
-        row = torch.cat([I3, -diag], dim=1)            # (3, n+3)
-        rows.append(row)
-    A = torch.cat(rows, dim=0)                         # (3n, n+3)
+        A[3 * i:3 * i + 3, :3] = torch.eye(3, dtype=c2w_t.dtype, device=c2w_t.device)
+        A[3 * i:3 * i + 3, 3 + i] = -sight[i]
     b = c2w_t.reshape(-1)                              # (3n,)
 
     # Normal equations: (A^T A) x = A^T b
@@ -92,13 +93,10 @@ def compute_sight_center(c2w_t_list, sight_dir_list):
         # Inside-out: cameras look outward; center is behind them
         # Flip sight dirs and re-solve
         sight = -sight
-        rows = []
+        A = torch.zeros(3 * n, n + 3, dtype=c2w_t.dtype, device=c2w_t.device)
         for i in range(n):
-            I3 = torch.eye(3, dtype=c2w_t.dtype, device=c2w_t.device)
-            diag = torch.diag(sight[i])
-            row = torch.cat([I3, -diag], dim=1)
-            rows.append(row)
-        A = torch.cat(rows, dim=0)
+            A[3 * i:3 * i + 3, :3] = torch.eye(3, dtype=c2w_t.dtype, device=c2w_t.device)
+            A[3 * i:3 * i + 3, 3 + i] = -sight[i]
         AtA = A.T @ A
         Atb = A.T @ b
         sol = torch.linalg.solve(AtA + 1e-6 * torch.eye(n + 3, dtype=AtA.dtype, device=AtA.device), Atb)
