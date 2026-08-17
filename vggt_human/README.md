@@ -72,6 +72,8 @@ INPUT_DIR=../../output/vggt_human_results/input_face \
 # 3) npz -> COLMAP 转换 (自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐)
 GPU=0 \
   TARGET_POINTS=200000 \
+  POSE_ADJUST=1 \
+  POSE_REFINE=1 \
   RESULTS_DIR=../../output/vggt_human_results \
   bash vggt_human/03_npz_to_colmap.sh
 
