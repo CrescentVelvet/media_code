@@ -14,10 +14,33 @@
 > 假设已进入容器、`conda activate minimax_h3`、`cd media_code`。首次跑前先做下方「首次准备」。
 > 用 diffusers 直接跑，**无需起服务**。要多卡并行更快见下方「Serving」段。
 
-```bash
+``bash
+# ── H3-Context-IR API 转长 prompt 再生成视频（短 prompt -> API -> 长描述 -> 06 生成）──
+# H3-Context-IR 是 MiniMax 的 hosted API（非开源），把短 prompt + 可选首帧图转成
+# 结构化长描述（官方推荐，效果比短 prompt 好）。需要 MiniMax API token。
+# ⚠️ FIRST_FRAME 必须是 http URL（API 不读本地路径；本地图先上传公网）
+MINIMAX_API_KEY=xxx \
+GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
+TRANSFORMER_DEVICE=cuda:0 \
+TEXT_ENCODER_DEVICE=cuda:1 \
+PROMPT="a drone shot over alpine peaks at golden hour" \
+FIRST_FRAME=https://example.com/subject.png \
+OUTPUT_DIR=../MiniMax-H3/results \
+bash minimax_h3/08_context_ir.sh
+
 # ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
 # 两卡分拆：text_encoder 放 cuda:1，rest（transformer/vae）放 cuda:0
-# 纯文生旋转（无图）
+# 文生视频
+GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
+TRANSFORMER_DEVICE=cuda:0 \
+TEXT_ENCODER_DEVICE=cuda:1 \
+TASK=t2va \
+PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
+OUTPUT_DIR=../MiniMax-H3/results \
+OUTPUT_NAME=rotate_360.mp4 \
+bash minimax_h3/06_diffusers_inference.sh
+
+# 文生视频（优化prompt）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
@@ -26,7 +49,18 @@ OUTPUT_DIR=../MiniMax-H3/results \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
 
-# 首帧生旋转（传入一张图作首帧，绕主体旋转一圈）
+# 图生视频（传入一张图作首帧，绕主体旋转一圈）
+GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
+TRANSFORMER_DEVICE=cuda:0 \
+TEXT_ENCODER_DEVICE=cuda:1 \
+TASK=fl2va \
+FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
+PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
+OUTPUT_DIR=../MiniMax-H3/results \
+OUTPUT_NAME=rotate_360.mp4 \
+bash minimax_h3/06_diffusers_inference.sh
+
+# 图生视频（优化prompt）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
