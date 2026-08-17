@@ -34,17 +34,17 @@ GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
   bash minimax_h3/06_diffusers_inference.sh
 
 # ── 360° 旋转视频 ──
-# 纯文生旋转（无图，prompt 用 examples/rotate_prompt.txt）
+# 纯文生旋转（无图，prompt 描述旋转）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
   TRANSFORMER_DEVICE=cuda:0 TEXT_ENCODER_DEVICE=cuda:1 \
-  PROMPT_FILE=minimax_h3/examples/rotate_prompt.txt \
+  PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
   OUTPUT_DIR=../MiniMax-H3/results/rotate OUTPUT_NAME=rotate_360.mp4 \
   bash minimax_h3/06_diffusers_inference.sh
 # 首帧生旋转（传入一张图作首帧，绕主体旋转一圈）
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
   TRANSFORMER_DEVICE=cuda:0 TEXT_ENCODER_DEVICE=cuda:1 \
   FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
-  PROMPT_FILE=minimax_h3/examples/rotate_prompt.txt \
+  PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
   OUTPUT_DIR=../MiniMax-H3/results/rotate OUTPUT_NAME=rotate_360.mp4 \
   bash minimax_h3/06_diffusers_inference.sh
 ```
@@ -178,11 +178,10 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 ## 生成 360° 旋转视频
 
-参考 `wan22_rotate` 的思路（选正面图+分割 → Wan2.2+LoRA 旋转），但 **MiniMax-H3 不需要 LoRA**——prompt 自带 360° 旋转指令（H3-Context-IR 格式长描述，逐镜头写明 `camera 360-degree orbit`）。
+参考 `wan22_rotate` 的思路（选正面图+分割 → Wan2.2+LoRA 旋转），但 **MiniMax-H3 不需要 LoRA**——prompt 直接写旋转指令即可（如 `"相机围绕主体水平旋转一圈 360°，主体保持静止"`）。
 
-用 `06_diffusers_inference.sh` + `PROMPT_FILE=minimax_h3/examples/rotate_prompt.txt` 即可（命令见上方「常用命令」段）。输入图可以是**原始拍摄图 / 人体分割白底图 / 任意主体图**——MiniMax-H3 能理解各种输入（不像 Wan2.2 需要 LoRA 训练 + 白底分割图）。
+用 `06_diffusers_inference.sh`，prompt 写旋转描述，输入图可以是**原始拍摄图 / 人体分割白底图 / 任意主体图**（MiniMax-H3 能理解各种输入，不像 Wan2.2 需要 LoRA 训练 + 白底分割图）。命令见上方「常用命令」段。
 
-- prompt 文件：`examples/rotate_prompt.txt`（描述 360° 旋转）。可覆盖：`PROMPT_FILE=/your/prompt.txt`。
 - 默认 10s / 24fps / 768p。`DURATION=8` 改时长（4–15s），`SEED=42` 换种子。
 - 与 `wan22_rotate` 的区别：MiniMax-H3 不用 LoRA/分割，prompt 即旋转指令；但旋转一致性不如专门训练的 LoRA（可能旋转中途主体形变）。要精确旋转接 `wan22_rotate/02`，要快速出片用 06。
 
