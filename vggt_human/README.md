@@ -47,14 +47,15 @@ VGGT-Omega 的优势：**实际内参**（不是假设的）+ **置信度过滤*
 GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 
 # 1a) 视频 → 图像夹 (抽帧, 喂给 01; 视频输入用, 不影响图像输入的原流程)
-#     INPUT_DIR 指向单个视频文件, 输出一夹散图 (000000.png, ...) 兼容 01 的 INPUT_DIR
+#     INPUT_DIR 指向单个视频文件, 输出 <OUTPUT_DIR>/image/ 子夹 (000000.png, ...)
+#     结构与 test_task 一致, 01 的 INPUT_DIR 指向 <OUTPUT_DIR> 即可自动检测
 GPU=0 \
   INPUT_DIR=../data/test.mp4 \
   OUTPUT_DIR=../../output/vggt_human_results/input_frames \
   VIDEO_FPS=2 \
   bash vggt_human/01a_video_to_frames.sh
 
-# 输出：<RESULTS_DIR>/input_frames/  # 抽帧后的散图
+# 输出：<RESULTS_DIR>/input_frames/image/  # 抽帧后的散图 (test_task 结构)
 
 # 1) 前处理人脸增强 (MediaPipe + HYPIR + 渐变融合, 对原始输入图)
 #    INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh 建好 vggt_human env (含 mediapipe + HYPIR)
@@ -199,7 +200,7 @@ $MODEL_DIR/                         # 默认 ../../model (code-dir 上一级, �
 INPUT_DIR/                           (一组场景图像 / 视频)
     │
     ▼
-[01a] 视频抽帧 (可选, 视频输入用) — cv2 按 VIDEO_FPS 抽帧 -> 散图夹
+[01a] 视频抽帧 (可选, 视频输入用) — cv2 按 VIDEO_FPS 抽帧 -> <OUTPUT_DIR>/image/
     ▼
 [01] 前处理人脸增强 (vggt_human env) — MediaPipe → HYPIR → 渐变融合
     │  ├─ MediaPipe BlazeFace → 人脸框 → 放大 20% → 裁剪
@@ -282,7 +283,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 ### Step 01a — 视频 → 图像夹 (`01a_video_to_frames.sh` → `video_to_frames.py`)
 
-视频输入预处理：将单个视频文件（`.mp4/.mov/.avi/.mkv`）按 `VIDEO_FPS`（默认 2）抽帧成散图夹（`000000.png`、`000001.png`、…）。输出夹直接兼容 01 的 `INPUT_DIR`（`face_enhance.py` 自动检测散图夹）。所以视频输入走 `01a → 01 → 02 → 03 → 04` 全链路，原流程一行不改。用 cv2 抽帧（与 `run_batch.py` 的 `extract_frames` 同逻辑）。
+视频输入预处理：将单个视频文件（`.mp4/.mov/.avi/.mkv`）按 `VIDEO_FPS`（默认 2）抽帧成 `<OUTPUT_DIR>/image/`（`000000.png`、`000001.png`、…）。输出结构与 test_task 输入一致，01 的 `INPUT_DIR` 指向 `<OUTPUT_DIR>` 即可，`face_enhance.py` 自动检测 `image/` 子夹。所以视频输入走 `01a → 01 → 02 → 03 → 04` 全链路，原流程一行不改。用 cv2 抽帧（与 `run_batch.py` 的 `extract_frames` 同逻辑）。
 
 ### Step 01 — 前处理人脸增强 (`01_face_enhance.sh` → `face_enhance.py`)
 
@@ -373,7 +374,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 | var | default | note |
 | --- | --- | --- |
 | `INPUT_DIR` | _(required)_ | 单个视频文件路径 (.mp4/.mov/.avi/.mkv) |
-| `OUTPUT_DIR` | `$RESULTS_DIR/input_frames` | 抽帧输出夹（散图，兼容 01 的 INPUT_DIR） |
+| `OUTPUT_DIR` | `$RESULTS_DIR/input_frames` | 抽帧输出父夹（帧在 `<OUTPUT_DIR>/image/`） |
 | `VIDEO_FPS` | `2` | 抽帧 fps |
 
 ### Step 03 params
@@ -563,7 +564,8 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 ├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
 ├── HYPIR/                           # HYPIR 官方代码 (00 clone, step 01/06 用)
 └── output/vggt_human_results/      # 输出 (repo 外)
-    ├── input_frames/               # step 01a: 视频抽帧后的散图 (可选, 视频输入用)
+    ├── input_frames/               # step 01a: 视频抽帧输出 (test_task 结构)
+    │   └── image/                  #   000000.png, 000001.png, ...
     ├── input_face/                 # step 01: 前处理人脸增强后的原始图
     │   └── images/                 #   人脸增强图
     ├── vggt/<scene>/               # step 02: VGGT-Omega 推理

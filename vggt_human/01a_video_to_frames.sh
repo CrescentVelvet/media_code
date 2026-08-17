@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# 01a_video_to_frames.sh — Video → image folder (frames), to feed into 01_face_enhance.sh.
+# 01a_video_to_frames.sh — Video → image folder (frames under image/), to feed into 01_face_enhance.sh.
 #
 # Preprocessing step before 01: extracts frames from a single video at VIDEO_FPS
-# into a folder of loose PNGs (000000.png, 000001.png, ...). The output folder is
-# directly compatible with 01's INPUT_DIR (face_enhance.py auto-detects loose images).
-# So the full pipeline works unchanged:
+# into <OUTPUT_DIR>/image/ (000000.png, 000001.png, ...). Output structure matches
+# the test_task input format, so 01's INPUT_DIR points at <OUTPUT_DIR> and
+# face_enhance.py auto-detects the image/ subfolder. Full pipeline works unchanged:
 #   01a (video -> frames) -> 01 (face enhance) -> 02 (VGGT-Omega) -> 03 (COLMAP) -> 04 (3DGS)
 #
 # Env (all optional, defaults shown):
 #   INPUT_DIR=             # single video file (.mp4/.mov/.avi/.mkv), required
 #   RESULTS_DIR=           # output root
-#   OUTPUT_DIR=             # frames output (default: $RESULTS_DIR/input_frames)
+#   OUTPUT_DIR=             # frames output parent (frames go to <OUTPUT_DIR>/image/)
 #   VIDEO_FPS=2            # frame sampling fps
 set -o pipefail
 
