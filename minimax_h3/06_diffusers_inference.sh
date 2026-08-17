@@ -21,14 +21,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-# diffusers 需要单独装（sglang [diffusion] extra 带的 diffusers 可能旧，无 ModularPipeline）
+PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
+    --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
+
+# diffusers 需要 ModularPipeline（MiniMax-H3 支持），PyPI 版本可能还没有，
+# 先试 PyPI -U，还不行从 git main clone + editable --no-deps 装。
 if ! python -c "from diffusers import ComponentsManager, ModularPipeline" 2>/dev/null; then
     echo "📦 diffusers too old or missing (need ModularPipeline for MiniMax-H3), installing -U diffusers ---"
-    PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
-        --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
-    python -m pip install "${PIP_FLAGS[@]}" -U diffusers || \
-        sys.exit "❌ pip install diffusers failed"
+    python -m pip install "${PIP_FLAGS[@]}" -U diffusers
 fi
+if ! python -c "from diffusers import ModularPipeline" 2>/dev/null; then
+    echo "📦 PyPI diffusers still no ModularPipeline — cloning git main + editable install (--no-deps) ---"
+    DIFFUSERS_SRC="${DIFFUSERS_SRC:-/tmp/diffusers-src}"
+    if [ ! -d "$DIFFUSERS_SRC/src/diffusers" ]; then
+        LD_LIBRARY_PATH= git clone --depth 1 https://github.com/huggingface/diffusers.git "$DIFFUSERS_SRC" || \
+            LD_LIBRARY_PATH= git -c http.sslVerify=false clone --depth 1 https://github.com/huggingface/diffusers.git "$DIFFUSERS_SRC"
+    fi
+    if [ -d "$DIFFUSERS_SRC/src/diffusers" ]; then
+        python -m pip install "${PIP_FLAGS[@]}" -e "$DIFFUSERS_SRC" --no-deps --config-settings editable_mode=compat || \
+            python -m pip install "${PIP_FLAGS[@]}" -e "$DIFFUSERS_SRC" --no-deps
+    else
+        echo "❌ clone diffusers failed" >&2; exit 1
+    fi
+fi
+if ! python -c "from diffusers import ComponentsManager, ModularPipeline" 2>/dev/null; then
+    echo "❌ diffusers still no ModularPipeline after install" >&2; exit 1
+fi
+echo "✅ diffusers ModularPipeline ok"
 
 python "$SCRIPT_DIR/06_diffusers_inference.py"
 if [ $? -ne 0 ]; then
