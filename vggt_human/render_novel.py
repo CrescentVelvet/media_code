@@ -243,8 +243,9 @@ def render_novel_views(novel_views):
         FoVy = 2 * math.atan(H / (2 * fy))
 
         dummy = torch.zeros(3, H, W)
-        cam = Camera(colmap_id=0, R=R, T=T, FoVx=FoVx, FoVy=FoVy,
-                     image=dummy, gt_image_mask=None, image_name=nv["name"],
+        cam = Camera(resolution=(W, H), colmap_id=0, R=R, T=T, FoVx=FoVx, FoVy=FoVy,
+                     depth_params=None, image=dummy, invdepthmap=None,
+                     image_name=nv["name"], uid=i,
                      data_device=DEVICE)
 
         with torch.no_grad():
