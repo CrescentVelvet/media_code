@@ -33,6 +33,7 @@ def main():
     MODEL_PATH = os.environ.get("MODEL_PATH", "MiniMaxAI/MiniMax-H3")
     TASK = os.environ.get("TASK", "t2va")
     PROMPT = os.environ.get("PROMPT", "")
+    PROMPT_FILE = os.environ.get("PROMPT_FILE", "")  # 读 prompt 文件（优先级低于 PROMPT）
     FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
     LAST_FRAME = os.environ.get("LAST_FRAME", "")
     OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "../MiniMax-H3/results/diffusers")
@@ -41,8 +42,11 @@ def main():
     NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
     SEED = int(os.environ.get("SEED", "0"))
 
+    if not PROMPT and PROMPT_FILE:
+        with open(PROMPT_FILE, encoding="utf-8") as f:
+            PROMPT = f.read().strip()
     if not PROMPT:
-        sys.exit("❌ PROMPT not set")
+        sys.exit("❌ PROMPT (or PROMPT_FILE) not set")
     if TASK not in ("t2va", "fl2va"):
         sys.exit(f"❌ TASK={TASK} not supported (this script does t2va/fl2va; use 02_serve+03_generate for ref2va)")
 

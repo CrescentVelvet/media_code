@@ -11,105 +11,37 @@
 
 ## 常用命令
 
-> 假设已进入容器、`conda activate minimax_h3`、`cd media_code`。
-> **铁律：每条命令必须显式写出 `GPU`（物理卡号）、`MODEL_PATH`（权重地址）、输入路径、`OUTPUT_DIR`（输出地址），不靠脚本默认值。** 首次跑前先做下方「首次准备」。
-> 路径约定（可改）：权重根 `../../model/MiniMax-H3`、参考仓 `../MiniMax-H3`、输出 `../MiniMax-H3/results`、输入示例放 `../data/`。
-> 8 卡服务器选 4 卡：`GPU=0,1,2,3`（逗号分隔物理卡号），`NUM_GPUS=4` 必须和卡数一致。
+> 假设已进入容器、`conda activate minimax_h3`、`cd media_code`。首次跑前先做下方「首次准备」。
+> 用 diffusers 直接跑，**无需起服务**。要多卡并行更快见下方「Serving」段。
 
 ```bash
-# ── 日常生成视频（一条命令：服务没起就自动起 + 发请求 + 下载 mp4；服务留着下次复用）──
-# T2VA 文生视频
-GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
-  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
-  DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
-  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
-  bash minimax_h3/04_run.sh
-# I2VA 首帧生视频（FL2VA 变体，:30010）
-GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 \
-  TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
-  bash minimax_h3/04_run.sh
-# Ref2VA 参考生成（变体 ref2va，端口 30011）
-GPU=0,1,2,3 MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va PORT=30011 \
-  TASK=ref2va REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
-  PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
-  bash minimax_h3/04_run.sh
-
-# ── diffusers 直接推理（无需起服务；单卡 auto offload，比 SGLang 慢但简单）──
-# T2VA 文生视频（无 keyframe）
+# ── 文生视频(T2VA) ──
 GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
   TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
-  NUM_FRAMES=124 SEED=0 \
-  OUTPUT_DIR=../MiniMax-H3/results/diffusers OUTPUT_NAME=t2va.mp4 \
+  OUTPUT_DIR=../MiniMax-H3/results \
   bash minimax_h3/06_diffusers_inference.sh
-# FL2VA 首帧生视频（输入图像 + 文字 -> 视频 + 音频）
+
+# ── 图生视频(FL2VA) ──
 GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
-  TASK=fl2va FIRST_FRAME=/data/imgs/first.png PROMPT="..." \
-  NUM_FRAMES=124 SEED=0 \
-  OUTPUT_DIR=../MiniMax-H3/results/diffusers OUTPUT_NAME=fl2va.mp4 \
+  TASK=fl2va FIRST_FRAME=/data/subject.png PROMPT="continue the scene naturally" \
+  OUTPUT_DIR=../MiniMax-H3/results \
   bash minimax_h3/06_diffusers_inference.sh
 
-# ── 起服务（H3-Base 768p，长驻进程；服务占用 GPU，generate 是 HTTP 客户端不占）──
-# 1) FL2VA 变体（T2VA / I2VA / L2VA / FL2VA），端口 30010，前台跑看日志
-#    A100 80GB 上默认 resident 易 OOM，必上 FSDP 容量配方
-GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=../../model/MiniMax-H3 \
-  bash minimax_h3/02_serve.sh
-# 1b) 后台起 + 等就绪（04_run.sh 自动用这种），前面参数照抄加 BG=1
-GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=../../model/MiniMax-H3 \
-  BG=1 bash minimax_h3/02_serve.sh
-# 1c) 最快配方（TP2 + Ulysses2，降单卡峰值显存）
-GPU=0,1,2,3 NUM_GPUS=4 TP_SIZE=2 ULYSSES_DEGREE=2 \
-  MODEL_PATH=../../model/MiniMax-H3 \
-  bash minimax_h3/02_serve.sh
-# 2) Ref2VA 变体（参考图/视频/音频 -> 视频），端口 30011
-GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=../../model/MiniMax-H3 MODEL_VARIANT=ref2va \
-  bash minimax_h3/02_serve.sh
-
-# ── 发请求（服务必须已就绪；SERVER_URL 决定打哪个变体/端口，等价于哪几张卡上的服务）──
-# T2VA 文生视频（自带默认 prompt）
-GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  TASK=t2va PROMPT="a drone shot over alpine peaks at golden hour" \
-  DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
-  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
-  bash minimax_h3/03_generate.sh
-# I2VA 首帧生视频（FL2VA 变体）
-GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  TASK=fl2va FIRST_FRAME=/data/imgs/first.png DURATION=8 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
-  bash minimax_h3/03_generate.sh
-# Ref2VA 参考生成（Ref2VA 变体，服务在 :30011）
-GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
-  TASK=ref2va REF_IMAGES=/data/refs/subject.png REF_AUDIOS=/data/refs/voice.mp3 \
-  PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
-  bash minimax_h3/03_generate.sh
-
-# ── 复现官方三个 768p 样例（用官方 prompt + 官方 CDN 参考素材，输入地址在脚本内）──
-GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  OUTPUT_DIR=../MiniMax-H3/results/t2va \
-  bash minimax_h3/examples/run_t2va.sh                 # -> ../MiniMax-H3/results/t2va/t2va.mp4
-GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va \
-  bash minimax_h3/examples/run_fl2va.sh                # -> ../MiniMax-H3/results/fl2va/fl2va.mp4 (需 FL2VA 服务)
-GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va \
-  bash minimax_h3/examples/run_ref2va.sh               # -> ../MiniMax-H3/results/ref2va/ref2va.mp4 (需 Ref2VA 服务)
+# ── 360° 旋转视频 ──
+# 纯文生旋转（无图）
+GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
+  OUTPUT_DIR=../MiniMax-H3/results/rotate \
+  bash minimax_h3/07_rotate.sh
+# 首帧生旋转（传入一张图作首帧，绕主体旋转一圈）
+GPU=0 MODEL_PATH=../../model/MiniMax-H3 \
+  FIRST_FRAME=/data/subject.png \
+  OUTPUT_DIR=../MiniMax-H3/results/rotate \
+  bash minimax_h3/07_rotate.sh
 ```
 
-- 结果：生成视频 → `OUTPUT_DIR/OUTPUT_NAME`（默认 `../MiniMax-H3/results/<task>/<task>.mp4`）；服务日志 → `../MiniMax-H3/logs/serve_<variant>_<port>.log`。
-- 服务是长驻进程，起一次能发无数请求（加载 33B 模型要几分钟，别每个请求重启）。`04_run.sh` 会自动检测服务是否已就绪，没起就后台起 + 等就绪，已起就直接发请求；服务留着下次复用。
-- **两种推理方式**：① **SGLang serve**（02+03 / 04_run.sh）——多卡并行（Ulysses/TP，8 卡跑满），长驻进程复用，快；② **diffusers 直接推理**（06_diffusers_inference.sh）——Python 库直接调 pipeline，无需起服务，但单卡 auto offload（CPU↔GPU 搬运 124GB，比 SGLang 慢）。需要多卡速度用 SGLang，只想单次跑/不想起服务用 diffusers。
-- 一次只能起一个变体（FL2VA / Ref2VA 权重不同），要两个变体就分起 30010 / 30011。
-- **停止服务 / 清残留**：任务失败后 worker 僵死（HTTP server 活着但不占显存，`grep sglang` 找不到因为进程名是 `python`），任务卡 `status=queue`。跑 `05_stop.sh` 按端口找 PID 自动 kill：
-  ```bash
-  bash minimax_h3/05_stop.sh                    # 默认 fl2va :30010
-  MODEL_VARIANT=ref2va bash minimax_h3/05_stop.sh   # ref2va :30011
-  ```
-  或重启时设 `AUTO_STOP=1` 让 02_serve.sh 自动清理残留再起。
+- 结果：视频 → `OUTPUT_DIR/<name>.mp4`（768p 24fps 含原生立体声）。
+- 默认 10s；改时长 `DURATION=8`（4–15s），换种子 `SEED=42`。
+- 自定义 prompt 文件：`PROMPT_FILE=/your/prompt.txt bash ...`（H3-Context-IR 格式长描述效果最好）。
 
 ## 首次准备
 ```bash
