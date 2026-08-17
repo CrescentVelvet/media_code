@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# 08_context_ir.sh — 调 MiniMax H3-Context-IR API 把短 prompt 转长描述，再调 06 生成视频。
+# 08_context_ir.sh — 调 MiniMax H3-Context-IR API 把短 prompt 转长描述，打印出来。
 #
 # H3-Context-IR 是 MiniMax 的 hosted API（非开源），把自由短 prompt + 可选首帧图转成
 # 结构化长描述（integrated_multimodal_description / overall_soundscape / ...），
-# 效果比短 prompt 好（官方推荐）。本脚本调 API 拿长描述后自动传给 06 生成视频。
+# 效果比短 prompt 好（官方推荐）。本脚本调 API 拿长描述后打印 + 写临时文件，
+# 你自己复制命令跑 06 生成视频（不自动调 06，方便先看 prompt 内容）。
 #
 # ⚠️ 需要 MiniMax API token（platform.minimaxi.com CN / platform.minimax.io Global 申请）
 # ⚠️ FIRST_FRAME 必须是 http URL（API 不读本地路径；本地图先上传到公网）
 #
 # Usage:
 #   MINIMAX_API_KEY=xxx \
-#     GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
-#     TRANSFORMER_DEVICE=cuda:0 TEXT_ENCODER_DEVICE=cuda:1 \
 #     PROMPT="a drone shot over alpine peaks" \
 #     FIRST_FRAME=https://example.com/subject.png \
-#     OUTPUT_DIR=../MiniMax-H3/results \
 #     bash minimax_h3/08_context_ir.sh
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,7 +33,31 @@ fi
 if [ -z "$LONG_PROMPT" ]; then
     echo "❌ ERROR: got empty prompt from H3-Context-IR" >&2; exit 1
 fi
-echo "✅ H3-Context-IR prompt ready (${#LONG_PROMPT} chars), passing to 06..."
 
-# 用长描述调 06 生成视频（PROMPT 覆盖，FIRST_FRAME 透传给 06）
-PROMPT="$LONG_PROMPT" bash "$SCRIPT_DIR/06_diffusers_inference.sh"
+# 写到临时文件（方便用 PROMPT_FILE 传给 06）
+PROMPT_FILE="${PROMPT_FILE:-/tmp/h3_context_ir_prompt.txt}"
+printf '%s' "$LONG_PROMPT" > "$PROMPT_FILE"
+
+# 打印长描述
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo "✅ H3-Context-IR prompt (${#LONG_PROMPT} chars) -> $PROMPT_FILE"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+echo "$LONG_PROMPT"
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo "复制下面命令跑 06 生成视频（按需改 GPU / FIRST_FRAME / OUTPUT_DIR）："
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+# 构建建议命令（透传当前环境的关键变量）
+CMD="GPU=${GPU:-0,1} MODEL_PATH=${MODEL_PATH:-../../model/MiniMax-H3} \\"
+CMD="$CMD\n  TRANSFORMER_DEVICE=${TRANSFORMER_DEVICE:-cuda:0} TEXT_ENCODER_DEVICE=${TEXT_ENCODER_DEVICE:-cuda:1} \\"
+CMD="$CMD\n  PROMPT_FILE=$PROMPT_FILE \\"
+if [ -n "${FIRST_FRAME:-}" ]; then
+    CMD="$CMD\n  FIRST_FRAME=$FIRST_FRAME \\"
+fi
+CMD="$CMD\n  OUTPUT_DIR=${OUTPUT_DIR:-../MiniMax-H3/results} \\"
+CMD="$CMD\n  bash minimax_h3/06_diffusers_inference.sh"
+printf '%b\n' "$CMD"
+echo ""

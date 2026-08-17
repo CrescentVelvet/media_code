@@ -15,17 +15,14 @@
 > 用 diffusers 直接跑，**无需起服务**。要多卡并行更快见下方「Serving」段。
 
 ``bash
-# ── H3-Context-IR API 转长 prompt 再生成视频（短 prompt -> API -> 长描述 -> 06 生成）──
+# ── H3-Context-IR API 转长 prompt（短 prompt -> API -> 长描述，打印 + 写文件，不自动跑 06）──
 # H3-Context-IR 是 MiniMax 的 hosted API（非开源），把短 prompt + 可选首帧图转成
 # 结构化长描述（官方推荐，效果比短 prompt 好）。需要 MiniMax API token。
 # ⚠️ FIRST_FRAME 必须是 http URL（API 不读本地路径；本地图先上传公网）
+# 脚本打印长描述 + 写 /tmp/h3_context_ir_prompt.txt + 给建议的 06 命令，你手动跑 06
 MINIMAX_API_KEY=xxx \
-GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
-TRANSFORMER_DEVICE=cuda:0 \
-TEXT_ENCODER_DEVICE=cuda:1 \
 PROMPT="a drone shot over alpine peaks at golden hour" \
 FIRST_FRAME=https://example.com/subject.png \
-OUTPUT_DIR=../MiniMax-H3/results \
 bash minimax_h3/08_context_ir.sh
 
 # ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
