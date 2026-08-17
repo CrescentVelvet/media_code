@@ -90,8 +90,8 @@ HYPIR_BASE_MODEL="${HYPIR_BASE_MODEL:-$HYPIR_MODEL_DIR/sd2_base}"
 HYPIR_WEIGHT="${HYPIR_WEIGHT:-$HYPIR_DIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth}"
 
 # Pose optimization (step 04/07; PoseAdjuster + PoseRefineModule)
-export POSE_ADJUST="${POSE_ADJUST:-0}"
-export POSE_REFINE="${POSE_REFINE:-0}"
+export POSE_ADJUST="${POSE_ADJUST:-1}"
+export POSE_REFINE="${POSE_REFINE:-1}"
 export REFINE_INTRINSIC="${REFINE_INTRINSIC:-0}"
 export POSE_REFINE_WEIGHT="${POSE_REFINE_WEIGHT:-0.01}"
 export POSE_REFINE_LR_Q="${POSE_REFINE_LR_Q:-1e-3}"

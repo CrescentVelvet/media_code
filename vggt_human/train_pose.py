@@ -58,8 +58,8 @@ SOURCE_DIR = os.environ.get("SOURCE_DIR", "")
 GAUSSIAN_DIR = os.environ.get("GAUSSIAN_DIR", "")
 ITERATIONS = int(os.environ.get("ITERATIONS", "30000"))
 SH_DEGREE = int(os.environ.get("SH_DEGREE", "3"))
-POSE_ADJUST = os.environ.get("POSE_ADJUST", "0") == "1"
-POSE_REFINE = os.environ.get("POSE_REFINE", "0") == "1"
+POSE_ADJUST = os.environ.get("POSE_ADJUST", "1") == "1"
+POSE_REFINE = os.environ.get("POSE_REFINE", "1") == "1"
 REFINE_INTRINSIC = os.environ.get("REFINE_INTRINSIC", "0") == "1"
 POSE_REFINE_WEIGHT = float(os.environ.get("POSE_REFINE_WEIGHT", "0.01"))
 LR_Q = float(os.environ.get("POSE_REFINE_LR_Q", "1e-3"))
