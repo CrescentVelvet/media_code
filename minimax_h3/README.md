@@ -22,8 +22,8 @@
 # 脚本打印长描述 + 写 /tmp/h3_context_ir_prompt.txt + 给建议的 06 命令，你手动跑 06
 MINIMAX_API_KEY=xxx \
 PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
-FIRST_FRAME=https://github.com/CrescentVelvet/media_code/blob/main/minimax_h3/examples/681533632532078.jpg \
-FIRST_FRAME=https://github.com/CrescentVelvet/media_code/blob/main/minimax_h3/examples/687115479202079.jpg \
+FIRST_FRAME=https://raw.githubusercontent.com/CrescentVelvet/media_code/main/minimax_h3/examples/681533632532078.jpg \
+FIRST_FRAME=https://raw.githubusercontent.com/CrescentVelvet/media_code/main/minimax_h3/examples/687115479202079.jpg \
 bash minimax_h3/08_context_ir.sh
 
 # ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
