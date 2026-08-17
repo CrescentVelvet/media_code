@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VGGT-Human Pipeline</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 40px 20px;
+    min-width: 900px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    font-size: 26px;
+    color: #58a6ff;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 36px;
+  }
+
+  /* Pipeline row */
+  .row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  /* Step card */
+  .card {
+    flex: 1;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 0 6px;
+    background: #161b22;
+    position: relative;
+    min-height: 200px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #58a6ff; }
+  .card .step-num {
+    position: absolute;
+    top: -12px;
+    left: 16px;
+    background: #1f6feb;
+    color: #fff;
+    border-radius: 12px;
+    padding: 2px 14px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .card h3 {
+    font-size: 15px;
+    color: #f0f6fc;
+    margin: 10px 0 8px;
+  }
+  .card .env-badge {
+    display: inline-block;
+    font-size: 11px;
+    background: #21262d;
+    color: #7d8590;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 1px 8px;
+    margin-bottom: 8px;
+  }
+  .card ul {
+    list-style: none;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #8b949e;
+  }
+  .card ul li::before {
+    content: "▸ ";
+    color: #3fb950;
+  }
+  .card .output {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: #d2a8ff;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    background: #0d1117;
+    border-radius: 6px;
+    padding: 6px 10px;
+    border: 1px solid #21262d;
+  }
+
+  /* Arrow between cards */
+  .arrow {
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: #30363d;
+  }
+
+  /* Optional section */
+  .optional-divider {
+    text-align: center;
+    margin: 24px 0 16px;
+    color: #d29922;
+    font-size: 13px;
+    font-weight: 600;
+    position: relative;
+  }
+  .optional-divider::before,
+  .optional-divider::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 35%;
+    height: 1px;
+    background: #30363d;
+  }
+  .optional-divider::before { left: 0; }
+  .optional-divider::after { right: 0; }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 40px;
+    font-size: 12px;
+    color: #8b949e;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 3px;
+    border: 1px solid #30363d;
+  }
+  .dot-pre { background: #1f6feb; }
+  .dot-core { background: #238636; }
+  .dot-opt { background: #d29922; }
+  .dot-face { background: #8957e5; }
+
+  /* Color themes for cards */
+  .card.pre  { border-top: 3px solid #1f6feb; }
+  .card.core { border-top: 3px solid #238636; }
+  .card.opt  { border-top: 3px solid #d29922; }
+  .card.face { border-top: 3px solid #8957e5; }
+  .card.pre  .step-num { background: #1f6feb; }
+  .card.core .step-num { background: #238636; }
+  .card.opt  .step-num { background: #d29922; }
+  .card.face .step-num { background: #8957e5; }
+
+  /* Pose module box */
+  .pose-box {
+    border: 1px dashed #f0883e;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 20px 0;
+    background: rgba(240,136,62,0.05);
+  }
+  .pose-box h4 {
+    color: #f0883e;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .pose-box p {
+    font-size: 12px;
+    color: #8b949e;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>VGGT-Human Pipeline</h1>
+  <p class="subtitle">多视图图像 → 前馈重建 → 3DGS 优化训练（含去噪增强 + 人脸美颜 + 位姿优化）</p>
+
+  <!-- ===== Phase 1: Pre-processing + Feed-forward + COLMAP + 3DGS ===== -->
+  <div class="row">
+    <div class="card pre">
+      <span class="step-num">01</span>
+      <h3>前处理人脸增强</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li>MediaPipe BlazeFace 检测人脸框</li>
+        <li>框放大 20% → 裁剪 → pad 到 8 的倍数</li>
+        <li>HYPIR (SD2+LoRA beauty_ppr50k) 美颜增强</li>
+        <li>二次衰减渐变 mask 无缝融合回原图</li>
+      </ul>
+      <div class="output">→ input_face/images/</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="card core">
+      <span class="step-num">02</span>
+      <h3>VGGT-Omega 前馈推理</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li>一次模型前向 → 所有视图位姿 + 深度图</li>
+        <li>encoding_to_camera → w2c 外参 + 实际内参</li>
+        <li>unproject_depth → 世界坐标密集点云</li>
+        <li>置信度过滤 → scene.ply</li>
+      </ul>
+      <div class="output">→ vggt/&lt;scene&gt;/predictions.npz</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="card core">
+      <span class="step-num">03</span>
+      <h3>npz → COLMAP 转换</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li>Otsu 自适应置信度过滤</li>
+        <li>体素降采样到 ~200k 点</li>
+        <li>坐标系居中对齐</li>
+        <li>写 cameras.txt / images.txt / points3D.txt</li>
+      </ul>
+      <div class="output">→ source/ (COLMAP 场景)</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; font-size:20px; color:#30363d; margin:4px 0;">↓</div>
+
+  <!-- ===== Phase 2: 3DGS Training (with optional PoseAdjuster + PoseRefine) ===== -->
+  <div class="row">
+    <div class="card core" style="flex:2;">
+      <span class="step-num">04</span>
+      <h3>3DGS 训练（标准或带位姿优化）</h3>
+      <span class="env-badge">vggt_human env · gaussian-splatting (dr_aa)</span>
+      <ul>
+        <li><b>标准模式</b>: train.py -s source --iterations 30000 (L1+SSIM, densification)</li>
+        <li><b>PoseAdjuster</b> (POSE_ADJUST=1): 训练前视线交点居中 + SVD 重力对齐 + 尺度归一化</li>
+        <li><b>PoseRefineModule</b> (POSE_REFINE=1): 训练中可学四元数+平移+内参, reg_loss 防漂移</li>
+        <li>结束后反向变换 → 原始坐标系 PLY</li>
+      </ul>
+      <div class="output">→ model_3dgs/point_cloud/iteration_30000/point_cloud.ply</div>
+    </div>
+  </div>
+
+  <!-- Pose module detail -->
+  <div class="pose-box">
+    <h4>🔧 位姿优化模块（可选，通过 env 开关控制）</h4>
+    <p>
+      <b>PoseAdjuster</b>（训练前一次性变换）: 视线交点居中 → SVD 估计重力方向 → 旋转对齐 → 中位距离归一化到 10。存 JSON 供 render_novel.py 正向变换虚拟相机。<br>
+      <b>PoseRefineModule</b>（训练中持续精炼）: 每个相机的 w2c 四元数+平移+内参作为 nn.Parameter, Adam 优化 (q/t: 1e-3, intrinsic: 1e-4), reg_loss 权重 0.01 防偏离。<br>
+      <b>PoseRefinedCamera</b>: world_view_transform 从四元数动态计算（可微路径 → rasterizer → loss → 梯度回传到位姿参数）。
+    </p>
+  </div>
+
+  <!-- ===== Optional: Denoise + Face post-process + Retrain ===== -->
+  <div class="optional-divider">⚡ 可选增强：去噪 + 人脸后处理 + 重训</div>
+
+  <div class="row">
+    <div class="card opt">
+      <span class="step-num">05</span>
+      <h3>渲染新视角 → 去噪 → AdaIN</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li><b>Stage 1</b> render_novel.py: 加载 3DGS → 轨迹找间隙 → SLERP 插入虚拟相机 → 渲染 (black+white bg 算 alpha)</li>
+        <li><b>Stage 2</b> denoise_images.py: alpha&lt;阈值=稀疏 → DENOISER 去噪 (DiffBIR/SwinIR/none 可切换) → AdaIN 颜色校正 → 写增强 COLMAP</li>
+      </ul>
+      <div class="output">→ source_aug/ (原图 + 去噪虚拟视角)</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="card face">
+      <span class="step-num">06</span>
+      <h3>后处理人脸增强</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li>与 step 01 调用同一个 face_enhance.py</li>
+        <li>对 source_aug/images/ 做后处理</li>
+        <li>MediaPipe 检测 → HYPIR 美颜 → 渐变融合</li>
+        <li>COLMAP sparse/ 原样复制</li>
+      </ul>
+      <div class="output">→ source_aug_face/</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="card opt">
+      <span class="step-num">07</span>
+      <h3>增强场景训练 3DGS</h3>
+      <span class="env-badge">vggt_human env</span>
+      <ul>
+        <li>原图 + 去噪虚拟相机 + 人脸增强 共同监督</li>
+        <li>train.py -s source_aug_face --iterations 30000</li>
+        <li>同样支持 PoseAdjuster / PoseRefineModule</li>
+      </ul>
+      <div class="output">→ model_3dgs_denoise/</div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot dot-pre"></div> 人脸增强 (HYPIR)</div>
+    <div class="legend-item"><div class="legend-dot dot-core"></div> 核心流程 (VGGT-Omega → 3DGS)</div>
+    <div class="legend-item"><div class="legend-dot dot-opt"></div> 可选增强 (去噪 / 重训)</div>
+    <div class="legend-item"><div class="legend-dot dot-face"></div> 人脸后处理</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f0883e;border-color:#f0883e;"></div> 位姿优化 (可选)</div>
+  </div>
+
+</div>
+</body>
+</html>
