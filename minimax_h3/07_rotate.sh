@@ -33,8 +33,10 @@ else
     echo "📝 纯文生旋转"
 fi
 
-GPU="${GPU:-0}" \
+GPU="${GPU:-0,1}" \
 MODEL_PATH="${MODEL_PATH:-../../model/MiniMax-H3}" \
+DEVICE="${DEVICE:-cuda:0}" \
+TEXT_ENCODER_DEVICE="${TEXT_ENCODER_DEVICE:-cuda:1}" \
 TASK="$TASK" \
 PROMPT_FILE="$PROMPT_FILE" \
 FIRST_FRAME="$FIRST_FRAME" \

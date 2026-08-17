@@ -41,7 +41,8 @@ def main():
     LAST_FRAME = os.environ.get("LAST_FRAME", "")
     OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "../MiniMax-H3/results/diffusers")
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_seed{os.environ.get('SEED','0')}.mp4"
-    DEVICE = os.environ.get("DEVICE", "cuda")
+    DEVICE = os.environ.get("DEVICE", "cuda:0")
+    TEXT_ENCODER_DEVICE = os.environ.get("TEXT_ENCODER_DEVICE", "cuda:1")
     NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
     SEED = int(os.environ.get("SEED", "0"))
 
@@ -59,37 +60,47 @@ def main():
     print(f"  🖼️ first_frame: {FIRST_FRAME or '(none)'}")
     print(f"  🖼️ last_frame: {LAST_FRAME or '(none)'}")
     print(f"  📐 num_frames: {NUM_FRAMES}")
-    print(f"  🎮 device: {DEVICE}")
+    print(f"  🎮 device: {DEVICE} (rest) + {TEXT_ENCODER_DEVICE} (text_encoder)")
 
     import torch
     from diffusers.utils import load_image
     from diffusers.utils.export_utils import encode_video
 
-    # 加载 pipeline（ComponentsManager auto offload：单卡 80GB 放不下 61.7+62.1GB）
-    print("📦 loading pipeline (this takes minutes)...")
+    # 两卡分拆（单卡 80GB 放不下 transformer 61.7GB + text_encoder 62.1GB）：
+    # text_encoder 放 TEXT_ENCODER_DEVICE，rest（transformer/vae/...）放 DEVICE。
+    # pretrained_model_name_or_path 覆盖 modular_model_index.json 里的 HF Hub ID，强制本地加载。
+    print("📦 loading pipeline (two-card split, this takes minutes)...")
+    workflow = ModularPipeline.from_pretrained(MODEL_PATH).blocks.get_workflow("fl2va")
+
+    # 1) text_encoder 拆出来放 TEXT_ENCODER_DEVICE
+    text_manager = ComponentsManager()
+    text_manager.enable_auto_cpu_offload(device=TEXT_ENCODER_DEVICE)
+    conditioner = workflow.sub_blocks.pop("text_encoder").init_pipeline(
+        MODEL_PATH, components_manager=text_manager
+    )
+    conditioner.load_components(dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
+    print(f"  ✅ text_encoder loaded on {TEXT_ENCODER_DEVICE}")
+
+    # 2) rest（transformer/vae/scheduler/...）放 DEVICE
     manager = ComponentsManager()
     manager.enable_auto_cpu_offload(device=DEVICE)
-
-    # 文档写法：from_pretrained 不传 workflow（保留所有 blocks），load_components
-    # 传 workflow 只加载该 workflow 的组件（text_encoder 等共享组件才会被加载）。
-    # 如果 from_pretrained 传 workflow + load_components 不传，text_encoder 可能 None。
-    workflow = "fl2va"  # fl2va 覆盖 t2va（t2va 是 fl2va 无 keyframe）
-    pipe = ModularPipeline.from_pretrained(MODEL_PATH, components_manager=manager)
-    pipe.load_components(workflow=workflow, dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
-    print("  ✅ pipeline loaded")
+    rest = workflow.init_pipeline(MODEL_PATH, components_manager=manager)
+    rest.load_components(dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
+    print(f"  ✅ rest loaded on {DEVICE}")
 
     generator = torch.Generator().manual_seed(SEED)
     outputs = ["videos", "audio", "sampling_rate"]
 
     t0 = time.time()
-    kwargs = dict(prompt=PROMPT, num_frames=NUM_FRAMES, generator=generator, output=outputs)
+    # conditioner 编码 prompt（+ image/last_image keyframe），rest 用 state 生成
+    print("🎬 encoding prompt + generating...")
+    state = conditioner(prompt=PROMPT)
+    rest_kwargs = dict(state=state, num_frames=NUM_FRAMES, generator=generator, output=outputs)
     if FIRST_FRAME:
-        kwargs["image"] = load_image(FIRST_FRAME)
+        rest_kwargs["image"] = load_image(FIRST_FRAME)
     if LAST_FRAME:
-        kwargs["last_image"] = load_image(LAST_FRAME)
-
-    print("🎬 generating...")
-    results = pipe(**kwargs)
+        rest_kwargs["last_image"] = load_image(LAST_FRAME)
+    results = rest(**rest_kwargs)
     print(f"  ⏱️ generation: {time.time()-t0:.0f}s")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
