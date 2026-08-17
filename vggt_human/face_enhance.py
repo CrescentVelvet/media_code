@@ -202,20 +202,32 @@ def main():
             crop_pil = img_pil.crop((x1, y1, x2, y2))
             crop_tensor = to_tensor(crop_pil).unsqueeze(0)
 
+            # Pad to nearest multiple of 8 (SD2 VAE downsampling factor).
+            # Without this, VAE encode→decode produces size mismatch (e.g. 31 vs 30).
+            pad_w = (8 - crop_w % 8) % 8
+            pad_h = (8 - crop_h % 8) % 8
+            if pad_w > 0 or pad_h > 0:
+                import torch.nn.functional as F
+                crop_tensor = F.pad(crop_tensor, (0, pad_w, 0, pad_h), mode='reflect')
+
             try:
                 result = model.enhance(
                     lq=crop_tensor,
                     prompt="",
                     scale_by="factor",
                     upscale=UPSCALE,
-                    patch_size=min(PATCH_SIZE, max(crop_w, crop_h)),
-                    stride=min(STRIDE, max(crop_w, crop_h) // 2),
+                    patch_size=min(PATCH_SIZE, max(crop_tensor.shape[-1], crop_tensor.shape[-2])),
+                    stride=min(STRIDE, max(crop_tensor.shape[-1], crop_tensor.shape[-2]) // 2),
                     return_type="pil",
                 )[0]
             except Exception as e:
                 print(f"  [{i}] ⚠️ HYPIR failed on face: {e}", file=sys.stderr)
                 continue
 
+            # Crop padding off the result (right/bottom), then resize to original crop
+            if pad_w > 0 or pad_h > 0:
+                rw, rh = result.size
+                result = result.crop((0, 0, rw - pad_w, rh - pad_h))
             # Resize back to crop size if HYPIR changed resolution
             if result.size != (crop_w, crop_h):
                 result = result.resize((crop_w, crop_h), Image.LANCZOS)
