@@ -19,6 +19,10 @@ import os, sys, time, json
 
 try:
     import requests
+    # 公司代理 TLS 拦截，requests 默认验 SSL 会失败，跳过验证 + 屏蔽警告
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    VERIFY_SSL = os.environ.get("VERIFY_SSL", "0") == "1"  # 默认跳过 SSL 验证；要验设 VERIFY_SSL=1
 except ImportError:
     sys.exit("❌ 'requests' not installed. pip install requests")
 
@@ -66,7 +70,7 @@ def main():
     if FIRST_FRAME:
         log(f"   first_frame: {FIRST_FRAME}")
 
-    r = requests.post(url, json=body, headers=headers, timeout=120)
+    r = requests.post(url, json=body, headers=headers, timeout=120, verify=VERIFY_SSL)
     if r.status_code >= 400:
         sys.exit(f"❌ HTTP {r.status_code}: {r.text[:500]}")
     data = r.json()
@@ -87,7 +91,7 @@ def main():
         for i in range(120):
             time.sleep(5)
             try:
-                r2 = requests.get(poll_url, headers=headers, timeout=30)
+                r2 = requests.get(poll_url, headers=headers, timeout=30, verify=VERIFY_SSL)
                 if r2.status_code >= 400:
                     log(f"   [{i*5}s] poll HTTP {r2.status_code}")
                     continue
