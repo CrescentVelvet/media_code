@@ -69,6 +69,22 @@ INPUT_DIR=../../output/vggt_human_results/input_face \
 #   scene.ply          # 置信度过滤后的彩色点云 (供检查)
 #   frames/            # 喂给模型的图 (复制/抽帧)
 
+# 2a) 单个视频 → VGGT-Omega 重建 + COLMAP (快速测视频用, 不影响原流程)
+#     INPUT_DIR 指向一个视频文件 (.mp4/.mov/.avi/.mkv)
+#     输出 predictions.npz + scene.ply + source/ (COLMAP), 自包含在 <scene>/ 子夹
+#     默认 VIDEO_FPS=2 (02 的 1fps 太稀), SKIP_COLMAP=1 可只跑推理看 scene.ply
+GPU=0 \
+  INPUT_DIR=../data/test.mp4 \
+  MODEL_DIR=../../model/VGGT-Omega \
+  RESULTS_DIR=../../output/vggt_human_results \
+  VIDEO_FPS=2 \
+  bash vggt_human/02a_run_video.sh
+
+# 输出：<RESULTS_DIR>/vggt/<scene>/
+#   predictions.npz   # 同 02
+#   scene.ply          # 点云 (MeshLab/SuperSplat 查看)
+#   frames/            # 抽帧
+#   source/            # COLMAP 场景 (images + sparse/0/, 02a 独有, 不与 03 冲突)
 # 3) npz -> COLMAP 转换 (自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐)
 GPU=0 \
   TARGET_POINTS=200000 \
@@ -277,6 +293,10 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 > VGGT-Omega 的 `extrinsic` 是 **w2c**（world-to-camera [R | t]，OpenCV 约定），与 COLMAP 格式一致——无需 c2w→w2c 转换（Pi3 输出 c2w 需要转）。`intrinsic` 是模型预测的**实际内参**（不是 Pi3 假设的 fx=fy=max(W,H)）。
 
+### Step 02a — 单视频 → VGGT-Omega 重建 + COLMAP (`02a_run_video.sh`，快速测视频用)
+
+02 的单视频测试变体。`INPUT_DIR` 指向一个视频文件（`.mp4/.mov/.avi/.mkv`）。Stage 1 跑 `run_batch.py`（同 02）抽帧 + 推理；Stage 2 对该场景跑 `npz_to_colmap.py`，COLMAP 输出到 `$VGGT_OUTPUT_DIR/<scene>/source/`（与 predictions.npz 同级，**不与 03 的 `$RESULTS_DIR/source/` 冲突**）。Stage 2 设 `POSE_ADJUST=0` 使 ALIGN 生效（居中场景到原点，便于查看），因为无后续 04 的 PoseAdjuster。`SKIP_COLMAP=1` 跳过 Stage 2（只看 scene.ply）。`VIDEO_FPS` 默认 2（02 的 1fps 对视频太稀）。不影响原 01→02→03→04 流程。
+
 ### Step 03 — npz → COLMAP 转换 (`03_npz_to_colmap.sh` → `npz_to_colmap.py`)
 
 读 `predictions.npz`，输出 COLMAP 文本格式场景：
@@ -351,6 +371,14 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `CONF_THRES` | `20` | scene.ply 深度置信度百分位（0-100） |
 | `MAX_POINTS` | `2000000` | scene.ply 点数上限 |
 | `VIDEO_FPS` | `1` | 视频输入抽帧 fps |
+
+### Step 02a params (single video test)
+| var | default | note |
+| --- | --- | --- |
+| `VIDEO_FPS` | `2` | 抽帧 fps（02 的 1 对视频太稀，02a 默认 2） |
+| `SKIP_COLMAP` | `0` | `1` = 只跑推理（看 scene.ply），跳过 npz→COLMAP |
+| `TARGET_POINTS` | `200000` | COLMAP 体素降采样目标点数 |
+| `VGGT_OUTPUT_DIR` | `$RESULTS_DIR/vggt` | 输出根（场景子夹含 source/） |
 
 ### Step 03 params
 | var | default | note |
@@ -510,6 +538,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 │       ├── 00_setup_env.sh        # clone 3DGS 仓 + 装依赖 + 编 CUDA 扩展
 │       ├── 01_face_enhance.sh      # 前处理: MediaPipe+HYPIR 人脸增强 (原始输入图)
 │       ├── 02_run_inference.sh     # VGGT-Omega 前馈推理
+│       ├── 02a_run_video.sh        # 单视频 → VGGT-Omega + COLMAP (快速测视频, 不影响原流程)
 │       ├── 03_npz_to_colmap.sh     # npz -> COLMAP 转换
 │       ├── 04_train_3dgs.sh        # 原版 3DGS 训练 + 渲染
 │       ├── 05_denoise_novel.sh     # 渲染新视角 → 去噪 → AdaIN → 增强COLMAP
