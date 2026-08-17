@@ -72,6 +72,7 @@ ENABLE_DYNAMIC = os.environ.get("ENABLE_DYNAMIC", "1") == "1"
 DYNAMIC_MASK_DIR = os.environ.get("DYNAMIC_MASK_DIR", "")
 DYNAMIC_THRESHOLD = float(os.environ.get("DYNAMIC_THRESHOLD", "0.3"))
 DYNAMIC_DILATE_PX = int(os.environ.get("DYNAMIC_DILATE_PX", "5"))
+DINO_MODEL_PATH = os.environ.get("DINO_MODEL_PATH", "")
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif")
 
@@ -242,6 +243,20 @@ def main():
     gaussians.create_from_pcd(pcd, camera_extent)
     gaussians.training_setup(camera_extent)
 
+    # ── 5b. DINOv2+MLP initialization (if dynamic enabled) ───────────────
+    mlp_model = None
+    mlp_optimizer = None
+    feature_extractor = None
+    features_fine = None
+    features_coarse = None
+    historical_hist = None
+    if ENABLE_DYNAMIC:
+        print("🧠 [5b/6] initializing DINOv2 + MLP (online dynamic mask learning)")
+        from noise_negating import nn_initial
+        mlp_model, mlp_optimizer, feature_extractor, \
+            features_fine, features_coarse, historical_hist = \
+            nn_initial(train_cameras)
+
     # ── 6. Training loop ────────────────────────────────────────────────────
     print(f"🚀 [6/6] training: {ITERATIONS} iters, {len(train_cameras)} cams")
     print(f"  pose_adjust={POSE_ADJUST} pose_refine={POSE_REFINE} "
@@ -274,8 +289,16 @@ def main():
         image = render_pkg["render"]
         gt = viewpoint_cam.original_image
 
-        loss = (1.0 - lambda_dssim) * l1_loss(image, gt) + \
-               lambda_dssim * (1.0 - ssim(image, gt))
+        mask_mlp = None
+        if ENABLE_DYNAMIC:
+            from noise_negating import nn_loss, mlp_update
+            epoch_idx = iteration // (len(train_cameras) or 1)
+            loss, mask_mlp = nn_loss(
+                viewpoint_cam, mlp_model, features_fine,
+                image, gt, epoch_idx, dynamic_masks)
+        else:
+            loss = (1.0 - lambda_dssim) * l1_loss(image, gt) + \
+                   lambda_dssim * (1.0 - ssim(image, gt))
         if POSE_REFINE:
             loss += POSE_REFINE_WEIGHT * viewpoint_cam.pose_module.reg_loss()
 
@@ -286,6 +309,13 @@ def main():
         if POSE_REFINE:
             viewpoint_cam.pose_optimizer.step()
             viewpoint_cam.pose_optimizer.zero_grad(set_to_none=True)
+
+        # MLP online update (after 3DGS optimizer step)
+        if ENABLE_DYNAMIC:
+            mlp_update(
+                epoch_idx, viewpoint_cam, mlp_model, mask_mlp,
+                mlp_optimizer, features_fine, features_coarse,
+                feature_extractor, image.detach(), gt, historical_hist)
 
         # Densification
         if iteration < densify_until:
@@ -314,7 +344,11 @@ def main():
             print(f"  [iter {iteration}] ✅ saved PLY")
 
         if iteration % 1000 == 0:
-            print(f"  [iter {iteration}/{ITERATIONS}] loss={loss.item():.4f}")
+            if ENABLE_DYNAMIC and mask_mlp is not None:
+                dyn_pct = mask_mlp.mean().item() * 100
+                print(f"  [iter {iteration}/{ITERATIONS}] loss={loss.item():.4f} dyn={dyn_pct:.1f}%")
+            else:
+                print(f"  [iter {iteration}/{ITERATIONS}] loss={loss.item():.4f}")
 
     # ── End: reverse transform for original-coords PLY ─────────────────────
     if adjuster is not None:
