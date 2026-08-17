@@ -50,20 +50,22 @@ GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 #     INPUT_DIR 指向单个视频文件, 输出 <OUTPUT_DIR>/image/ 子夹 (000000.png, ...)
 #     结构与 test_task 一致, 01 的 INPUT_DIR 指向 <OUTPUT_DIR> 即可自动检测
 GPU=0 \
-  INPUT_DIR=../data/test.mp4 \
-  OUTPUT_DIR=../../output/vggt_human_results/input_frames \
-  VIDEO_FPS=2 \
-  bash vggt_human/01a_video_to_frames.sh
+INPUT_DIR=../../output/vggt_human_results/input_video/生成环绕人物视频.mp4 \
+OUTPUT_DIR=../../output/vggt_human_results/input_frames/生成环绕人物视频 \
+VIDEO_FPS=2 \
+bash vggt_human/01a_video_to_frames.sh
 
-# 输出：<RESULTS_DIR>/input_frames/image/  # 抽帧后的散图 (test_task 结构)
+# 输出：<OUTPUT_DIR>/image/  # 抽帧后的散图 (test_task 结构)
 
 # 1) 前处理人脸增强 (MediaPipe + HYPIR + 渐变融合, 对原始输入图)
 #    INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh 建好 vggt_human env (含 mediapipe + HYPIR)
 #    HYPIR_WEIGHT 指向 beauty_ppr50k 训练的 checkpoint
 #    视频输入: 先跑 01a 抽帧, INPUT_DIR 指向 01a 的输出 (input_frames)
-GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/01_face_enhance.sh
+# 图像夹输入 (原流程): INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374
+GPU=0 \
+INPUT_DIR=../../output/vggt_human_results/input_frames/生成环绕人物视频 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/01_face_enhance.sh
 
 # 输出：<RESULTS_DIR>/input_face/images/  # 人脸增强后的原始图
 
@@ -71,10 +73,10 @@ GPU=0 INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a
 #    INPUT_DIR 指向 step 01 的输出 (input_face)
 GPU=0 \
 INPUT_DIR=../../output/vggt_human_results/input_face \
-  MODEL_DIR=../../model/VGGT-Omega \
-  RESULTS_DIR=../../output/vggt_human_results \
-  MAX_POINTS=2000000 \
-  bash vggt_human/02_run_inference.sh
+MODEL_DIR=../../model/VGGT-Omega \
+RESULTS_DIR=../../output/vggt_human_results \
+MAX_POINTS=2000000 \
+bash vggt_human/02_run_inference.sh
 
 # 输出：<RESULTS_DIR>/vggt/<scene>/
 #   predictions.npz   # 原始输出 (extrinsic w2c, intrinsic, world_points, depth_conf, images)
@@ -83,11 +85,11 @@ INPUT_DIR=../../output/vggt_human_results/input_face \
 
 # 3) npz -> COLMAP 转换 (自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐)
 GPU=0 \
-  TARGET_POINTS=200000 \
-  POSE_ADJUST=1 \
-  POSE_REFINE=1 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/03_npz_to_colmap.sh
+TARGET_POINTS=200000 \
+POSE_ADJUST=1 \
+POSE_REFINE=1 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/03_npz_to_colmap.sh
 
 # 输出：<RESULTS_DIR>/source/
 #   images/*.png                      # 训练图 (从 frames/ 复制, 内参自动缩放)
@@ -97,10 +99,10 @@ GPU=0 \
 
 # 4) 原版 3DGS 训练 + 渲染
 GPU=0 \
-  ITERATIONS=30000 \
-  WHITE_BG=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/04_train_3dgs.sh
+ITERATIONS=30000 \
+WHITE_BG=0 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/04_train_3dgs.sh
 
 # 输出：<RESULTS_DIR>/model_3dgs/
 #   point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
@@ -112,11 +114,11 @@ GPU=0 \
 #    DENOISER 可选: diffbir (扩散, 质量高) | swinir (前馈, 快) | none (跳过去噪)
 #    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 GPU=0 \
-  DENOISER=diffbir \
-  NUM_NOVEL_VIEWS=10 \
-  ITERATION=30000 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/05_denoise_novel.sh
+DENOISER=diffbir \
+NUM_NOVEL_VIEWS=10 \
+ITERATION=30000 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/05_denoise_novel.sh
 
 # 输出：<RESULTS_DIR>/
 #   novel_renders/*.png     # 3DGS 渲染的新视角 (有伪影)
@@ -127,8 +129,8 @@ GPU=0 \
 # 6) 后处理人脸增强 (对增强 COLMAP 场景中的图)
 #    与 step 01 调用同一个 face_enhance.py, 但对 source_aug/images/ 做后处理
 GPU=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/06_face_enhance.sh
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/06_face_enhance.sh
 
 # 输出：<RESULTS_DIR>/source_aug_face/
 #   images/  # 原图 + 去噪图, 人脸区域已 HYPIR 增强 + 渐变融合
@@ -136,10 +138,10 @@ GPU=0 \
 
 # 7) 用增强场景训练 3DGS (原图 + 去噪虚拟相机 + 前后处理人脸增强 共同监督)
 GPU=0 \
-  ITERATION=30000 \
-  WHITE_BG=0 \
-  RESULTS_DIR=../../output/vggt_human_results \
-  bash vggt_human/07_train_denoise.sh
+ITERATION=30000 \
+WHITE_BG=0 \
+RESULTS_DIR=../../output/vggt_human_results \
+bash vggt_human/07_train_denoise.sh
 
 # 输出：<RESULTS_DIR>/model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
