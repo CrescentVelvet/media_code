@@ -130,8 +130,8 @@ if ! python -c "import mediapipe" 2>/dev/null; then
     echo "--- installing mediapipe (needed for step 01/06) ---"
     _PIP_FLAGS=(--trusted-host pypi.org --trusted-host pypi.python.org \
         --trusted-host files.pythonhosted.org --timeout 600 --retries 10)
-    pip install "${_PIP_FLAGS[@]}" mediapipe || \
-        echo "  ⚠️ mediapipe install failed — run: pip install mediapipe" >&2
+    pip install "${_PIP_FLAGS[@]}" "mediapipe==0.10.14" || \
+        echo "  ⚠️ mediapipe install failed — run: pip install mediapipe==0.10.14" >&2
 fi
 
 # ── 4. Verify torch + CUDA ──────────────────────────────────────────────────
@@ -155,7 +155,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
     # 3DGS runtime deps + mediapipe (face detection, step 01/06)
     echo "--- installing 3DGS + mediapipe runtime deps ---"
     pip install "${PIP_FLAGS[@]}" plyfile tqdm torchmetrics lpips \
-        scipy trimesh matplotlib mediapipe
+        scipy trimesh matplotlib "mediapipe==0.10.14"
 
     # HYPIR deps (face enhancement, step 01/06; diffusers/transformers/peft)
     echo "--- installing HYPIR deps (diffusers, transformers, peft) ---"
