@@ -98,9 +98,22 @@ bash vggt_human/03_npz_to_colmap.sh
 #   sparse/0/points3D.txt             # ~200k 初始点 (Otsu 过滤 + 体素降采样)
 
 # 4) 原版 3DGS 训练 + 渲染
+#    增强开关 (默认全开, 改 0 即关, 便于消融):
+#      POSE_ADJUST=1          训练前位姿变换 (居中+重力对齐+尺度归一化)
+#      POSE_REFINE=1          训练中位姿精炼 (可学四元数+平移+内参)
+#      ENABLE_DYNAMIC_MASK=1  动态掩码生成 (P0-1, GroundingDINO+SAM2)
+#      ENABLE_DYNAMIC_FILTER=1 动态点云过滤 (P0-2, 多视角投影投票)
+#      ENABLE_MLP_DYNAMIC=1   DINOv2+MLP 在线动态掩码 (P0-3, 动态感知损失)
+#      USE_DEPTH_NORMAL=1     深度-法线一致性约束 (P1-1)
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
+POSE_ADJUST=1 \
+POSE_REFINE=1 \
+ENABLE_DYNAMIC_MASK=1 \
+ENABLE_DYNAMIC_FILTER=1 \
+ENABLE_MLP_DYNAMIC=1 \
+USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
 
@@ -137,9 +150,16 @@ bash vggt_human/06_face_enhance.sh
 #   sparse/0/  # COLMAP 相机/点云 (原样复制)
 
 # 7) 用增强场景训练 3DGS (原图 + 去噪虚拟相机 + 前后处理人脸增强 共同监督)
+#    增强开关同 step 4 (POSE_ADJUST/POSE_REFINE/ENABLE_DYNAMIC_*/USE_DEPTH_NORMAL)
 GPU=0 \
 ITERATION=30000 \
 WHITE_BG=0 \
+POSE_ADJUST=1 \
+POSE_REFINE=1 \
+ENABLE_DYNAMIC_MASK=1 \
+ENABLE_DYNAMIC_FILTER=1 \
+ENABLE_MLP_DYNAMIC=1 \
+USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/07_train_denoise.sh
 
