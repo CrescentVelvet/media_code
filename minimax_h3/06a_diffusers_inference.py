@@ -103,6 +103,7 @@ def main():
                 ],
             ),
             low_cpu_mem_usage=True,
+            device_map={"": DEVICE},  # 权重直接加载到 GPU，跳过 meta 阶段（量化+low_cpu_mem_usage 会留 meta tensor）
         ),
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
             FL2VA_DIR, subfolder="text_encoder", dtype=torch.bfloat16,
@@ -113,6 +114,8 @@ def main():
                     "model.language_model.norm", "lm_head",
                 ],
             ),
+            low_cpu_mem_usage=True,
+            device_map={"": DEVICE},
         ),
     )
     pipe.load_components(workflow="fl2va", dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
