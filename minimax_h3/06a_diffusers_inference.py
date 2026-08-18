@@ -96,7 +96,7 @@ def main():
         transformer=MiniMaxH3Transformer3DModel.from_pretrained(
             FL2VA_DIR, subfolder="transformer", dtype=torch.bfloat16,
             quantization_config=TorchAoConfig(
-                Int8WeightOnlyConfig(),
+                Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=[
                     "proj_in", "audio_proj_in", "context_embedder", "time_embedder", "time_proj",
                     "token_refiner", "norm_out", "proj_out", "audio_proj_out",
@@ -107,7 +107,7 @@ def main():
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
             FL2VA_DIR, subfolder="text_encoder", dtype=torch.bfloat16,
             quantization_config=TransformersTorchAoConfig(
-                Int8WeightOnlyConfig(),
+                Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=[
                     "model.visual", "model.language_model.embed_tokens",
                     "model.language_model.norm", "lm_head",

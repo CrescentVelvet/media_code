@@ -32,11 +32,11 @@ if ! python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3Modu
         echo "❌ clone diffusers failed" >&2; exit 1
     fi
 fi
-# 检测 torchao（int8 量化要）
-if ! python -c "import torchao" 2>/dev/null; then
-    echo "📦 torchao not installed, installing ---"
-    python -m pip install "${PIP_FLAGS[@]}" torchao || \
-        { echo "❌ pip install torchao failed" >&2; exit 1; }
+# 检测 torchao（int8 量化要 >=0.15.0，TorchAoConfig 要求）
+if ! python -c "import torchao; assert tuple(map(int, torchao.__version__.split('.')[:2])) >= (0, 15)" 2>/dev/null; then
+    echo "📦 torchao too old or missing (need >=0.15.0), installing torchao==0.15.0 ---"
+    python -m pip install "${PIP_FLAGS[@]}" "torchao==0.15.0" || \
+        { echo "❌ pip install torchao==0.15.0 failed" >&2; exit 1; }
 fi
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; import torchao; print('✅ diffusers + torchao ok')" 2>/dev/null || \
     { echo "❌ diffusers/torchao not ready" >&2; exit 1; }
