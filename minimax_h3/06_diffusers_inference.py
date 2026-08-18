@@ -52,10 +52,36 @@ def main():
         import math
         n = math.ceil((DURATION * 24 - 5) / 17)
         NUM_FRAMES = 17 * n + 5
-    WIDTH = int(os.environ.get("WIDTH", "0"))   # 宽（0=默认，必须 32 倍数）
-    HEIGHT = int(os.environ.get("HEIGHT", "0"))  # 高（0=默认，必须 32 倍数）
+    WIDTH = int(os.environ.get("WIDTH", "0"))   # 宽（0=auto 按图比例算，必须 32 倍数）
+    HEIGHT = int(os.environ.get("HEIGHT", "0"))  # 高（0=auto 按图比例算，必须 32 倍数）
+    MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(768*1024)))  # auto 时总像素上限（默认 ~0.79M）
     FPS = int(os.environ.get("FPS", "24"))       # 输出 mp4 帧率（模型固定 24fps，改只影响 mp4 容器）
     SEED = int(os.environ.get("SEED", "0"))
+
+    # WIDTH/HEIGHT 不传时自动算：有首帧图按图比例，无图默认 16:9；总像素不超过 MAX_PIXELS
+    if WIDTH == 0 or HEIGHT == 0:
+        import math
+        if FIRST_FRAME:
+            from diffusers.utils import load_image as _li
+            _img = _li(FIRST_FRAME)
+            iw, ih = _img.size
+            ratio = iw / ih  # 宽/高
+            print(f"  📐 auto ratio from image: {iw}x{ih} -> {ratio:.2f}")
+        else:
+            ratio = 16/9
+            print(f"  📐 auto ratio: 16:9 (no image)")
+        # 总像素 W*H < MAX_PIXELS，W=ratio*H（横）或 H=(1/ratio)*W（竖）
+        if ratio >= 1:  # 横屏 W>=H
+            H = int(math.sqrt(MAX_PIXELS / ratio))
+            W = int(H * ratio)
+        else:  # 竖屏 H>W
+            r2 = 1 / ratio
+            W = int(math.sqrt(MAX_PIXELS / r2))
+            H = int(W * r2)
+        # 32 倍数对齐（向下取整，保证不超阈值）
+        WIDTH = max(32, W - (W % 32))
+        HEIGHT = max(32, H - (H % 32))
+        print(f"  📐 auto resolution: {WIDTH}x{HEIGHT} ({WIDTH*HEIGHT} px, max {MAX_PIXELS})")
 
     if not PROMPT and PROMPT_FILE:
         with open(PROMPT_FILE, encoding="utf-8") as f:
@@ -71,7 +97,7 @@ def main():
     print(f"  🖼️ first_frame: {FIRST_FRAME or '(none)'}")
     print(f"  🖼️ last_frame: {LAST_FRAME or '(none)'}")
     print(f"  📐 num_frames: {NUM_FRAMES}")
-    print(f"  🖼️ resolution: {WIDTH or 'auto'}x{HEIGHT or 'auto'}")
+    print(f"  🖼️ resolution: {WIDTH}x{HEIGHT}")
     print(f"  🎬 fps: {FPS}")
     print(f"  🎮 device: {TRANSFORMER_DEVICE} (rest) + {TEXT_ENCODER_DEVICE} (text_encoder)")
 
