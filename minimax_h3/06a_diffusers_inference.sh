@@ -41,15 +41,6 @@ fi
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; import torchao; print('✅ diffusers + torchao ok')" 2>/dev/null || \
     { echo "❌ diffusers/torchao not ready" >&2; exit 1; }
 
-# diffusers 的 MiniMaxH3Transformer3DModel.from_pretrained 期望 diffusion_pytorch_model.safetensors.index.json，
-# 但 MiniMax-H3 权重用 transformers 命名（model.safetensors.index.json），建符号链接让 diffusers 找到。
-MODEL_PATH="${MODEL_PATH:-../../model/MiniMax-H3}"
-TRANSFORMER_DIR="$MODEL_PATH/FL2VA/transformer"
-if [ -f "$TRANSFORMER_DIR/model.safetensors.index.json" ] && [ ! -f "$TRANSFORMER_DIR/diffusion_pytorch_model.safetensors.index.json" ]; then
-    echo "📦 creating symlink: diffusion_pytorch_model.safetensors.index.json -> model.safetensors.index.json"
-    ln -sf model.safetensors.index.json "$TRANSFORMER_DIR/diffusion_pytorch_model.safetensors.index.json"
-fi
-
 python "$SCRIPT_DIR/06a_diffusers_inference.py"
 if [ $? -ne 0 ]; then
     echo "❌ FAILED" >&2; exit 1

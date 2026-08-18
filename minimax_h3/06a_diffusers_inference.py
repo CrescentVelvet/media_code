@@ -87,14 +87,15 @@ def main():
     from diffusers.utils import load_image
     from diffusers.utils.export_utils import encode_video
 
-    # int8 量化加载：update_components 替换 transformer + text_encoder 为量化版
+    # int8 量化加载：用顶层 MODEL_PATH（diffusers 格式权重），不是 FL2VA/（原始 MiniMax 格式）。
+    # 顶层 transformer/ 是 diffusers 转换后的格式（transformer_blocks.*, diffusion_pytorch_model-*.safetensors），
+    # FL2VA/transformer/ 是原始格式（blocks.*, model-*.safetensors），MiniMaxH3Transformer3DModel 不认。
     # 关键模块（proj_in/out, AdaLN, time_embedder, visual, embed_tokens 等）不量化
-    FL2VA_DIR = os.path.join(MODEL_PATH, "FL2VA")
     print("📦 loading int8 quantized pipeline (this takes minutes)...")
     pipe = ModularPipeline.from_pretrained(MODEL_PATH)
     pipe.update_components(
         transformer=MiniMaxH3Transformer3DModel.from_pretrained(
-            FL2VA_DIR, subfolder="transformer", dtype=torch.bfloat16,
+            MODEL_PATH, subfolder="transformer", dtype=torch.bfloat16,
             quantization_config=TorchAoConfig(
                 Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=[
@@ -106,7 +107,7 @@ def main():
             device_map={"": DEVICE},  # 权重直接加载到 GPU，跳过 meta 阶段（量化+low_cpu_mem_usage 会留 meta tensor）
         ),
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
-            FL2VA_DIR, subfolder="text_encoder", dtype=torch.bfloat16,
+            MODEL_PATH, subfolder="text_encoder", dtype=torch.bfloat16,
             quantization_config=TransformersTorchAoConfig(
                 Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=[
