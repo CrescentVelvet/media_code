@@ -33,12 +33,7 @@ def main():
         TASK = "fl2va" if FIRST_FRAME else "t2va"
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_int8_seed{os.environ.get('SEED','0')}.mp4"
     DEVICE = os.environ.get("DEVICE", "cuda:0")  # 单卡常驻（int8 后 ~65GB，80GB 够放）
-    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "73"))
-    DURATION = int(os.environ.get("DURATION", "0"))
-    if DURATION > 0:
-        import math
-        n = math.ceil((DURATION * 24 - 5) / 17)
-        NUM_FRAMES = 17 * n + 5
+    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "73"))  # 帧数（需满足 17*n+5，73=17*4+5 ~3s@24fps）
     WIDTH = int(os.environ.get("WIDTH", "0"))
     HEIGHT = int(os.environ.get("HEIGHT", "0"))
     MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(512*768)))
