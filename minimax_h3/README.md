@@ -31,7 +31,7 @@ bash minimax_h3/08_context_ir.sh
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-WIDTH=1344 HEIGHT=768 FPS=24 \
+MAX_PIXELS=786432 FPS=24 \
 DURATION=10 \
 TASK=t2va \
 PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
@@ -43,7 +43,7 @@ bash minimax_h3/06_diffusers_inference.sh
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-WIDTH=1344 HEIGHT=768 FPS=24 \
+MAX_PIXELS=786432 FPS=24 \
 DURATION=10 \
 PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot on a neutral, evenly lit studio backdrop. The subject stands perfectly centered in frame, stock-still and frozen in place from head to toe — absolutely no body movement, no sway, no breathing shift, locked in a static pose. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. The camera moves purely horizontally — zero vertical bob, zero pitch, zero tilt, zero wobble — as if on a precision-engineered dolly on a level rail. As the camera travels, the front, three-quarter, side, back, and opposite three-quarter views of the stationary subject are revealed in sequence, each surface razor-sharp and evenly lit. The background slides laterally behind the subject in a steady, continuous parallax that confirms the perfectly circular, perfectly level path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum. No footsteps, no movement sounds, no handling noise — the camera glides silently as if motorized on a track.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout, providing a calm, motionless backdrop that mirrors the perfectly steady rotation.' \
 OUTPUT_DIR=../MiniMax-H3/results \
@@ -54,7 +54,7 @@ bash minimax_h3/06_diffusers_inference.sh
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-WIDTH=1344 HEIGHT=768 FPS=24 \
+MAX_PIXELS=786432 FPS=24 \
 DURATION=10 \
 TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
@@ -67,7 +67,7 @@ bash minimax_h3/06_diffusers_inference.sh
 GPU=0,1 MODEL_PATH=../../model/MiniMax-H3 \
 TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
-WIDTH=1344 HEIGHT=768 FPS=24 \
+MAX_PIXELS=786432 FPS=24 \
 DURATION=10 \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
 PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement, no sway, locked in a static pose. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. The camera moves purely horizontally — zero vertical bob, zero pitch, zero tilt, zero wobble — as if on a precision-engineered dolly on a level rail. As the camera travels, the front, three-quarter, side, back, and opposite three-quarter views of the stationary subject are revealed in sequence, each surface razor-sharp and evenly lit. The background slides laterally behind the subject in a steady, continuous parallax that confirms the perfectly circular, perfectly level path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum. No footsteps, no movement sounds, no handling noise — the camera glides silently as if motorized on a track.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout, providing a calm, motionless backdrop that mirrors the perfectly steady rotation.' \
