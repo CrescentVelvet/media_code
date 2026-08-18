@@ -115,7 +115,7 @@ def main():
             ),
         ),
     )
-    pipe.load_components(workflow="fl2va", dtype=torch.bfloat16)
+    pipe.load_components(workflow="fl2va", dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
     pipe.transformer.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
     pipe.to(DEVICE)  # 单卡常驻（int8 后 ~65GB，80GB 够放，无 offload 开销）
