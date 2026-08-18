@@ -121,7 +121,10 @@ def main():
     pipe.load_components(workflow="fl2va", dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
     pipe.transformer.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
-    pipe.to(DEVICE)  # 单卡常驻（int8 后 ~65GB，80GB 够放，无 offload 开销）
+    # transformer + text_encoder 已通过 device_map 加载到 DEVICE，不用再 .to()；
+    # 只移 VAE 等非量化组件到 GPU（文档 int8 方案：pipe.vae.to + pipe.audio_vae.to）
+    pipe.vae.to(DEVICE)
+    pipe.audio_vae.to(DEVICE)
     print(f"  ✅ int8 pipeline loaded on {DEVICE}")
 
     generator = torch.Generator(DEVICE).manual_seed(SEED)
