@@ -46,7 +46,7 @@ def main():
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_seed{os.environ.get('SEED','0')}.mp4"
     TRANSFORMER_DEVICE = os.environ.get("TRANSFORMER_DEVICE", "cuda:0")
     TEXT_ENCODER_DEVICE = os.environ.get("TEXT_ENCODER_DEVICE", "cuda:1")
-    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "73"))  # 帧数（需满足 17*n+5，73=17*4+5 ~3s@24fps）
+    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))  # 帧数（需满足 17*n+5，124=17*4+5 ~5s@24fps）
     WIDTH = int(os.environ.get("WIDTH", "0"))   # 宽（0=auto 按图比例算，必须 32 倍数）
     HEIGHT = int(os.environ.get("HEIGHT", "0"))  # 高（0=auto 按图比例算，必须 32 倍数）
     MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(512*768)))  # auto 时总像素上限（默认 ~0.39M）

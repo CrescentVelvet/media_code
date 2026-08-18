@@ -34,7 +34,7 @@ MODEL_PATH=../../model/MiniMax-H3 \
 DEVICE=cuda:0 \
 MAX_PIXELS=393216 \
 FPS=24 \
-NUM_FRAMES=73 \
+NUM_FRAMES=124 \
 SEED=42 \
 TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
@@ -51,7 +51,7 @@ TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
 MAX_PIXELS=393216 \
 FPS=24 \
-NUM_FRAMES=73 \
+NUM_FRAMES=124 \
 SEED=42 \
 TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
@@ -67,7 +67,7 @@ TRANSFORMER_DEVICE=cuda:0 \
 TEXT_ENCODER_DEVICE=cuda:1 \
 MAX_PIXELS=393216 \
 FPS=24 \
-NUM_FRAMES=73 \
+NUM_FRAMES=124 \
 SEED=42 \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
 PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement, no sway, locked in a static pose. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. The camera moves purely horizontally — zero vertical bob, zero pitch, zero tilt, zero wobble — as if on a precision-engineered dolly on a level rail. As the camera travels, the front, three-quarter, side, back, and opposite three-quarter views of the stationary subject are revealed in sequence, each surface razor-sharp and evenly lit. The background slides laterally behind the subject in a steady, continuous parallax that confirms the perfectly circular, perfectly level path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum. No footsteps, no movement sounds, no handling noise — the camera glides silently as if motorized on a track.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout, providing a calm, motionless backdrop that mirrors the perfectly steady rotation.' \
@@ -77,7 +77,7 @@ bash minimax_h3/06_diffusers_inference.sh
 ```
 
 - 结果：视频 → `OUTPUT_DIR/<name>.mp4`（768p 24fps 含原生立体声）。
-- 默认 73 帧（~3s@24fps）；改帧数 `NUM_FRAMES=121`（需满足 17*n+5），换种子 `SEED=42`。
+- 默认 124 帧（~5s@24fps）；改帧数 `NUM_FRAMES=124`（需满足 17*n+5），换种子 `SEED=42`。
 - 自定义 prompt 文件：`PROMPT_FILE=/your/prompt.txt bash ...`（H3-Context-IR 格式长描述效果最好）。
 
 ## 首次准备
@@ -209,7 +209,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 用 `06_diffusers_inference.sh`，prompt 写旋转描述，输入图可以是**原始拍摄图 / 人体分割白底图 / 任意主体图**（MiniMax-H3 能理解各种输入，不像 Wan2.2 需要 LoRA 训练 + 白底分割图）。命令见上方「常用命令」段。
 
-- 默认 73 帧 / 24fps / 768p。`NUM_FRAMES=121` 改帧数（需满足 17*n+5），`SEED=42` 换种子。
+- 默认 124 帧 / 24fps / 768p。`NUM_FRAMES=121` 改帧数（需满足 17*n+5），`SEED=42` 换种子。
 - 与 `wan22_rotate` 的区别：MiniMax-H3 不用 LoRA/分割，prompt 即旋转指令；但旋转一致性不如专门训练的 LoRA（可能旋转中途主体形变）。要精确旋转接 `wan22_rotate/02`，要快速出片用 06。
 
 ## Full 2K Workflow（调 MiniMax API，非开源部分）
@@ -353,7 +353,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `SERVER_URL` | `http://localhost:$PORT` | 也可 `host:port`；Ref2VA 改 `:30011` |
 | `TASK` | `t2va` | `t2va` \| `fl2va` \| `ref2va` |
 | `PROMPT` / `PROMPT_FILE` | _(t2va 内置默认)_ | inline 优先；文件次之 |
-| `NUM_FRAMES` | `73` | 帧数（需满足 17*n+5，73=17*4+5 ~3s@24fps） |
+| `NUM_FRAMES` | `124` | 帧数（需满足 17*n+5，124=17*4+5 ~3s@24fps） |
 | `ASPECT_RATIO` | t2va=`16:9` / fl2va·ref2va=`auto` | `16:9` `9:16` `1:1` `auto` |
 | `SHORT_EDGE` | `768` | 短边像素 |
 | `SEED` | `0` | |
