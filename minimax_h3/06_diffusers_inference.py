@@ -46,7 +46,7 @@ def main():
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_seed{os.environ.get('SEED','0')}.mp4"
     TRANSFORMER_DEVICE = os.environ.get("TRANSFORMER_DEVICE", "cuda:0")
     TEXT_ENCODER_DEVICE = os.environ.get("TEXT_ENCODER_DEVICE", "cuda:1")
-    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
+    NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "73"))
     DURATION = int(os.environ.get("DURATION", "0"))  # 秒；设了就覆盖 NUM_FRAMES（24fps, 17*n+5）
     if DURATION > 0:
         import math
@@ -54,7 +54,7 @@ def main():
         NUM_FRAMES = 17 * n + 5
     WIDTH = int(os.environ.get("WIDTH", "0"))   # 宽（0=auto 按图比例算，必须 32 倍数）
     HEIGHT = int(os.environ.get("HEIGHT", "0"))  # 高（0=auto 按图比例算，必须 32 倍数）
-    MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(768*1024)))  # auto 时总像素上限（默认 ~0.79M）
+    MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(512*768)))  # auto 时总像素上限（默认 ~0.39M）
     FPS = int(os.environ.get("FPS", "24"))       # 输出 mp4 帧率（模型固定 24fps，改只影响 mp4 容器）
     SEED = int(os.environ.get("SEED", "0"))
 
