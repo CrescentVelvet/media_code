@@ -32,7 +32,7 @@ bash minimax_h3/08_context_ir.sh
 GPU=0 \
 MODEL_PATH=../../model/MiniMax-H3 \
 DEVICE=cuda:0 \
-MAX_PIXELS=393216 \
+MAX_PIXELS=133120 \
 FPS=24 \
 NUM_FRAMES=124 \
 SEED=42 \
@@ -76,9 +76,23 @@ OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
 ```
 
+```bash
+# ── FlashVSR 4× 视频超分（09，把 06a int8 低分辨率输出超分到高清）──
+# FlashVSR（CVPR 2026 one-step diffusion VSR）把 06a 的低分辨率（如 MAX_PIXELS=133120
+# 出来 ~486×273）4× 超分到 ~1080p，并把 MiniMax 原生立体声 mux 回 SR 视频。
+# 用独立 env（flashvsr）；首次需 INSTALL_DEPS=1 装 Block-Sparse-Attention + diffsynth。
+GPU=0 \
+INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+FLASHVSR_MODEL_DIR=../../model/FlashVSR \
+RESULTS_DIR=../MiniMax-H3/results_sr \
+OUTPUT_NAME=rotate_360_sr.mp4 \
+bash minimax_h3/09_flashvsr_sr.sh
+```
+
 - 结果：视频 → `OUTPUT_DIR/<name>.mp4`（768p 24fps 含原生立体声）。
 - 默认 124 帧（~5s@24fps）；改帧数 `NUM_FRAMES=124`（需满足 17*n+5），换种子 `SEED=42`。
 - 自定义 prompt 文件：`PROMPT_FILE=/your/prompt.txt bash ...`（H3-Context-IR 格式长描述效果最好）。
+- SR：默认 4× full pipeline（最高质量）；低显存 / 长视频用 `PIPELINE=tiny_long`（需 `TCDecoder.ckpt`）。
 
 ## 首次准备
 ```bash
@@ -98,6 +112,18 @@ HF_DISABLE_SSL=1 MODEL_DIR=../../model/MiniMax-H3 \
 ```
 ⚠️ SGLang 自带 torch/flashinfer/cuda kernel，版本 pin 与本仓其他算法冲突，务必用专用 env（`CONDA_ENV=minimax_h3`），别装进共享 env。
 ⚠️ MiniMax-H3 在 HF 上是 **MiniMax H3 Community License**，可能 gated：下不动/报 401 时去 https://huggingface.co/MiniMaxAI/MiniMax-H3 接受协议、建 read token，再 `HF_TOKEN=<token> bash minimax_h3/01_download_models.sh`。
+
+### FlashVSR 超分 env（09 用，独立于 minimax_h3）
+09 用 [OpenImagingLab/FlashVSR](https://github.com/OpenImagingLab/FlashVSR)，需独立 env（torch 2.6+cu124 + Block-Sparse-Attention + diffsynth，与 sglang pin 冲突）。首次准备：
+```bash
+conda create -n flashvsr python=3.11 -y && conda activate flashvsr
+INSTALL_DEPS=1 bash minimax_h3/09_flashvsr_sr.sh    # clone FlashVSR + BSA 仓 + 装依赖（编译 BSA CUDA kernel 要 nvcc + 足够内存）
+# 权重（v1.1 推荐）下到 model/FlashVSR/：
+#   https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1
+#   diffusion_pytorch_model_streaming_dmd.safetensors / Wan2.1_VAE.pth / LQ_proj_in.ckpt / TCDecoder.ckpt
+```
+> ⚠️ Block-Sparse-Attention 编译吃内存（多 ninja 并发易 OOM）；A100/A800（Ampere）加速最佳，H200 可跑但加速受限，其他卡（RTX 40/50、H800）兼容性未知（见 [BSA README](https://github.com/mit-han-lab/Block-Sparse-Attention)）。
+> 权重放 `model/FlashVSR/`（`FLASHVSR_MODEL_DIR` 默认指向它）；脚本自动 clone 官方仓到 `../FlashVSR`、BSA 仓到 `../Block-Sparse-Attention`。
 
 ---
 
@@ -211,6 +237,51 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 - 默认 124 帧 / 24fps / 768p。`NUM_FRAMES=121` 改帧数（需满足 17*n+5），`SEED=42` 换种子。
 - 与 `wan22_rotate` 的区别：MiniMax-H3 不用 LoRA/分割，prompt 即旋转指令；但旋转一致性不如专门训练的 LoRA（可能旋转中途主体形变）。要精确旋转接 `wan22_rotate/02`，要快速出片用 06。
+
+## FlashVSR 视频超分 (09)
+`09_flashvsr_sr.sh` 调 `09_flashvsr_sr.py`：把 **06a int8 量化出的低分辨率视频**（`MAX_PIXELS=133120` ~486×273 等）用 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)（CVPR 2026，one-step diffusion streaming VSR）4× 超分到高清，并把 MiniMax 原生立体声 mux 回 SR 视频。
+
+> ⚠️ FlashVSR 是为 **4× 超分** 设计的，官方强烈建议 4× 设置。输入 LR × 4 = 输出 SR（如 486×273 → 1944×1092 ≈ 1080p）。06a 用低 `MAX_PIXELS` 出低分辨率再 09 超分，比直接 06 出 768p 更快/省显存且画质可控。
+
+### 原理（09 在干什么）
+1. **读视频**：逐帧读 06a 输出，取首帧算 LR 尺寸 → 4× BICUBIC 上采样 → 中心裁剪到 128 倍数（FlashVSR 要求）；末尾 padding 4 帧 + 截到 `8n+1` 帧（官方约定，含 padding 实际 `8n-3` 帧）。
+2. **超分**：one-step diffusion（DMD 蒸馏，单步去噪）+ **Locality-Constrained Sparse Attention**（LCSA，靠 Block-Sparse-Attention kernel）剪冗余注意力；`topk_ratio = sparse_ratio * 768*1280 / (th*tw)` 随分辨率缩放保持算力恒定；可选 **tiny conditional decoder**（TCDecoder）省显存。`color_fix=True` 校正色彩偏移。
+3. **拼音频**：SR 输出是纯视频（imageio），`MUX_AUDIO=1`（默认）用 ffmpeg 把原 LR 视频的音频流（MiniMax 原生立体声）mux 回 SR 视频。
+
+### 两种管线
+| `PIPELINE` | 类 | 额外权重 | 用途 |
+|---|---|---|---|
+| `full`（默认） | `FlashVSRFullPipeline` | `Wan2.1_VAE.pth` | 最高质量，短视频（MiniMax ~5s/124 帧）推荐 |
+| `tiny_long` | `FlashVSRTinyLongPipeline` | `TCDecoder.ckpt` | 低显存 / 长视频流式，frame 留 CPU |
+
+> 低显存还能 `TILED=1`（full 专用，分块省 VRAM 但更慢）。`SPARSE_RATIO=1.5` 更快、`2.0` 更稳；`LOCAL_RANGE=9` 更锐、`11` 更稳（官方推荐）。
+
+### 命令
+```bash
+# 需先 conda activate flashvsr（见上方「FlashVSR 超分 env」）
+# 默认 full pipeline，4× 超分 06a int8 输出
+GPU=0 \
+INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+FLASHVSR_MODEL_DIR=../../model/FlashVSR \
+RESULTS_DIR=../MiniMax-H3/results_sr \
+OUTPUT_NAME=rotate_360_sr.mp4 \
+bash minimax_h3/09_flashvsr_sr.sh
+
+# 低显存 / 长视频 -> tiny_long 流式管线
+GPU=0 PIPELINE=tiny_long \
+INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+FLASHVSR_MODEL_DIR=../../model/FlashVSR \
+RESULTS_DIR=../MiniMax-H3/results_sr \
+bash minimax_h3/09_flashvsr_sr.sh
+
+# 不保留音频（纯视频输出）
+GPU=0 MUX_AUDIO=0 INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+FLASHVSR_MODEL_DIR=../../model/FlashVSR \
+bash minimax_h3/09_flashvsr_sr.sh
+```
+- 输入也可是图片帧目录（按文件名自然排序，`.png/.jpg`），非视频时 fps 默认 30。
+- 首次 `INSTALL_DEPS=1`：自动 clone FlashVSR 仓（`../FlashVSR`，含 `diffsynth` + `examples/WanVSR/utils`）+ BSA 仓（`../Block-Sparse-Attention`）+ 编译 BSA CUDA kernel + `pip install -e` FlashVSR + requirements.txt + pin `numpy==1.26.4`。
+- 权重默认读 `model/FlashVSR/`（`FLASHVSR_MODEL_DIR` 覆盖）；full 检查 `diffusion_pytorch_model_streaming_dmd.safetensors` / `Wan2.1_VAE.pth` / `LQ_proj_in.ckpt`，tiny_long 把 `Wan2.1_VAE.pth` 换成 `TCDecoder.ckpt`。
 
 ## Full 2K Workflow（调 MiniMax API，非开源部分）
 要 2K 输出需把本地 768p 结果喂回 MiniMax API 的 H3-Regenerate-2K，并用 H3-Context-IR API 预处理自由 prompt。本目录不含这部分（要 API Token），步骤：
@@ -367,9 +438,31 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `OUTPUT_DIR` / `OUTPUT_NAME` | `../MiniMax-H3/results/<task>` / `<task>_seed<seed>.mp4` | |
 | `POLL_INTERVAL` / `TIMEOUT_MINS` | `10` / `30` | 轮询间隔 / 超时 |
 
+### FlashVSR SR (09)
+| var | default | note |
+|---|---|---|
+| `CONDA_ENV` | `flashvsr` | 独立 env（torch 2.6+cu124 + BSA + diffsynth，与 sglang pin 冲突） |
+| `INPUT` | _(必填)_ | 输入 LR 视频路径或图片帧目录 |
+| `FLASHVSR_MODEL_DIR` | `../../model/FlashVSR` | 权重目录（v1 / v1.1 通用） |
+| `FLASHVSR_DIR` | `../FlashVSR` | 官方仓（diffsynth + `examples/WanVSR/utils`） |
+| `BSA_DIR` | `../Block-Sparse-Attention` | Block-Sparse-Attention 源码（LCSA 必需） |
+| `PIPELINE` | `full` | `full`（最高质量，需 `Wan2.1_VAE.pth`） \| `tiny_long`（低显存/长视频，需 `TCDecoder.ckpt`） |
+| `SCALE` | `4` | 超分倍数（官方推荐 4×） |
+| `SEED` | `0` | |
+| `SPARSE_RATIO` | `2.0` | LCSA 稀疏度；`1.5` 更快 / `2.0` 更稳 |
+| `LOCAL_RANGE` | `11` | 局部注意力范围；`9` 更锐 / `11` 更稳 |
+| `TILED` | `0` | `1`=full 分块（低显存，更慢） |
+| `COLOR_FIX` | `1` | `1`=校正色彩偏移 |
+| `MUX_AUDIO` | `1` | `1`=把原 LR 视频音频（MiniMax 立体声）mux 回 SR 输出 |
+| `DEVICE` | `cuda` | GPU 选卡用 `GPU=N`（映射 `CUDA_VISIBLE_DEVICES`） |
+| `OUTPUT_DIR` / `OUTPUT_NAME` | `../MiniMax-H3/results_sr` / `<input>_sr.mp4` | |
+| `INSTALL_DEPS` | `0` | `1`=clone 仓 + 装 BSA + diffsynth + requirements |
+
 ## Outputs
 - **02 serve**: 日志 `../MiniMax-H3/logs/serve_<variant>_<port>.log` + PID 文件 `serve_<variant>_<port>.pid`（BG 模式）。
 - **03 generate**: 视频 `../MiniMax-H3/results/<task>/<name>.mp4`（含原生立体声）。
+- **06/06a diffusers**: 视频 `OUTPUT_DIR/<name>.mp4`（768p/低分辨率 24fps 含原生立体声）。
+- **09 FlashVSR SR**: 视频 `../MiniMax-H3/results_sr/<name>_sr.mp4`（4× 超分，mux 原音频）。
 
 ## 目录布局
 ```
@@ -379,11 +472,16 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 │   └── minimax_h3/             # 编排脚本(本目录)
 ├── MiniMax-H3/                  # GitHub 参考仓(自动 clone 到 ../MiniMax-H3；含 scripts/skills)
 │   ├── results/                # 生成视频输出
+│   ├── results_int8/           # 06a int8 低分辨率输出（09 的典型输入）
+│   ├── results_sr/             # 09 FlashVSR 超分输出
 │   └── logs/                    # 服务日志
+├── FlashVSR/                   # 09 自动 clone（diffsynth + examples/WanVSR/utils）
+├── Block-Sparse-Attention/     # 09 自动 clone（LCSA CUDA kernel）
 └── ../../model/MiniMax-H3/      # HF 权重快照(<code-dir> 上一级, 各算法共享)
     ├── model_index.json         # 仓库级公共入口(SGLang 读)
     ├── FL2VA/                   # FL2VA 任务族(transformer/text_encoder/tokenizer/processor/visual_vae/audio_vae)
-    └── Ref2VA/                  # Ref2VA 任务族(DOWNLOAD_REF2VA=1 才下)
+    ├── Ref2VA/                  # Ref2VA 任务族(DOWNLOAD_REF2VA=1 才下)
+    └── ../FlashVSR/             # 09 权重(diffusion_pytorch_model_streaming_dmd.safetensors 等)
 ```
 默认：参考仓 `../MiniMax-H3`、权重 `../../model/MiniMax-H3`（相对本目录）；用 `MINIMAX_H3_DIR` / `MODEL_DIR` 覆盖。SGLang 服务**只依赖 HF 权重快照**，GitHub 参考仓纯为方便看 scripts/skills。
 
