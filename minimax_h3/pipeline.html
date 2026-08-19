@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniMax-H3 Pipeline 与优化措施</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 980px; margin: 0 auto; padding: 24px; color: #1f2328; line-height: 1.6; }
+  h1 { border-bottom: 2px solid #d45d44; padding-bottom: 8px; color: #b91c1c; }
+  h2 { margin-top: 36px; border-left: 4px solid #d45d44; padding-left: 10px; }
+  h3 { margin-top: 24px; color: #9a3412; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #fef3c7; }
+  tr:nth-child(even) td { background: #fafafa; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; color: #b91c1c; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .tag-must { background: #fee2e2; color: #b91c1c; }
+  .tag-opt { background: #dcfce7; color: #166534; }
+  .tag-fix { background: #fef3c7; color: #9a3412; }
+  .note { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 10px 14px; margin: 12px 0; }
+  .warn { background: #fee2e2; border-left: 4px solid #b91c1c; padding: 10px 14px; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>MiniMax-H3 Pipeline 与优化措施</h1>
+<p>本仓 <code>minimax_h3/</code> 用 diffusers 直接跑 MiniMax-H3（不起 SGLang 服务），针对单机 8×A100 80GB 做了一系列显存/速度优化。本文汇总优化措施 + FL2VA/Ref2VA 两个变体的区别。</p>
+
+<h2>一、优化措施总览</h2>
+
+<h3>1. 推理路径：diffusers 直接跑，不起服务</h3>
+<table>
+<tr><th>脚本</th><th>方式</th><th>显存</th><th>速度</th><th>适合</th></tr>
+<tr><td><code>06</code>（bf16）</td><td>两卡分拆 + auto offload</td><td>transformer 61.7GB + text_encoder 62.1GB，两卡各满</td><td>offload 有搬运开销</td><td>无量化、多卡</td></tr>
+<tr><td><code>06a</code>（int8 量化）</td><td>单卡常驻 + group_offload</td><td>各组件 ~31GB，单卡去噪只占当前 block</td><td>同步搬运稍慢，但无服务开销</td><td>单卡、要省显存</td></tr>
+</table>
+<p>不走 SGLang serve（02+03）那条路——那是 serving 框架，要起长驻 HTTP 进程。diffusers 直接 <code>pipe(...)</code> 跑，简单，适合单次生成。</p>
+
+<h3>2. int8 weight-only 量化（06a）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>量化方式</td><td>torchao <code>Int8WeightOnlyConfig(version=2)</code>——只量化权重，激活全程 bf16，精度损失小</td></tr>
+<tr><td>显存</td><td>transformer 61.7→~31GB，text_encoder 62.1→~31GB，单卡 80GB 可放</td></tr>
+<tr><td>关键模块不量化</td><td>transformer 的 <code>proj_in/audio_proj_in/context_embedder/time_embedder/time_proj/token_refiner/norm_out/proj_out/audio_proj_out</code> + text_encoder 的 <code>model.visual/embed_tokens/norm/lm_head</code> 保留 bf16（输入输出投影 + AdaLN + 时间嵌入，对生成质量影响最大）</td></tr>
+<tr><td>CFG-distilled</td><td>MiniMax-H3 guidance 已 baked in，对权重扰动更鲁棒（不像需 CFG 的模型那样敏感）</td></tr>
+<tr><td>torchao 版本</td><td>需 <code>torchao==0.15.0</code>（<code>TorchAoConfig</code> 要求 ≥0.15.0）</td></tr>
+</table>
+
+<h3>3. group_offload（06a，单卡放不下的关键）</h3>
+<table>
+<tr><th>项</th><th>说明</th></tr>
+<tr><td>transformer</td><td><code>enable_group_offload(offload_type="block_level", num_blocks_per_group=1)</code>——按 block offload 到 CPU，去噪时只加载当前 block 到 GPU</td></tr>
+<tr><td>text_encoder</td><td><code>apply_group_offloading(model, offload_type="leaf_level")</code>——按叶子模块 offload</td></tr>
+<tr><td>VAE</td><td>常驻 GPU（<code>pipe.vae.to(DEVICE)</code> + <code>pipe.audio_vae.to(DEVICE)</code>），只在解码阶段用</td></tr>
+<tr><td>显存</td><td>去噪时只占当前 transformer block（~2-3GB）+ 激活 + VAE（~3GB）≈ 10-15GB，单卡 80GB 绰绰有余</td></tr>
+</table>
+<div class="warn">
+<b>Int8Tensor 兼容性踩坑</b>（两个必须改的参数）：
+<ul>
+<li><code>low_cpu_mem_usage=True</code>（<code>enable_group_offload</code> 和 <code>apply_group_offloading</code> 都要传）——跳过 <code>pin_memory()</code>，Int8Tensor 不支持 pinned memory</li>
+<li>去掉 <code>use_stream=True</code>——<code>use_stream</code> 会走 <code>_pinned_memory_tensors()</code> 调 <code>is_pinned()/pin_memory()</code>，Int8Tensor 报错；改成普通同步搬运，稍慢但稳</li>
+</ul>
+</div>
+
+<h3>4. 分辨率与帧数（省显存）</h3>
+<table>
+<tr><th>参数</th><th>默认</th><th>说明</th></tr>
+<tr><td><code>NUM_FRAMES</code></td><td>73</td><td>需满足 <code>17*n+5</code>（73=17×4+5，~3s@24fps）。常见：90/107/124（~5s）/175（~7s）</td></tr>
+<tr><td><code>MAX_PIXELS</code></td><td>393216（512×768）</td><td>不传 <code>WIDTH/HEIGHT</code> 时，按首帧图比例（无图默认 16:9）自动算分辨率，总像素 ≤ 此阈值，32 倍数对齐</td></tr>
+<tr><td><code>WIDTH/HEIGHT</code></td><td>0（auto）</td><td>显式传则直接用（必须 32 倍数）</td></tr>
+<tr><td><code>FPS</code></td><td>24</td><td>模型固定 24fps，改只影响 mp4 容器</td></tr>
+</table>
+<p>降分辨率是最有效的省显存手段——文档说 960×544 比 1344×768 快 2.3x、显存也更少。</p>
+
+<h3>5. 本地加载（不走代理）</h3>
+<table>
+<tr><th>问题</th><th>修法</th></tr>
+<tr><td><code>modular_model_index.json</code> 里组件 <code>pretrained_model_name_or_path</code> 写的是 <code>"MiniMaxAI/MiniMax-H3"</code>（HF Hub ID），<code>load_components</code> 会从 HF 下载撞代理 SSL</td><td><code>load_components(..., pretrained_model_name_or_path=MODEL_PATH)</code> 覆盖，强制本地加载</td></tr>
+<tr><td>MiniMax-H3 有两套 transformer：<code>FL2VA/transformer/</code>（原始 MiniMax 格式 <code>blocks.*/model-*.safetensors</code>）和顶层 <code>transformer/</code>（diffusers 格式 <code>transformer_blocks.*/diffusion_pytorch_model-*.safetensors</code>）</td><td><code>MiniMaxH3Transformer3DModel.from_pretrained(MODEL_PATH, subfolder="transformer")</code> 用顶层（diffusers 格式），不用 <code>FL2VA_DIR</code></td></tr>
+</table>
+
+<h3>6. diffusers 安装（PyPI 没有 ModularPipeline）</h3>
+<table>
+<tr><th>步骤</th><th>说明</th></tr>
+<tr><td>检测</td><td><code>from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline</code>（不是通用 <code>ModularPipeline</code>，PyPI 有通用类但无 minimax_h3 模块）</td></tr>
+<tr><td>PyPI 先试</td><td><code>pip install -U diffusers</code></td></tr>
+<tr><td>git fallback</td><td>PyPI 还没有 → <code>git clone</code> diffusers main + <code>pip install -e --no-deps --config-settings editable_mode=compat</code>（跳过依赖 pin，用 env 现有 torch/transformers）</td></tr>
+<tr><td><code>editable_mode=compat</code></td><td>PEP 660 默认 strict 模式漏 <code>multimodal_gen</code> 子包（<code>KeyError: 'sglang.multimodal_gen'</code>），compat 模式加源码目录到 sys.path，所有子包能 import</td></tr>
+</table>
+
+<h3>7. H3-Context-IR prompt 优化（08）</h3>
+<p>短 prompt 效果不如 H3-Context-IR 格式长描述（官方推荐）。<code>08_context_ir.sh</code> 调 MiniMax hosted API（<code>POST /v2/h3_context_ir</code>）把短 prompt + 可选首帧图转成结构化长描述（<code>integrated_multimodal_description / overall_soundscape / non_diegetic_music</code>），再传给 06/06a 生成。需要 MiniMax API token。</p>
+
+<h2>二、FL2VA 与 Ref2VA 的区别与联系</h2>
+
+<h3>共同点（共享组件）</h3>
+<table>
+<tr><th>组件</th><th>说明</th></tr>
+<tr><td>text_encoder</td><td>Qwen3-VL-32B（H3-Encoder），取第 50 层 hidden state；文本和图像都经它编码（音频不经）</td></tr>
+<tr><td>visual_vae</td><td>H3-VisualVAE，时间因果视频自编码器，空间压缩 16×、时间 4×、24 通道（f16t4d24），patchify 后有效空间下采样 32×</td></tr>
+<tr><td>audio_vae</td><td>H3-AudioVAE，左右声道各自编/解码，32kHz → 40Hz 潜序列（立体声）</td></tr>
+<tr><td>tokenizer / processor</td><td>共享</td></tr>
+<tr><td>scheduler / audio_scheduler</td><td>两个调度器：视频 <code>shift=12.0</code>，音频 <code>shift=3.0</code></td></tr>
+<tr><td>Omni-Transformer</td><td>33B 单流 dense Transformer（~13B 在 AdaLN 分支，推理可预计算缓存故不加载）；3D MM-RoPE 表示 <code>(t,h,w)</code></td></tr>
+<tr><td>CFG-distilled</td><td>guidance baked in，无 <code>negative_prompt</code> / <code>guidance_scale</code>，每步一次前向</td></tr>
+<tr><td>输出</td><td>768p / 24fps / 32kHz stereo / 4–15s</td></tr>
+</table>
+
+<h3>差异</h3>
+<table>
+<tr><th>项</th><th>FL2VA</th><th>Ref2VA</th></tr>
+<tr><td>全称</td><td>First-and-Last-Frame-to-Video-and-Audio</td><td>Reference-to-Video-and-Audio</td></tr>
+<tr><td>checkpoint 子目录</td><td><code>transformer/</code>（diffusers 格式 <code>transformer_blocks.*</code>）</td><td><code>transformer_ref/</code>（diffusers 格式，权重不同）</td></tr>
+<tr><td>输入</td><td>文本 + 可选首帧/末帧/首末帧（0/1/2 张图）</td><td>文本 + 参考素材（≤9 图 + ≤3 视频 + ≤3 音频，共 ≤12）</td></tr>
+<tr><td>支持的 task</td><td><code>t2va</code>（纯文）/ <code>i2va</code>（首帧）/ <code>l2va</code>（末帧）/ <code>fl2va</code>（首末帧）</td><td><code>ref2va</code>（参考生成）</td></tr>
+<tr><td>condition 角色</td><td><code>role=keyframe</code>（<code>frame_index=0</code> 首帧 / <code>-1</code> 末帧）</td><td><code>role=reference</code>（按模态独立编号 <code>&lt;Picture N&gt;</code> / <code>&lt;Audio N&gt;</code> / <code>&lt;Video N&gt;</code>）</td></tr>
+<tr><td>aspect_ratio</td><td>默认 <code>auto</code>（跟随首帧比例）</td><td>默认 <code>auto</code>（参考不绑几何，画布默认 16:9）</td></tr>
+<tr><td>顺序敏感性</td><td>首末帧顺序固定（首帧在前）</td><td>参考顺序影响语义（重排 = 不同请求，编号 + 共享音视频时钟都跟着变）</td></tr>
+<tr><td>视频参考的音轨</td><td>无</td><td>视频自带音轨算 <code>&lt;Audio 1&gt;</code>，独立音频文件算 <code>&lt;Audio 2&gt;</code>（以此类推）</td></tr>
+<tr><td>精度</td><td>BF16</td><td>BF16</td></tr>
+</table>
+
+<h3>联系（为什么共享除了 transformer 之外的所有组件）</h3>
+<div class="note">
+MiniMax-H3 把两个变体放在同一个 HF 仓库里，<strong>除了 transformer 权重不同，其余全共享</strong>（text_encoder / visual_vae / audio_vae / tokenizer / processor / scheduler 都只存一份）。<code>modular_model_index.json</code> 是仓库级公共入口，<code>FL2VA/model_index.json</code> 和 <code>Ref2VA/model_index.json</code> 是任务族各自的 diffusers 索引。
+</div>
+<ul>
+<li><strong>FL2VA 的 transformer/</strong> 学的是"首末帧条件下的视频+音频生成"——吃文本 + keyframe（首/末/首末），吐延续的视频+音频。</li>
+<li><strong>Ref2VA 的 transformer_ref/</strong> 学的是"多模态参考条件下的生成"——吃文本 + 参考图/视频/音频，吐参考驱动的视频+音频（如人物+声音→说话视频）。</li>
+<li>两者都是 <strong>CFG-distilled</strong>（无 CFG guider，每步一次前向），共用 H3-Encoder（Qwen3-VL-32B）编码文本+图像，共用两个 VAE 解码视频/音频。</li>
+</ul>
+
+<div class="warn">
+<b>本仓当前只跑 FL2VA</b>（06/06a 用 <code>workflow="fl2va"</code>）。Ref2VA 需要 <code>workflow="ref2va"</code> + 加载 <code>transformer_ref/</code>，且 diffusers API 要传 <code>references=[MiniMaxH3ImageReference, MiniMaxH3VideoReference, MiniMaxH3AudioReference]</code>（顺序敏感）。要跑 Ref2VA 得下 <code>DOWNLOAD_REF2VA=1</code> 权重 + 改 06/06a 的 workflow + references 传参。
+</div>
+
+<h2>三、脚本一览</h2>
+<table>
+<tr><th>脚本</th><th>作用</th></tr>
+<tr><td><code>00_setup_env.sh</code></td><td>装 sglang + g++ 12 + diffusers git main + 依赖对齐（transformers==5.12.1 / huggingface_hub / xgrammar）+ qwen3_asr.py 热修 + flash_attention_v3.py 热修</td></tr>
+<tr><td><code>01_download_models.sh</code></td><td>下 MiniMaxAI/MiniMax-H3 权重快照（默认 FL2VA/，<code>DOWNLOAD_REF2VA=1</code> 加 Ref2VA/）</td></tr>
+<tr><td><code>02_serve.sh</code></td><td>SGLang serve（多卡 Ulysses/TP，要起服务，本仓主推 06 不用这个）</td></tr>
+<tr><td><code>03_generate.sh</code></td><td>发 HTTP 请求到 02 的服务（配合 02 用）</td></tr>
+<tr><td><code>06_diffusers_inference.sh</code></td><td>diffusers 直接跑（bf16 两卡分拆 + auto offload，不起服务）</td></tr>
+<tr><td><code>06a_diffusers_inference.sh</code></td><td>int8 量化 + group_offload（单卡，省显存，效果基本无损）</td></tr>
+<tr><td><code>08_context_ir.sh</code></td><td>调 MiniMax H3-Context-IR API 把短 prompt 转长描述（打印 + 写文件，不自动跑 06）</td></tr>
+</table>
+
+</body>
+</html>
