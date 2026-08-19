@@ -14,6 +14,7 @@ import os, sys, time
 
 try:
     from diffusers import ModularPipeline, MiniMaxH3Transformer3DModel, TorchAoConfig
+    from diffusers.hooks import apply_group_offloading
     from torchao.quantization import Int8WeightOnlyConfig
     from transformers import Qwen3VLForConditionalGeneration
     from transformers import TorchAoConfig as TransformersTorchAoConfig
@@ -98,8 +99,7 @@ def main():
                     "token_refiner", "norm_out", "proj_out", "audio_proj_out",
                 ],
             ),
-            low_cpu_mem_usage=True,
-            device_map={"": DEVICE},  # 权重直接加载到 GPU，跳过 meta 阶段（量化+low_cpu_mem_usage 会留 meta tensor）
+            low_cpu_mem_usage=False,
         ),
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, subfolder="text_encoder", dtype=torch.bfloat16,
@@ -110,18 +110,21 @@ def main():
                     "model.language_model.norm", "lm_head",
                 ],
             ),
-            low_cpu_mem_usage=True,
-            device_map={"": DEVICE},
+            low_cpu_mem_usage=False,
         ),
     )
     pipe.load_components(workflow="fl2va", dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
     pipe.transformer.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
-    # transformer + text_encoder 已通过 device_map 加载到 DEVICE，不用再 .to()；
-    # 只移 VAE 等非量化组件到 GPU（文档 int8 方案：pipe.vae.to + pipe.audio_vae.to）
-    pipe.vae.to(DEVICE)
+    # group_offload：transformer 按 block offload 到 CPU，去噪时只加载当前 block 到 GPU
+    # （int8 version=2 的 tensor 是 pinnable，use_stream=True 异步搬运，开销小）
+    # 显存只占当前 block（~2-3GB）+ 激活 + VAE（~3GB），单卡 80GB 绰绰有余
+    offload = dict(onload_device=torch.device(DEVICE), offload_device=torch.device("cpu"), use_stream=True)
+    pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
+    apply_group_offloading(pipe.text_encoder.model, offload_type="leaf_level", **offload)
+    pipe.vae.to(DEVICE)       # VAE 常驻（解码用）
     pipe.audio_vae.to(DEVICE)
-    print(f"  ✅ int8 pipeline loaded on {DEVICE}")
+    print(f"  ✅ int8 pipeline loaded on {DEVICE} (transformer+text_encoder block-level offloaded)")
 
     generator = torch.Generator(DEVICE).manual_seed(SEED)
     outputs = ["videos", "audio", "sampling_rate"]
