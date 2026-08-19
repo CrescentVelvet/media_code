@@ -45,7 +45,7 @@ try:
     from tqdm import tqdm
     from einops import rearrange
 except ImportError as e:
-    sys.exit(f"❌ {e}. Run: INSTALL_DEPS=1 CONDA_ENV=flashvsr bash minimax_h3/09_flashvsr_sr.sh")
+    sys.exit(f"❌ {e}. Run: INSTALL_DEPS=1 CONDA_ENV=flashvsr bash minimax_h3/07_flashvsr_sr.sh")
 
 
 # 权重文件名（v1 / v1.1 通用）
@@ -322,7 +322,7 @@ def main():
     if missing:
         sys.exit(f"❌ missing weights in {MODEL_DIR}: {missing}")
 
-    print(f"🚀 [09] FlashVSR 4× SR ({PIPELINE} pipeline)")
+    print(f"🚀 [07] FlashVSR 4× SR ({PIPELINE} pipeline)")
     print(f"  🖼️ input: {INPUT}")
     print(f"  🏋️ model: {MODEL_DIR}")
     print(f"  📐 scale={SCALE}×  seed={SEED}  sparse_ratio={SPARSE_RATIO}  local_range={LOCAL_RANGE}")
@@ -361,7 +361,7 @@ def main():
 
     if MUX_AUDIO and is_video(INPUT):
         mux_audio(out_path, INPUT)
-    print("🎉 [09] Done.")
+    print("🎉 [07] Done.")
 
 
 if __name__ == "__main__":

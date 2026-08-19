@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 09_flashvsr_sr.sh — FlashVSR 视频超分（把 int8 量化 MiniMax 生成的低分辨率视频 4× 超分到高清）。
+# 07_flashvsr_sr.sh — FlashVSR 视频超分（把 int8 量化 MiniMax 生成的低分辨率视频 4× 超分到高清）。
 #
 # 用 OpenImagingLab/FlashVSR（CVPR 2026，one-step diffusion streaming VSR）。
 # 默认 v1.1 + full pipeline（最高质量，MiniMax 短视频 ~5s 够用）；
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/_env.sh"
 if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ]; then
     echo "❌ conda env '$CONDA_ENV' not active (current: ${CONDA_DEFAULT_ENV:-none})." >&2
     echo "   先建 env:  conda create -n flashvsr python=3.11 -y && conda activate flashvsr" >&2
-    echo "   再装依赖:  INSTALL_DEPS=1 bash minimax_h3/09_flashvsr_sr.sh" >&2
+    echo "   再装依赖:  INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2
     exit 1
 fi
 
@@ -86,7 +86,7 @@ if [ "${INSTALL_DEPS:-0}" = "1" ] || [ "$need_install" = "1" ]; then
 fi
 
 python -c "from diffsynth import ModelManager; import block_sparse_attn; print('✅ diffsynth + block_sparse_attn ok')" 2>/dev/null || \
-    { echo "❌ deps not ready. Re-run: INSTALL_DEPS=1 bash minimax_h3/09_flashvsr_sr.sh" >&2; exit 1; }
+    { echo "❌ deps not ready. Re-run: INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2; exit 1; }
 
 # ── 5. 权重文件检查 ──
 PIPELINE="${PIPELINE:-full}"
@@ -121,14 +121,14 @@ if [ -z "$INPUT" ]; then
 fi
 export INPUT PIPELINE
 
-echo "🚀 [09] FlashVSR 4× SR ($PIPELINE pipeline)"
+echo "🚀 [07] FlashVSR 4× SR ($PIPELINE pipeline)"
 echo "  🖼️ input:  $INPUT"
 echo "  🏋️ model:  $FLASHVSR_MODEL_DIR"
 echo "  📐 scale:  ${SCALE:-4}×  pipeline: $PIPELINE"
 echo "  💾 output: $RESULTS_DIR/${OUTPUT_NAME:-<input>_sr.mp4}"
 
-python "$SCRIPT_DIR/09_flashvsr_sr.py"
+python "$SCRIPT_DIR/07_flashvsr_sr.py"
 if [ $? -ne 0 ]; then
     echo "❌ FAILED" >&2; exit 1
 fi
-echo "🎉 [09] Done."
+echo "🎉 [07] Done."
