@@ -119,7 +119,8 @@ def main():
     # group_offload：transformer 按 block offload 到 CPU，去噪时只加载当前 block 到 GPU
     # （int8 version=2 的 tensor 是 pinnable，use_stream=True 异步搬运，开销小）
     # 显存只占当前 block（~2-3GB）+ 激活 + VAE（~3GB），单卡 80GB 绰绰有余
-    offload = dict(onload_device=torch.device(DEVICE), offload_device=torch.device("cpu"), use_stream=True)
+    # 不用 use_stream（会调 pin_memory()，Int8Tensor 不支持）；同步搬运稍慢但稳
+    offload = dict(onload_device=torch.device(DEVICE), offload_device=torch.device("cpu"))
     pipe.transformer.enable_group_offload(
         offload_type="block_level", num_blocks_per_group=1,
         low_cpu_mem_usage=True,  # Int8Tensor 不支持 pin_memory()，跳过
