@@ -99,7 +99,7 @@ def main():
                     "token_refiner", "norm_out", "proj_out", "audio_proj_out",
                 ],
             ),
-            low_cpu_mem_usage=False,
+            low_cpu_mem_usage=True,
         ),
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, subfolder="text_encoder", dtype=torch.bfloat16,
@@ -110,7 +110,7 @@ def main():
                     "model.language_model.norm", "lm_head",
                 ],
             ),
-            low_cpu_mem_usage=False,
+            low_cpu_mem_usage=True,
         ),
     )
     pipe.load_components(workflow="fl2va", dtype=torch.bfloat16, pretrained_model_name_or_path=MODEL_PATH)
