@@ -120,8 +120,16 @@ def main():
     # （int8 version=2 的 tensor 是 pinnable，use_stream=True 异步搬运，开销小）
     # 显存只占当前 block（~2-3GB）+ 激活 + VAE（~3GB），单卡 80GB 绰绰有余
     offload = dict(onload_device=torch.device(DEVICE), offload_device=torch.device("cpu"), use_stream=True)
-    pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
-    apply_group_offloading(pipe.text_encoder.model, offload_type="leaf_level", **offload)
+    pipe.transformer.enable_group_offload(
+        offload_type="block_level", num_blocks_per_group=1,
+        low_cpu_mem_usage=True,  # Int8Tensor 不支持 pin_memory()，跳过
+        **offload,
+    )
+    apply_group_offloading(
+        pipe.text_encoder.model, offload_type="leaf_level",
+        low_cpu_mem_usage=True,
+        **offload,
+    )
     pipe.vae.to(DEVICE)       # VAE 常驻（解码用）
     pipe.audio_vae.to(DEVICE)
     print(f"  ✅ int8 pipeline loaded on {DEVICE} (transformer+text_encoder block-level offloaded)")
