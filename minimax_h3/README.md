@@ -43,6 +43,29 @@ OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8 \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06a_diffusers_inference.sh
 
+# ── Turbo LoRA 4 步加速（06b，单卡 bf16 + auto offload，比 06a 更快）──
+# 用 lightx2v/Minimax-h3-Turbo 蒸馏的 LoRA，把 50 步压到 4 步，推理快 ~10×。
+# bf16 不量化 + ComponentsManager auto CPU offload（单卡 80GB 可跑）。
+# ⚠️ 768p checkpoint 必须用 VIDEO_SHIFT=6 LORA_ALPHA=128（训练 shift=6，不是 12）。
+# 先下 LoRA：
+#   hf download lightx2v/Minimax-h3-Turbo \
+#     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+#     --local-dir ../../model/MiniMax-H3-Turbo
+GPU=0 \
+MODEL_PATH=../../model/MiniMax-H3 \
+LORA_PATH=../../model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+FPS=24 \
+NUM_FRAMES=124 \
+SEED=42 \
+TASK=fl2va \
+FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
+PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_turbo \
+OUTPUT_NAME=rotate_360_turbo.mp4 \
+bash minimax_h3/06b_turbo_lora_inference.sh
+
 # ── FlashVSR 4× 视频超分（07，把 06a int8 低分辨率输出超分到高清）──
 # FlashVSR（CVPR 2026 one-step diffusion VSR）把 06a 的低分辨率（如 MAX_PIXELS=133120
 # 出来 ~486×273）4× 超分到 ~1080p，并把 MiniMax 原生立体声 mux 回 SR 视频。
@@ -237,7 +260,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 用 `06_diffusers_inference.sh`，prompt 写旋转描述，输入图可以是**原始拍摄图 / 人体分割白底图 / 任意主体图**（MiniMax-H3 能理解各种输入，不像 Wan2.2 需要 LoRA 训练 + 白底分割图）。命令见上方「常用命令」段。
 
 - 默认 124 帧 / 24fps / 768p。`NUM_FRAMES=121` 改帧数（需满足 17*n+5），`SEED=42` 换种子。
-- 与 `wan22_rotate` 的区别：MiniMax-H3 不用 LoRA/分割，prompt 即旋转指令；但旋转一致性不如专门训练的 LoRA（可能旋转中途主体形变）。要精确旋转接 `wan22_rotate/02`，要快速出片用 06。
+- 与 `wan22_rotate` 的区别：MiniMax-H3 不用 LoRA/分割，prompt 即旋转指令；但旋转一致性不如专门训练的 LoRA（可能旋转中途主体形变）。要精确旋转接 `wan22_rotate/02`，要快速出片用 **06b（Turbo 4 步，最快）** 或 06。
 
 ## FlashVSR 视频超分 (07)
 `07_flashvsr_sr.sh` 调 `07_flashvsr_sr.py`：把 **06a int8 量化出的低分辨率视频**（`MAX_PIXELS=133120` ~486×273 等）用 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)（CVPR 2026，one-step diffusion streaming VSR）4× 超分到高清，并把 MiniMax 原生立体声 mux 回 SR 视频。
@@ -440,6 +463,34 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results/<task>` / `<task>_seed<seed>.mp4` | |
 | `POLL_INTERVAL` / `TIMEOUT_MINS` | `10` / `30` | 轮询间隔 / 超时 |
 
+### Turbo LoRA (06b)
+| var | default | note |
+|---|---|---|
+| `LORA_PATH` | _(必填，见 .sh 默认)_ | Turbo LoRA checkpoint；默认指向 768p 4-step v1.0 |
+| `NUM_INFERENCE_STEPS` | `4` | NFE（去噪步数）；传 scheduler 时自动 +1（grid 含末尾零点） |
+| `VIDEO_SHIFT` | `6.0` | 视频 sigma shift；**768p 4-step 用 6**，544p 各版用 `12` |
+| `AUDIO_SHIFT` | `3.0` | 音频 sigma shift |
+| `LORA_ALPHA` | `128` | LoRA alpha；**768p 4-step v1.0 用 128**，544p 各版用 `8` |
+| `LORA_SCALE` | `1.0` | LoRA 运行时缩放 |
+| `FUSE_LORA` | `0` | `1`=烘焙 LoRA 进权重（同卡多次跑省开销） |
+| `MODEL_PATH` | `../../model/MiniMax-H3` | 原版 HF 权重（bf16，不量化） |
+| `TASK` | `fl2va`(有图) / `t2va`(无图) | `ref2va` 走 `transformer_ref`（需 Ref2VA 专用 LoRA） |
+| `DEVICE` | `cuda:0` | 单卡；bf16 全量放不下，auto CPU offload 自动搬运 |
+| `NUM_FRAMES` | `124` | 帧数（需满足 17*n+5） |
+| `WIDTH` / `HEIGHT` | `0`(auto) | 显式覆盖分辨率；`MAX_PIXELS` 算 auto |
+| `MAX_PIXELS` | `1032192`(1344×768) | auto 分辨率上限；544p 配方用 `522240`(960×544) |
+| `FPS` / `SEED` | `24` / `0` | |
+| `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results_turbo` / `<task>_turbo_seed<seed>.mp4` | |
+
+各 checkpoint 参数对应（详见 `.sh` 顶部注释）：
+
+| checkpoint | NFE | VIDEO_SHIFT | LORA_ALPHA | MAX_PIXELS |
+|---|---|---|---|---|
+| `minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16` | 4 | 6 | 128 | 1032192 (1344×768) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 8 | 12 | 8 | 522240 (960×544) |
+| `minimax_h3_fl2v_turbo_4step_v0.1` | 4 | 12 | 8 | 522240 (960×544) |
+| `minimax_h3_ref2v_turbo_4step_v0.1_bf16` | 4 | 12 | 8 | 522240 (Ref2VA，需 `TASK=ref2va`) |
+
 ### FlashVSR SR (07)
 | var | default | note |
 |---|---|---|
@@ -467,6 +518,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 - **02 serve**: 日志 `../MiniMax-H3/logs/serve_<variant>_<port>.log` + PID 文件 `serve_<variant>_<port>.pid`（BG 模式）。
 - **03 generate**: 视频 `../../output/minimaxh3_rotate_results/results/<task>/<name>.mp4`（含原生立体声）。
 - **06/06a diffusers**: 视频 `OUTPUT_DIR/<name>.mp4`（768p/低分辨率 24fps 含原生立体声）。
+- **06b Turbo LoRA**: 视频 `OUTPUT_DIR/<name>.mp4`（4/8 步加速，bf16 768p/544p 24fps 含原生立体声）。
 - **07 FlashVSR SR**: 视频 `../../output/minimaxh3_rotate_results/results_sr/<name>_sr.mp4`（4× 超分，mux 原音频）。
 
 ## 目录布局
@@ -486,7 +538,8 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
     ├── model_index.json         # 仓库级公共入口(SGLang 读)
     ├── FL2VA/                   # FL2VA 任务族(transformer/text_encoder/tokenizer/processor/visual_vae/audio_vae)
     ├── Ref2VA/                  # Ref2VA 任务族(DOWNLOAD_REF2VA=1 才下)
-    └── ../FlashVSR/             # 07 权重(diffusion_pytorch_model_streaming_dmd.safetensors 等)
+    ├── ../FlashVSR/             # 07 权重(diffusion_pytorch_model_streaming_dmd.safetensors 等)
+    └── ../MiniMax-H3-Turbo/     # 06b Turbo LoRA(minimax_h3_fl2v_turbo_*.safetensors)
 ```
 默认：参考仓 `../MiniMax-H3`、权重 `../../model/MiniMax-H3`（相对本目录）；用 `MINIMAX_H3_DIR` / `MODEL_DIR` 覆盖。SGLang 服务**只依赖 HF 权重快照**，GitHub 参考仓纯为方便看 scripts/skills。
 
