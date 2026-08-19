@@ -39,9 +39,21 @@ SEED=42 \
 TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
 PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement, no sway, locked in a static pose. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. The camera moves purely horizontally — zero vertical bob, zero pitch, zero tilt, zero wobble — as if on a precision-engineered dolly on a level rail. As the camera travels, the front, three-quarter, side, back, and opposite three-quarter views of the stationary subject are revealed in sequence, each surface razor-sharp and evenly lit. The background slides laterally behind the subject in a steady, continuous parallax that confirms the perfectly circular, perfectly level path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum. No footsteps, no movement sounds, no handling noise — the camera glides silently as if motorized on a track.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout, providing a calm, motionless backdrop that mirrors the perfectly steady rotation.' \
-OUTPUT_DIR=../MiniMax-H3/results_int8 \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8 \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06a_diffusers_inference.sh
+
+# ── FlashVSR 4× 视频超分（07，把 06a int8 低分辨率输出超分到高清）──
+# FlashVSR（CVPR 2026 one-step diffusion VSR）把 06a 的低分辨率（如 MAX_PIXELS=133120
+# 出来 ~486×273）4× 超分到 ~1080p，并把 MiniMax 原生立体声 mux 回 SR 视频。
+# 用独立 env（flashvsr）；首次需 INSTALL_DEPS=1 装 Block-Sparse-Attention + diffsynth。
+GPU=0 \
+MUX_AUDIO=0 \
+INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
+FLASHVSR_MODEL_DIR=../../model/FlashVSR \
+RESULTS_DIR=../../output/minimaxh3_rotate_results/results_sr \
+OUTPUT_NAME=rotate_360_sr.mp4 \
+bash minimax_h3/07_flashvsr_sr.sh
 
 # ── 360° 旋转视频（H3-Context-IR 格式长 prompt，效果比短 prompt 好）──
 # 图生视频（两卡分拆：text_encoder 放 cuda:1，rest（transformer/vae）放 cuda:0）（传入一张图作首帧，绕主体旋转一圈）
@@ -56,7 +68,7 @@ SEED=42 \
 TASK=fl2va \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
 PROMPT="视频中的人物保持绝对静止，一动不动，相机围绕画面中心水平旋转一圈 360°" \
-OUTPUT_DIR=../MiniMax-H3/results \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
 
@@ -71,23 +83,11 @@ NUM_FRAMES=124 \
 SEED=42 \
 FIRST_FRAME=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374/image/01000000.jpg \
 PROMPT=$'integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement, no sway, locked in a static pose. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. The camera moves purely horizontally — zero vertical bob, zero pitch, zero tilt, zero wobble — as if on a precision-engineered dolly on a level rail. As the camera travels, the front, three-quarter, side, back, and opposite three-quarter views of the stationary subject are revealed in sequence, each surface razor-sharp and evenly lit. The background slides laterally behind the subject in a steady, continuous parallax that confirms the perfectly circular, perfectly level path. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum. No footsteps, no movement sounds, no handling noise — the camera glides silently as if motorized on a track.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout, providing a calm, motionless backdrop that mirrors the perfectly steady rotation.' \
-OUTPUT_DIR=../MiniMax-H3/results \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06_diffusers_inference.sh
 ```
 
-```bash
-# ── FlashVSR 4× 视频超分（07，把 06a int8 低分辨率输出超分到高清）──
-# FlashVSR（CVPR 2026 one-step diffusion VSR）把 06a 的低分辨率（如 MAX_PIXELS=133120
-# 出来 ~486×273）4× 超分到 ~1080p，并把 MiniMax 原生立体声 mux 回 SR 视频。
-# 用独立 env（flashvsr）；首次需 INSTALL_DEPS=1 装 Block-Sparse-Attention + diffsynth。
-GPU=0 \
-INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
-FLASHVSR_MODEL_DIR=../../model/FlashVSR \
-RESULTS_DIR=../MiniMax-H3/results_sr \
-OUTPUT_NAME=rotate_360_sr.mp4 \
-bash minimax_h3/07_flashvsr_sr.sh
-```
 
 - 结果：视频 → `OUTPUT_DIR/<name>.mp4`（768p 24fps 含原生立体声）。
 - 默认 124 帧（~5s@24fps）；改帧数 `NUM_FRAMES=124`（需满足 17*n+5），换种子 `SEED=42`。
@@ -182,29 +182,29 @@ MiniMax-H3 是全模态生成系统：吃 **文本 + 可选图片/视频/音频�
 # T2VA（无 conditions）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
   TASK=t2va PROMPT="..." DURATION=10 ASPECT_RATIO=16:9 SEED=0 \
-  OUTPUT_DIR=../MiniMax-H3/results/t2va OUTPUT_NAME=t2va.mp4 \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/t2va OUTPUT_NAME=t2va.mp4 \
   bash minimax_h3/03_generate.sh
 # I2VA 首帧（FL2VA 权重）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
   TASK=fl2va FIRST_FRAME=/data/first.png DURATION=8 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va.mp4 \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/fl2va OUTPUT_NAME=fl2va.mp4 \
   bash minimax_h3/03_generate.sh
 # FL2VA 首末帧
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
   TASK=fl2va FIRST_FRAME=/data/first.png LAST_FRAME=/data/last.png DURATION=8 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va OUTPUT_NAME=fl2va_fl.mp4 \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/fl2va OUTPUT_NAME=fl2va_fl.mp4 \
   bash minimax_h3/03_generate.sh
 # Ref2VA 参考图+音频（Ref2VA 权重，服务在 :30011）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
   TASK=ref2va REF_IMAGES=/data/subject.png REF_AUDIOS=/data/voice.mp3 \
   PROMPT="Use <Picture 1> as the subject and <Audio 1> as the voice." \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va.mp4 \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/ref2va OUTPUT_NAME=ref2va.mp4 \
   bash minimax_h3/03_generate.sh
 # Ref2VA 多参料（逗号分隔；视频可带 start_time_seconds）
 GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
   TASK=ref2va REF_IMAGES=/data/a.png,/data/b.png REF_VIDEOS=/data/v1.mp4 REF_VIDEO_STARTS=0,0 \
   PROMPT="Combine <Picture 1>, <Picture 2>, <Video 1> ..." \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va OUTPUT_NAME=ref2va_multi.mp4 \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/ref2va OUTPUT_NAME=ref2va_multi.mp4 \
   bash minimax_h3/03_generate.sh
 ```
 - 本地路径自动转 `file://`（服务进程要能读该路径）；http(s) URL 原样传（官方样例用 CDN URL）。
@@ -217,14 +217,14 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 ```bash
 # 前置：FL2VA 服务先起好（见「常用命令」起服务 1)，端口 :30010
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  OUTPUT_DIR=../MiniMax-H3/results/t2va \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/t2va \
   bash minimax_h3/examples/run_t2va.sh     # 文生视频，10s 16:9，星舰舰长 -> t2va.mp4
 GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  OUTPUT_DIR=../MiniMax-H3/results/fl2va \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/fl2va \
   bash minimax_h3/examples/run_fl2va.sh    # 首帧生视频，8s auto，拉面/家庭 -> fl2va.mp4
 # 前置：Ref2VA 服务先起好（见「常用命令」起服务 2)，端口 :30011
 GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
-  OUTPUT_DIR=../MiniMax-H3/results/ref2va \
+  OUTPUT_DIR=../../output/minimaxh3_rotate_results/results/ref2va \
   bash minimax_h3/examples/run_ref2va.sh   # 参考视频+音频，5s auto，粉西装男 -> ref2va.mp4
 ```
 对照官方结果：仓库 `assets/t2va.mp4` / `fl2va.mp4` / `ref2va.mp4`（在 https://github.com/MiniMax-AI/MiniMax-H3 的 assets 下）。
@@ -261,21 +261,21 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 # 需先 conda activate flashvsr（见上方「FlashVSR 超分 env」）
 # 默认 full pipeline，4× 超分 06a int8 输出
 GPU=0 \
-INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
 FLASHVSR_MODEL_DIR=../../model/FlashVSR \
-RESULTS_DIR=../MiniMax-H3/results_sr \
+RESULTS_DIR=../../output/minimaxh3_rotate_results/results_sr \
 OUTPUT_NAME=rotate_360_sr.mp4 \
 bash minimax_h3/07_flashvsr_sr.sh
 
 # 低显存 / 长视频 -> tiny_long 流式管线
 GPU=0 PIPELINE=tiny_long \
-INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
 FLASHVSR_MODEL_DIR=../../model/FlashVSR \
-RESULTS_DIR=../MiniMax-H3/results_sr \
+RESULTS_DIR=../../output/minimaxh3_rotate_results/results_sr \
 bash minimax_h3/07_flashvsr_sr.sh
 
 # 不保留音频（纯视频输出）
-GPU=0 MUX_AUDIO=0 INPUT=../MiniMax-H3/results_int8/rotate_360.mp4 \
+GPU=0 MUX_AUDIO=0 INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
 FLASHVSR_MODEL_DIR=../../model/FlashVSR \
 bash minimax_h3/07_flashvsr_sr.sh
 ```
@@ -435,7 +435,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `CONDITIONS_FILE` | _(unset)_ | JSON 数组，verbatim 覆盖 REF_* 构造（复现官方顺序用） |
 | `NUM_INFERENCE_STEPS` / `FLOW_SHIFT` / `AUDIO_FLOW_SHIFT` | `50` / `12.0` / `3.0` | 采样参数（cookbook 默认） |
 | `NUM_OUTPUTS` | `1` | 每次出几段 |
-| `OUTPUT_DIR` / `OUTPUT_NAME` | `../MiniMax-H3/results/<task>` / `<task>_seed<seed>.mp4` | |
+| `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results/<task>` / `<task>_seed<seed>.mp4` | |
 | `POLL_INTERVAL` / `TIMEOUT_MINS` | `10` / `30` | 轮询间隔 / 超时 |
 
 ### FlashVSR SR (07)
@@ -455,14 +455,14 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `COLOR_FIX` | `1` | `1`=校正色彩偏移 |
 | `MUX_AUDIO` | `1` | `1`=把原 LR 视频音频（MiniMax 立体声）mux 回 SR 输出 |
 | `DEVICE` | `cuda` | GPU 选卡用 `GPU=N`（映射 `CUDA_VISIBLE_DEVICES`） |
-| `OUTPUT_DIR` / `OUTPUT_NAME` | `../MiniMax-H3/results_sr` / `<input>_sr.mp4` | |
+| `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results_sr` / `<input>_sr.mp4` | |
 | `INSTALL_DEPS` | `0` | `1`=clone 仓 + 装 BSA + diffsynth + requirements |
 
 ## Outputs
 - **02 serve**: 日志 `../MiniMax-H3/logs/serve_<variant>_<port>.log` + PID 文件 `serve_<variant>_<port>.pid`（BG 模式）。
-- **03 generate**: 视频 `../MiniMax-H3/results/<task>/<name>.mp4`（含原生立体声）。
+- **03 generate**: 视频 `../../output/minimaxh3_rotate_results/results/<task>/<name>.mp4`（含原生立体声）。
 - **06/06a diffusers**: 视频 `OUTPUT_DIR/<name>.mp4`（768p/低分辨率 24fps 含原生立体声）。
-- **07 FlashVSR SR**: 视频 `../MiniMax-H3/results_sr/<name>_sr.mp4`（4× 超分，mux 原音频）。
+- **07 FlashVSR SR**: 视频 `../../output/minimaxh3_rotate_results/results_sr/<name>_sr.mp4`（4× 超分，mux 原音频）。
 
 ## 目录布局
 ```
