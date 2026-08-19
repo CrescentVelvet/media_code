@@ -5,23 +5,16 @@
 # 默认 v1.1 + full pipeline（最高质量，MiniMax 短视频 ~5s 够用）；
 # PIPELINE=tiny_long 切到 tiny + 长视频流式管线（低显存 / 长视频用，需 TCDecoder.ckpt）。
 #
-# FlashVSR 需独立 env（torch 2.6+cu124 + Block-Sparse-Attention + diffsynth），与
-# minimax_h3（sglang pin）冲突，故默认 CONDA_ENV=flashvsr（GPU 选卡仍用 GPU=N）。
-# 首次需：conda create -n flashvsr python=3.11 -y && conda activate flashvsr，再 INSTALL_DEPS=1 跑本脚本。
+# FlashVSR 复用 minimax_h3 env（不建独立 env）：不 pin torch/transformers/numpy
+# （用 env 现有版本——torch 是 cu124 即可、transformers 5.x 也能跑，因 VSR 运行时
+# 加载预计算 prompt tensor，不实例化 transformers 模型；diffsynth prompters 只用 AutoTokenizer）。
+# 只装 diffsynth（--no-deps，避免其 requirements 的 torch 2.6/transformers 4.46.2 降级 env）
+# + Block-Sparse-Attention（编译绑定当前 torch）+ 版本无关运行时依赖。GPU 选卡用 GPU=N。
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# FlashVSR 用独立 env（不污染 minimax_h3 的 sglang pin）。_env.sh 会读 CONDA_ENV。
-export CONDA_ENV="${CONDA_ENV:-flashvsr}"
+# 复用当前 env（默认沿用 _env.sh 的 CONDA_DEFAULT_ENV，即 minimax_h3）。不强制切 env。
 source "$SCRIPT_DIR/_env.sh"
-
-# 确认 env 真正激活（flashvsr 没建时 conda activate 会静默失败，后面 python 会用错 env）
-if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ]; then
-    echo "❌ conda env '$CONDA_ENV' not active (current: ${CONDA_DEFAULT_ENV:-none})." >&2
-    echo "   先建 env:  conda create -n flashvsr python=3.11 -y && conda activate flashvsr" >&2
-    echo "   再装依赖:  INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2
-    exit 1
-fi
 
 # 路径（都用 ${VAR:-default} 允许外部覆盖）
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model}"
@@ -63,12 +56,11 @@ if ! python -c "import imageio, einops, tqdm, PIL" 2>/dev/null; then
 fi
 
 # ── 4. 装依赖（INSTALL_DEPS=1 或检测到缺失时） ──
+# 默认复用当前 env 的 torch/transformers/numpy（不 pin 版本）。
+# INSTALL_DEPS_USE_PINS=1（独立 env 兜底用）：装 FlashVSR 官方 requirements.txt（pin torch 2.6
+# /transformers 4.46.2/numpy 1.26.4）——只在独立 flashvsr env 里用，别在 minimax_h3 env 用。
 if [ "${INSTALL_DEPS:-0}" = "1" ] || [ "$need_install" = "1" ]; then
-    echo "📦 installing FlashVSR deps (this builds BSA CUDA kernels, needs nvcc + RAM)..."
-    # torch（FlashVSR 要求 2.6+cu124；公司代理封 download.pytorch.org，用 PyPI 默认源）
-    python -m pip install "${PIP_FLAGS[@]}" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" || \
-        python -m pip install "${PIP_FLAGS[@]}" torch torchvision torchaudio
-    # Block-Sparse-Attention（先装 packaging/ninja，再 setup.py install；编译吃显存/内存）
+    # Block-Sparse-Attention（先装 packaging/ninja，再 setup.py install；编译吃内存）
     python -m pip install "${PIP_FLAGS[@]}" packaging ninja || true
     if [ -f "$BSA_DIR/setup.py" ]; then
         ( cd "$BSA_DIR" && python setup.py install ) || \
@@ -76,17 +68,33 @@ if [ "${INSTALL_DEPS:-0}" = "1" ] || [ "$need_install" = "1" ]; then
     else
         echo "❌ BSA setup.py missing at $BSA_DIR" >&2; exit 1
     fi
-    # FlashVSR 仓本体（diffsynth 包）+ requirements
-    python -m pip install "${PIP_FLAGS[@]}" -e "$FLASHVSR_DIR" || \
-        { echo "❌ pip install -e FlashVSR failed" >&2; exit 1; }
-    python -m pip install "${PIP_FLAGS[@]}" -r "$FLASHVSR_DIR/requirements.txt" || \
-        echo "⚠️ requirements.txt install partially failed, continuing..."
-    # numpy 2.x 与 diffsynth 不兼容（requirements.txt 已 pin 1.26.4，兜底强制）
-    python -m pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4 || true
+    if [ "${INSTALL_DEPS_USE_PINS:-0}" = "1" ]; then
+        echo "📦 [pins mode] installing FlashVSR full requirements.txt (torch 2.6/transformers 4.46.2/numpy 1.26.4)..."
+        python -m pip install "${PIP_FLAGS[@]}" -e "$FLASHVSR_DIR" || \
+            { echo "❌ pip install -e FlashVSR failed" >&2; exit 1; }
+        python -m pip install "${PIP_FLAGS[@]}" -r "$FLASHVSR_DIR/requirements.txt" || \
+            echo "⚠️ requirements.txt install partially failed, continuing..."
+        python -m pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4 || true
+    else
+        echo "📦 installing FlashVSR deps into env '$CONDA_ENV' (reusing its torch/transformers/numpy)..."
+        # diffsynth 包本体：--no-deps 跳过 requirements.txt 的 pin（会降级 env 的 transformers 5.12.1/numpy）。
+        python -m pip install "${PIP_FLAGS[@]}" -e "$FLASHVSR_DIR" --no-deps || \
+            { echo "❌ pip install -e FlashVSR (--no-deps) failed" >&2; exit 1; }
+        # 版本无关运行时依赖（不与 env 冲突；env 已有的会被跳过）
+        python -m pip install "${PIP_FLAGS[@]}" einops imageio imageio-ffmpeg \
+            opencv-python-headless tqdm safetensors pillow sentencepiece ftfy accelerate || \
+            echo "⚠️ some runtime deps install failed, continuing..."
+    fi
 fi
 
 python -c "from diffsynth import ModelManager; import block_sparse_attn; print('✅ diffsynth + block_sparse_attn ok')" 2>/dev/null || \
-    { echo "❌ deps not ready. Re-run: INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2; exit 1; }
+    { echo "❌ deps not ready (或 diffsynth 与本 env 的 transformers 不兼容)." >&2
+      echo "   重试:  INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2
+      echo "   仍失败(diffsynth 在 transformers 5.x 上 import 炸): 单独建 env →" >&2
+      echo "     conda create -n flashvsr python=3.11 -y && conda activate flashvsr" >&2
+      echo "     pip install torch --index-url https://download.pytorch.org/whl/cu124" >&2
+      echo "     CONDA_ENV=flashvsr INSTALL_DEPS_USE_PINS=1 bash minimax_h3/07_flashvsr_sr.sh" >&2
+      exit 1; }
 
 # ── 5. 权重文件检查 ──
 PIPELINE="${PIPELINE:-full}"

@@ -46,7 +46,7 @@ bash minimax_h3/06a_diffusers_inference.sh
 # ── FlashVSR 4× 视频超分（07，把 06a int8 低分辨率输出超分到高清）──
 # FlashVSR（CVPR 2026 one-step diffusion VSR）把 06a 的低分辨率（如 MAX_PIXELS=133120
 # 出来 ~486×273）4× 超分到 ~1080p，并把 MiniMax 原生立体声 mux 回 SR 视频。
-# 用独立 env（flashvsr）；首次需 INSTALL_DEPS=1 装 Block-Sparse-Attention + diffsynth。
+# 用 minimax_h3 env（复用，不建独立 env）；首次需 INSTALL_DEPS=1 装 Block-Sparse-Attention + diffsynth。
 GPU=0 \
 MUX_AUDIO=0 \
 INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
@@ -113,10 +113,10 @@ HF_DISABLE_SSL=1 MODEL_DIR=../../model/MiniMax-H3 \
 ⚠️ SGLang 自带 torch/flashinfer/cuda kernel，版本 pin 与本仓其他算法冲突，务必用专用 env（`CONDA_ENV=minimax_h3`），别装进共享 env。
 ⚠️ MiniMax-H3 在 HF 上是 **MiniMax H3 Community License**，可能 gated：下不动/报 401 时去 https://huggingface.co/MiniMaxAI/MiniMax-H3 接受协议、建 read token，再 `HF_TOKEN=<token> bash minimax_h3/01_download_models.sh`。
 
-### FlashVSR 超分 env（07 用，独立于 minimax_h3）
-07 用 [OpenImagingLab/FlashVSR](https://github.com/OpenImagingLab/FlashVSR)，需独立 env（torch 2.6+cu124 + Block-Sparse-Attention + diffsynth，与 sglang pin 冲突）。首次准备：
+### FlashVSR 依赖（07 复用 minimax_h3 env，不建独立 env）
+07 用 [OpenImagingLab/FlashVSR](https://github.com/OpenImagingLab/FlashVSR)，**直接复用 minimax_h3 env**（不 pin torch/transformers/numpy 版本——env 的 cu124 torch + transformers 5.x 能跑：VSR 运行时加载预计算 prompt tensor，不实例化 transformers 模型；diffsynth prompters 只用 `AutoTokenizer`）。首次准备：
 ```bash
-conda create -n flashvsr python=3.11 -y && conda activate flashvsr
+# 已 conda activate minimax_h3（同 06/06a）
 INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh    # clone FlashVSR + BSA 仓 + 装依赖（编译 BSA CUDA kernel 要 nvcc + 足够内存）
 # 权重（v1.1 推荐）下到 model/FlashVSR/：
 #   https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1
@@ -124,6 +124,7 @@ INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh    # clone FlashVSR + BSA 仓 +
 ```
 > ⚠️ Block-Sparse-Attention 编译吃内存（多 ninja 并发易 OOM）；A100/A800（Ampere）加速最佳，H200 可跑但加速受限，其他卡（RTX 40/50、H800）兼容性未知（见 [BSA README](https://github.com/mit-han-lab/Block-Sparse-Attention)）。
 > 权重放 `model/FlashVSR/`（`FLASHVSR_MODEL_DIR` 默认指向它）；脚本自动 clone 官方仓到 `../FlashVSR`、BSA 仓到 `../Block-Sparse-Attention`。
+> 若 `from diffsynth import ModelManager` 在本 env 的 transformers 上 import 失败（5.x 改了 `PreTrainedConfig`/移除 `HybridCache`，理论上 diffsynth 没用到，但不保险），兜底建独立 env：`conda create -n flashvsr python=3.11 -y && conda activate flashvsr && pip install torch --index-url https://download.pytorch.org/whl/cu124 && CONDA_ENV=flashvsr INSTALL_DEPS_USE_PINS=1 bash minimax_h3/07_flashvsr_sr.sh`（`INSTALL_DEPS_USE_PINS=1` 才装 FlashVSR 官方 requirements 的 torch 2.6/transformers 4.46.2 pin）。
 
 ---
 
@@ -259,7 +260,7 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 
 ### 命令
 ```bash
-# 需先 conda activate flashvsr（见上方「FlashVSR 超分 env」）
+# 用 minimax_h3 env（conda activate minimax_h3，同 06/06a；见上方「FlashVSR 依赖」）
 # 默认 full pipeline，4× 超分 06a int8 输出
 GPU=0 \
 INPUT=../../output/minimaxh3_rotate_results/results_int8/rotate_360.mp4 \
@@ -281,7 +282,7 @@ FLASHVSR_MODEL_DIR=../../model/FlashVSR \
 bash minimax_h3/07_flashvsr_sr.sh
 ```
 - 输入也可是图片帧目录（按文件名自然排序，`.png/.jpg`），非视频时 fps 默认 30。
-- 首次 `INSTALL_DEPS=1`：自动 clone FlashVSR 仓（`../FlashVSR`，含 `diffsynth` + `examples/WanVSR/utils`）+ BSA 仓（`../Block-Sparse-Attention`）+ 编译 BSA CUDA kernel + `pip install -e` FlashVSR + requirements.txt + pin `numpy==1.26.4`。
+- 首次 `INSTALL_DEPS=1`：自动 clone FlashVSR 仓（`../FlashVSR`，含 `diffsynth` + `examples/WanVSR/utils`）+ BSA 仓（`../Block-Sparse-Attention`）+ 编译 BSA CUDA kernel + `pip install -e` FlashVSR（`--no-deps`，不拉 torch 2.6/transformers 4.46.2/numpy 1.26.4 pin 降级 env）+ 版本无关运行时依赖。
 - 权重默认读 `model/FlashVSR/`（`FLASHVSR_MODEL_DIR` 覆盖）；full 检查 `diffusion_pytorch_model_streaming_dmd.safetensors` / `Wan2.1_VAE.pth` / `LQ_proj_in.ckpt`，tiny_long 把 `Wan2.1_VAE.pth` 换成 `TCDecoder.ckpt`。
 
 ## Full 2K Workflow（调 MiniMax API，非开源部分）
@@ -442,7 +443,8 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 ### FlashVSR SR (07)
 | var | default | note |
 |---|---|---|
-| `CONDA_ENV` | `flashvsr` | 独立 env（torch 2.6+cu124 + BSA + diffsynth，与 sglang pin 冲突） |
+| `CONDA_ENV` | 当前 env（`minimax_h3`） | 复用 minimax_h3 env（不建独立 env）；兜底独立 env 见「FlashVSR 依赖」 |
+| `INSTALL_DEPS_USE_PINS` | `0` | `1`=装 FlashVSR 官方 requirements.txt pin（torch 2.6/transformers 4.46.2/numpy 1.26.4），仅独立 env 兜底用 |
 | `INPUT` | _(必填)_ | 输入 LR 视频路径或图片帧目录 |
 | `FLASHVSR_MODEL_DIR` | `../../model/FlashVSR` | 权重目录（v1 / v1.1 通用） |
 | `FLASHVSR_DIR` | `../FlashVSR` | 官方仓（diffsynth + `examples/WanVSR/utils`） |

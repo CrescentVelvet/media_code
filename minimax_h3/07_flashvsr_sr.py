@@ -51,7 +51,8 @@ try:
     from tqdm import tqdm
     from einops import rearrange
 except ImportError as e:
-    sys.exit(f"❌ {e}. Run: INSTALL_DEPS=1 CONDA_ENV=flashvsr bash minimax_h3/07_flashvsr_sr.sh")
+    sys.exit(f"❌ {e}. Run: INSTALL_DEPS=1 bash minimax_h3/07_flashvsr_sr.sh "
+             f"(复用 minimax_h3 env；若 diffsynth 与 env 的 transformers 不兼容，见 .sh 兜底建独立 env)")
 
 
 # 权重文件名（v1 / v1.1 通用）
@@ -232,9 +233,24 @@ def prepare_input_tensor(path: str, scale: float = 4, dtype=torch.bfloat16,
 
 
 # ─────────────────────── pipeline 初始化 ─────────────────────────────────────
+def _load_prompt_context(device):
+    """绝对路径加载 FlashVSR 预计算 prompt tensor（posi_prompt.pth），避开 pipeline 里
+    硬编码的相对路径 '../../examples/WanVSR/prompt_tensor/posi_prompt.pth'（只在
+    cwd=examples/WanVSR 时生效；本脚本从 media_code 跑会 FileNotFoundError）。"""
+    flash_dir = os.environ.get("FLASHVSR_DIR", "")
+    p = os.path.join(flash_dir, "examples", "WanVSR", "prompt_tensor", "posi_prompt.pth")
+    if os.path.exists(p):
+        print(f"  🏋️ prompt tensor: {p}")
+        return torch.load(p, map_location="cpu")
+    print(f"⚠️ prompt tensor not found at {p}; falling back to pipeline's relative path "
+          f"(works only if cwd=examples/WanVSR)")
+    return None
+
+
 def init_pipeline(pipeline: str, model_dir: str, device: str):
     print(f"📦 loading FlashVSR {pipeline} pipeline...")
     mm = ModelManager(torch_dtype=torch.bfloat16, device="cpu")
+    ctx = _load_prompt_context(device)
 
     if pipeline == "full":
         from diffsynth import FlashVSRFullPipeline
@@ -254,7 +270,7 @@ def init_pipeline(pipeline: str, model_dir: str, device: str):
         pipe.vae.model.encoder = None
         pipe.vae.model.conv1 = None
         pipe.to(device); pipe.enable_vram_management(num_persistent_param_in_dit=None)
-        pipe.init_cross_kv(); pipe.load_models_to_device(["dit", "vae"])
+        pipe.init_cross_kv(context_tensor=ctx); pipe.load_models_to_device(["dit", "vae"])
         return pipe
 
     # tiny_long
@@ -275,7 +291,7 @@ def init_pipeline(pipeline: str, model_dir: str, device: str):
         torch.load(os.path.join(model_dir, TCD)), strict=False)
     print(f"  TCDecoder: missing={len(mis.missing_keys)} unexpected={len(mis.unexpected_keys)}")
     pipe.to(device); pipe.enable_vram_management(num_persistent_param_in_dit=None)
-    pipe.init_cross_kv(); pipe.load_models_to_device(["dit", "vae"])
+    pipe.init_cross_kv(context_tensor=ctx); pipe.load_models_to_device(["dit", "vae"])
     return pipe
 
 
