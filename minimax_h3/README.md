@@ -244,7 +244,8 @@ GPU=0,1,2,3 SERVER_URL=http://localhost:30011 \
 > ⚠️ FlashVSR 是为 **4× 超分** 设计的，官方强烈建议 4× 设置。输入 LR × 4 = 输出 SR（如 486×273 → 1944×1092 ≈ 1080p）。06a 用低 `MAX_PIXELS` 出低分辨率再 07 超分，比直接 06 出 768p 更快/省显存且画质可控。
 
 ### 原理（07 在干什么）
-1. **读视频**：逐帧读 06a 输出，取首帧算 LR 尺寸 → 4× BICUBIC 上采样 → 中心裁剪到 128 倍数（FlashVSR 要求）；末尾 padding 4 帧 + 截到 `8n+1` 帧（官方约定，含 padding 实际 `8n-3` 帧）。
+1. **读视频 + 补帧**：逐帧读 06a 输出，取首帧算 LR 尺寸 → 4× BICUBIC 上采样 → 中心裁剪到 128 倍数（FlashVSR VAE 要求）。模型要求帧数 `F=8n+1` 且末尾 ~4 帧无直接 LQ 输入（runoff），故**向上补到 `F=8n+1≥N+PAD_FRONT+PAD_BACK`**（后垫 ≥4 吸收 runoff，前垫给因果状态预热），生成后裁 `output[PAD_FRONT:PAD_FRONT+N]` 还原 N 帧。
+   > ⚠️ **修复了官方 `infer_flashvsr_*.py` 的缺帧 bug**：官方向下截断到 8n+1 且不裁输出——`N≡2,3,4 mod 8` 时丢真帧（MiniMax 124 帧出 121 帧），`N≡5,6,7,0 mod 8` 时多出冻结尾帧。本脚本改为向上补 + 裁剪，**所有 N 都输出恰好 N 帧**。
 2. **超分**：one-step diffusion（DMD 蒸馏，单步去噪）+ **Locality-Constrained Sparse Attention**（LCSA，靠 Block-Sparse-Attention kernel）剪冗余注意力；`topk_ratio = sparse_ratio * 768*1280 / (th*tw)` 随分辨率缩放保持算力恒定；可选 **tiny conditional decoder**（TCDecoder）省显存。`color_fix=True` 校正色彩偏移。
 3. **拼音频**：SR 输出是纯视频（imageio），`MUX_AUDIO=1`（默认）用 ffmpeg 把原 LR 视频的音频流（MiniMax 原生立体声）mux 回 SR 视频。
 
@@ -453,6 +454,8 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `LOCAL_RANGE` | `11` | 局部注意力范围；`9` 更锐 / `11` 更稳 |
 | `TILED` | `0` | `1`=full 分块（低显存，更慢） |
 | `COLOR_FIX` | `1` | `1`=校正色彩偏移 |
+| `PAD_FRONT` | `0` | 前垫帧数（因果状态预热，提升首帧质量）；裁剪时一并丢弃 |
+| `PAD_BACK` | `4` | 后垫帧数（吸收模型末尾 ~4 帧 runoff）；**须 ≥4** 保证末帧可靠 |
 | `MUX_AUDIO` | `1` | `1`=把原 LR 视频音频（MiniMax 立体声）mux 回 SR 输出 |
 | `DEVICE` | `cuda` | GPU 选卡用 `GPU=N`（映射 `CUDA_VISIBLE_DEVICES`） |
 | `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results_sr` / `<input>_sr.mp4` | |

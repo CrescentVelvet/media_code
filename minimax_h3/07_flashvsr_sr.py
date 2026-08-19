@@ -20,8 +20,14 @@ Env vars:
   TILED                : 0 (full 专用；1=低显存分块，更慢)
   COLOR_FIX            : 1
   MUX_AUDIO            : 1 (把原视频音频 mux 回 SR 输出)
+  PAD_FRONT            : 0 (前垫帧数，因果状态预热；默认 0)
+  PAD_BACK             : 4 (后垫帧数，吸收模型末尾 ~4 帧 runoff；默认 4，须 >=4 保证末帧可靠)
   DEVICE               : cuda (GPU 选卡用 GPU=N，由 _env.sh 映射 CUDA_VISIBLE_DEVICES)
   OUTPUT_DIR / OUTPUT_NAME
+
+帧数修复：官方 infer 脚本向下截断到 8n+1 且不裁输出——N≡2,3,4 mod 8 时丢真帧
+（如 MiniMax 124 帧出 121 帧），N≡5,6,7,0 mod 8 时多出冻结尾帧。本脚本改为向上
+补到 F=8n+1>=N+PAD_FRONT+PAD_BACK，生成后裁 output[PAD_FRONT:PAD_FRONT+N] 还原 N 帧。
 """
 import os, sys, re, time, subprocess, shutil
 
@@ -74,8 +80,22 @@ def list_images_natural(folder: str):
     return fs
 
 
-def largest_8n1_leq(n):  # 8n+1（官方约定：F = 8n+1，含 4 帧 padding）
-    return 0 if n < 1 else ((n - 1) // 8) * 8 + 1
+def next_8n1_ge(n):
+    """最小的 8n+1 >= n（向上补到合法长度，绝不向下截断——避免丢真帧）。"""
+    if n < 1:
+        return 1
+    f = ((n - 1) // 8) * 8 + 1
+    return f if f >= n else f + 8
+
+
+def plan_padding(N, pad_front, pad_back_min):
+    """规划前/后补帧：F = 8n+1 >= N + pad_front + pad_back_min（至少 pad_back_min 帧后垫）。
+    模型最后 ~4 帧输出无直接 LQ 输入（runoff），需后垫 >=4 吸收；前垫给因果流式状态预热。
+    返回 (F, pad_front, pad_back)，pad_back = F - N - pad_front（>= pad_back_min）。"""
+    total = N + pad_front + pad_back_min
+    F = next_8n1_ge(total)
+    pad_back = F - N - pad_front
+    return F, pad_front, pad_back
 
 
 def is_video(path):
@@ -117,9 +137,15 @@ def upscale_then_center_crop(img: Image.Image, scale: float, tW: int, tH: int) -
 
 
 def prepare_input_tensor(path: str, scale: float = 4, dtype=torch.bfloat16,
-                         device='cuda', frame_device=None):
+                         device='cuda', frame_device=None,
+                         pad_front: int = 0, pad_back_min: int = 4):
     """读视频 / 帧目录 -> BICUBIC 放大 scale× + 中心裁剪到 128 倍数 -> 1,C,F,H,W 张量。
-    frame_device=None 时用 device；tiny_long 传 'cpu' 省显存。"""
+    frame_device=None 时用 device；tiny_long 传 'cpu' 省显存。
+
+    帧数修复（官方脚本的缺帧 bug）：模型要求 F=8n+1 且最后 ~4 帧输出无直接 LQ 输入（runoff）。
+    故向上补到 F=8n+1>=N+pad_front+pad_back_min（后垫>=4 吸收 runoff；前垫给因果状态预热），
+    生成后裁 output[pad_front:pad_front+N] 还原 N 帧。绝不向下截断（否则丢真帧）。
+    返回 (vid, tH, tW, F, fps, N_real, pad_front)。"""
     fdev = frame_device if frame_device is not None else device
 
     if os.path.isdir(path):
@@ -128,23 +154,22 @@ def prepare_input_tensor(path: str, scale: float = 4, dtype=torch.bfloat16,
             raise FileNotFoundError(f"no images in {path}")
         with Image.open(paths0[0]) as _img0:
             w0, h0 = _img0.size
-        N0 = len(paths0)
-        print(f"  🖼️ {os.path.basename(path)}: {w0}x{h0} | {N0} frames")
+        N = len(paths0)
+        print(f"  🖼️ {os.path.basename(path)}: {w0}x{h0} | {N} frames")
         sW, sH, tW, tH = compute_scaled_and_target_dims(w0, h0, scale=scale)
         print(f"  📐 scaled x{scale}: {sW}x{sH} -> target (128-mul): {tW}x{tH}")
-        paths = paths0 + [paths0[-1]] * 4
-        F = largest_8n1_leq(len(paths))
-        if F == 0:
-            raise RuntimeError(f"not enough frames after padding: {len(paths)}")
-        paths = paths[:F]
-        print(f"  🎬 target frames (8n-3): {F - 4}")
+        F, pf, pb = plan_padding(N, pad_front, pad_back_min)
+        if F < 25:
+            raise RuntimeError(f"too few frames: F={F}<25 (need >=~17 real); use longer input")
+        print(f"  🎬 real={N}  pad front={pf} back={pb}  -> feed F={F} (8n+1), trim to {N} after SR")
+        pad_paths = [paths0[0]] * pf + paths0 + [paths0[-1]] * pb
         frames = []
-        for p in paths:
+        for p in pad_paths:
             with Image.open(p).convert('RGB') as img:
                 img_out = upscale_then_center_crop(img, scale=scale, tW=tW, tH=tH)
             frames.append(pil_to_tensor_neg1_1(img_out, dtype, fdev))
         vid = torch.stack(frames, 0).permute(1, 0, 2, 3).unsqueeze(0)  # 1 C F H W
-        return vid, tH, tW, F, 30
+        return vid, tH, tW, F, 30, N, pf
 
     if is_video(path):
         rdr = imageio.get_reader(path)
@@ -179,16 +204,16 @@ def prepare_input_tensor(path: str, scale: float = 4, dtype=torch.bfloat16,
         if total <= 0:
             rdr.close()
             raise RuntimeError(f"cannot read frames from {path}")
-        print(f"  🖼️ {os.path.basename(path)}: {w0}x{h0} | {total} frames | {fps}fps")
+        N = total
+        print(f"  🖼️ {os.path.basename(path)}: {w0}x{h0} | {N} frames | {fps}fps")
         sW, sH, tW, tH = compute_scaled_and_target_dims(w0, h0, scale=scale)
         print(f"  📐 scaled x{scale}: {sW}x{sH} -> target (128-mul): {tW}x{tH}")
-        idx = list(range(total)) + [total - 1] * 4
-        F = largest_8n1_leq(len(idx))
-        if F == 0:
+        F, pf, pb = plan_padding(N, pad_front, pad_back_min)
+        if F < 25:
             rdr.close()
-            raise RuntimeError(f"not enough frames after padding: {len(idx)}")
-        idx = idx[:F]
-        print(f"  🎬 target frames (8n-3): {F - 4}")
+            raise RuntimeError(f"too few frames: F={F}<25 (need >=~17 real); use longer input")
+        print(f"  🎬 real={N}  pad front={pf} back={pb}  -> feed F={F} (8n+1), trim to {N} after SR")
+        idx = [0] * pf + list(range(N)) + [N - 1] * pb
         frames = []
         try:
             for i in idx:
@@ -201,7 +226,7 @@ def prepare_input_tensor(path: str, scale: float = 4, dtype=torch.bfloat16,
             except Exception:
                 pass
         vid = torch.stack(frames, 0).permute(1, 0, 2, 3).unsqueeze(0)  # 1 C F H W
-        return vid, tH, tW, F, fps
+        return vid, tH, tW, F, fps, N, pf
 
     raise ValueError(f"unsupported input: {path}")
 
@@ -306,6 +331,8 @@ def main():
     COLOR_FIX = os.environ.get("COLOR_FIX", "1") == "1"
     MUX_AUDIO = os.environ.get("MUX_AUDIO", "1") == "1"
     DEVICE = os.environ.get("DEVICE", "cuda")
+    PAD_FRONT = int(os.environ.get("PAD_FRONT", "0"))   # 前垫（因果状态预热，默认 0）
+    PAD_BACK = int(os.environ.get("PAD_BACK", "4"))      # 后垫（吸收 runoff，默认 4；>=4 保证末帧可靠）
     OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "../MiniMax-H3/results_sr")
     in_name = os.path.splitext(os.path.basename(INPUT.rstrip('/')))[0] or "input"
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{in_name}_sr.mp4"
@@ -330,9 +357,10 @@ def main():
 
     # full: 帧放 GPU；tiny_long: 帧留 CPU（省显存，管线流式搬）
     frame_device = "cpu" if PIPELINE == "tiny_long" else DEVICE
-    LQ, th, tw, F, fps = prepare_input_tensor(
-        INPUT, scale=SCALE, dtype=torch.bfloat16, device=DEVICE, frame_device=frame_device)
-    print(f"  📐 target: {tw}x{th} (128-multiple)  {F - 4} frames @ {fps}fps")
+    LQ, th, tw, F, fps, N_real, pad_front = prepare_input_tensor(
+        INPUT, scale=SCALE, dtype=torch.bfloat16, device=DEVICE, frame_device=frame_device,
+        pad_front=PAD_FRONT, pad_back_min=PAD_BACK)
+    print(f"  📐 target: {tw}x{th} (128-multiple)  feed {F} -> output {N_real} frames @ {fps}fps")
 
     pipe = init_pipeline(PIPELINE, MODEL_DIR, DEVICE)
 
@@ -353,6 +381,15 @@ def main():
     print(f"  ⏱️ SR: {time.time() - t0:.0f}s")
 
     frames = tensor2video(video)
+    # 裁去补帧：丢前 pad_front 帧预热 + 末尾 (F - pad_front - N_real) 帧 runoff，
+    # 还原真实 N_real 帧（修复官方脚本缺帧/冻结尾帧 bug）。
+    n_out = len(frames)
+    end = pad_front + N_real
+    if n_out != F:
+        print(f"⚠️ model output {n_out} frames != feed F={F}; trimming clamped")
+        end = min(end, n_out)
+    frames = frames[pad_front:end]
+    print(f"  ✂️ trimmed padding: kept {len(frames)} real frames (was {n_out})")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, OUTPUT_NAME)
     save_video(frames, out_path, fps=fps, quality=6)
