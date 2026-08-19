@@ -3,110 +3,635 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VGGT-Human — 算法整体思路与实现细节</title>
+<title>VGGT-Human — 算法流程图</title>
 <style>
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --purple: #d2a8ff;
+  --orange: #f0883e;
+  --yellow: #d29922;
+  --red: #f85149;
+  --teal: #39d0d8;
+  --pink: #f778ba;
+}
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
   font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
-  background:#0d1117; color:#c9d1d9; line-height:1.8; padding:40px 20px;
+  background: var(--bg); color: var(--text); line-height:1.8; padding:40px 20px;
 }
-.wrap { max-width:1000px; margin:0 auto; }
-h1 { color:#58a6ff; font-size:28px; text-align:center; margin-bottom:4px; }
-.subtitle { text-align:center; color:#8b949e; font-size:14px; margin-bottom:40px; }
-h2 { color:#58a6ff; font-size:20px; margin:40px 0 16px; border-bottom:1px solid #30363d; padding-bottom:8px; }
+.wrap { max-width:1100px; margin:0 auto; }
+h1 { color: var(--accent); font-size:28px; text-align:center; margin-bottom:4px; }
+.subtitle { text-align:center; color: var(--text-dim); font-size:14px; margin-bottom:40px; }
+h2 { color: var(--accent); font-size:20px; margin:40px 0 16px; border-bottom:1px solid var(--border); padding-bottom:8px; }
 h3 { color:#f0f6fc; font-size:16px; margin:24px 0 10px; }
-h4 { color:#d2a8ff; font-size:14px; margin:20px 0 8px; }
+h4 { color: var(--purple); font-size:14px; margin:20px 0 8px; }
 p { margin:8px 0; font-size:14px; }
 ul { margin:8px 0 8px 24px; font-size:14px; }
 li { margin:4px 0; }
 code {
   font-family:'SF Mono','Consolas',monospace; font-size:13px;
-  background:#161b22; padding:2px 6px; border-radius:4px; color:#f0883e;
+  background: var(--card); padding:2px 6px; border-radius:4px; color: var(--orange);
 }
 pre {
-  background:#161b22; border:1px solid #30363d; border-radius:8px;
+  background: var(--card); border:1px solid var(--border); border-radius:8px;
   padding:16px; overflow-x:auto; font-size:13px; line-height:1.6;
-  color:#c9d1d9; margin:12px 0;
+  color: var(--text); margin:12px 0;
 }
 pre .kw { color:#ff7b72; }
 pre .str { color:#a5d6ff; }
-pre .com { color:#8b949e; }
-pre .fn { color:#d2a8ff; }
+pre .com { color: var(--text-dim); }
+pre .fn { color: var(--purple); }
 pre .num { color:#79c0ff; }
 pre .var { color:#f0f6fc; }
 .formula {
-  background:#161b22; border:1px solid #30363d; border-radius:8px;
+  background: var(--card); border:1px solid var(--border); border-radius:8px;
   padding:14px 18px; margin:12px 0; font-family:'SF Mono','Consolas',monospace;
-  font-size:14px; color:#f0883e; overflow-x:auto; white-space:nowrap;
+  font-size:14px; color: var(--orange); overflow-x:auto; white-space:nowrap;
 }
-.formula .label { color:#8b949e; font-size:12px; display:block; margin-bottom:6px; }
+.formula .label { color: var(--text-dim); font-size:12px; display:block; margin-bottom:6px; }
 .box {
-  border:1px solid #30363d; border-radius:10px; padding:20px 24px;
-  margin:16px 0; background:#161b22;
+  border:1px solid var(--border); border-radius:10px; padding:20px 24px;
+  margin:16px 0; background: var(--card);
 }
 .box.blue { border-left:4px solid #1f6feb; }
 .box.green { border-left:4px solid #238636; }
-.box.yellow { border-left:4px solid #d29922; }
+.box.yellow { border-left:4px solid var(--yellow); }
 .box.purple { border-left:4px solid #8957e5; }
-.box.orange { border-left:4px solid #f0883e; }
+.box.orange { border-left:4px solid var(--orange); }
+.box.teal { border-left:4px solid var(--teal); }
 .tag {
   display:inline-block; font-size:11px; padding:2px 10px; border-radius:10px;
   margin-right:6px; font-weight:600;
 }
-.tag.blue { background:#1f6feb22; color:#58a6ff; border:1px solid #1f6feb44; }
-.tag.green { background:#23863622; color:#3fb950; border:1px solid #23863644; }
-.tag.yellow { background:#d2992222; color:#d29922; border:1px solid #d2992244; }
-.tag.purple { background:#8957e522; color:#d2a8ff; border:1px solid #8957e544; }
-.tag.orange { background:#f0883e22; color:#f0883e; border:1px solid #f0883e44; }
+.tag.blue { background:#1f6feb22; color: var(--accent); border:1px solid #1f6feb44; }
+.tag.green { background:#23863622; color: var(--green); border:1px solid #23863644; }
+.tag.yellow { background:rgba(210,153,34,0.13); color: var(--yellow); border:1px solid rgba(210,153,34,0.27); }
+.tag.purple { background:#8957e522; color: var(--purple); border:1px solid #8957e544; }
+.tag.orange { background:rgba(240,136,62,0.13); color: var(--orange); border:1px solid rgba(240,136,62,0.27); }
+.tag.teal { background:rgba(57,208,216,0.13); color: var(--teal); border:1px solid rgba(57,208,216,0.27); }
 table { width:100%; border-collapse:collapse; margin:12px 0; font-size:13px; }
-th { background:#21262d; color:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid #30363d; }
-td { padding:8px 12px; border:1px solid #30363d; color:#c9d1d9; }
+th { background:#21262d; color:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid var(--border); }
+td { padding:8px 12px; border:1px solid var(--border); color: var(--text); }
 td code { font-size:12px; }
-.hr { border:0; border-top:1px solid #30363d; margin:40px 0; }
-.note { background:#1c1f2622; border:1px solid #30363d; border-radius:6px; padding:10px 16px; margin:12px 0; font-size:13px; color:#8b949e; }
-.note b { color:#d29922; }
-.flow { font-family:'SF Mono','Consolas',monospace; font-size:13px; line-height:1.8; color:#8b949e; white-space:pre; overflow-x:auto; }
-.flow .step { color:#58a6ff; font-weight:700; }
-.flow .arrow { color:#30363d; }
-.flow .file { color:#d2a8ff; }
+.hr { border:0; border-top:1px solid var(--border); margin:40px 0; }
+.note { background:rgba(28,31,38,0.13); border:1px solid var(--border); border-radius:6px; padding:10px 16px; margin:12px 0; font-size:13px; color: var(--text-dim); }
+.note b { color: var(--yellow); }
+
+/* ── Pipeline flow (card-based, ref wan22_rotate) ── */
+.pipeline { display:flex; flex-direction:column; gap:0; align-items:center; margin:20px 0; }
+.step-row { display:flex; align-items:stretch; gap:16px; width:100%; justify-content:center; flex-wrap:wrap; }
+.arrow-down { display:flex; flex-direction:column; align-items:center; margin:6px 0; }
+.arrow-down .line { width:2px; height:24px; background: var(--border); }
+.arrow-down .head { font-size:14px; color: var(--text-dim); margin-top:-4px; }
+.arrow-down .label {
+  font-size:0.75em; color: var(--text-dim); background: var(--card);
+  border:1px solid var(--border); border-radius:4px; padding:1px 8px; margin:4px 0;
+}
+.arrow-down .divider-label {
+  font-size:0.8em; color: var(--yellow); background: var(--card);
+  border:1px dashed var(--yellow); border-radius:4px; padding:2px 12px; margin:4px 0;
+}
+.pcard {
+  background: var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:16px; min-width:300px; max-width:440px; position:relative;
+}
+.pcard .step-num {
+  position:absolute; top:-12px; left:16px;
+  background: var(--card); border:1px solid var(--border);
+  border-radius:12px; padding:2px 12px;
+  font-size:0.8em; font-weight:600; color: var(--accent);
+}
+.pcard h3 { margin-top:4px; font-size:16px; }
+.pcard .io { margin-top:10px; font-size:0.82em; }
+.pcard .io .in, .pcard .io .out { display:flex; gap:4px; align-items:baseline; margin:3px 0; }
+.pcard .io .iotag { font-weight:600; min-width:38px; }
+.pcard .io .in .iotag { color: var(--teal); }
+.pcard .io .out .iotag { color: var(--green); }
+.pcard .detail { margin-top:10px; font-size:0.8em; color: var(--text-dim); }
+.pcard .detail li { list-style:none; padding-left:14px; position:relative; margin:3px 0; }
+.pcard .detail li::before { content:"▸"; position:absolute; left:0; color: var(--accent); }
+.pcard-00 { border-color: var(--text-dim); }
+.pcard-00 .step-num { color: var(--text-dim); border-color: var(--text-dim); }
+.pcard-01a { border-color: var(--teal); }
+.pcard-01a .step-num { color: var(--teal); border-color: var(--teal); }
+.pcard-01 { border-color: var(--accent); }
+.pcard-01 .step-num { color: var(--accent); border-color: var(--accent); }
+.pcard-02 { border-color: var(--green); }
+.pcard-02 .step-num { color: var(--green); border-color: var(--green); }
+.pcard-03 { border-color: var(--teal); }
+.pcard-03 .step-num { color: var(--teal); border-color: var(--teal); }
+.pcard-04 { border-color: var(--purple); }
+.pcard-04 .step-num { color: var(--purple); border-color: var(--purple); }
+.pcard-05 { border-color: var(--yellow); }
+.pcard-05 .step-num { color: var(--yellow); border-color: var(--yellow); }
+.pcard-06 { border-color: var(--pink); }
+.pcard-06 .step-num { color: var(--pink); border-color: var(--pink); }
+.pcard-07 { border-color: var(--orange); }
+.pcard-07 .step-num { color: var(--orange); border-color: var(--orange); }
+
+/* internal flow diagram inside cards */
+.flow-box { display:flex; flex-direction:column; gap:4px; margin-top:10px; font-size:0.78em; }
+.flow-node {
+  background:rgba(255,255,255,0.04); border:1px solid var(--border);
+  border-radius:5px; padding:5px 8px; text-align:center;
+}
+.flow-node.highlight { border-color: var(--green); background:rgba(59,185,80,0.08); }
+.flow-node.highlight-yellow { border-color: var(--yellow); background:rgba(210,153,34,0.08); }
+.flow-arrow { text-align:center; color: var(--text-dim); font-size:0.9em; }
+
+/* substeps (for step 04 modules) */
+.substeps { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+.substep {
+  flex:1; min-width:140px; border:1px dashed var(--border); border-radius:6px; padding:8px;
+  font-size:0.78em;
+}
+.substep .sub-num { color: var(--purple); font-weight:600; font-size:0.9em; }
+
+/* badges */
+.pbadge {
+  display:inline-block; font-size:0.7em; padding:1px 6px; border-radius:8px;
+  font-weight:600; margin-left:4px;
+}
+.pbadge-gpu { background:rgba(248,81,73,0.15); color: var(--red); border:1px solid rgba(248,81,73,0.3); }
+.pbadge-cpu { background:rgba(57,208,216,0.15); color: var(--teal); border:1px solid rgba(57,208,216,0.3); }
+.pbadge-heavy { background:rgba(210,140,255,0.15); color: var(--purple); border:1px solid rgba(210,140,255,0.3); }
+.pbadge-optional { background:rgba(210,153,34,0.15); color: var(--yellow); border:1px solid rgba(210,153,34,0.3); }
+
+/* directory tree */
+.tree {
+  background: var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:20px; font-family:'Cascadia Code','Consolas',monospace;
+  font-size:0.82em; overflow-x:auto; white-space:pre; line-height:1.5;
+}
+.tree .dir { color: var(--accent); }
+.tree .file { color: var(--text); }
+.tree .comment { color: var(--text-dim); }
+.tree .highlight { color: var(--green); font-weight:600; }
+
+/* comparison grid */
+.compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+.compare-grid .item { background: var(--card); border:1px solid var(--border); border-radius:8px; padding:12px; }
+.compare-grid .item h4 { font-size:0.95em; margin-bottom:8px; }
+.compare-grid .item ul { list-style:none; font-size:0.8em; }
+.compare-grid .item li { padding-left:12px; position:relative; margin:4px 0; }
+.compare-grid .item li::before { content:"•"; position:absolute; left:0; color: var(--accent); }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<h1>VGGT-Human — 算法整体思路与实现细节</h1>
-<p class="subtitle">多视图图像 → VGGT-Omega 前馈重建 → COLMAP 格式转换 → 3DGS 优化训练<br>（含去噪增强 + 人脸美颜 + 位姿优化）</p>
+<h1>VGGT-Human — 算法流程图</h1>
+<p class="subtitle">多视图图像 → VGGT-Omega 前馈重建 → COLMAP 格式转换 → 3DGS 优化训练<br>（含动态干扰去除 + 深度法线约束 + 位姿优化 + 去噪增强 + 人脸美颜）</p>
 
-<!-- ===== Overview Flow ===== -->
-<h2>整体流程总览</h2>
-<div class="box">
-<div class="flow"><span class="step">[01]</span> 前处理人脸增强 (MediaPipe+HYPIR+渐变融合)
-    <span class="arrow">──→</span> <span class="file">input_face/images/</span>
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>📡 整体 Pipeline</h2>
+<div class="pipeline">
 
-<span class="step">[02]</span> VGGT-Omega 前馈推理 (一次前向→位姿+深度→点云)
-    <span class="arrow">──→</span> <span class="file">vggt/&lt;scene&gt;/predictions.npz</span>
+  <!-- Step 00 -->
+  <div class="step-row">
+    <div class="pcard pcard-00">
+      <span class="step-num">00 Setup</span>
+      <h3>🔧 环境准备</h3>
+      <div class="detail">
+        <li>conda env <code>vggt_human</code> (从 <code>doll</code> 克隆)</li>
+        <li>torch≥2.3 + diff-gaussian-rasterizer (dr_aa 分支)</li>
+        <li>simple-knn CUDA 扩展 + GLM</li>
+        <li>VGGT-Omega 1B 权重 (gated, 复用 vggt-omega)</li>
+        <li>HYPIR (SD2 + beauty LoRA) + MediaPipe</li>
+        <li>DiffBIR / SwinIR 去噪模型 (INSTALL_DENOISER=1)</li>
+        <li>GroundingDINO + SAM2 + DINOv2 (动态掩码, step 04)</li>
+      </div>
+    </div>
+  </div>
 
-<span class="step">[03]</span> npz→COLMAP 转换 (Otsu过滤+体素降采样+坐标对齐)
-    <span class="arrow">──→</span> <span class="file">source/ (cameras.txt + images.txt + points3D.txt)</span>
+  <div class="arrow-down"><div class="line"></div><span class="label">env 就绪</span><div class="head">▼</div></div>
 
-<span class="step">[04]</span> 3DGS 训练 (L1+SSIM loss, 30k iter, densification)
-         <span class="tag orange">可选: PoseAdjuster 居中+重力对齐+尺度归一化</span>
-         <span class="tag orange">可选: PoseRefineModule 训练中可学位姿</span>
-    <span class="arrow">──→</span> <span class="file">model_3dgs/point_cloud.ply</span>
+  <!-- Step 01a (optional, video input) -->
+  <div class="step-row">
+    <div class="pcard pcard-01a">
+      <span class="step-num">01a Video→Frames</span>
+      <h3>🎬 视频抽帧 <span class="pbadge pbadge-optional">可选</span></h3>
+      <span class="pbadge pbadge-cpu">CPU</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>INPUT_DIR</code> 视频文件 (.mp4/.mov/.avi/.mkv)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>&lt;OUTPUT_DIR&gt;/image/</code> (000000.png, ...)</div>
+      </div>
+      <div class="detail">
+        <li>cv2 按 <code>VIDEO_FPS</code> (默认 2) 抽帧</li>
+        <li>输出结构与 test_task 一致</li>
+        <li>01 的 INPUT_DIR 指向 &lt;OUTPUT_DIR&gt; 即可</li>
+        <li>图像夹输入跳过此步, 直接进 01</li>
+      </div>
+    </div>
+  </div>
 
-  <span class="arrow">  ═══ 可选增强（去噪+人脸后处理+重训）═══</span>
+  <div class="arrow-down"><div class="line"></div><span class="label">图像夹 (散图 / image/ 子夹)</span><div class="head">▼</div></div>
 
-<span class="step">[05]</span> 渲染新视角→去噪→AdaIN (DiffBIR/SwinIR可切换)
-    <span class="arrow">──→</span> <span class="file">source_aug/ (原图+去噪虚拟视角)</span>
+  <!-- Step 01 -->
+  <div class="step-row">
+    <div class="pcard pcard-01">
+      <span class="step-num">01 Face Enhance</span>
+      <h3>🖼️ 前处理人脸增强</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>INPUT_DIR/</code> 原始多视图图 (或 01a 输出)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>input_face/images/</code></div>
+      </div>
+      <div class="flow-box">
+        <div class="flow-node">🤖 MediaPipe BlazeFace → 人脸 bbox</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">📐 框放大 20% + Pad 到 8 的倍数</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node highlight">🎨 HYPIR 增强 (SD2 + beauty_ppr50k LoRA, upscale=1)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">✂️ 剥 padding + 渐变融合 (中心=增强, 边缘=原图)</div>
+      </div>
+      <div class="detail">
+        <li>让 VGGT-Omega 看到更清晰的人脸纹理 → 重建更准</li>
+        <li>渐变 mask: <code>clamp(1-(r/r_max)², 0, 1)</code></li>
+      </div>
+    </div>
+  </div>
 
-<span class="step">[06]</span> 后处理人脸增强 (同01脚本, 对增强场景图)
-    <span class="arrow">──→</span> <span class="file">source_aug_face/</span>
+  <div class="arrow-down"><div class="line"></div><span class="label">input_face/images/</span><div class="head">▼</div></div>
 
-<span class="step">[07]</span> 增强场景训练3DGS (原图+去噪图+人脸增强 共同监督)
-    <span class="arrow">──→</span> <span class="file">model_3dgs_denoise/point_cloud.ply</span></div>
+  <!-- Step 02 -->
+  <div class="step-row">
+    <div class="pcard pcard-02">
+      <span class="step-num">02 VGGT-Omega</span>
+      <h3>🌐 VGGT-Omega 前馈推理</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <span class="pbadge pbadge-heavy">1B 参数</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>input_face/images/</code></div>
+        <div class="in"><span class="iotag">IN</span> <code>VGGT-Omega/vggt_omega_1b_512.pt</code> (gated)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>vggt/&lt;scene&gt;/predictions.npz</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>scene.ply</code> + <code>frames/</code></div>
+      </div>
+      <div class="flow-box">
+        <div class="flow-node">🖼️ 图像预处理 (balanced, resolution=512)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node highlight">🧠 VGGTOmega 一次前向 → pose_enc + depth + depth_conf</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">📐 encoding_to_camera → w2c 外参 + 实际内参</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">🌐 unproject_depth → 世界坐标点云</div>
+      </div>
+      <div class="detail">
+        <li>w2c 直接输出 (无需 c2w→w2c 转换, 与 COLMAP 一致)</li>
+        <li>实际内参 (非假设 fx=fy=max(W,H))</li>
+        <li>显存随帧数线性: 1帧~6GB, 100帧~13GB</li>
+        <li>OOM 自动捕获, 继续下一个场景</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">predictions.npz (extrinsic + intrinsic + world_points + depth_conf)</span><div class="head">▼</div></div>
+
+  <!-- Step 03 -->
+  <div class="step-row">
+    <div class="pcard pcard-03">
+      <span class="step-num">03 npz→COLMAP</span>
+      <h3>📂 npz → COLMAP 转换</h3>
+      <span class="pbadge pbadge-cpu">CPU</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>predictions.npz</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>source/</code></div>
+      </div>
+      <div class="flow-box">
+        <div class="flow-node">📊 Otsu 自适应置信度过滤 (最大化类间方差)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">📐 体素降采样 → ~200k 点 (每体素保留最高置信度)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node highlight">🎯 坐标系对齐 (质心居中 + 相机平移调整)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">📁 写 cameras.txt (PINHOLE) + images.txt (w2c) + points3D.txt</div>
+      </div>
+      <div class="detail">
+        <li>优先从 frames/ 复制原图 (质量更好)</li>
+        <li>内参按原图/预处理图尺寸比缩放</li>
+        <li>Otsu 过疏/过密时回退百分位阈值</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">source/ (COLMAP 文本格式)</span><div class="head">▼</div></div>
+
+  <!-- Step 04 -->
+  <div class="step-row">
+    <div class="pcard pcard-04">
+      <span class="step-num">04 3DGS Train</span>
+      <h3>🏋️ 3DGS 训练 + 4 个增强模块</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <span class="pbadge pbadge-heavy">30k iter</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>source/</code> (COLMAP 场景)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>model_3dgs/point_cloud/iteration_30000/point_cloud.ply</code></div>
+      </div>
+      <div class="substeps">
+        <div class="substep">
+          <div class="sub-num">P0-1 动态掩码</div>
+          GroundingDINO 文本→bbox<br>
+          SAM2/SAM bbox→mask<br>
+          → <code>dynamic_mask/</code>
+        </div>
+        <div class="substep">
+          <div class="sub-num">P0-2 动态点过滤</div>
+          多视角投影投票<br>
+          in_mask/valid &gt; 阈值 → 移除<br>
+          mask 膨胀防边缘漏判
+        </div>
+        <div class="substep">
+          <div class="sub-num">P0-3 MLP 动态感知</div>
+          DINOv2 特征 + MLP(384→16→1)<br>
+          在线学习动态掩码<br>
+          动态感知损失 (仅静态区 L1+SSIM)
+        </div>
+        <div class="substep">
+          <div class="sub-num">P1-1 深度-法线</div>
+          渲染深度 Sobel 法线<br>
+          vs 初始点云 KNN+PCA 法线<br>
+          loss = 1 - dot(render, point)
+        </div>
+      </div>
+      <div class="detail">
+        <li>原版 3DGS: L1+SSIM, split/clone/prune, 30k iter</li>
+        <li>4 模块默认全开 (改 0 即关, 便于消融)</li>
+        <li>可选: PoseAdjuster (居中+重力对齐+尺度归一化)</li>
+        <li>可选: PoseRefineModule (可学四元数+平移+内参)</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">
+    <div class="line"></div>
+    <span class="divider-label">═══ 可选增强（去噪 + 人脸后处理 + 重训）═══</span>
+    <div class="head">▼</div>
+  </div>
+
+  <!-- Step 05 -->
+  <div class="step-row">
+    <div class="pcard pcard-05">
+      <span class="step-num">05 Denoise Novel</span>
+      <h3>✨ 渲染新视角 → 去噪 → AdaIN</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <span class="pbadge pbadge-optional">可选</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>model_3dgs/point_cloud.ply</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>source_aug/</code> (原图 + 去噪虚拟视角)</div>
+      </div>
+      <div class="flow-box">
+        <div class="flow-node">📷 轨迹分析 → 找最大间隙 → SLERP 插入虚拟相机</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">🎨 渲染 (黑底+白底) → alpha = 1-(white-black)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node highlight-yellow">🔍 alpha &lt; 阈值 = 稀疏区 → 去噪 (DiffBIR/SwinIR/none)</div>
+        <div class="flow-arrow">▼</div>
+        <div class="flow-node">🎨 AdaIN 颜色校正 → 写增强 COLMAP</div>
+      </div>
+      <div class="detail">
+        <li>去噪模型可插拔 (denoisers.py registry)</li>
+        <li>DENOISER=none 跳过去噪 (仅渲染 + AdaIN)</li>
+        <li>稀疏区伪影 → 去噪 → 当"伪 GT"加入训练</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">source_aug/ (原图 + 去噪虚拟视角)</span><div class="head">▼</div></div>
+
+  <!-- Step 06 -->
+  <div class="step-row">
+    <div class="pcard pcard-06">
+      <span class="step-num">06 Face Enhance</span>
+      <h3>🖼️ 后处理人脸增强</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <span class="pbadge pbadge-optional">可选</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>source_aug/images/</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>source_aug_face/</code></div>
+      </div>
+      <div class="detail">
+        <li>与 01 调用同一个 <code>face_enhance.py</code></li>
+        <li>MediaPipe → HYPIR → 渐变融合 (同 01)</li>
+        <li>COLMAP sparse/ 原样复制 (只增强图像)</li>
+        <li>让 3DGS 训练时面部 GT 质量更好</li>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><span class="label">source_aug_face/ (人脸增强后的增强场景)</span><div class="head">▼</div></div>
+
+  <!-- Step 07 -->
+  <div class="step-row">
+    <div class="pcard pcard-07">
+      <span class="step-num">07 Train Denoise</span>
+      <h3>🏋️ 增强场景训练 3DGS</h3>
+      <span class="pbadge pbadge-gpu">GPU</span>
+      <span class="pbadge pbadge-optional">可选</span>
+      <div class="io">
+        <div class="in"><span class="iotag">IN</span> <code>source_aug_face/</code> (原图 + 去噪图 + 人脸增强)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>model_3dgs_denoise/point_cloud/iteration_30000/point_cloud.ply</code></div>
+      </div>
+      <div class="detail">
+        <li>原图 = 真实 GT 监督</li>
+        <li>去噪虚拟相机 = 稀疏区额外监督 (修正伪影)</li>
+        <li>人脸增强图 = 更好面部质量</li>
+        <li>同 04 增强开关 (POSE_ADJUST/POSE_REFINE/ENABLE_DYNAMIC_*/USE_DEPTH_NORMAL)</li>
+        <li>默认从头训; 可选从 04 checkpoint 续训</li>
+      </div>
+    </div>
+  </div>
+
 </div>
 
-<p>所有步骤共用 <code>vggt_human</code> conda env（从 <code>doll</code> 克隆，含 torch≥2.3 + 3DGS CUDA 扩展 + HYPIR 依赖 + mediapipe）。</p>
+<p style="text-align:center; color: var(--text-dim); font-size:0.9em; margin-top:16px;">
+  所有步骤共用 <code>vggt_human</code> conda env（从 <code>doll</code> 克隆，含 torch≥2.3 + 3DGS CUDA 扩展 + HYPIR 依赖 + mediapipe + GroundingDINO/SAM2/DINOv2）。
+</p>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>⚖️ Step 04 四个增强模块对比</h2>
+<div class="compare-grid">
+  <div class="item" style="border-color: var(--purple);">
+    <h4 style="color: var(--purple);">P0-1 动态掩码生成 (dynamic_mask.py)</h4>
+    <ul>
+      <li>原理: GroundingDINO 文本提示 → bbox → SAM2/SAM 分割</li>
+      <li>输出: 每帧二值掩码 (1=动态, 0=静态)</li>
+      <li>时机: 训练前, 生成初始动态先验</li>
+      <li>依赖: GroundingDINO + SAM2 (或 SAM fallback)</li>
+      <li>开关: <code>ENABLE_DYNAMIC_MASK=1</code></li>
+    </ul>
+  </div>
+  <div class="item" style="border-color: var(--purple);">
+    <h4 style="color: var(--purple);">P0-2 动态点云过滤 (dynamic_filter.py)</h4>
+    <ul>
+      <li>原理: 3D 点投影到所有相机, 投影落点在动态 mask 内 → 投票</li>
+      <li>公式: <code>dynamic_ratio = in_mask / valid &gt; 阈值 → 移除</code></li>
+      <li>mask 膨胀 (max_pool2d) 防边缘漏判</li>
+      <li>时机: 3DGS 初始化前, 过滤点云</li>
+      <li>开关: <code>ENABLE_DYNAMIC_FILTER=1</code> (需 P0-1 先开)</li>
+    </ul>
+  </div>
+  <div class="item" style="border-color: var(--purple);">
+    <h4 style="color: var(--purple);">P0-3 DINOv2+MLP 在线动态掩码 (noise_negating.py)</h4>
+    <ul>
+      <li>原理: DINOv2 语义特征 → MLP(384→16→1) 学逐像素动态掩码</li>
+      <li>训练: 余弦不相似度 + 残差直方图边界 + 正则化</li>
+      <li>损失: 动态感知 L1+SSIM (仅静态区域计算 loss)</li>
+      <li>时机: 训练中在线学习, epoch 15 后替换初始 mask</li>
+      <li>开关: <code>ENABLE_MLP_DYNAMIC=1</code></li>
+    </ul>
+  </div>
+  <div class="item" style="border-color: var(--purple);">
+    <h4 style="color: var(--purple);">P1-1 深度-法线一致性 (depth_normal_cons.py)</h4>
+    <ul>
+      <li>原理: 渲染深度 Sobel 梯度→法线 vs 初始点云 KNN+PCA→法线</li>
+      <li>公式: <code>loss = 1 - dot(render_normal, point_normal)</code></li>
+      <li>改善: 几何一致性, 减少表面噪声</li>
+      <li>时机: 训练中, 额外 loss 项</li>
+      <li>开关: <code>USE_DEPTH_NORMAL=1</code>, 权重 <code>DEPTH_NORMAL_WEIGHT=0.05</code></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>📂 输出目录结构</h2>
+<div class="tree"><span class="dir">vggt_human_results/</span>
+├── <span class="dir">input_frames/</span>                 <span class="comment"># Step 01a: 视频抽帧 (test_task 结构)</span>
+│   └── <span class="dir">image/</span>                     <span class="comment">#   000000.png, 000001.png, ...</span>
+│
+├── <span class="highlight">input_face/</span>                    <span class="comment"># Step 01: 前处理人脸增强</span>
+│   └── <span class="dir">images/</span>                     <span class="comment">#   人脸增强后的原始图</span>
+│
+├── <span class="dir">vggt/&lt;scene&gt;/</span>                   <span class="comment"># Step 02: VGGT-Omega 推理</span>
+│   ├── predictions.npz            <span class="comment">#   原始输出 (extrinsic w2c, intrinsic, world_points, depth_conf, images)</span>
+│   ├── scene.ply                  <span class="comment">#   置信度过滤后的彩色点云 (供检查)</span>
+│   └── <span class="dir">frames/</span>                    <span class="comment">#   喂给模型的图 (复制/抽帧)</span>
+│
+├── <span class="highlight">source/</span>                        <span class="comment"># Step 03: COLMAP 场景</span>
+│   ├── <span class="dir">images/</span>                     <span class="comment">#   训练图 (从 frames/ 复制)</span>
+│   └── <span class="dir">sparse/0/</span>
+│       ├── cameras.txt            <span class="comment">#   PINHOLE (VGGT-Omega 实际内参)</span>
+│       ├── images.txt             <span class="comment">#   w2c (qw qx qy qz tx ty tz)</span>
+│       └── points3D.txt           <span class="comment">#   ~200k 初始点 (Otsu + 体素降采样)</span>
+│
+├── <span class="highlight">model_3dgs/</span>                     <span class="comment"># Step 04: 3DGS 训练产物</span>
+│   ├── <span class="dir">dynamic_mask/</span>               <span class="comment">#   P0-1: 动态掩码 (每帧 mask.png)</span>
+│   ├── <span class="dir">point_cloud/</span>
+│   │   └── <span class="dir">iteration_30000/</span>
+│   │       └── <span class="highlight">point_cloud.ply</span>  <span class="comment"># 最终高斯</span>
+│   └── <span class="dir">train/ours_30000/</span>
+│       ├── <span class="dir">renders/</span>                <span class="comment">#   重建渲染 (vs GT)</span>
+│       └── <span class="dir">gt/</span>                     <span class="comment">#   GT</span>
+│
+├── novel_renders/                 <span class="comment"># Step 05 stage 1: 渲染的新视角</span>
+├── novel_alpha/                   <span class="comment">#   覆盖度图 (低 alpha = 稀疏区)</span>
+├── novel_poses.json               <span class="comment">#   虚拟相机参数</span>
+│
+├── <span class="dir">source_aug/</span>                      <span class="comment"># Step 05 stage 2: 增强 COLMAP 场景</span>
+│   ├── <span class="dir">images/</span>                     <span class="comment">#   原图 + 去噪虚拟视角图</span>
+│   └── <span class="dir">sparse/0/</span>                  <span class="comment">#   原相机 + 虚拟相机</span>
+│
+├── <span class="dir">source_aug_face/</span>                <span class="comment"># Step 06: 人脸增强后的增强场景</span>
+│   ├── <span class="dir">images/</span>                     <span class="comment">#   原图 + 去噪图 (人脸已 HYPIR 增强)</span>
+│   └── <span class="dir">sparse/0/</span>                  <span class="comment">#   COLMAP 原样复制</span>
+│
+└── <span class="highlight">model_3dgs_denoise/</span>             <span class="comment"># Step 07: 增强训练后的高斯</span>
+    └── <span class="dir">point_cloud/</span>
+        └── <span class="dir">iteration_30000/</span>
+            └── <span class="highlight">point_cloud.ply</span>  <span class="comment"># 增强训练后的高斯</span></div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<h2>🔧 环境与依赖关系</h2>
+<table>
+  <tr>
+    <th>Step</th>
+    <th>脚本</th>
+    <th>核心依赖</th>
+    <th>官方代码</th>
+    <th>权重</th>
+  </tr>
+  <tr>
+    <td>00</td>
+    <td>00_setup_env.sh</td>
+    <td>conda, pip, gcc12, nvcc</td>
+    <td>gaussian-splatting, HYPIR, DiffBIR/SwinIR, sam2</td>
+    <td>VGGT-Omega, HYPIR SD2+LoRA, SAM2, DINOv2, GroundingDINO</td>
+  </tr>
+  <tr>
+    <td>01a</td>
+    <td>01a_video_to_frames.sh → video_to_frames.py</td>
+    <td>cv2 (opencv)</td>
+    <td>—</td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td>01</td>
+    <td>01_face_enhance.sh → face_enhance.py</td>
+    <td>mediapipe, diffusers, transformers, peft</td>
+    <td>HYPIR/</td>
+    <td>sd2_base + beauty_ppr50k LoRA, face_landmarker</td>
+  </tr>
+  <tr>
+    <td>02</td>
+    <td>02_run_inference.sh → run_batch.py</td>
+    <td>torch, VGGT-Omega</td>
+    <td>vggt-omega/</td>
+    <td>vggt_omega_1b_512.pt (gated)</td>
+  </tr>
+  <tr>
+    <td>03</td>
+    <td>03_npz_to_colmap.sh → npz_to_colmap.py</td>
+    <td>numpy, open3d/plyfile</td>
+    <td>—</td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td>04</td>
+    <td>04_train_3dgs.sh → train_pose.py</td>
+    <td>torch, diff_gaussian_rasterization, simple_knn, transformers (GroundingDINO+SAM2), DINOv2</td>
+    <td>gaussian-splatting/ + sam2/</td>
+    <td>SAM2, DINOv2 ViT-S/14, GroundingDINO</td>
+  </tr>
+  <tr>
+    <td>05</td>
+    <td>05_denoise_novel.sh → render_novel.py + denoise_images.py</td>
+    <td>torch, diff_gaussian_rasterization, DiffBIR/SwinIR</td>
+    <td>gaussian-splatting/ + DiffBIR/SwinIR/</td>
+    <td>DiffBIR/SwinIR ckpt (INSTALL_DENOISER=1)</td>
+  </tr>
+  <tr>
+    <td>06</td>
+    <td>06_face_enhance.sh → face_enhance.py</td>
+    <td>同 01</td>
+    <td>HYPIR/</td>
+    <td>同 01</td>
+  </tr>
+  <tr>
+    <td>07</td>
+    <td>07_train_denoise.sh → train_pose.py</td>
+    <td>同 04</td>
+    <td>同 04</td>
+    <td>同 04</td>
+  </tr>
+</table>
+
+<hr class="hr">
+
+<!-- ===== 详细参考 ===== -->
+
+<!-- ===== Step 01a ===== -->
+<h2><span class="tag teal">01a</span> 视频 → 图像夹</h2>
+<div class="box teal">
+<h3>算法思路</h3>
+<p>视频输入预处理：将单个视频文件（<code>.mp4/.mov/.avi/.mkv</code>）按 <code>VIDEO_FPS</code>（默认 2）抽帧成 <code>&lt;OUTPUT_DIR&gt;/image/</code>（<code>000000.png</code>、<code>000001.png</code>、…）。输出结构与 test_task 输入一致，01 的 <code>INPUT_DIR</code> 指向 <code>&lt;OUTPUT_DIR&gt;</code> 即可，<code>face_enhance.py</code> 自动检测 <code>image/</code> 子夹。所以视频输入走 <code>01a → 01 → 02 → 03 → 04</code> 全链路，原流程一行不改。用 cv2 抽帧（与 <code>run_batch.py</code> 的 <code>extract_frames</code> 同逻辑）。</p>
+<div class="note"><b>输入选择</b>：图像夹输入跳过此步，直接进 01。视频输入先跑 01a，再跑 01（INPUT_DIR 指向 01a 的输出）。</div>
+</div>
 
 <hr class="hr">
 
@@ -216,18 +741,30 @@ fx_new = fx_npz × scale_x, &nbsp; cx_new = cx_npz × scale_x &nbsp;&nbsp;# 同�
 <hr class="hr">
 
 <!-- ===== Step 04 ===== -->
-<h2><span class="tag green">04</span> 3DGS 训练</h2>
-<div class="box green">
+<h2><span class="tag purple">04</span> 3DGS 训练 + 动态干扰去除 + 深度法线约束</h2>
+<div class="box purple">
 <h3>算法思路</h3>
 <p>3DGS（3D Gaussian Splatting）用一组 3D 高斯点表示场景。每个高斯有：位置 μ(3)、缩放 s(3)、旋转 q(4, 四元数)、不透明度 α(1)、球谐系数 SH(48, degree 3)。通过可微分光栅化将高斯投影到 2D 图像，与 GT 比较，梯度下降优化所有参数。</p>
+
+<p>本目录在原版 3DGS 基础上增加 <b>4 个增强模块</b>（默认全开，改 0 即关，便于消融）：</p>
+<ul>
+<li><b>P0-1 动态掩码生成</b>（<code>dynamic_mask.py</code>）：GroundingDINO 文本提示检测动态物体 → SAM2/SAM 分割 → 每帧二值掩码。</li>
+<li><b>P0-2 动态点云过滤</b>（<code>dynamic_filter.py</code>）：3D 点投影到所有相机，投影落点在动态 mask 内的比率 &gt; 阈值 → 移除该点。mask 膨胀防边缘漏判。</li>
+<li><b>P0-3 DINOv2+MLP 在线动态掩码</b>（<code>noise_negating.py</code>）：DINOv2 ViT-S/14 提取语义特征 → MLP(384→16→1) 在线学习逐像素动态掩码 → 动态感知损失（仅静态区域计算 L1+SSIM）。</li>
+<li><b>P1-1 深度-法线一致性</b>（<code>depth_normal_cons.py</code>）：渲染深度 Sobel 梯度→法线 vs 初始点云 KNN+PCA→法线，<code>loss = 1 - dot(render_normal, point_normal)</code>。</li>
+</ul>
 
 <h3>训练循环（每 iteration）</h3>
 <ol>
 <li><b>随机选相机</b>：从训练集随机取一个 camera。</li>
 <li><b>渲染</b>：<code>render(cam, gaussians, pipe, bg)</code> → diff-gaussian-rasterizer (dr_aa 分支, antialiasing) 光栅化高斯 → RGB image (3,H,W)。</li>
 <li><b>损失</b>：<code>loss = (1-λ)×L1 + λ×(1-SSIM)</code>，λ=0.2。</li>
+<li><b>P0-3 动态感知损失</b>（若 <code>ENABLE_MLP_DYNAMIC=1</code>）：MLP 预测动态掩码 → 仅静态区域计算 L1+SSIM（动态区域 skip）。</li>
+<li><b>P1-1 深度-法线 loss</b>（若 <code>USE_DEPTH_NORMAL=1</code>）：渲染深度 Sobel 法线 vs 点云 KNN 法线 → <code>loss += weight × (1 - dot)</code>。</li>
 <li><b>反向传播</b>：<code>loss.backward()</code>。</li>
 <li><b>高斯优化器 step</b>：Adam，更新 μ/s/q/α/SH。</li>
+<li><b>位姿优化器 step</b>（若 <code>POSE_REFINE=1</code>）：更新可学四元数+平移+内参。</li>
+<li><b>MLP 优化器 step</b>（若 <code>ENABLE_MLP_DYNAMIC=1</code>）：在线学习动态掩码。</li>
 <li><b>密度控制</b>（iter 500-15000，每 100 iter）：梯度大的高斯 split（分裂）或 clone（克隆）；低不透明度的 prune（剪枝）。iter 3000 重置不透明度。</li>
 <li><b>保存</b>：iter 7000 / 30000 存 PLY。</li>
 </ol>
@@ -240,7 +777,46 @@ C(p) = Σᵢ Gᵢ(p) × cᵢ(p)              &nbsp;&nbsp;# alpha blending (front
 c = SH(SH_coefficients, dir)          &nbsp;&nbsp;# 球谐颜色（视角相关）
 </div>
 
-<h3>两种模式</h3>
+<h3>训练前预处理（P0-1 + P0-2）</h3>
+<p>在 COLMAP 加载后、GaussianModel 初始化前执行：</p>
+<ol>
+<li><b>P0-1 动态掩码生成</b>（<code>ENABLE_DYNAMIC_MASK=1</code>）：对 <code>source/images/</code> 每张图运行 GroundingDINO（文本提示如 "person" "TV screen"）→ bbox → SAM2/SAM 分割 → 二值掩码存 <code>dynamic_mask/</code>。</li>
+<li><b>P0-2 动态点过滤</b>（<code>ENABLE_DYNAMIC_FILTER=1</code>）：对 <code>points3D.txt</code> 中每个 3D 点，投影到所有相机，检查投影像素是否在对应相机的动态 mask 内。mask 先膨胀 <code>DYNAMIC_DILATE_PX</code> 像素防边缘漏判。<code>dynamic_ratio = in_mask / valid &gt; DYNAMIC_THRESHOLD</code> → 移除该点。</li>
+</ol>
+<div class="formula">
+<span class="label">P0-2 多视角投影投票（w2c 约定）</span>
+P_cam = P @ R_w2c^T + T_w2c           &nbsp;&nbsp;# world → camera<br>
+if P_cam.z &lt; 1e-3: skip (behind camera)<br>
+u = P_cam.x / P_cam.z * fx + cx<br>
+v = P_cam.y / P_cam.z * fy + cy<br>
+if (u,v) inside image AND mask[v,u]==1: cnt_in_mask += 1<br>
+dynamic_ratio = cnt_in_mask / num_valid_views<br>
+if dynamic_ratio &gt; threshold: remove point
+</div>
+
+<h3>P0-3 DINOv2+MLP 在线动态掩码</h3>
+<p>训练中用 DINOv2 ViT-S/14 reg 提取 patch 级语义特征 (384 维)，喂给轻量 MLP (384→16→1+Sigmoid) 学习逐像素动态掩码。MLP 通过比较 GT 和渲染图像的 DINOv2 特征（余弦不相似度）+ 残差直方图边界训练。学到的掩码在 epoch 15 后替换 SegTrack 的初始 mask，动态感知损失仅对静态区域计算 L1+SSIM。</p>
+<div class="formula">
+<span class="label">P0-3 MLP 动态掩码学习</span>
+MLP: 384 → 16 → 1 + Sigmoid    &nbsp;&nbsp;# 0=static, 1=dynamic<br>
+cosine_dissim = 1 - cos(GT_feature, render_feature)<br>
+residual = |GT_feature - render_feature|<br>
+histogram bounds (EMA): [lower, upper]    &nbsp;&nbsp;# 自适应阈值<br>
+mask = MLP(feature) × (cosine_dissim &gt; bound)    &nbsp;&nbsp;# 在线学习<br>
+loss = L1+SSIM only on static regions (mask=0)
+</div>
+
+<h3>P1-1 深度-法线一致性约束</h3>
+<p>渲染深度图用 Sobel 梯度估计表面法线（相机空间），初始点云用 KNN(k=20) 邻域 + PCA 估计点法线。将点法线投影到图像，转换渲染法线到世界空间，<code>loss = 1 - dot(render_normal, point_normal)</code>。改善几何一致性，减少表面噪声。</p>
+<div class="formula">
+<span class="label">P1-1 深度→法线（Sobel）</span>
+nx = -dz/du / fx, &nbsp; ny = -dz/dv / fy, &nbsp; nz = 1.0    &nbsp;&nbsp;# 相机空间<br>
+→ normalize → camera-space normal<br>
+point_normal: KNN(k=20) neighborhoods → PCA → per-point normal<br>
+loss = 1 - dot(render_normal_world, point_normal)    &nbsp;&nbsp;# on valid pixels
+</div>
+
+<h3>两种训练模式</h3>
 <table>
 <tr><th>模式</th><th>条件</th><th>行为</th></tr>
 <tr><td>标准</td><td>POSE_ADJUST=0, POSE_REFINE=0</td><td>直接调官方 <code>train.py</code></td></tr>
@@ -283,6 +859,7 @@ pred_rot = [right, down, lookat]ᵀ @ diag(1, -1, -1) &nbsp;&nbsp;# OpenGL/OpenC
 
 <h4>操作③：尺度归一化</h4>
 <div class="formula">
+<span class="label">尺度归一化</span>
 extent = median(‖c2w_t_i - center‖)    &nbsp;&nbsp;# 相机到中心距离中位数<br>
 scale = 10 / extent                       &nbsp;&nbsp;# 归一化到半径 10
 </div>
@@ -340,24 +917,30 @@ R = [[1-2(y²+z²), 2(xy-wz), 2(xz+wy)],<br>
 </div>
 
 <h4>训练循环修改</h4>
-<pre><span class="com"># 标准 3DGS 训练循环 + 位姿精炼</span>
+<pre><span class="com"># 标准 3DGS 训练循环 + 位姿精炼 + 动态感知 + 深度法线</span>
 render_pkg = render(cam, gaussians, pipe, bg)
 loss = (1-λ)×L1 + λ×(1-SSIM)
-loss += <span class="num">pose_refine_weight</span> × cam.pose_module.reg_loss()  <span class="com"># 新增</span>
+loss += <span class="num">depth_normal_weight</span> × depth_normal_loss(cam)       <span class="com"># P1-1 (可选)</span>
+loss += <span class="num">pose_refine_weight</span> × cam.pose_module.reg_loss()  <span class="com"># PoseRefine (可选)</span>
+<span class="com"># P0-3 动态感知: 仅静态区域计算 loss (可选)</span>
 loss.backward()
 gaussians.optimizer.step()                               <span class="com"># 高斯优化</span>
-cam.pose_optimizer.step()                                 <span class="com"># 新增: 位姿优化</span>
+cam.pose_optimizer.step()                                 <span class="com"># 位姿优化 (可选)</span>
+mlp_optimizer.step()                                      <span class="com"># MLP 动态掩码 (可选)</span>
 gaussians.optimizer.zero_grad(set_to_none=True)
 cam.pose_optimizer.zero_grad(set_to_none=True)</pre>
 
 <h4>执行顺序</h4>
 <ol>
 <li>COLMAP 加载 → 初始 w2c_qvec, w2c_tvec</li>
+<li><b>P0-1</b> 动态掩码生成 (GroundingDINO+SAM2) → <code>dynamic_mask/</code></li>
+<li><b>P0-2</b> 动态点云过滤 (多视角投影投票) → 过滤后的 points3D</li>
 <li><b>PoseAdjuster.apply_to_camera()</b> → 调整后的位姿</li>
 <li><b>PoseAdjuster.apply_to_points()</b> → 调整后的点云</li>
 <li>创建 Camera，用调整后位姿初始化 <b>PoseRefineModule</b>（ori = 调整后的值）</li>
-<li>创建 GaussianModel，用调整后点云初始化</li>
-<li>训练循环中 PoseRefineModule 持续微调</li>
+<li>创建 GaussianModel，用调整后+过滤后点云初始化</li>
+<li><b>P0-3</b> 预计算 GT DINOv2 特征 + 初始化 MLP + 直方图</li>
+<li>训练循环: PoseRefineModule + MLP 持续微调 + 深度法线约束</li>
 <li>训练结束 <b>PoseAdjuster.reverse</b> → 原始坐标系 PLY</li>
 </ol>
 <div class="note"><b>反向变换时机</b>：训练中保持调整后坐标系（PLY + 相机都在调整后坐标，render_novel 直接用）。训练结束额外存 <code>point_cloud_original/point_cloud.ply</code>（恢复原始坐标，供外部工具）。PoseAdjuster 参数存 JSON 供 render_novel 加载正向变换虚拟相机。</div>
@@ -412,7 +995,7 @@ corrected = (source - s_mean) / (s_std + ε) × t_std + t_mean
 
 <!-- ===== Step 06 ===== -->
 <h2><span class="tag purple">06</span> 后处理人脸增强</h2>
-<div class="box purple">
+<div class="box" style="border-left:4px solid #f778ba;">
 <p>与 step 01 调用<b>同一个 <code>face_enhance.py</code></b>，算法和实现完全一致（MediaPipe → HYPIR → 渐变融合）。区别仅在输入：01 对原始输入图，06 对增强 COLMAP 场景中的图（<code>source_aug/images/</code>）。COLMAP <code>sparse/</code> 原样复制（只增强图像，不改相机参数）。</p>
 <p>前后两次人脸增强的作用互补：01 让 VGGT-Omega 看到更好的人脸纹理 → 重建更准；06 让 3DGS 训练时有更好的面部 GT → 渲染质量更高。</p>
 </div>
@@ -420,9 +1003,9 @@ corrected = (source - s_mean) / (s_std + ε) × t_std + t_mean
 <hr class="hr">
 
 <!-- ===== Step 07 ===== -->
-<h2><span class="tag yellow">07</span> 增强场景训练</h2>
-<div class="box yellow">
-<p>用增强 COLMAP 场景（原图 + 去噪虚拟相机 + 人脸增强图）训练 3DGS。原图提供真实 GT 监督；去噪虚拟相机提供稀疏区域的额外监督（修正伪影）；人脸增强图提供更好的面部质量。同样支持 PoseAdjuster / PoseRefineModule。</p>
+<h2><span class="tag orange">07</span> 增强场景训练</h2>
+<div class="box orange">
+<p>用增强 COLMAP 场景（原图 + 去噪虚拟相机 + 人脸增强图）训练 3DGS。原图提供真实 GT 监督；去噪虚拟相机提供稀疏区域的额外监督（修正伪影）；人脸增强图提供更好的面部质量。同样支持 PoseAdjuster / PoseRefineModule + 4 个增强模块（P0-1/P0-2/P0-3/P1-1）。</p>
 <p>默认从头训（增强场景有更多相机，结果通常更好）；可选从 04 的 checkpoint 续训（需 04 加 <code>--checkpoint_iterations</code> 存 .pth）。</p>
 </div>
 
@@ -433,25 +1016,31 @@ corrected = (source - s_mean) / (s_std + ε) × t_std + t_mean
 <div class="box">
 <pre>
 vggt_human/
-├── _env.sh                    # 共享: 代理 + CA + conda activate + GPU + 路径 + POSE_* 开关
-├── 00_setup_env.sh            # cp -a doll → vggt_human env + 装依赖 + 编 CUDA 扩展 + clone HYPIR
+├── _env.sh                    # 共享: 代理 + CA + conda activate + GPU + 路径 + POSE_* / ENABLE_* 开关
+├── 00_setup_env.sh            # cp -a doll → vggt_human env + 装依赖 + 编 CUDA 扩展 + clone HYPIR/DiffBIR/SwinIR
+├── 01a_video_to_frames.sh     # 视频 → 图像夹 (抽帧, 喂给 01; 视频输入用)
 ├── 01_face_enhance.sh         # 前处理人脸增强 (调 face_enhance.py)
 ├── 02_run_inference.sh        # VGGT-Omega 前馈推理 (调 run_batch.py)
 ├── 03_npz_to_colmap.sh        # npz → COLMAP 转换 (调 npz_to_colmap.py)
-├── 04_train_3dgs.sh           # 3DGS 训练 (标准 或 调 train_pose.py)
+├── 04_train_3dgs.sh           # 3DGS 训练 + 4 模块 (标准 或 调 train_pose.py)
 ├── 05_denoise_novel.sh        # 渲染新视角 → 去噪 → AdaIN (调 render_novel.py + denoise_images.py)
 ├── 06_face_enhance.sh         # 后处理人脸增强 (调 face_enhance.py)
 ├── 07_train_denoise.sh        # 增强场景训练 3DGS (标准 或 调 train_pose.py)
 │
+├── video_to_frames.py         # 视频抽帧 (step 01a, cv2)
 ├── run_batch.py               # VGGT-Omega 批量推理 (vggt-omega 副本)
 ├── npz_to_colmap.py           # Otsu 过滤 + 体素降采样 + COLMAP 导出
 ├── face_enhance.py            # MediaPipe + HYPIR + 渐变融合 (01/06 共用)
 ├── render_novel.py            # 3DGS 渲染新视角 (SLERP + black/white alpha)
 ├── denoise_images.py          # 去噪 + AdaIN + 增强 COLMAP 导出
 ├── denoisers.py               # 去噪模型注册表 (DiffBIR/SwinIR/none 可插拔)
+├── dynamic_mask.py            # P0-1: 动态物体掩码 (GroundingDINO+SAM2)
+├── dynamic_filter.py          # P0-2: 动态点云过滤 (多视角投影投票)
+├── noise_negating.py          # P0-3: DINOv2+MLP 在线动态掩码学习 + 动态感知损失
+├── depth_normal_cons.py      # P1-1: 深度-法线一致性约束 (Sobel vs KNN+PCA)
 ├── pose_adjuster.py           # PoseAdjuster (居中+重力对齐+尺度归一化) + save/load JSON
 ├── pose_refine.py             # PoseRefineModule (可学四元数+平移+内参) + PoseRefinedCamera
-└── train_pose.py              # Wrapper 训练脚本 (COLMAP加载+PoseAdjuster+训练循环+反向变换)
+└── train_pose.py              # Wrapper 训练脚本 (COLMAP加载+动态掩码+PoseAdjuster+训练循环+反向变换)
 </pre>
 </div>
 
@@ -462,21 +1051,61 @@ vggt_human/
 <div class="box">
 <table>
 <tr><th>变量</th><th>默认</th><th>说明</th></tr>
-<tr><td><code>POSE_ADJUST</code></td><td>0</td><td>1=训练前 PoseAdjuster（居中+重力对齐+尺度归一化）</td></tr>
-<tr><td><code>POSE_REFINE</code></td><td>0</td><td>1=训练中 PoseRefineModule（可学位姿精炼）</td></tr>
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">位姿优化 (step 04/07)</td></tr>
+<tr><td><code>POSE_ADJUST</code></td><td>1</td><td>1=训练前 PoseAdjuster（居中+重力对齐+尺度归一化）</td></tr>
+<tr><td><code>POSE_REFINE</code></td><td>1</td><td>1=训练中 PoseRefineModule（可学四元数+平移+内参精炼）</td></tr>
 <tr><td><code>REFINE_INTRINSIC</code></td><td>0</td><td>1=同时学内参（fx/fy/cx/cy），0=只学位姿</td></tr>
 <tr><td><code>POSE_REFINE_WEIGHT</code></td><td>0.01</td><td>位姿正则化损失权重</td></tr>
 <tr><td><code>POSE_REFINE_LR_Q</code></td><td>1e-3</td><td>四元数学习率</td></tr>
 <tr><td><code>POSE_REFINE_LR_T</code></td><td>1e-3</td><td>平移学习率</td></tr>
 <tr><td><code>POSE_REFINE_LR_I</code></td><td>1e-4</td><td>内参学习率</td></tr>
 <tr><td><code>GRAVITY_PRIOR</code></td><td>0</td><td>1=用 [0,-1,0] 做重力方向，0=SVD 估计</td></tr>
+
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">动态干扰去除 (step 04, P0-1/P0-2/P0-3)</td></tr>
+<tr><td><code>ENABLE_DYNAMIC_MASK</code></td><td>1</td><td>1=训练前生成动态掩码（GroundingDINO + SAM2/SAM）</td></tr>
+<tr><td><code>ENABLE_DYNAMIC_FILTER</code></td><td>1</td><td>1=过滤动态点云（多视角投影投票），需 MASK 先开</td></tr>
+<tr><td><code>ENABLE_MLP_DYNAMIC</code></td><td>1</td><td>1=DINOv2+MLP 在线动态掩码学习 + 动态感知损失</td></tr>
+<tr><td><code>DYNAMIC_THRESHOLD</code></td><td>0.3</td><td>动态点过滤比率阈值（in_mask/valid > 阈值则移除）</td></tr>
+<tr><td><code>DYNAMIC_DILATE_PX</code></td><td>5</td><td>mask 膨胀像素数（投影前膨胀，避免边缘漏判）</td></tr>
+<tr><td><code>SAM2_MODEL_PATH</code></td><td>$MODEL_DIR/sam2</td><td>SAM2 checkpoint 目录或 .pt 文件</td></tr>
+<tr><td><code>GROUNDING_DINO_ID</code></td><td>IDEA-Research/grounding-dino-tiny</td><td>GroundingDINO HF model ID</td></tr>
+<tr><td><code>BOX_THRESHOLD</code></td><td>0.3</td><td>GroundingDINO box 置信度阈值</td></tr>
+<tr><td><code>DINO_MODEL_PATH</code></td><td>$MODEL_DIR/dinov2</td><td>DINOv2 ViT-S/14 reg checkpoint</td></tr>
+
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">深度-法线约束 (step 04, P1-1)</td></tr>
+<tr><td><code>USE_DEPTH_NORMAL</code></td><td>1</td><td>1=启用深度-法线一致性约束</td></tr>
+<tr><td><code>DEPTH_NORMAL_WEIGHT</code></td><td>0.05</td><td>深度-法线一致性 loss 权重</td></tr>
+
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">去噪增强 (step 05)</td></tr>
 <tr><td><code>DENOISER</code></td><td>none</td><td>diffbir | swinir | nafnet | none（可插拔）</td></tr>
 <tr><td><code>NUM_NOVEL_VIEWS</code></td><td>10</td><td>插入多少个虚拟相机</td></tr>
 <tr><td><code>ALPHA_THRESH</code></td><td>0.3</td><td>alpha 低于此值 = 稀疏区，需去噪</td></tr>
 <tr><td><code>ADAIN_REF</code></td><td>nearest</td><td>AdaIN 颜色参考：nearest（最近训练图）| mean</td></tr>
+
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">人脸增强 (step 01/06)</td></tr>
 <tr><td><code>FACE_PADDING</code></td><td>0.2</td><td>人脸框放大比例</td></tr>
-<tr><td><code>TARGET_POINTS</code></td><td>200000</td><td>体素降采样目标点数</td></tr>
-<tr><td><code>ITERATIONS</code></td><td>30000</td><td>3DGS 训练迭代数</td></tr>
+<tr><td><code>HYPIR_WEIGHT</code></td><td>.../ema_state_dict.pth</td><td>HYPIR beauty_ppr50k LoRA checkpoint</td></tr>
+
+<tr><td colspan="3" style="color: var(--purple); font-weight:600;">其他</td></tr>
+<tr><td><code>TARGET_POINTS</code></td><td>200000</td><td>体素降采样目标点数 (step 03)</td></tr>
+<tr><td><code>ITERATIONS</code></td><td>30000</td><td>3DGS 训练迭代数 (step 04/07)</td></tr>
+<tr><td><code>VIDEO_FPS</code></td><td>2</td><td>视频抽帧 fps (step 01a)</td></tr>
+</table>
+</div>
+
+<hr class="hr">
+
+<h2>🔄 消融实验速查</h2>
+<div class="box">
+<table>
+<tr><th>场景</th><th>命令</th></tr>
+<tr><td>关闭全部增强（等价原始 3DGS）</td><td><code>POSE_ADJUST=0 POSE_REFINE=0 ENABLE_DYNAMIC_MASK=0 ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>只开动态掩码（P0-1）</td><td><code>ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>只开动态点过滤（P0-1+P0-2）</td><td><code>ENABLE_MLP_DYNAMIC=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>只开 MLP 动态感知（P0-1+P0-3）</td><td><code>ENABLE_DYNAMIC_FILTER=0 USE_DEPTH_NORMAL=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>只开深度-法线约束（P1-1）</td><td><code>ENABLE_DYNAMIC_MASK=0 ENABLE_DYNAMIC_FILTER=0 ENABLE_MLP_DYNAMIC=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>只关闭位姿优化</td><td><code>POSE_ADJUST=0 POSE_REFINE=0 bash ...04_train_3dgs.sh</code></td></tr>
+<tr><td>全开 + 学内参</td><td><code>POSE_ADJUST=1 POSE_REFINE=1 REFINE_INTRINSIC=1 bash ...04_train_3dgs.sh</code></td></tr>
 </table>
 </div>
 
