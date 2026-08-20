@@ -807,13 +807,40 @@ loss = L1+SSIM only on static regions (mask=0)
 </div>
 
 <h3>P1-1 深度-法线一致性约束</h3>
-<p>渲染深度图用 Sobel 梯度估计表面法线（相机空间），初始点云用 KNN(k=20) 邻域 + PCA 估计点法线。将点法线投影到图像，转换渲染法线到世界空间，<code>loss = 1 - dot(render_normal, point_normal)</code>。改善几何一致性，减少表面噪声。</p>
+<h4>为什么需要</h4>
+<p>光度损失（L1+SSIM）只约束<b>外观</b>（颜色对不对），不约束<b>几何</b>（表面形状对不对）。在低纹理区域（光滑皮肤、白墙），很多不同的几何都能产生同样的颜色——3DGS 训练时几何容易"漂"：表面可能凹凸不平，但渲染出来的图颜色照样对，L1+SSIM 完全发现不了。</p>
+<p>深度-法线一致性就是补这个缺口：拿<b>初始点云的法线</b>（VGGT-Omega/COLMAP 出的，几何还算靠谱）当"参考答案"，逼 3DGS 渲染出的深度图法线去对齐它。这样在颜色对的同时，表面朝向也对，减少几何噪声。</p>
+<div class="note"><b>通俗类比</b>：光度损失 = 检查"画出来像不像"；深度-法线 = 额外检查"表面朝向对不对"。前者管颜色，后者管形状。</div>
+
+<h4>两路法线怎么算</h4>
+<table>
+<tr><th>来源</th><th>方法</th><th>空间</th><th>可微?</th><th>时机</th></tr>
+<tr><td>渲染深度图</td><td>Sobel 梯度 → 每像素法线</td><td>相机空间 → 转世界</td><td><b>是</b>（梯度流回高斯参数）</td><td>训练中每个 iteration</td></tr>
+<tr><td>初始点云</td><td>KNN(k=20) 邻域 + PCA/SVD → 每点法线</td><td>世界空间</td><td>否（固定参考）</td><td>训练前一次性预算</td></tr>
+</table>
+
+<h4>实现流程</h4>
+<ol>
+<li><b>训练前</b>（<code>train_pose.py:252</code>）：对初始点云跑 <code>estimate_point_normals(pts, k=20)</code> → 每点法线（固定参考，不再变）。</li>
+<li><b>训练中</b>（<code>train_pose.py:302-330</code>）：
+  <ol>
+  <li>渲染时加 <code>render_depth=True</code> → 3DGS 光栅化额外输出深度图。</li>
+  <li>对深度图跑 <code>estimate_normal_from_depth(depth, fx, fy, cx, cy)</code> → Sobel 算梯度 → 每像素法线（相机空间）。</li>
+  <li>渲染法线转世界空间：<code>normal_world = R^T @ normal_cam</code>。</li>
+  <li>点云法线投影到图像：每个 3D 点投影到像素坐标，按深度排序（近的覆盖远的），铺成 <code>point_normal_map</code>。</li>
+  <li>逐像素比对：<code>loss = 1 - dot(render_normal, point_normal)</code>，仅在同时有渲染深度和点法线的像素上计算。</li>
+  <li>加到总 loss：<code>loss += DEPTH_NORMAL_WEIGHT × depth_loss</code>（默认 0.05）。</li>
+  </ol>
+</li>
+</ol>
+
 <div class="formula">
 <span class="label">P1-1 深度→法线（Sobel）</span>
 nx = -dz/du / fx, &nbsp; ny = -dz/dv / fy, &nbsp; nz = 1.0    &nbsp;&nbsp;# 相机空间<br>
 → normalize → camera-space normal<br>
 point_normal: KNN(k=20) neighborhoods → PCA → per-point normal<br>
-loss = 1 - dot(render_normal_world, point_normal)    &nbsp;&nbsp;# on valid pixels
+loss = 1 - dot(render_normal_world, point_normal)    &nbsp;&nbsp;# on valid pixels<br>
+total_loss = L1 + λ_dssim×(1-SSIM) + DEPTH_NORMAL_WEIGHT × loss_dn
 </div>
 
 <h3>两种训练模式</h3>
