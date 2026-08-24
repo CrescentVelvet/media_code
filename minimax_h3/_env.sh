@@ -34,21 +34,34 @@ fi
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 # Activate the existing conda env (torch already installed; reuse to avoid
-# re-downloading torch). 不强制切 env——默认沿用你当前已激活的 env
-# (CONDA_DEFAULT_ENV)，所以 `conda activate minimax_h3` 一次后所有脚本都用它，
-# 不必再每条命令传 CONDA_ENV=minimax_h3。想强制别的 env 就显式 `CONDA_ENV=xxx`。
+# re-downloading torch). 默认专用 env `minimax_h3`（SGLang pin 与其他算法冲突，
+# 务必专用 env）。想用别的 env 就显式 `CONDA_ENV=xxx` 覆盖。
 # SGLang pulls its own torch + flashinfer + cuda kernels; its version pins may
 # CONFLICT with other algos in this repo (e.g. hunyuanvideo wants diffusers 0.35,
 # hypir pins diffusers 0.32 / transformers 4.49). Use a DEDICATED env:
 #   conda create -n minimax_h3 python=3.11 -y
-CONDA_ENV="${CONDA_ENV:-${CONDA_DEFAULT_ENV:-base}}"
+CONDA_ENV="${CONDA_ENV:-minimax_h3}"
+export CONDA_ENV
 if ! command -v conda >/dev/null 2>&1; then
-    echo "ERROR: conda not found on PATH (need an activated env; or set CONDA_ENV)." >&2
+    # Fallback: try common conda locations (WSL/local dev without `conda init`).
+    # On servers conda is already on PATH, so this block never triggers.
+    for _cb in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+        if [ -f "$_cb/etc/profile.d/conda.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$_cb/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+    unset _cb
+fi
+if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    echo "       Install miniconda or run: source ~/miniconda3/etc/profile.d/conda.sh" >&2
     exit 1
 fi
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
+conda activate "$CONDA_ENV" 2>/dev/null || true  # env may not exist yet (00/00a creates it)
 
 # Pin to a specific physical GPU (0-indexed) via GPU=N. It remaps
 # CUDA_VISIBLE_DEVICES so cuda:0 inside the process == physical GPU N.
