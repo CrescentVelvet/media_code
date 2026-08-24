@@ -70,6 +70,9 @@ if [ ! -f "$PROXY_ENV" ]; then
 #    3. Uncomment + fill below:
 # export HF_TOKEN="hf_xxx"
 
+# HF mirror (huggingface.co 直连超时; 用 hf-mirror.com 镜像)
+export HF_ENDPOINT="https://hf-mirror.com"
+
 # Repos + weights on Linux filesystem (fast I/O for compilation + training).
 export VGGT_DIR="$HOME/repos/vggt-omega"
 export GS_DIR="$HOME/repos/gaussian-splatting"
