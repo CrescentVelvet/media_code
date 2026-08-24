@@ -301,19 +301,24 @@ fi
 python -c "import diff_gaussian_rasterization, simple_knn; print('  ✅ CUDA exts importable')" 2>/dev/null || \
     echo "  ⚠️ CUDA exts not importable yet" >&2
 
-# ── 11. Clone HYPIR + download SD2 base model ─────────────────────────────
-mkdir -p "$(dirname "$HYPIR_DIR")" "$HYPIR_MODEL_DIR"
-if [ ! -d "$HYPIR_DIR/.git" ]; then
-    echo "📦 cloning HYPIR -> $HYPIR_DIR"
-    git clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR" || \
-        git -c http.sslVerify=false clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR"
-fi
-if [ ! -d "$HYPIR_BASE_MODEL" ]; then
-    echo "📦 downloading SD2 base model -> $HYPIR_BASE_MODEL (large, ~5GB)..."
-    git clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
-        git -c http.sslVerify=false clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
-        echo "  ⚠️ SD2 base model download failed. Manual:" >&2
-    echo "    git clone https://huggingface.co/stabilityai/stable-diffusion-2-base $HYPIR_BASE_MODEL" >&2
+# ── 11. Clone HYPIR + download SD2 base model (optional) ─────────────────
+# Set SKIP_HYPIR=1 to skip (step 01/06 face enhancement disabled until ready).
+if [ "${SKIP_HYPIR:-0}" != "1" ]; then
+    mkdir -p "$(dirname "$HYPIR_DIR")" "$HYPIR_MODEL_DIR"
+    if [ ! -d "$HYPIR_DIR/.git" ]; then
+        echo "📦 cloning HYPIR -> $HYPIR_DIR"
+        git clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR" || \
+            git -c http.sslVerify=false clone https://github.com/XPixelGroup/HYPIR.git "$HYPIR_DIR"
+    fi
+    if [ ! -d "$HYPIR_BASE_MODEL" ]; then
+        echo "📦 downloading SD2 base model -> $HYPIR_BASE_MODEL (large, ~5GB)..."
+        git clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
+            git -c http.sslVerify=false clone https://huggingface.co/stabilityai/stable-diffusion-2-base "$HYPIR_BASE_MODEL" || \
+            echo "  ⚠️ SD2 base model download failed. Manual:" >&2
+        echo "    git clone https://huggingface.co/stabilityai/stable-diffusion-2-base $HYPIR_BASE_MODEL" >&2
+    fi
+else
+    echo "⏭️  SKIP_HYPIR=1 — skipping HYPIR + SD2 base (step 01/06 disabled)"
 fi
 
 # ── 12. Optional: denoiser models (DiffBIR / SwinIR) ──────────────────────
@@ -370,8 +375,8 @@ python -c "import torch; print(f'  ✅ torch {torch.__version__} cuda={torch.cud
 python -c "import diff_gaussian_rasterization, simple_knn; print('  ✅ CUDA exts')" 2>/dev/null || \
     echo "  [MISS] CUDA exts (build may have failed — check errors above)"
 python -c "import mediapipe; print('  ✅ mediapipe')" 2>/dev/null || echo "  [MISS] mediapipe"
-[ -d "$HYPIR_DIR/.git" ] && echo "  ✅ HYPIR code" || echo "  [MISS] HYPIR code"
-[ -d "$HYPIR_BASE_MODEL" ] && echo "  ✅ SD2 base model" || echo "  [MISS] SD2 base model"
+[ -d "$HYPIR_DIR/.git" ] && echo "  ✅ HYPIR code" || echo "  [---] HYPIR code (SKIP_HYPIR=1; step 01/06 disabled)"
+[ -d "$HYPIR_BASE_MODEL" ] && echo "  ✅ SD2 base model" || echo "  [---] SD2 base model (huggingface.co unreachable; needed for step 01/06)"
 
 # VGGT-Omega weights (gated — user must download separately)
 if [ -f "$MODEL_DIR/vggt_omega_1b_512.pt" ]; then

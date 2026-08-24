@@ -66,6 +66,28 @@ bash vggt_human/00a_setup_env.sh
    GPU=0 VARIANT=1b_512 bash vggt-omega/01_download_models.sh
    ```
 
+### HYPIR 人脸增强（step 01/06）— 遗留问题
+
+00a 默认会 clone HYPIR + 下载 SD2 base model，但这两个依赖 **huggingface.co 可达**。如果 WSL 内连不上 huggingface.co（443 超时），或 HYPIR 的 `beauty_ppr50k` LoRA 权重尚未从服务器拷过来，可以 **跳过 step 01/06**，直接从 step 02 开始：
+
+```bash
+# 安装时跳过 HYPIR（不 clone、不下 SD2 base）
+SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
+
+# 流程跳过 step 01，直接用原始图像喂 step 02
+GPU=0 \
+INPUT_DIR=~/my_images \
+MODEL_DIR=~/model/VGGT-Omega \
+RESULTS_DIR=~/output/vggt_human_results \
+bash vggt_human/02_run_inference.sh
+```
+
+准备好后再开启 HYPIR：
+1. 确保 `huggingface.co` 可达（或用镜像 `HF_ENDPOINT=https://hf-mirror.com`）
+2. 从服务器拷 `beauty_ppr50k` LoRA 权重到 `$HYPIR_DIR/experiments/`
+3. 下载 SD2 base model：`git clone https://huggingface.co/stabilityai/stable-diffusion-2-base ~/model/HYPIR/sd2_base`
+4. 跑 step 01 对原始图做人脸增强
+
 ## 路径布局（WSL）
 
 ```
