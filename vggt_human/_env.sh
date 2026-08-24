@@ -35,7 +35,20 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 CONDA_ENV="${CONDA_ENV:-vggt_human}"
 export CONDA_ENV
 if ! command -v conda >/dev/null 2>&1; then
+    # Fallback: try common conda locations (WSL/local dev without `conda init`).
+    # On servers conda is already on PATH, so this block never triggers.
+    for _cb in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+        if [ -f "$_cb/etc/profile.d/conda.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$_cb/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+    unset _cb
+fi
+if ! command -v conda >/dev/null 2>&1; then
     echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    echo "       Install miniconda or run: source ~/miniconda3/etc/profile.d/conda.sh" >&2
     exit 1
 fi
 # shellcheck disable=SC1091
