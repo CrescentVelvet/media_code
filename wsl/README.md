@@ -1,6 +1,6 @@
 # WSL2 + Ubuntu 环境搭建（Win11 + RTX 3090）
 
-在 Windows 11 上用 WSL2 跑 Ubuntu 22.04，GPU 直通跑算法复现。C 盘固态 800GB 空闲，分 100GB 给 WSL vhdx；机械盘当仓库归档原始数据集与权重。
+在 Windows 11 上用 WSL2 跑 Ubuntu 24.04，GPU 直通跑算法复现。C 盘固态 800GB 空闲，分 100GB 给 WSL vhdx；机械盘当仓库归档原始数据集与权重。
 
 > 🎮 RTX 3090（24GB / Ampere / 算力 8.6），主流框架全支持。
 
@@ -13,24 +13,42 @@ wsl -l -v
 nvidia-smi            # 确认 3090 + 驱动正常
 ```
 
-> ⚠️ 如果 `wsl --install` 报错，多半是 BIOS 没开虚拟化（Intel VT-x / AMD-V），进 BIOS 打开。
+> ⚠️ 如果 `wsl --install` 报错 `0x80370102`，多半是 BIOS 没开虚拟化（Intel VT-x / AMD-V），进 BIOS 打开。
+> ⚠️ 如果 `wsl --install -d <distro>` 报 `WININET_E_TIMEOUT` 拉 `raw.githubusercontent.com` 失败，跳到第 1 步用 Microsoft Store 装（国内/公司代理墙）。
 
 ---
 
-## 1. 安装 WSL2 + Ubuntu 22.04
+## 1. 安装 WSL2 + Ubuntu 24.04
 
-**管理员 PowerShell**：
+分两步：先启用 WSL2 本体（不拉发行版元数据，绕过 `raw.githubusercontent.com`），再用 Microsoft Store 装 Ubuntu。
+
+### 1a. 启用 WSL2 功能（管理员 PowerShell）
 
 ```powershell
-wsl --install -d Ubuntu-22.04
+wsl --install --no-distribution
 ```
 
-这一条会自动启用「虚拟机平台」+「适用于 Linux 的 Windows 子系统」并下载 Ubuntu。**重启电脑**后 Ubuntu 窗口自动弹出，设置用户名和密码（记下这个用户名，迁移后还要用）。
+这一条会启用「虚拟机平台」+「适用于 Linux 的 Windows 子系统」并下载 WSL2 内核，但**不下载任何发行版**（避免拉 GitHub 元数据超时）。**重启电脑**。
 
 ```powershell
-# 重启后回到 PowerShell
-wsl -l -v              # VERSION 列必须是 2
+# 重启后回到 PowerShell 验证
+wsl --status           # 默认版本: 2
 wsl --update           # 确保 WSL 内核最新
+wsl --version          # 看到 WSL 版本 + 内核版本即可
+```
+
+### 1b. 从 Microsoft Store 装 Ubuntu 24.04 LTS
+
+1. **开始菜单 → Microsoft Store**
+2. 搜索 `Ubuntu 24.04 LTS` → 点 **Get / Install**（约 500MB，走商店 CDN，国内能下）
+3. 装完后开始菜单出现 **Ubuntu 24.04 LTS**，点击打开
+4. 弹出窗口设 UNIX 用户名 + 密码（**记下这个用户名，迁移后还要用**）
+
+> ⚠️ Microsoft Store 装的发行版**名字是 `Ubuntu`**（不是 `Ubuntu-24.04`），用 `wsl -l -v` 确认。
+
+```powershell
+$env:WSL_UTF8=1; wsl -l -v
+# 期望: Ubuntu  Running  2
 ```
 
 ---
@@ -49,36 +67,38 @@ nvidia-smi
 
 ## 3. 把 vhdx 迁到 C:\WSL（控制 100GB）
 
-默认 vhdx 装在 `%UserProfile%\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu22.04LTS_*`，不好管理。导出 → 注销 → 导入到 `C:\WSL\Ubuntu2204`：
+Microsoft Store 装的默认 vhdx 在 `%UserProfile%\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu24.04LTS_*`，不好管理。导出 → 注销 → 导入到 `C:\WSL\Ubuntu2404`：
 
 ```powershell
 # 📁 建目标目录
-mkdir C:\WSL\Ubuntu2204
+mkdir C:\WSL\Ubuntu2404
 
 # 🛑 关闭所有 WSL 实例
 wsl --shutdown
 
 # 📦 导出当前系统到 tar（临时放哪个机械盘都行，比如 D 盘）
-wsl --export Ubuntu-22.04 D:\ubuntu-backup.tar
+wsl --export Ubuntu D:\ubuntu-backup.tar
 
 # ❌ 注销原来的（会删掉原 vhdx）
-wsl --unregister Ubuntu-22.04
+wsl --unregister Ubuntu
 
-# 📦 导入到 C 盘新位置
-wsl --import Ubuntu2204 C:\WSL\Ubuntu2204 D:\ubuntu-backup.tar --version 2
+# 📦 导入到 C 盘新位置（新发行版名定为 Ubuntu2404，避免和商店版重名）
+wsl --import Ubuntu2404 C:\WSL\Ubuntu2404 D:\ubuntu-backup.tar --version 2
 
 # 🧹 清理临时 tar
 del D:\ubuntu-backup.tar
 ```
 
+> ⚠️ 迁移后用 `wsl -d Ubuntu2404` 进入；商店版原 `Ubuntu` 名已注销，开始菜单的图标会失效，可右键取消固定。
+
 ---
 
 ## 4. 恢复默认登录用户
 
-`--import` 后默认用 root 登录，改回第一步设的普通用户。
+`--import` 后默认用 root 登录，改回第 1b 步设的普通用户。
 
 ```powershell
-wsl -d Ubuntu2204
+wsl -d Ubuntu2404
 ```
 
 ```bash
@@ -101,7 +121,7 @@ options=metadata,umask=22
 
 ```powershell
 wsl --shutdown
-wsl -d Ubuntu2204        # 这次直接用普通用户登录
+wsl -d Ubuntu2404        # 这次直接用普通用户登录
 whoami                   # ✅ 不是 root
 ```
 
@@ -127,7 +147,7 @@ vhdxSize=100GB         # 把 vhdx 上限钉死在 100GB
 
 ```powershell
 wsl --shutdown
-wsl -d Ubuntu2204
+wsl -d Ubuntu2404
 ```
 
 ---
@@ -151,6 +171,8 @@ source ~/.bashrc
 # ✅ 验证
 nvcc -V                 # CUDA compiler 版本
 ```
+
+> ⚠️ Ubuntu 24.04 自带 Python 3.12；如要跑老代码用 conda 装 3.10/3.11 env 即可，不要动系统 Python。
 
 ---
 
@@ -193,7 +215,7 @@ diskpart
 在 diskpart 里：
 
 ```
-select vdisk file="C:\WSL\Ubuntu2204\ext4.vhdx"
+select vdisk file="C:\WSL\Ubuntu2404\ext4.vhdx"
 attach vdisk readonly
 compact vdisk
 detach vdisk
@@ -210,16 +232,18 @@ exit
 4. **新版本 PyTorch 的 bf16 / tf32 精度默认行为**注意对齐论文设置。
 5. **70B+ 大模型** 24GB 显存吃紧，可能要上量化（GPTQ/AWQ）或 CPU offload。
 6. **WSL2 网络**默认 NAT，要走 Windows 代理时可能要额外配端口转发，或用 `mirrored` 模式（`.wslconfig` 里 `networkingMode=mirrored`，Win11 22H2+ 支持）。
+7. **`wsl --install -d <distro>` 在国内/公司代理下会超时**：它走 WinINet 拉 `raw.githubusercontent.com/microsoft/WSL/.../DistributionInfo.json`，PowerShell 的 `$env:HTTPS_PROXY` 对 `wsl.exe` 不生效。绕过：`wsl --install --no-distribution` 启用本体 + Microsoft Store 装发行版。
+8. **Microsoft Store 装的发行版名是 `Ubuntu`**（不是 `Ubuntu-24.04`），迁移 `--import` 时另起新名（如 `Ubuntu2404`）避免和商店版重名。
 
 ---
 
 ## 📁 目录布局
 
 ```
-C:\WSL\Ubuntu2204\
+C:\WSL\Ubuntu2404\
 └── ext4.vhdx          # 100GB 上限的虚拟磁盘
 
-\\wsl$\Ubuntu2204\home\<你>\    # WSL 内部文件系统（高速）
+\\wsl$\Ubuntu2404\home\<你>\    # WSL 内部文件系统（高速）
 ├── data\              # 数据集（训练热数据放这里）
 ├── models\            # 模型权重
 └── code\              # 算法代码
