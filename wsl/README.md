@@ -129,11 +129,21 @@ whoami                   # ✅ 不是 root
 
 ## 5. 限制 vhdx 上限 100GB + 资源配额
 
-编辑（或新建）`C:\Users\<你>\.wslconfig`：
+`.wslconfig` 必须放在 Windows 用户目录（`C:\Users\<你>\.wslconfig`），不在 WSL 内。两种编辑方式任选：
+
+**Windows PowerShell**：
 
 ```powershell
 notepad $env:USERPROFILE\.wslconfig
 ```
+
+**WSL bash**（用 nano，`<Windows用户名>` 换成实际，如 `wangyufeng`）：
+
+```bash
+nano /mnt/c/Users/<Windows用户名>/.wslconfig
+```
+
+> nano 操作：`Ctrl+O` 回车保存，`Ctrl+X` 退出。文件不存在会自动新建。
 
 写入（按你的机器调，内存/核数给足点跑得快）：
 
@@ -158,6 +168,7 @@ wsl -d Ubuntu2404
 
 ```bash
 # 📦 加 NVIDIA 仓库 + 装 cuda-toolkit（注意是 wsl-ubuntu 仓库，不装驱动）
+cd ~                    # 避开从 /mnt/c/Windows/system32 启动导致的 Permission denied
 wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
@@ -180,6 +191,7 @@ nvcc -V                 # CUDA compiler 版本
 
 ```bash
 # 📦 Miniconda
+cd ~                    # 避开从 /mnt/c/Windows/system32 启动导致的 Permission denied
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh        # 按提示走，最后让它写入 .bashrc
 source ~/.bashrc
@@ -234,6 +246,7 @@ exit
 6. **WSL2 网络**默认 NAT，要走 Windows 代理时可能要额外配端口转发，或用 `mirrored` 模式（`.wslconfig` 里 `networkingMode=mirrored`，Win11 22H2+ 支持）。
 7. **`wsl --install -d <distro>` 在国内/公司代理下会超时**：它走 WinINet 拉 `raw.githubusercontent.com/microsoft/WSL/.../DistributionInfo.json`，PowerShell 的 `$env:HTTPS_PROXY` 对 `wsl.exe` 不生效。绕过：`wsl --install --no-distribution` 启用本体 + Microsoft Store 装发行版。
 8. **Microsoft Store 装的发行版名是 `Ubuntu`**（不是 `Ubuntu-24.04`），迁移 `--import` 时另起新名（如 `Ubuntu2404`）避免和商店版重名。
+9. **从 Windows PowerShell 启动 wsl 会继承当前目录**：在 `C:\Windows\system32>` 跑 `wsl -d Ubuntu2404` 会进入 `/mnt/c/Windows/system32/`，普通用户没写权限，`wget`/`pip install` 报 `Permission denied`。先进 `cd ~` 回 home 再操作，或启动时用 `wsl -d Ubuntu2404 --cd ~`。
 
 ---
 
