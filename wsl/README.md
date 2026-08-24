@@ -164,7 +164,7 @@ wsl -d Ubuntu2404
 
 ## 6. 装 CUDA Toolkit（WSL 版，不含驱动）
 
-按要跑的框架版本选。PyTorch 官方目前主推 CUDA 11.8 / 12.1 / 12.4。下面以 12.1 为例：
+按要跑的框架版本选。下面以 12.4 为例（Ubuntu 24.04 不提供 libtinfo5，老 CUDA 12.1 的 nsight-systems 依赖它装不上，必须用 ≥12.4；PyTorch 官方有 cu124 wheel）：
 
 ```bash
 # 📦 加 NVIDIA 仓库 + 装 cuda-toolkit（注意是 wsl-ubuntu 仓库，不装驱动）
@@ -172,11 +172,11 @@ cd ~                    # 避开从 /mnt/c/Windows/system32 启动导致的 Perm
 wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
-sudo apt-get -y install cuda-toolkit-12-1
+sudo apt-get -y install cuda-toolkit-12-4
 
 # 🔧 写入环境变量
-echo 'export PATH=/usr/local/cuda-12.1/bin:$PATH' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+echo 'export PATH=/usr/local/cuda-12.4/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
 source ~/.bashrc
 
 # ✅ 验证
@@ -204,8 +204,8 @@ source ~/.bashrc
 conda create -n mymodel python=3.10 -y
 conda activate mymodel
 
-# 📦 装 PyTorch（CUDA 12.1 wheel）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 📦 装 PyTorch（CUDA 12.4 wheel，匹配上面装的 12.4）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
 # ✅ 链路自检
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
