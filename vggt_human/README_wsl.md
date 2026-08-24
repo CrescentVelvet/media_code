@@ -15,7 +15,7 @@
 | gcc | conda gxx_linux-64=12 | 同（conda gxx_linux-64=12） |
 | 代理 / CA | proxy.env 填公司代理密码 + CA bundle | 不需要（直连互联网） |
 | 仓库位置 | `/mnt/c/code/`（与 media_code 同级） | `~/repos/`（Linux 文件系统，编译快） |
-| 权重 / 输出 | `/mnt/c/code/model/` | `~/model/`、`~/vggt_human_results/`（Linux fs，训练 I/O 快） |
+| 权重 / 输出 | `/mnt/c/code/model/` | `~/model/`、`~/output/vggt_human_results/`（Linux fs，训练 I/O 快） |
 
 > **为什么仓库 / 权重放 Linux 文件系统？** `/mnt/c` 是 Windows drvfs（9p 协议），文件 I/O 慢 5-10 倍。编译 CUDA 扩展 + 训练时大量写文件，放 Linux fs 避免超时和性能问题。路径通过 `proxy.env` 自动覆盖，脚本 01-07 不需改。
 
@@ -84,7 +84,8 @@ bash vggt_human/00a_setup_env.sh
 │   ├── VGGT-Omega/               # vggt_omega_1b_512.pt（gated HF 下载）
 │   └── HYPIR/
 │       └── sd2_base/             # SD2 base model（00a 自动 clone）
-├── vggt_human_results/           # 输出（训练结果、中间产物）
+├── output/
+│   └── vggt_human_results/      # 输出（训练结果、中间产物）
 └── miniconda3/                   # conda 安装
     └── envs/vggt_human/          # conda env（python=3.10 + torch cu121 + CUDA toolkit）
 
@@ -113,21 +114,21 @@ bash vggt_human/00a_setup_env.sh
 # 1a) 视频 → 图像夹（可选，视频输入用）
 GPU=0 \
 INPUT_DIR=~/my_video.mp4 \
-OUTPUT_DIR=~/vggt_human_results/input_frames/my_video \
+OUTPUT_DIR=~/output/vggt_human_results/input_frames/my_video \
 VIDEO_FPS=2 \
 bash vggt_human/01a_video_to_frames.sh
 
 # 1) 前处理人脸增强
 GPU=0 \
 INPUT_DIR=~/my_images \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/01_face_enhance.sh
 
 # 2) VGGT-Omega 前馈推理（需 HF_TOKEN + 权重已下载）
 GPU=0 \
-INPUT_DIR=~/vggt_human_results/input_face \
+INPUT_DIR=~/output/vggt_human_results/input_face \
 MODEL_DIR=~/model/VGGT-Omega \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 MAX_POINTS=2000000 \
 bash vggt_human/02_run_inference.sh
 
@@ -136,7 +137,7 @@ GPU=0 \
 TARGET_POINTS=200000 \
 POSE_ADJUST=1 \
 POSE_REFINE=1 \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/03_npz_to_colmap.sh
 
 # 4) 原版 3DGS 训练 + 渲染
@@ -149,7 +150,7 @@ ENABLE_DYNAMIC_MASK=1 \
 ENABLE_DYNAMIC_FILTER=1 \
 ENABLE_MLP_DYNAMIC=1 \
 USE_DEPTH_NORMAL=1 \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
 
 # 5) 渲染新视角 → 去噪 → 增强 COLMAP（可选）
@@ -157,12 +158,12 @@ GPU=0 \
 DENOISER=diffbir \
 NUM_NOVEL_VIEWS=10 \
 ITERATION=30000 \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/05_denoise_novel.sh
 
 # 6) 后处理人脸增强（可选）
 GPU=0 \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/06_face_enhance.sh
 
 # 7) 增强场景训练 3DGS（可选）
@@ -175,7 +176,7 @@ ENABLE_DYNAMIC_MASK=1 \
 ENABLE_DYNAMIC_FILTER=1 \
 ENABLE_MLP_DYNAMIC=1 \
 USE_DEPTH_NORMAL=1 \
-RESULTS_DIR=~/vggt_human_results \
+RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/07_train_denoise.sh
 ```
 
