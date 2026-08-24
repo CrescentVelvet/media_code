@@ -162,17 +162,19 @@ wsl -d Ubuntu2404
 
 ---
 
-## 6. 装 CUDA Toolkit（WSL 版，不含驱动）
+## 6.（可选）装 CUDA Toolkit
 
-按要跑的框架版本选。下面以 12.4 为例（Ubuntu 24.04 不提供 libtinfo5，老 CUDA 12.1 的 nsight-systems 依赖它装不上，必须用 ≥12.4；PyTorch 官方有 cu124 wheel）：
+> 💡 **大多数场景跳过这步**：PyTorch 的 pip wheel 自带 CUDA runtime（cudart/cublas/cudnn），只要 Windows 端 NVIDIA 驱动在（WSL 已直通 3090），直接 pip 装 PyTorch 就能跑。下面只在**编译自定义 CUDA 算子**（flash-attention、tiny-cuda-nn、CUDA 扩展）时需要。
+
+⚠️ `cuda-toolkit-12-4` 元包含 `nsight-systems`，它依赖 `libtinfo5`，Ubuntu 24.04 不提供 → 装不上。但跑模型不需要 nsight-systems，只要 nvcc，单独装：
 
 ```bash
-# 📦 加 NVIDIA 仓库 + 装 cuda-toolkit（注意是 wsl-ubuntu 仓库，不装驱动）
+# 📦 加 NVIDIA 仓库 + 单独装 nvcc（跳过 nsight-systems，避开 libtinfo5）
 cd ~                    # 避开从 /mnt/c/Windows/system32 启动导致的 Permission denied
 wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
-sudo apt-get -y install cuda-toolkit-12-4
+sudo apt-get -y install cuda-nvcc-12-4
 
 # 🔧 写入环境变量
 echo 'export PATH=/usr/local/cuda-12.4/bin:$PATH' >> ~/.bashrc
