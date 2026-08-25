@@ -70,8 +70,11 @@ fi
 #    Output:         $REPO_DIR/../4danyone_results  (sibling of media_code)
 export FDANYONE_DIR="${FDANYONE_DIR:-$REPO_DIR/../4DAnyone}"
 export GVHMR_DIR="${GVHMR_DIR:-$FDANYONE_DIR/third_party/GVHMR}"
-export MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/4danyone}"
-export RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../4danyone_results}"
+#    Use FDANYONE_MODEL_DIR (not MODEL_DIR) as the override source: proxy.env
+#    is shared across algorithms and vggt_human sets its own MODEL_DIR, which
+#    would otherwise leak into 4DAnyone and point weights at the wrong place.
+export MODEL_DIR="${FDANYONE_MODEL_DIR:-$REPO_DIR/../../model/4danyone}"
+export RESULTS_DIR="${FDANYONE_RESULTS_DIR:-$REPO_DIR/../4danyone_results}"
 
 # SMPL-X is separately licensed; user must install it manually (see 01 script).
 # The body model lives under $MODEL_DIR/body_models/smplx/SMPLX_NEUTRAL.npz.

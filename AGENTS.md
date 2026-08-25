@@ -316,13 +316,14 @@ $MODEL_DIR/
 ### pip
 - **公司代理封 download.pytorch.org（403）**：改用 PyPI 默认源（用户的 pip.conf 通常配了清华 PyPI 镜像）
 - **SSL 证书验证失败**：`_env.sh` 设了 `PIP_CERT`，但代理根 CA 可能不在系统 bundle；先 `bash hypir/setup_ca_bundle.sh` 建 `~/.ca-bundle.crt`
-- **手动下载 whl**：用户手动下 whl 放 `$MODEL_DIR/`，脚本里用 glob 匹配本地安装：
+- **手动下载 whl → 统一放 `D:\wheel`（WSL: `/mnt/d/wheel`）**：本机网络 PyPI CDN 被限速到 ~8 KB/s，torch/nvidia 等大 wheel（~3GB）必须手动下载。**所有算法共用 `D:\wheel` 这个本地 wheel 缓存**——复现新算法前先查这里有没有现成 wheel，有就别重下。脚本里用 `--find-links /mnt/d/wheel` 让 pip 优先装本地、缺的再从镜像补：
   ```bash
-  for w in "$MODEL_DIR"/torch-*.whl "$MODEL_DIR"/nvidia_*.whl; do
-      [ -f "$w" ] && LOCAL_WHEELS+=("$w")
-  done
-  pip install --force-reinstall --no-deps "${LOCAL_WHEELS[@]}"
+  WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
+  PIP_FLAGS=(-i https://pypi.tuna.tsinghua.edu.cn/simple --find-links "$WHEELS_DIR" --timeout 600)
+  pip install "${PIP_FLAGS[@]}" -r requirements.txt
   ```
+  下载清单写到 `<algo>/download_urls.txt`（清华镜像 URL，用户用 IDM/迅雷多线程下）。torch 的 nvidia-cu12 依赖版本从 `pip download -v torch==x.y` 的输出或 wheel 的 `.whl.metadata` 里拿（`Requires-Dist: nvidia-xxx-cu12==版本`）。
+- **模型权重同理放 `D:\wheel`**：HF 在本机连不上（huggingface.co / hf-mirror.com 都不通），用 modelscope.cn 镜像（~230 KB/s 可用）或用户代理手动下。权重下到 `D:\wheel\<algo>_ms\`（按 HF repo 相对路径建子目录），安装脚本再拷到 `$MODEL_DIR`。
 
 ### conda
 - **`gxx_linux-64` 会把 Python 从 CPython 降级成 GraalPy**：加 `python=3.10` 显式 pin，`--no-update-deps` 不够
