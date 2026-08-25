@@ -122,17 +122,35 @@ if [ "$_impl" != "CPython" ]; then
     exit 1
 fi
 
-# ── 6. Install PyTorch (pip, cu118 — matches requirements.txt torch==2.0.1) ─
-# RTX 3090 (sm_86) supports cu118. download.pytorch.org reachable from home.
+# ── 6. Install PyTorch (torch==2.0.1, cu118) ─────────────────────────────
+# RTX 3090 (sm_86) supports cu118. The wheel is ~2.2GB; pip in a non-interactive
+# shell often times out. Prefer user-downloaded local wheels (AGENTS.md §6:
+# D:\wheel = /mnt/d/wheel, shared across algos) when present; else online.
+WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
 TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu118}"
+
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-    echo "📦 installing PyTorch (torch==2.0.1, cu118)..."
-    pip install --index-url "$TORCH_INDEX_URL" torch==2.0.1 torchvision==0.15.2 || {
-        echo "❌ torch install failed" >&2
-        echo "  Try cu117: TORCH_INDEX_URL=https://download.pytorch.org/whl/cu117 bash $0" >&2
-        echo "  Or PyPI default: pip install torch==2.0.1" >&2
-        exit 1
-    }
+    # Collect user-downloaded torch/torchvision wheels from the local cache.
+    _local_torch=()
+    for w in "$WHEELS_DIR"/torch-2.0.1*.whl "$WHEELS_DIR"/torchvision-0.15.2*.whl; do
+        [ -f "$w" ] && _local_torch+=("$w")
+    done
+    if [ "${#_local_torch[@]}" -ge 2 ]; then
+        echo "📦 installing PyTorch from local wheels (${#_local_torch[@]} files in $WHEELS_DIR)..."
+        pip install --progress-bar off "${_local_torch[@]}" || {
+            echo "❌ local torch wheel install failed" >&2; exit 1
+        }
+    else
+        echo "📦 installing PyTorch online (torch==2.0.1, cu118)..."
+        echo "  ⚠️  wheel is ~2.2GB; if this hangs, download manually to $WHEELS_DIR/ and re-run:"
+        echo "      https://download.pytorch.org/whl/cu118/torch-2.0.1%2Bcu118-cp310-cp310-linux_x86_64.whl"
+        echo "      https://download.pytorch.org/whl/cu118/torchvision-0.15.2%2Bcu118-cp310-cp310-linux_x86_64.whl"
+        pip install --progress-bar off --index-url "$TORCH_INDEX_URL" torch==2.0.1 torchvision==0.15.2 || {
+            echo "❌ torch install failed (online)" >&2
+            echo "  Manual download the two .whl above to $WHEELS_DIR/, then re-run: bash $0" >&2
+            exit 1
+        }
+    fi
 fi
 python -c "import torch; print(f'  ✅ torch {torch.__version__}  cuda={torch.version.cuda}  available={torch.cuda.is_available()}')"
 

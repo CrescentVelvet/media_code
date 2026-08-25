@@ -74,6 +74,12 @@ hf_get() {
     fi
 }
 
+# Local download cache (AGENTS.md §6: D:\wheel = /mnt/d/wheel, shared across algos).
+# download_urls.md lists files to manually place here; 01 stages them into $MODEL_DIR.
+WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
+LOCAL_CACHE="${LOCAL_CACHE:-$WHEELS_DIR/osediff_ms}"
+export WHEELS_DIR LOCAL_CACHE
+
 # ── 1. SD2.1-Base (only the files OSEDiff actually loads — saves ~9GB) ─────
 HF_SD21_REPO="${HF_SD21_REPO:-Manojb/stable-diffusion-2-1-base}"
 # model_index + scheduler + tokenizer + text_encoder + unet + vae (skip safety_checker etc.)
@@ -82,7 +88,14 @@ SD21_INCLUDES="model_index.json,scheduler/*.json,scheduler/*,tokenizer/*,text_en
 if [ "${SKIP_SD:-0}" != "1" ]; then
     if [ -f "$SD21_BASE_DIR/unet/diffusion_pytorch_model.safetensors" ]; then
         echo "⏭️  SD2.1-Base already present: $SD21_BASE_DIR"
+    elif [ -d "$LOCAL_CACHE/sd21_base" ] && [ -f "$LOCAL_CACHE/sd21_base/unet/diffusion_pytorch_model.safetensors" ]; then
+        echo "📦 staging SD2.1-Base from local cache: $LOCAL_CACHE/sd21_base -> $SD21_BASE_DIR"
+        mkdir -p "$SD21_BASE_DIR"
+        cp -rn "$LOCAL_CACHE/sd21_base/." "$SD21_BASE_DIR/"
+        echo "  ✅ staged ($(du -sh "$SD21_BASE_DIR" | cut -f1))"
     else
+        echo "⚠️  SD2.1 not in local cache ($LOCAL_CACHE/sd21_base); downloading online (~5GB, slow)..."
+        echo "    (faster: download to $LOCAL_CACHE/sd21_base/ per osediff/download_urls.md §B, then re-run)"
         hf_get "$HF_SD21_REPO" "$SD21_BASE_DIR" "$SD21_INCLUDES"
     fi
 else
@@ -96,11 +109,23 @@ RAM_FILE="${RAM_FILE:-ram_swin_large_14m.pth}"
 if [ "${SKIP_RAM:-0}" != "1" ]; then
     if [ -f "$RAM_PATH" ]; then
         echo "⏭️  RAM already present: $RAM_PATH ($(du -h "$RAM_PATH" | cut -f1))"
+    elif [ -f "$LOCAL_CACHE/ram_swin_large_14m.pth" ]; then
+        echo "📦 staging RAM from local cache -> $RAM_PATH"
+        cp -n "$LOCAL_CACHE/ram_swin_large_14m.pth" "$RAM_PATH"
+        echo "  ✅ staged ($(du -h "$RAM_PATH" | cut -f1))"
     else
-        hf_get "$HF_RAM_REPO" "$MODEL_DIR" "$RAM_FILE"
-        # hf download puts the file at $MODEL_DIR/ram_swin_large_14m.pth
-        if [ -f "$MODEL_DIR/$RAM_FILE" ] && [ ! -f "$RAM_PATH" ]; then
-            mv "$MODEL_DIR/$RAM_FILE" "$RAM_PATH"
+        # RAM lives in a HF *spaces* repo, not a models repo — `hf download` can't
+        # fetch it. Use curl on the spaces resolve URL (hf-mirror mirrors spaces).
+        echo "⚠️  RAM not in local cache; downloading online from hf-mirror spaces (~1.7GB, slow)..."
+        echo "    (faster: download to $LOCAL_CACHE/ram_swin_large_14m.pth per osediff/download_urls.md §C, then re-run)"
+        _ram_url="${HF_ENDPOINT:-https://hf-mirror.com}/spaces/$HF_RAM_REPO/resolve/main/$RAM_FILE"
+        mkdir -p "$(dirname "$RAM_PATH")"
+        curl -L --insecure --max-time 1200 "$_ram_url" -o "$RAM_PATH" \
+            || echo "  ❌ curl failed: $_ram_url" >&2
+        if [ -f "$RAM_PATH" ] && [ "$(stat -c%s "$RAM_PATH" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+            echo "  ✅ downloaded ($(du -h "$RAM_PATH" | cut -f1))"
+        else
+            echo "  ❌ download incomplete — get it manually, see osediff/download_urls.md §C" >&2
         fi
     fi
 else
