@@ -9,67 +9,69 @@
 ```bash
 # ── 配对路径(真实 LQ+HQ，03b/04b) ──
 # 1) 构建配对数据集(按同名文件配对 HQ/LQ -> parquet)
-HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
+HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
 # 2) 开始训练(暖启动, 默认后台, 日志见提示)
 GPU=0 BG=0 bash hypir/04b_train_paired.sh
 # 3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
-GPU=0 BG=0 RESUME=/data_3d/w00xxxxxx/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
+GPU=0 BG=0 RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
 
 # ── 合成退化路径(只输入 HQ, 在线合成 LQ, 03c/04c) ──
 # 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
-HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
+HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
 # 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
-GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
+GPU=0 HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 # 5b) 换别的数据集训(只改 HQ_DIR + OUTPUT_DIR，别和旧实验混；guojia_datas 是 HQ 文件夹，可含子目录)
-GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/guojia_datas CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
+GPU=0 HQ_DIR=../HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=../HYPIR/experiments/guojia_datas CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
 # ── 美颜退化路径(只输入原始图像, 合成高斯模糊退化 LQ 和美颜增强 HQ, 03d/04b) ──
 # 03d) 抽样看效果
-GPU=0 SAVE_COMPARE=1 SKIP_PARQUET=1 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+GPU=0 SAVE_COMPARE=1 SKIP_PARQUET=1 INPUT_DIR=../HYPIR/input/test_faces_hq SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
 # 03d) 构建数据集（单卡）
-GPU=0 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+GPU=0 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
 # 03d) 构建数据集（多卡）
-GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+GPU=0,1,2,3,5,6,7 NPROC=7 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
 # 03d) C 加强美颜数据集(BEAUTY_PASSES=2, RetouchFormer 跑两次 -> hq_beauty_strong)
 #      注：BEAUTY_PASSES=2 会一次性产出 A/B/C 三套 parquet(rest / rest_beauty / rest_beauty_strong)，
 #      A/B 产物与 BEAUTY_PASSES=1 完全一致；故要么单独跑这条跑 C、要么 A/B 也直接用这条。
-GPU=0 BEAUTY_PASSES=2 INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
+GPU=0 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 SAVE_COMPARE=1 bash hypir/03d_build_beauty_dataset.sh
 # 04b) A/B/C 依次训练(每组各用 3 卡 GPU=0,1,2 N_TRAIN_GPU=3；BG=0 前台逐条跑完再下一条；
 #       N_TRAIN_GPU=3 无需先 accelerate config。换卡就改 GPU= 列表、N_TRAIN_GPU 对齐)：
 # 04b) A 基线(只高斯模糊，预期会长痘变丑)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
 # 04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
 # 04b) C 加强美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
 # 6) 测试原生(发布)模型 —— 指定输入路径
-GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
 # 7) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(小数据集在 experiments/ppr10k_faces_paired; 大数据集在 experiments/synthetic_exp1/; 退化数据集在experiments/guojia_datas_20260708/; 美颜数据集在 experiments/beauty_rest(A) / beauty_rest_beauty(B) / beauty_rest_beauty_strong(C))
-GPU=0 LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=/data_3d/w00xxxxxx/code/HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/ema_state_dict.pth bash hypir/02_run_inference.sh
+GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/ema_state_dict.pth bash hypir/02_run_inference.sh
 # 8) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
-GPU=0 HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
+GPU=0 HQ_DIR=../HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
+# 9) 测试外插视角优化效果(在输入没有的角度上渲染图像会很模糊，考虑用HYPIR进行去噪增强)
+GPU=0 LQ_DIR=../../output/hypir_test_results/input UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth OUTPUT_DIR=../../output/hypir_test_results/output bash hypir/02_run_inference.sh
 
 # ── 并行训练(04d) ── 越练越模糊是 L2 坍缩；扫 LR_G + loss 权重 + 真实退化配对 找最佳
 #   (04d 默认 steps=30000 / ckpt_every=100 / LR_D=LR_G / 后台；逐 ckpt 评找峰值，常在早期)
 # 复原+美颜：多个 LR 并行（各占一卡）：
-GPU=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 5e-6
-GPU=1 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 2e-6
-GPU=2 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 1e-5
-GPU=3 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LR_D=1e-5 SWEEP_TAG=disc1e5 bash hypir/04d_train_sweep.sh 5e-6
+GPU=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 5e-6
+GPU=1 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 2e-6
+GPU=2 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet bash hypir/04d_train_sweep.sh 1e-5
+GPU=3 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LR_D=1e-5 SWEEP_TAG=disc1e5 bash hypir/04d_train_sweep.sh 5e-6
 # 加强美颜(C 组)：把 PARQUET_PATH 换成 rest_beauty_strong.parquet 即可对 C 组扫同样 LR/loss：
-GPU=0 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet SWEEP_TAG=strong_5e6 bash hypir/04d_train_sweep.sh 5e-6
-GPU=1 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet SWEEP_TAG=strong_2e6 bash hypir/04d_train_sweep.sh 2e-6
+GPU=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet SWEEP_TAG=strong_5e6 bash hypir/04d_train_sweep.sh 5e-6
+GPU=1 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet SWEEP_TAG=strong_2e6 bash hypir/04d_train_sweep.sh 2e-6
 # 真实退化配对(03b 的 360p 相机 LQ + RAW HQ——发布模型擅长的配方，纯高斯模糊 LQ 之外的对照)：
 #   先建 parquet(03b)，再扫 LR：
-HQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh   # -> .../ppr10k_faces_20260703/hypir_paired.parquet
-GPU=4 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 5e-6
-GPU=5 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 2e-6
+HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh   # -> .../ppr10k_faces_20260703/hypir_paired.parquet
+GPU=4 PARQUET_PATH=../HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 5e-6
+GPU=5 PARQUET_PATH=../HYPIR/dataset/ppr10k_faces_20260703/hypir_paired.parquet bash hypir/04d_train_sweep.sh 2e-6
 # loss 权重调节(抗 L2 坍缩：up GAN、down L2；LAMBDA_GAN/LAMBDA_LPIPS/LAMBDA_L2 透传 04b，SWEEP_TAG 标注实验名)：
-GPU=6 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_GAN=2 LAMBDA_L2=0.5 SWEEP_TAG=gan2_l2p5 bash hypir/04d_train_sweep.sh 5e-6
-GPU=7 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_GAN=1 LAMBDA_LPIPS=10 SWEEP_TAG=gan1_lp10 bash hypir/04d_train_sweep.sh 5e-6
-GPU=8 PARQUET_PATH=/data_3d/w00xxxxxx/code/HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_L2=0.3 SWEEP_TAG=l2p3 bash hypir/04d_train_sweep.sh 5e-6
+GPU=6 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_GAN=2 LAMBDA_L2=0.5 SWEEP_TAG=gan2_l2p5 bash hypir/04d_train_sweep.sh 5e-6
+GPU=7 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_GAN=1 LAMBDA_LPIPS=10 SWEEP_TAG=gan1_lp10 bash hypir/04d_train_sweep.sh 5e-6
+GPU=8 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet LAMBDA_L2=0.3 SWEEP_TAG=l2p3 bash hypir/04d_train_sweep.sh 5e-6
 ```
 
 - 结果：训练 → `../HYPIR/experiments/<exp>/checkpoint-*/`（`<exp>` = `OUTPUT_DIR` 的名字，如 04b=`ppr10k_faces_paired`、04c 默认=`synthetic_exp1`、换数据集时=`guojia_datas`）；推理 → `../HYPIR/results/<输入夹名>/result/*.png`。
@@ -279,7 +281,7 @@ to disable (gaussian-init from scratch, official behaviour).
 ### Training parameters (for ~7k paired face crops)
 | var | default | note |
 | --- | --- | --- |
-| `DATASET_ROOT` | `/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
+| `DATASET_ROOT` | `../HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
 | `LORA_WEIGHT_PATH` | `$MODEL_DIR/HYPIR_sd2.pth` | warm-start; `""` = from scratch |
 | `OUT_SIZE` | `512` | HQ & LQ both resized to this (HYPIR's VAE patch size) |
 | `CROP_TYPE` | `none` | resize whole face; `random` for paired random-patch aug |
@@ -304,7 +306,7 @@ to disable (gaussian-init from scratch, official behaviour).
 ### 你需要先有的
 - 一台 Ubuntu + NVIDIA GPU 服务器（训练建议 A100 / H100 / 4090；只推理 T4 也行）。
 - 已用 `face_crop/crop_faces_paired.py` 建好的**配对人脸数据集**（`hq/` 与 `lq/` 同名 PNG），并上传到默认路径：
-  `/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}`
+  `../HYPIR/dataset/ppr10k_faces_20260703/{hq,lq}`
 - 服务器上已装好 `conda` 和 `git`。
 
 ### 训练到底在干什么（一句话版）
@@ -349,9 +351,9 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
 ### Step 4 — 确认数据集在位
 ```bash
 # Windows
-scp -r D:\模型数据集\ppr10k_faces_20260703 w00xxxxxx@xx.xx.xxx.xxx:/data_3d/w00xxxxxx/code/HYPIR/dataset
+scp -r D:\模型数据集\ppr10k_faces_20260703 w00xxxxxx@xx.xx.xxx.xxx:../HYPIR/dataset
 # Ubuntu
-DATA=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703
+DATA=../HYPIR/dataset/ppr10k_faces_20260703
 ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
 ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
 ```
@@ -385,7 +387,7 @@ RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir
 ```bash
 conda activate hypir
 CKPT=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-15000/state_dict.pth
-LQ=/data_3d/w00xxxxxx/code/HYPIR/dataset/ppr10k_faces_20260703/lq
+LQ=../HYPIR/dataset/ppr10k_faces_20260703/lq
 WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
   SCALE_BY=longest_side TARGET_LONGEST_SIDE=512 \
   bash hypir/02_run_inference.sh
@@ -611,9 +613,9 @@ git checkout -- hypir/03d_build_beauty_dataset.sh                    # git 同�
 **13. 跑 03d 报 `OSError: image file is truncated (N bytes not processed)`**
 源夹里有损坏/截断图（下载不完整、传输中断等）。`build_beauty_dataset.py` 已把整张图处理包进 try/except——遇损坏图会打印 `! failed (skipped): ...` 并删掉本图半成品（不中断、不产生半对），汇总行有 `skipped=N` 计数，故**直接忽略即可**，03d 会自动跳过继续。想一次性清掉源夹里的坏图（之后重跑就没的跳了）：
 ```bash
-INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 \
+INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 \
   python hypir/scan_corrupt_images.py                 # 只列
-INPUT_DIR=/data_3d/w00xxxxxx/code/HYPIR/dataset/guojia_datas_20260708 DELETE=1 \
+INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 DELETE=1 \
   python hypir/scan_corrupt_images.py                 # 列 + 原地删
 ```
 扫描器和 build 脚本用同一套 `Image.open().convert("RGB").load()` 判定，一致；故意没设 `LOAD_TRUNCATED_IMAGES`（要它抛、好检测坏图）。
