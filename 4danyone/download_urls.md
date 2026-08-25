@@ -40,37 +40,34 @@ https://pypi.tuna.tsinghua.edu.cn/packages/bb/fe/1bcba1dfbfb8d01be8d93f07bfc502c
 ##   例如 model.safetensors 存到 D:\wheel\4danyone_ms\4danyone\model.safetensors
 # ============================================================================
 # 4danyone/ (主模型 + 文本编码器 + VAE + tokenizer)
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/model.safetensors
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/model.safetensors -->
 #   ↑ 存到 D:\wheel\4danyone_ms\4danyone\model.safetensors
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/smplx_to_goliath70.pt
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/Wan2.2_VAE.pth
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/models_t5_umt5-xxl-enc-bf16.pth
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/smplx_to_goliath70.pt -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/Wan2.2_VAE.pth -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/models_t5_umt5-xxl-enc-bf16.pth -->
 #   ↑ ~5GB，最大文件，建议用 IDM/迅雷多线程下
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/special_tokens_map.json
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/spiece.model
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/tokenizer.json
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/tokenizer_config.json
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/special_tokens_map.json -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/spiece.model -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/tokenizer.json -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/4danyone/umt5-xxl/tokenizer_config.json -->
 #   ↑ 这4个 tokenizer 文件都存到 D:\wheel\4danyone_ms\4danyone\umt5-xxl\
 # gvhmr/ (运动恢复: GVHMR + HMR2 + ViTPose + YOLOv8x)
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/gvhmr_siga24_release.ckpt
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/epoch=10-step=25000.ckpt
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/vitpose-h-multi-coco.pth
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/yolov8x.pt
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/gvhmr_siga24_release.ckpt -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/epoch=10-step=25000.ckpt -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/vitpose-h-multi-coco.pth -->
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/gvhmr/yolov8x.pt -->
 #   ↑ 都存到 D:\wheel\4danyone_ms\gvhmr\
 # perceptual/ (VGG-19 感知模型)
-https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/perceptual/imagenet-vgg-verydeep-19-conv.safetensors
+<!-- https://modelscope.cn/models/AntResearch/4DAnyone/resolve/master/perceptual/imagenet-vgg-verydeep-19-conv.safetensors -->
 #   ↑ 存到 D:\wheel\4danyone_ms\perceptual\
 
 # ============================================================================
 ## C. BiRefNet 前景分割模型（~900MB，不在上面的 modelscope repo 里）
-## modelscope.cn 上未确认直接下载路径。请在浏览器打开：
-##   https://modelscope.cn/models/ZhengPeng7/BiRefNet/files
-## 下载这 4 个文件到 D:\wheel\birefnet\：
-##   - BiRefNet_config.py
-##   - birefnet.py
-##   - config.json
-##   - model.safetensors
-## （若 modelscope 上找不到，需用代理从 huggingface.co/ZhengPeng7/BiRefNet 下）
+<!-- https://modelscope.cn/models/AI-ModelScope/ZhengPeng7-BiRefNet/file/view/master/BiRefNet_config.py -->
+<!-- https://modelscope.cn/models/AI-ModelScope/ZhengPeng7-BiRefNet/file/view/master/birefnet.py -->
+<!-- https://modelscope.cn/models/AI-ModelScope/ZhengPeng7-BiRefNet/file/view/master/config.json -->
+<!-- https://modelscope.cn/models/AI-ModelScope/ZhengPeng7-BiRefNet/file/view/master/model.safetensors -->
+#   ↑ 这 4 个文件都存到 D:\wheel\birefnet\
 # ============================================================================
 
 # ============================================================================
