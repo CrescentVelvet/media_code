@@ -13,22 +13,32 @@
 │   ├── proxy.env.example             # 代理模板（用户复制为 proxy.env 填密码）
 │   ├── README.md                     # 仓级 README（列出所有算法一行摘要）
 │   └── <algorithm_name>/             # 每个算法一个子目录
-│       ├── _env.sh                   # 共享环境设置
-│       ├── 00_setup_env.sh           # clone 官方仓 + 装依赖 + 验证
+│       ├── _env.sh                   # 共享环境设置（含 conda fallback，兼容 WSL）
+│       ├── 00_setup_env.sh           # clone 官方仓 + 装依赖 + 验证（服务器）
+│       ├── 00a_setup_env.sh          # WSL 变体（从零建 env，无 doll 依赖）
 │       ├── 01_*.sh                   # 下载权重 / 数据集构建
 │       ├── 02_run_inference.sh       # 推理
 │       ├── *.py                      # Python 脚本（被 .sh 调用）
+│       ├── 08_move_output.sh         # WSL 专用：训练完把结果从 Linux fs 搬到 Windows 盘
 │       ├── run_all.sh                # 一键全流程
-│       └── README.md                 # 算法级 README
+│       ├── README.md                 # 算法级 README（服务器）
+│       └── README_wsl.md             # WSL 复现指南（与 README.md 并列，不删旧的）
 ├── <official-repo>/                  # 官方代码（自动 clone，sibling of media_code）
+│   ├── 服务器: $REPO_DIR/../<repo>   # 与 media_code 同级
+│   └── WSL: ~/repos/<repo>           # Linux fs（编译快，proxy.env 覆盖路径）
 ├── ../../model/                      # 权重根（各算法共享，在 code-dir 上一级）
 │   └── <algorithm>/                  # 各算法子目录
+│       ├── 服务器: $REPO_DIR/../../model/
+│       └── WSL: ~/model/             # proxy.env 覆盖
 └── <algorithm>_results/              # 输出（repo 外）
+    ├── 服务器: $REPO_DIR/../<algo>_results
+    └── WSL: ~/output/<algo>_results   # proxy.env 覆盖；跑完用 08 搬到 /mnt/d/output/
 ```
 
 ### 命名规范
 - 算法目录名：小写 + 下划线，如 `wan22_rotate`、`sam_3d_body`、`hunyuanvideo_1.5`
-- **脚本必须数字编号**：`00_setup_env.sh` → `01_download_models.sh` → `02_run_inference.sh` → `03_build_dataset.sh` → `04_train_lora.sh`。**不要写无编号的 `run_xxx.sh` / `stop_xxx.sh`**（如一键生成、停服务等 wrapper 也要编号：`04_run.sh`、`05_stop.sh`）。类型相似（同一步骤的多个变体）用同一数字编号 + 字母区分：`01_pick_and_segment.sh` / `01b_pick_and_segment.sh` / `01c_pick_and_segment.sh`。
+- **脚本必须数字编号**：`00_setup_env.sh` → `01_download_models.sh` → `02_run_inference.sh` → `03_build_dataset.sh` → `04_train_lora.sh`。**不要写无编号的 `run_xxx.sh` / `stop_xxx.sh`**（如一键生成、停服务等 wrapper 也要编号：`04_run.sh`、`05_stop.sh`）。类型相似（同一步骤的多个变体）用同一数字编号 + 字母区分：`01_pick_and_segment.sh` / `01b_pick_and_segment.sh` / `01c_pick_and_segment.sh`。**跨平台变体也用字母区分**：`00_setup_env.sh`（服务器） / `00a_setup_env.sh`（WSL 本机）。
+- **WSL 专用脚本也编号**：如 `08_move_output.sh`（训练完把结果从 Linux fs 搬到 Windows 盘），不要写无编号的 `move_output.sh`。
 - Python 脚本：动词 + 名词，如 `run_inference.py`、`build_dataset.py`、`pick_and_segment.py`
 - 官方仓目录名：与 GitHub repo 同名（去掉 `.git`），如 `sam-3d-body`、`DiffSynth-Studio`
 
@@ -64,6 +74,22 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 # 3. conda env 激活
 CONDA_ENV="${CONDA_ENV:-<algorithm_name>}"
 export CONDA_ENV
+# Fallback: conda 不在 PATH 时自动找常见安装位置（WSL 本机未 conda init 时触发）
+# 服务器上 conda 已在 PATH，此块不会执行
+if ! command -v conda >/dev/null 2>&1; then
+    for _cb in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+        if [ -f "$_cb/etc/profile.d/conda.sh" ]; then
+            source "$_cb/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+    unset _cb
+fi
+if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found on PATH (need env '$CONDA_ENV')." >&2
+    echo "       Install miniconda or run: source ~/miniconda3/etc/profile.d/conda.sh" >&2
+    exit 1
+fi
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV" 2>/dev/null || true  # env 可能还没建
 
@@ -172,6 +198,8 @@ if __name__ == "__main__":
 
 ## 5. README.md 格式
 
+服务器和 WSL 各一个 README，**并列共存，不删旧的**：
+
 ```markdown
 # 算法名 — 一句话描述
 
@@ -247,6 +275,42 @@ $MODEL_DIR/
 \```
 ```
 
+### README_wsl.md 格式（WSL 本机复现指南）
+
+与 `README.md` 并列，不删旧的。内容侧重 WSL 差异：
+
+```markdown
+# 算法名 (WSL Ubuntu 24.04) — 本地复现指南
+
+本文件是 [`README.md`](README.md) 的 WSL 本地复现版。照着做即可从零跑完全流程。
+
+## 与服务器版的核心差异
+| | 服务器 | WSL |
+|---|---|---|
+| conda env | clone doll | conda create from scratch |
+| CUDA toolkit | 系统 /usr/local/cuda | conda cuda-nvcc |
+| pip 源 | 默认 PyPI | 清华镜像 |
+| HF 源 | 直连 huggingface.co | hf-mirror.com 镜像 |
+| 仓库位置 | /mnt/c/code/ | ~/repos/ (Linux fs) |
+
+## Windows 路径 → WSL 路径
+| Windows | WSL |
+|---|---|
+| D:\dataset\sample | /mnt/d/dataset/sample |
+
+## 前提条件
+（WSL + NVIDIA 驱动 + Miniconda）
+
+## 首次准备
+（00a_setup_env.sh → proxy.env 配置 → 权重下载）
+
+## 全流程命令
+（用 /mnt/d/ 路径读输入，~/output/ 写输出，08 搬运到 D 盘）
+
+## 可能遇到的问题（WSL 专属）
+（conda not found、pip 慢、HF 连不上、OOM、vhdx 压缩）
+```
+
 ## 6. 依赖安装踩坑总结
 
 ### pip
@@ -302,6 +366,23 @@ pip install --force-reinstall --no-deps "setuptools<70"
 - **优先用 `ModelConfig(path=...)` 直接指定文件路径**，不走 `model_id` + `DIFFSYNTH_MODEL_BASE_PATH` + `Wan-AI` 符号链接
 - 用户手动下载的模型在 `$MODEL_DIR/<model_name>/`，直接指向这个目录
 
+### WSL 本机复现
+- **conda ToS（conda 26.x）**：conda create 报 `CondaToSNonInteractiveError`。00a 自动 accept：
+  ```bash
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+  ```
+- **pip 慢（国内 PyPI）**：用清华镜像 `-i https://pypi.tuna.tsinghua.edu.cn/simple`
+- **huggingface.co 连不上**：用 HF 镜像 `export HF_ENDPOINT=https://hf-mirror.com`（在 proxy.env 里设）
+- **无 sudo（WSL 本机）**：CUDA toolkit + gcc 全走 conda（`cuda-nvcc` + `gxx_linux-64=12`），不装 `cuda-toolkit` 全包（太大）
+  ```bash
+  # 精简装 nvcc（~50MB，不装全包 ~2GB）
+  conda install -y -c nvidia/label/cuda-12.1.1 cuda-nvcc cuda-cudart-dev cuda-cccl
+  ```
+- **CUDA 扩展编译必须放 Linux fs**：`/mnt/c` `/mnt/d` 是 drvfs（9p），symlink 会坏、I/O 慢 5-10x。仓库 clone 到 `~/repos/`，通过 `proxy.env` 覆盖路径
+- **Windows 路径映射**：`D:\dataset` → `/mnt/d/dataset`（反斜杠改正斜杠），输入用 `/mnt/d/` 路径，输出写 `~/output/`（Linux fs），跑完用 `08_move_output.sh` 搬到 D 盘
+- **WSL vhdx 空间有限**：训练完跑 `08_move_output.sh` 把结果剪切到 `/mnt/d/output/`；vhdx 不缩小时在 PowerShell 里 `wsl --shutdown` + `diskpart compact vdisk`
+
 ## 7. 仓级 README.md
 
 在 `media_code/README.md` 里，每个算法一行摘要：
@@ -319,6 +400,7 @@ pip install --force-reinstall --no-deps "setuptools<70"
 
 ## 9. 路径规范
 
+### 服务器
 | 路径 | 默认值 | 说明 |
 |---|---|---|
 | 代码仓 | `$REPO_DIR` = `media_code/` | 编排脚本在这里 |
@@ -328,7 +410,16 @@ pip install --force-reinstall --no-deps "setuptools<70"
 | 训练产物 | `$REPO_DIR/../<algo>_experiments` | checkpoint / 日志 |
 | proxy.env | `$REPO_DIR/proxy.env` | 代理密码，gitignored |
 
-README 命令示例用**相对路径**（`../../model/...`、`../Reconstruction/...`），不要用绝对路径。
+### WSL 本机（proxy.env 覆盖默认值）
+| 路径 | WSL 路径 | 说明 |
+|---|---|---|
+| 官方代码 | `~/repos/<repo>` | Linux fs，编译快 |
+| 权重根 | `~/model/<algo>` | Linux fs，读大文件快 |
+| 输出 | `~/output/<algo>_results` | Linux fs，训练写文件快 |
+| 最终结果 | `/mnt/d/output/<algo>_results` | Windows 盘，08 搬运后存这里 |
+| 输入数据 | `/mnt/d/dataset/...` | Windows 盘，只读无所谓慢 |
+
+README 命令示例用**相对路径**（`../../model/...`、`../Reconstruction/...`），不要用绝对路径。WSL README 用 `~/` 和 `/mnt/d/` 路径。
 
 ## 10. 注意事项
 
@@ -337,3 +428,6 @@ README 命令示例用**相对路径**（`../../model/...`、`../Reconstruction/
 - **`.gitattributes` 强制 LF**：Windows push 的 .sh / .py 在 Ubuntu 上跑没问题
 - **`proxy.env` 不入库**：代理密码只在本地 `proxy.env`，gitignored
 - **不复制官方代码**：只写编排脚本，clone 官方仓到外部
+- **WSL 与服务器脚本共用**：01-08 的 .sh 和 .py 不区分平台，靠 `_env.sh` + `proxy.env` 覆盖路径。只有 setup 脚本分 `00_setup_env.sh`（服务器）和 `00a_setup_env.sh`（WSL）
+- **WSL 路径覆盖写 proxy.env**：`00a_setup_env.sh` 自动生成 `proxy.env`（含 `VGGT_DIR=~/repos/...` 等路径覆盖 + `HF_ENDPOINT` 镜像），脚本 01-08 通过 `_env.sh` source proxy.env 自动继承，不需改脚本
+- **`_env.sh` 加 conda fallback**：conda 不在 PATH 时自动找 `~/miniconda3`。服务器上 conda 已在 PATH，fallback 不触发，行为不变
