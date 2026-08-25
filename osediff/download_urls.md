@@ -32,15 +32,15 @@ https://download.pytorch.org/whl/cu118/torchvision-0.15.2%2Bcu118-cp310-cp310-li
 ##       D:\wheel\osediff_ms\sd21_base\unet\diffusion_pytorch_model.safetensors
 # ============================================================================
 # 根目录
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/model_index.json
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/model_index.json -->
 #   ↑ 存到 D:\wheel\osediff_ms\sd21_base\model_index.json
 # scheduler/
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/scheduler/scheduler_config.json
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/scheduler/scheduler_config.json -->
 # tokenizer/（4 个小文件都存到 D:\wheel\osediff_ms\sd21_base\tokenizer\）
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/merges.txt
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/special_tokens_map.json
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/tokenizer_config.json
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/vocab.json
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/merges.txt -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/special_tokens_map.json -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/tokenizer_config.json -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/vocab.json -->
 # text_encoder/（config.json 613B + model.safetensors ~1.4GB，最大文件之一）
 https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/config.json
 https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/model.safetensors

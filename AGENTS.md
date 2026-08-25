@@ -383,6 +383,16 @@ pip install --force-reinstall --no-deps "setuptools<70"
 - **CUDA 扩展编译必须放 Linux fs**：`/mnt/c` `/mnt/d` 是 drvfs（9p），symlink 会坏、I/O 慢 5-10x。仓库 clone 到 `~/repos/`，通过 `proxy.env` 覆盖路径
 - **Windows 路径映射**：`D:\dataset` → `/mnt/d/dataset`（反斜杠改正斜杠），输入用 `/mnt/d/` 路径，输出写 `~/output/`（Linux fs），跑完用 `08_move_output.sh` 搬到 D 盘
 - **WSL vhdx 空间有限**：训练完跑 `08_move_output.sh` 把结果剪切到 `/mnt/d/output/`；vhdx 不缩小时在 PowerShell 里 `wsl --shutdown` + `diskpart compact vdisk`
+- **pip 优先从 `D:\wheel` 装本地 wheel**：所有算法共用 `/mnt/d/wheel` 这个 wheel 缓存。`00a_setup_env.sh` 的 pip install 必须加 `--find-links /mnt/d/wheel`，让 pip 先查本地、缺的再从清华镜像补。conda 包也缓存在这里（`.tar.bz2` / `.conda`），conda install 加 `--offline` 优先用缓存：
+  ```bash
+  WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
+  # pip: 先查本地 wheel，缺的从清华镜像补
+  PIP_FLAGS=(-i https://pypi.tuna.tsinghua.edu.cn/simple --find-links "$WHEELS_DIR" --timeout 600 --retries 5)
+  pip install "${PIP_FLAGS[@]}" package1 package2 ...
+  # conda: 优先用本地缓存的包（~/.cache/conda 或 /mnt/d/wheel 里的 .conda）
+  conda install -y --offline -c conda-forge gxx_linux-64=12 python=3.10
+  ```
+- **pip cache 定期清理**：pip 的 HTTP 缓存存在 `~/.cache/pip`（Linux fs，吃 vhdx 空间）。装完环境后跑 `pip cache purge` 清掉，释放 vhdx 空间。需要保留的 wheel 用 `pip download -d /mnt/d/wheel` 提取到 D 盘再清缓存
 
 ## 7. 仓级 README.md
 
