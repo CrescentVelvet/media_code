@@ -21,8 +21,8 @@
 ## 保存到：D:\wheel\        （cu118 wheel 自包含 CUDA，无需 nvidia-* 依赖包）
 ## 00a 会自动检测 D:\wheel\torch-*.whl 本地安装。
 # ============================================================================
-https://download.pytorch.org/whl/cu118/torch-2.0.1%2Bcu118-cp310-cp310-linux_x86_64.whl
-https://download.pytorch.org/whl/cu118/torchvision-0.15.2%2Bcu118-cp310-cp310-linux_x86_64.whl
+<!-- https://download.pytorch.org/whl/cu118/torch-2.0.1%2Bcu118-cp310-cp310-linux_x86_64.whl -->
+<!-- https://download.pytorch.org/whl/cu118/torchvision-0.15.2%2Bcu118-cp310-cp310-linux_x86_64.whl -->
 
 # ============================================================================
 ## B. SD2.1-Base 权重（hf-mirror，safetensors fp32，共 ~5.1GB）
@@ -42,14 +42,14 @@ https://download.pytorch.org/whl/cu118/torchvision-0.15.2%2Bcu118-cp310-cp310-li
 <!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/tokenizer_config.json -->
 <!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/tokenizer/vocab.json -->
 # text_encoder/（config.json 613B + model.safetensors ~1.4GB，最大文件之一）
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/config.json
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/model.safetensors
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/config.json -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/text_encoder/model.safetensors -->
 # unet/（config.json 911B + diffusion_pytorch_model.safetensors ~3.4GB，最大文件）
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/unet/config.json
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/unet/diffusion_pytorch_model.safetensors
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/unet/config.json -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/unet/diffusion_pytorch_model.safetensors -->
 # vae/（config.json 553B + diffusion_pytorch_model.safetensors ~335MB）
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/vae/config.json
-https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/vae/diffusion_pytorch_model.safetensors
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/vae/config.json -->
+<!-- https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/vae/diffusion_pytorch_model.safetensors -->
 
 # ============================================================================
 ## C. RAM 权重（hf-mirror spaces，~1.7GB）
@@ -57,7 +57,7 @@ https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/vae/diffusio
 ## 保存到：D:\wheel\osediff_ms\ram_swin_large_14m.pth
 ## （01 会从 D:\wheel\osediff_ms\ 拷到 $MODEL_DIR/ram_swin_large_14m.pth）
 # ============================================================================
-https://hf-mirror.com/spaces/xinyu1205/recognize-anything/resolve/main/ram_swin_large_14m.pth
+<!-- https://hf-mirror.com/spaces/xinyu1205/recognize-anything/resolve/main/ram_swin_large_14m.pth -->
 
 # ============================================================================
 ## D. 无需手动下载（00a clone OSEDiff repo 后自带）
