@@ -319,10 +319,10 @@ $MODEL_DIR/
 - **手动下载 whl → 统一放 `D:\wheel`（WSL: `/mnt/d/wheel`）**：本机网络 PyPI CDN 被限速到 ~8 KB/s，torch/nvidia 等大 wheel（~3GB）必须手动下载。**所有算法共用 `D:\wheel` 这个本地 wheel 缓存**——复现新算法前先查这里有没有现成 wheel，有就别重下。脚本里用 `--find-links /mnt/d/wheel` 让 pip 优先装本地、缺的再从镜像补：
   ```bash
   WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
-  PIP_FLAGS=(-i https://pypi.tuna.tsinghua.edu.cn/simple --find-links "$WHEELS_DIR" --timeout 600)
+  PIP_FLAGS=(-i https://mirrors.aliyun.com/pypi/simple --find-links "$WHEELS_DIR" --timeout 600)
   pip install "${PIP_FLAGS[@]}" -r requirements.txt
   ```
-  下载清单写到 `<algo>/download_urls.txt`（清华镜像 URL，用户用 IDM/迅雷多线程下）。torch 的 nvidia-cu12 依赖版本从 `pip download -v torch==x.y` 的输出或 wheel 的 `.whl.metadata` 里拿（`Requires-Dist: nvidia-xxx-cu12==版本`）。
+  下载清单写到 `<algo>/download_urls.txt`（阿里源 URL，用户用 IDM/迅雷多线程下）。**清华源（pypi.tuna.tsinghua.edu.cn）会间歇性打不开，改用阿里源（mirrors.aliyun.com/pypi，~840 KB/s 可用）**；华为源（repo.huaweicloud.com）路径不通。wheel 的 `packages/<hash>/` 路径各镜像相同，只换域名即可。torch 的 nvidia-cu12 依赖版本从 `pip download -v torch==x.y` 的输出或 wheel 的 `.whl.metadata` 里拿（`Requires-Dist: nvidia-xxx-cu12==版本`）。
 - **模型权重同理放 `D:\wheel`**：HF 在本机连不上（huggingface.co / hf-mirror.com 都不通），用 modelscope.cn 镜像（~230 KB/s 可用）或用户代理手动下。权重下到 `D:\wheel\<algo>_ms\`（按 HF repo 相对路径建子目录），安装脚本再拷到 `$MODEL_DIR`。
 
 ### conda

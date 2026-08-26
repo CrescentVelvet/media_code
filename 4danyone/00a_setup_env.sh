@@ -84,7 +84,7 @@ fi
 # 3. Install deps (first time or INSTALL_DEPS=1). Tsinghua mirror for speed.
 # ---------------------------------------------------------------------------
 if [ "${INSTALL_DEPS:-0}" = "1" ]; then
-    PIP_MIRROR="${PIP_MIRROR:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+    PIP_MIRROR="${PIP_MIRROR:-https://mirrors.aliyun.com/pypi/simple}"
     # Local wheel cache: manual downloads land in D:\wheel (WSL: /mnt/d/wheel).
     # pip prefers these local wheels; falls back to the mirror for missing ones.
     # See download_urls.txt — torch/nvidia wheels are pre-fetched because the
