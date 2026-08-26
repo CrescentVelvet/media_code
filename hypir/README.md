@@ -27,7 +27,7 @@ GPU=0 HQ_DIR=../HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=../HYPIR/experime
 # 03d) 抽样看效果
 GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/美颜退化数据预览 bash hypir/03d_build_beauty_dataset.sh
 # 03d) 构建数据集（多卡）
-GPU=0,1,2,3,5,6,7 NPROC=7 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
+GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
 # 03d) C 二次美颜数据集(BEAUTY_PASSES=2, RetouchFormer 跑两次 -> hq_beauty_strong)
 #      注：BEAUTY_PASSES=2 会一次性产出 A/B/C 三套 parquet(rest / rest_beauty / rest_beauty_strong)，
@@ -35,7 +35,7 @@ GPU=0,1,2,3,5,6,7 NPROC=7 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/dataset/guojia_datas
 # 03d) 抽样看效果
 GPU=0 SKIP_PARQUET=1 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/二次美颜数据预览 bash hypir/03d_build_beauty_dataset.sh
 # 03d) 构建数据集（多卡）
-GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
+GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
 # 03e) D 去红润美颜数据集(独立跑 RetouchFormer + wavelet 融合: 美颜高频+原图低频 -> hq_beauty_decolor；
 #      RetouchFormer 输出偏红润是权重低频色偏，用原图低频替换即去红润、保留美颜高频即保留磨皮。
