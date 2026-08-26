@@ -8,61 +8,61 @@
 
 ```bash
 # ── 配对路径(真实 LQ+HQ，03b/04b) ──
-# 1) 构建配对数据集(按同名文件配对 HQ/LQ -> parquet)
+# ♻️1) 构建配对数据集(按同名文件配对 HQ/LQ -> parquet)
 HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq LQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/lq bash hypir/03b_build_paired_dataset.sh
-# 2) 开始训练(暖启动, 默认后台, 日志见提示)
+# 🚀2) 开始训练(暖启动, 默认后台, 日志见提示)
 GPU=0 BG=0 bash hypir/04b_train_paired.sh
-# 3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
+# 🚀3) 继续上次 LoRA 训练(RESUME 指向 checkpoint 目录)
 GPU=0 BG=0 RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000 bash hypir/04b_train_paired.sh
 
 # ── 合成退化路径(只输入 HQ, 在线合成 LQ, 03c/04c) ──
-# 4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
+# ♻️4) 构建 HQ-only 数据集(LQ 训练时在线合成, 不存盘)
 HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq bash hypir/03c_build_synthetic_dataset.sh
-# 5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
+# 🚀5) 开始训练(暖启动 + 在线退化; HQ>512 用 CROP_TYPE=random 在线裁 512 patch)
 GPU=0 HQ_DIR=../HYPIR/dataset/ppr10k_faces_20260703/hq CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
-# 5b) 换别的数据集训(只改 HQ_DIR + OUTPUT_DIR，别和旧实验混；guojia_datas 是 HQ 文件夹，可含子目录)
+# 🚀5b) 换别的数据集训(只改 HQ_DIR + OUTPUT_DIR，别和旧实验混；guojia_datas 是 HQ 文件夹，可含子目录)
 GPU=0 HQ_DIR=../HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=../HYPIR/experiments/guojia_datas CROP_TYPE=random BG=0 BATCH_SIZE=8 HF_HUB_OFFLINE=1 bash hypir/04c_train_synthetic.sh
 
 # ── 美颜退化路径(只输入原始图像, 合成高斯模糊退化 LQ 和美颜增强 HQ, 03d→03e/04b) ──
-# 03d) 抽样看效果
+# 🔍03d) 抽样看效果
 GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/美颜退化数据预览 bash hypir/03d_build_beauty_dataset.sh
-# 03d) 构建数据集（多卡）
+# ♻️03d) 构建全量数据集（多卡）
 GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
 # 03d) C 二次美颜数据集(BEAUTY_PASSES=2, RetouchFormer 跑两次 -> hq_beauty_strong)
 #      注：BEAUTY_PASSES=2 会一次性产出 A/B/C 三套 parquet(rest / rest_beauty / rest_beauty_strong)，
 #      A/B 产物与 BEAUTY_PASSES=1 完全一致；故要么单独跑这条跑 C、要么 A/B 也直接用这条。
-# 03d) 抽样看效果
+# 🔍03d) 抽样看效果
 GPU=0 SKIP_PARQUET=1 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/二次美颜数据预览 bash hypir/03d_build_beauty_dataset.sh
-# 03d) 构建数据集（多卡）
+# ♻️03d) 构建全量数据集（多卡）
 GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
 # 03e) D 去红润美颜数据集(独立跑 RetouchFormer + wavelet 融合: 美颜高频+原图低频 -> hq_beauty_decolor；
 #      RetouchFormer 输出偏红润是权重低频色偏，用原图低频替换即去红润、保留美颜高频即保留磨皮。
 #      与 03d 并列(非依次)：自己跑 RetouchFormer + 高斯模糊产 lq_gauss(同 seed 与 03d 逐像素一致)，不依赖 03d。训练/推理脚本均不改)
-# 03e) 抽样看效果 (compare/ 下 [LQ|orig|beauty|decolor] 四联图，确认去红润+磨皮保留)
+# 🔍03e) 抽样看效果 (compare/ 下 [LQ|orig|beauty|decolor] 四联图，确认去红润+磨皮保留)
 GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/去红润美颜数据预览 bash hypir/03e_decolor_beauty_dataset.sh
-# 03e) 全量产图+建 parquet(独立产 hq_beauty_decolor/+lq_gauss/，不依赖 03d)
+# ♻️03e) 构建全量数据集 parquet(独立产 hq_beauty_decolor/+lq_gauss/，不依赖 03d)
 GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03e_decolor_beauty_dataset.sh
 
 # 04b) A/B/C/D 依次训练(无需先 accelerate config，换卡就改 GPU=列表、N_TRAIN_GPU 对齐)：
-# 04b) A 基线(只高斯模糊，预期会长痘变丑)：
+# 🚀04b) A 基线(只高斯模糊，预期会长痘变丑)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
-# 04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
+# 🚀04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
-# 04b) C 加强美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
+# 🚀04b) C 二次美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
-# 04b) D 去红润美颜(LQ 同样模糊、HQ 换去红润美颜版 wavelet 融合，预期红润减弱、磨皮保留)：
+# 🚀04b) D 去红润美颜(LQ 同样模糊、HQ 换去红润美颜版 wavelet 融合，预期红润减弱、磨皮保留)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_decolor bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
-# 02) 测试原生(发布)模型 —— 指定输入路径
+# 💡02) 测试原生(发布)模型 —— 指定输入路径
 GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
-# 02) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(小数据集在 experiments/ppr10k_faces_paired; 大数据集在 experiments/synthetic_exp1/; 退化数据集在experiments/guojia_datas_20260708/; 美颜数据集在 experiments/beauty_rest(A) / beauty_rest_beauty(B) / beauty_rest_beauty_strong(C) / beauty_rest_beauty_decolor(D))
+# 💡02) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(小数据集在 experiments/ppr10k_faces_paired; 大数据集在 experiments/synthetic_exp1/; 退化数据集在experiments/guojia_datas_20260708/; 美颜数据集在 experiments/beauty_rest(A) / beauty_rest_beauty(B) / beauty_rest_beauty_strong(C) / beauty_rest_beauty_decolor(D))
 GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/ema_state_dict.pth bash hypir/02_run_inference.sh
-# 06) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
+# 💡06) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
 GPU=0 HQ_DIR=../HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
-# 02) 测试外插视角优化效果(在输入没有的角度上渲染图像会很模糊，考虑用HYPIR进行去噪增强)
+# 💡02) 测试外插视角优化效果(在输入没有的角度上渲染图像会很模糊，考虑用HYPIR进行去噪增强)
 GPU=0 LQ_DIR=../../output/hypir_test_results/input UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth OUTPUT_DIR=../../output/hypir_test_results/output bash hypir/02_run_inference.sh
 
 # # ── 并行训练(04d) ── 越练越模糊是 L2 坍缩；扫 LR_G + loss 权重 + 真实退化配对 找最佳
