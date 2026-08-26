@@ -33,15 +33,15 @@ GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03
 #      注：BEAUTY_PASSES=2 会一次性产出 A/B/C 三套 parquet(rest / rest_beauty / rest_beauty_strong)，
 #      A/B 产物与 BEAUTY_PASSES=1 完全一致；故要么单独跑这条跑 C、要么 A/B 也直接用这条。
 # 🔍03d) 抽样看效果
-GPU=0 SKIP_PARQUET=1 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/二次美颜数据预览 bash hypir/03d_build_beauty_dataset.sh
+GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/二次美颜数据预览 bash hypir/03d_build_beauty_dataset.sh
 # ♻️03d) 构建全量数据集（多卡）
 GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
 # 03e) D 去红润美颜数据集(独立跑 RetouchFormer + wavelet 融合: 美颜高频+原图低频 -> hq_beauty_decolor；
-#      RetouchFormer 红润在 beauty 高频(per-channel DC，美颜把皮肤推向暖色统计)；DECOLOR_MODE=high_freq_dc 减高频 DC 去红，保留磨皮纹理。
+#      人脸红润在高频，美颜把皮肤推向暖色统计；DECOLOR_MODE=wavelet(默认,只换低频磨皮,去不掉高频红) | high_freq_dc(高频减DC去红)
 #      与 03d 并列(非依次)：自己跑 RetouchFormer + 高斯模糊产 lq_gauss(同 seed 与 03d 逐像素一致)，不依赖 03d。训练/推理脚本均不改)
 # 🔍03e) 抽样看效果 (compare/ 下 [LQ|orig|beauty|decolor] 四联图，确认去红润+磨皮保留)
-GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/去红润美颜数据预览 bash hypir/03e_decolor_beauty_dataset.sh
+GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 DECOLOR_MODE=high_freq_dc INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/去红润美颜数据预览 bash hypir/03e_decolor_beauty_dataset.sh
 # ♻️03e) 构建全量数据集 parquet(独立产 hq_beauty_decolor/+lq_gauss/，不依赖 03d)
 GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03e_decolor_beauty_dataset.sh
 
