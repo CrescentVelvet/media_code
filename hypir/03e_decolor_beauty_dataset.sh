@@ -83,6 +83,7 @@ DEVICE="${DEVICE:-cuda}"
 export SAVE_COMPARE="${SAVE_COMPARE:-0}"      # 1=额外存 compare/<name>.png ([LQ|orig|beauty|decolor])
 export SKIP_BLUR="${SKIP_BLUR:-0}"            # 1=只产 hq_beauty_decolor(不建 lq_gauss，也跳过 parquet)
 export BLUR_SEED="${BLUR_SEED:-231}"          # 高斯模糊随机种子(与 03d 同值，保证 lq_gauss 逐像素一致)
+export DECOLOR_MODE="${DECOLOR_MODE:-wavelet}"  # wavelet(原,只换低频,去不掉高频红) | high_freq_dc(高频减DC去红)
 
 echo "=== [03e] Phase A: RetouchFormer 美颜 + wavelet 去红润 -> hq_beauty_decolor[/lq_gauss] ==="
 echo " 💎 美颜env:     retouchformer (CONDA_ENV=$CONDA_ENV)"
@@ -90,7 +91,7 @@ echo " 💎 代码路径:    $RETOUCH_DIR"
 echo " 💎 权重:        $WEIGHT_PATH"
 echo " 💎 输入(原图):  $INPUT_DIR"
 echo " 💎 输出根:      $OUTPUT_DIR  (hq_beauty_decolor/[+lq_gauss/][+compare/])"
-echo " 💎 参数:        resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED nproc=${NPROC:-1}"
+echo " 💎 参数:        resize=$RESIZE_MODE size=$SIZE device=$DEVICE save_compare=$SAVE_COMPARE skip_blur=$SKIP_BLUR blur_seed=$BLUR_SEED decolor_mode=$DECOLOR_MODE nproc=${NPROC:-1}"
 if [ "${NPROC:-1}" -gt 1 ]; then
     echo " 💎 多卡:       NPROC=${NPROC} (torchrun 分片, 见下)"
 fi

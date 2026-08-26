@@ -428,7 +428,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - `hq_beauty_strong/<name>.png` = RetouchFormer 迭代美颜 `BEAUTY_PASSES` 次（**C 组加强美颜实验的 HQ 目标**；仅 `BEAUTY_PASSES>=2` 产出，默认 1 不产）
 - `lq_gauss/<name>.png` = 同一 crop 的高斯模糊退化（**A/B/C/D 四组共用的 LQ 输入**，复现简化版 `batch_transform.py` 的随机 kernel 3/5/7/9/11、sigma 1-2、重复 1-5 次，每图一个 FIXED seeded 实现，离线非每 epoch 重随机）
 
-> **去红润美颜（03e，D 组的 `hq_beauty_decolor`）**：`03e_decolor_beauty_dataset.sh` 与 03d **并列**（非依次）——自己跑 RetouchFormer 得 `beauty`（红润），再做 `wavelet_reconstruction(content=beauty, style=src)` = 美颜高频（磨皮纹理）+ 原图低频（原色调）。RetouchFormer 输出偏红润是权重低频色偏（VRT 把瑕疵区推向周围皮肤统计，偏暖），用原图低频替换即去红润、保留美颜高频即保留磨皮。`hq_orig`/`hq_beauty` 是内存中间量不存盘；产出 `hq_beauty_decolor/` + `lq_gauss/` + `rest_beauty_decolor.parquet`。RetouchFormer 加载/transform/blur 逻辑 copy 自 `build_beauty_dataset.py`（并列脚本，重复正常）；wavelet 三函数 verbatim copy 自 `HYPIR/utils/common.py:32-80`（仅依赖 torch）。**训练/推理脚本均不改**：HQ 目标去红润，LoRA 学到的还原也去红润——换 `PARQUET_PATH`/`WEIGHT_PATH` 即可。
+> **去红润美颜（03e，D 组的 `hq_beauty_decolor`）**：`03e_decolor_beauty_dataset.sh` 与 03d **并列**（非依次）——自己跑 RetouchFormer 得 `beauty`（红润），再做小波融合取美颜高频（磨皮纹理）+ 原图低频（原色调）。RetouchFormer 的红润主要在 **beauty 的高频**（per-channel DC 偏移——美颜把皮肤推向"健康暖色"统计，写进高频），不在低频：故只换低频（`DECOLOR_MODE=wavelet`，默认原行为）往往去不掉红；设 `DECOLOR_MODE=high_freq_dc` 减掉 `beauty_high` 的 per-channel 空间 DC 再加 `orig_low`，保留磨皮结构（高频纹理）只剥掉红色调常数项。若 `high_freq_dc` 仍去不掉（红是局部非全局 DC），升级全局色调校正。`hq_orig`/`hq_beauty` 是内存中间量不存盘；产出 `hq_beauty_decolor/` + `lq_gauss/` + `rest_beauty_decolor.parquet`。RetouchFormer 加载/transform/blur 逻辑 copy 自 `build_beauty_dataset.py`（并列脚本，重复正常）；wavelet 三函数 verbatim copy 自 `HYPIR/utils/common.py:32-80`（仅依赖 torch）。**训练/推理脚本均不改**：HQ 目标去红润，LoRA 学到的还原也去红润——换 `PARQUET_PATH`/`WEIGHT_PATH` 即可。
 
 > 迭代美颜（C 组的 `hq_beauty_strong`）：RetouchFormer 输入输出都是 `[1,3,512,512]` in `[-1,1]`，把上一轮输出 `clamp(-1,1)` 后喂回去即叠加一次美颜——更磨皮、更去瑕疵。pass 1 永远存 `hq_beauty`；pass 2..N 的最终结果存 `hq_beauty_strong`（中间 pass 不留）。`BEAUTY_PASSES>2` 继续叠加但收益递减，**2 通常是甜点**。
 
@@ -455,6 +455,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - 想抽样核对或做 PPT 展示：加 `SAVE_COMPARE=1 SKIP_PARQUET=1`（只出图、不建 parquet，只跑 Phase A 用当前 env 即可）——产出的 `compare/<name>.png` 把「模糊退化 → 原图 → 美颜 → 加强美颜」各态并排，对齐 + 模糊度 + 美颜强度一目了然，直接可下到 PPT；要单独摆版就用 `hq_orig/` + `hq_beauty/` + `hq_beauty_strong/` + `lq_gauss/` 各张原图。输入用任意人脸小夹即可。
 - 只要 `hq_orig`+`hq_beauty[+strong]`、不要模糊 LQ（则也不配对、不建 parquet）：加 `SKIP_BLUR=1`。
 - 高斯模糊随机种子复现：`BLUR_SEED=231`（默认，与 HYPIR 的 `SEED` 同值）。
+- **03e 专属** `DECOLOR_MODE`：`wavelet`（默认，只换低频，去不掉高频红，作对照）/ `high_freq_dc`（减 `beauty_high` 的 per-channel 空间 DC 去红，保留磨皮结构）。红润在 beauty 高频时必须设 `high_freq_dc`；若仍去不掉（红是局部非全局 DC），升级全局色调校正。
 - 模糊作用于 raw 对齐 crop（非 `USM(orig)`），与 03c 的 `LQ=blur(USM(orig))` 略有偏差；但 A/B/C 共用同一 `lq_gauss`，对比仍是单变量。NB：`lq_gauss` 是离线固定模糊（每图一个实现），不像 03c/04c 每 epoch 在线重随机——故 A 是「略少增强的 03c 基线」，但 A vs B vs C 是干净的单变量实验（只 HQ 目标不同）。
 
 ### A/B/C/D 对比训练

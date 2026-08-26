@@ -144,6 +144,7 @@ DEVICE = os.environ.get("DEVICE", "cuda")
 SAVE_COMPARE = os.environ.get("SAVE_COMPARE", "0") == "1"
 BLUR_SEED = int(os.environ.get("BLUR_SEED", "231"))
 SKIP_BLUR = os.environ.get("SKIP_BLUR", "0") == "1"     # 1 = don't build lq_gauss
+DECOLOR_MODE = os.environ.get("DECOLOR_MODE", "wavelet")  # wavelet | high_freq_dc (see decolor())
 
 # Multi-GPU sharding via torchrun: each process is independent (no comms).
 # torchrun sets LOCAL_RANK/WORLD_SIZE; standalone (plain python) defaults to 0/1.
@@ -198,6 +199,52 @@ def make_blur_fn():
 
     return blur
 # ── END copy from build_beauty_dataset.py ─────────────────────────────────────
+
+
+def decolor(beauty, orig, mode):
+    """De-color RetouchFormer's reddish bias from the beautified image.
+
+    Both modes take the beautified image's HIGH-freq (smoothing/blemish-removal,
+    what we want to KEEP) and the original's LOW-freq (true skin tone, what we
+    want to RESTORE). They differ in how they handle the reddish tint that lives
+    in beauty's HIGH-freq — RetouchFormer pushes skin toward a "healthy warm"
+    statistics, which leaks into the high freq as a per-channel DC offset:
+
+    - ``wavelet`` (default, original behaviour): plain
+      ``wavelet_reconstruction(beauty, orig)`` = ``beauty_high + orig_low``.
+      Only swaps the LOW-freq color. CANNOT remove redness that lives in
+      ``beauty_high`` (the typical case — this is why the original 03e fails to
+      de-color). Kept for backward-compat / A-B comparison.
+
+    - ``high_freq_dc``: subtract ``beauty_high``'s per-channel spatial DC (the
+      global reddish tint baked into the high freq) before adding ``orig_low``:
+      ``(beauty_high - mean(beauty_high, per-channel)) + orig_low``.
+
+      Why this preserves smoothing: smoothing lives in the high-freq STRUCTURE
+      (the texture pattern — which frequencies, what amplitude — that does the
+      skin-smoothing), while the reddish tint is the high-freq per-channel DC
+      (a constant tint layer). Subtracting the DC is a constant per-channel
+      shift; it does NOT touch the structure, so blemish-removal / skin
+      smoothing is preserved — only the reddish tint is stripped.
+
+      Limit: only fixes redness that is a HIGH-freq GLOBAL DC offset. If redness
+      is LOCAL (skin region only, global DC ≈ 0), this won't fully remove it —
+      escalate to a global tone-match (Reinhard per-channel mean/std → orig) or
+      a skin-masked local de-color.
+
+    ``wavelet_*`` used here are the verbatim HYPIR copy above.
+    """
+    if mode == "wavelet":
+        return wavelet_reconstruction(beauty, orig)
+    elif mode == "high_freq_dc":
+        beauty_high, _ = wavelet_decomposition(beauty)
+        # per-channel spatial DC of the high freq — the global reddish tint.
+        # keepdim so the broadcast aligns with [B,C,H,W].
+        beauty_high = beauty_high - beauty_high.mean(dim=[2, 3], keepdim=True)
+        _, orig_low = wavelet_decomposition(orig)
+        return beauty_high + orig_low
+    else:
+        sys.exit(f"ERROR: unknown DECOLOR_MODE='{mode}' (use wavelet|high_freq_dc).")
 
 
 def main():
@@ -295,7 +342,8 @@ def main():
                 # De-color: beauty's HIGH-freq (smoothing/blemish-removal) + src's LOW-freq
                 # (true skin tone). content=beauty, style=src(=hq_orig). Linear ops =>
                 # range-agnostic, but clamp below to guard tiny out-of-range drift.
-                decolor = wavelet_reconstruction(beauty, src)
+                # DECOLOR_MODE: wavelet(只换低频,去不掉高频红) | high_freq_dc(高频减DC去红).
+                decolor = decolor(beauty, src, DECOLOR_MODE)
                 dt = time.time() - t1
                 decolor = decolor.clamp(-1, 1)
                 save_image(decolor, str(decolor_path), normalize=True, value_range=(-1, 1))
