@@ -37,13 +37,13 @@ GPU=0 SKIP_PARQUET=1 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/tes
 # 03d) 构建数据集（多卡）
 GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
 
-# 03e) D 去红润美颜数据集(对 03d 的 hq_beauty 做 wavelet 融合: 美颜高频+原图低频 -> hq_beauty_decolor；
+# 03e) D 去红润美颜数据集(独立跑 RetouchFormer + wavelet 融合: 美颜高频+原图低频 -> hq_beauty_decolor；
 #      RetouchFormer 输出偏红润是权重低频色偏，用原图低频替换即去红润、保留美颜高频即保留磨皮。
-#      复用 03d 的 lq_gauss 作 LQ，仅 HQ 目标不同，与 A/B/C 并列单变量对比。训练/推理脚本均不改)
-# 03e) 抽样看效果 (compare_decolor/ 下 [orig|beauty|decolor] 三联图，确认去红润+磨皮保留)
-GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 BEAUTY_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/去红润美颜数据预览 bash hypir/03e_decolor_beauty_dataset.sh
-# 03e) 全量产图+建 parquet(前提: 03d 已产出 hq_orig/+hq_beauty/+lq_gauss/)
-GPU=0,1,2 NPROC=3 BEAUTY_DIR=../HYPIR/dataset/beauty_guojia_datas_20260708 bash hypir/03e_decolor_beauty_dataset.sh
+#      与 03d 并列(非依次)：自己跑 RetouchFormer + 高斯模糊产 lq_gauss(同 seed 与 03d 逐像素一致)，不依赖 03d。训练/推理脚本均不改)
+# 03e) 抽样看效果 (compare/ 下 [LQ|orig|beauty|decolor] 四联图，确认去红润+磨皮保留)
+GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/去红润美颜数据预览 bash hypir/03e_decolor_beauty_dataset.sh
+# 03e) 全量产图+建 parquet(独立产 hq_beauty_decolor/+lq_gauss/，不依赖 03d)
+GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03e_decolor_beauty_dataset.sh
 
 # 04b) A/B/C/D 依次训练(无需先 accelerate config，换卡就改 GPU=列表、N_TRAIN_GPU 对齐)：
 # 04b) A 基线(只高斯模糊，预期会长痘变丑)：
@@ -428,7 +428,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - `hq_beauty_strong/<name>.png` = RetouchFormer 迭代美颜 `BEAUTY_PASSES` 次（**C 组加强美颜实验的 HQ 目标**；仅 `BEAUTY_PASSES>=2` 产出，默认 1 不产）
 - `lq_gauss/<name>.png` = 同一 crop 的高斯模糊退化（**A/B/C/D 四组共用的 LQ 输入**，复现简化版 `batch_transform.py` 的随机 kernel 3/5/7/9/11、sigma 1-2、重复 1-5 次，每图一个 FIXED seeded 实现，离线非每 epoch 重随机）
 
-> **去红润美颜（03e，D 组的 `hq_beauty_decolor`）**：`03e_decolor_beauty_dataset.sh` 读 03d 已产的 `hq_orig`+`hq_beauty`，做 `wavelet_reconstruction(content=hq_beauty, style=hq_orig)` = 美颜高频（磨皮纹理）+ 原图低频（原色调）。RetouchFormer 输出偏红润是权重低频色偏（VRT 把瑕疵区推向周围皮肤统计，偏暖），用原图低频替换即去红润、保留美颜高频即保留磨皮。wavelet 三函数 verbatim copy 自 `HYPIR/utils/common.py:32-80`（仅依赖 torch，无 HYPIR import），可在任意 env 跑。产出 `hq_beauty_decolor/` + `rest_beauty_decolor.parquet`（LQ 复用 03d 的 `lq_gauss`）。**训练/推理脚本均不改**：HQ 目标去红润，LoRA 学到的还原也去红润——换 `PARQUET_PATH`/`WEIGHT_PATH` 即可。
+> **去红润美颜（03e，D 组的 `hq_beauty_decolor`）**：`03e_decolor_beauty_dataset.sh` 与 03d **并列**（非依次）——自己跑 RetouchFormer 得 `beauty`（红润），再做 `wavelet_reconstruction(content=beauty, style=src)` = 美颜高频（磨皮纹理）+ 原图低频（原色调）。RetouchFormer 输出偏红润是权重低频色偏（VRT 把瑕疵区推向周围皮肤统计，偏暖），用原图低频替换即去红润、保留美颜高频即保留磨皮。`hq_orig`/`hq_beauty` 是内存中间量不存盘；产出 `hq_beauty_decolor/` + `lq_gauss/` + `rest_beauty_decolor.parquet`。RetouchFormer 加载/transform/blur 逻辑 copy 自 `build_beauty_dataset.py`（并列脚本，重复正常）；wavelet 三函数 verbatim copy 自 `HYPIR/utils/common.py:32-80`（仅依赖 torch）。**训练/推理脚本均不改**：HQ 目标去红润，LoRA 学到的还原也去红润——换 `PARQUET_PATH`/`WEIGHT_PATH` 即可。
 
 > 迭代美颜（C 组的 `hq_beauty_strong`）：RetouchFormer 输入输出都是 `[1,3,512,512]` in `[-1,1]`，把上一轮输出 `clamp(-1,1)` 后喂回去即叠加一次美颜——更磨皮、更去瑕疵。pass 1 永远存 `hq_beauty`；pass 2..N 的最终结果存 `hq_beauty_strong`（中间 pass 不留）。`BEAUTY_PASSES>2` 继续叠加但收益递减，**2 通常是甜点**。
 
@@ -442,14 +442,14 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 
 > C 组的 `rest_beauty_strong.parquet` 仅在 `BEAUTY_PASSES>=2` 时产出。默认 `BEAUTY_PASSES=1` 只产 A/B 两张；要跑 C 组就设 `BEAUTY_PASSES=2`（一次产出 A/B/C 三张，A/B 产物不变、向后兼容）。
 >
-> D 组的 `hq_beauty_decolor` + `rest_beauty_decolor.parquet` 由 `03e` 单独产出（先跑 03d 得 hq_orig/hq_beauty/lq_gauss，再跑 03e 融合）。D 与 A/B/C 并列、共用同一 `lq_gauss`，单变量对比「HQ 目标颜色」对红润的影响。
+> D 组的 `hq_beauty_decolor` + `lq_gauss` + `rest_beauty_decolor.parquet` 由 `03e` **独立**产出（输入原始人脸，自己跑 RetouchFormer + wavelet + 高斯模糊，不依赖 03d）。D 与 A/B/C 并列、各自产 `lq_gauss`（同 `BLUR_SEED`=231 + 同图顺序 → 逐像素一致，单变量对比「HQ 目标颜色」对红润的影响）。
 
 各喂 04b 训一个（`OUTPUT_DIR` 分开），再用 `05_eval.sh` / `02_run_inference.sh` 评测算指标，对比哪组不毁脸、美颜多强。
 
 **conda env**：不强制——默认沿用当前已激活 env，缺包（torch/torchvision/PIL、Phase B 的 polars）就 pip 兜底装；想强制专 env 就设 `RETOUCH_CONDA_ENV`（Phase A）/ `HYPIR_CONDA_ENV`（Phase B）。官方推荐 Phase A 用 `retouchformer` env（python3.8 + torch1.13.1，含 stylegan2 CUDA 算子），但别的 env 也能跑（op/ 非 Linux 或 torch 版本不匹配会回退纯 PyTorch，慢但能出图）。**前置**：放好 `gen_best.pth`（`retouchformer/01_download_models.sh`，百度网盘手动下，提取码 `reto`）。
 
 ### 构建数据集
-命令见上文「常用命令」#03d（抽样 / 单卡 / 多卡 / C 加强美颜）+ #03e（D 去红润美颜）。产出在默认 `beauty_<input>/` 下：`hq_orig/` + `hq_beauty/` +（`BEAUTY_PASSES>=2` 时）`hq_beauty_strong/` +（跑 03e 后）`hq_beauty_decolor/` + `lq_gauss/` + `compare/`（SAVE_COMPARE=1）+ `compare_decolor/`（03e SAVE_COMPARE=1）+ `rest.parquet` + `rest_beauty.parquet` +（`BEAUTY_PASSES>=2` 时）`rest_beauty_strong.parquet` +（跑 03e 后）`rest_beauty_decolor.parquet`。常用参数：
+命令见上文「常用命令」#03d（抽样 / 单卡 / 多卡 / C 加强美颜）+ #03e（D 去红润美颜）。03d 产出在默认 `beauty_<input>/` 下：`hq_orig/` + `hq_beauty/` +（`BEAUTY_PASSES>=2` 时）`hq_beauty_strong/` + `lq_gauss/` + `compare/`（SAVE_COMPARE=1）+ `rest.parquet` + `rest_beauty.parquet` +（`BEAUTY_PASSES>=2` 时）`rest_beauty_strong.parquet`。03e **独立**产出在默认 `beauty_decolor_<input>/` 下：`hq_beauty_decolor/` + `lq_gauss/` + `compare/`（SAVE_COMPARE=1，[LQ|orig|beauty|decolor]）+ `rest_beauty_decolor.parquet`。常用参数：
 - `BEAUTY_PASSES=2` 跑 C 组加强美颜（迭代美颜，产 `hq_beauty_strong` + `rest_beauty_strong.parquet`）；默认 `1` 只产 A/B。一次 `=2` 会同时产出 A/B/C 三套，A/B 产物不变。
 - `SAVE_COMPARE=1` 额外存 `compare/<name>.png` = `[LQ模糊 | 原图 | 美颜(1pass)` +（`BEAUTY_PASSES>=2`）` | 加强美颜(Npass)]` 横拼，一眼核对各张对齐 + 模糊度 + 美颜强度。
 - 想抽样核对或做 PPT 展示：加 `SAVE_COMPARE=1 SKIP_PARQUET=1`（只出图、不建 parquet，只跑 Phase A 用当前 env 即可）——产出的 `compare/<name>.png` 把「模糊退化 → 原图 → 美颜 → 加强美颜」各态并排，对齐 + 模糊度 + 美颜强度一目了然，直接可下到 PPT；要单独摆版就用 `hq_orig/` + `hq_beauty/` + `hq_beauty_strong/` + `lq_gauss/` 各张原图。输入用任意人脸小夹即可。
@@ -476,7 +476,7 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
     WEIGHT_PATH=../HYPIR/experiments/beauty_rest_beauty_decolor/checkpoint-N/state_dict.pth \
     OUTPUT_DIR=../HYPIR/results/beauty_D bash hypir/02_run_inference.sh
   ```
-- 四条路径 LQ/HQ 取舍对比：04b 真实配对 LQ=真实退化(360p 相机)、HQ=原图；03c/04c 在线 LQ=每 epoch 重随机高斯模糊、HQ=原图；03d 离线 LQ=固定高斯模糊、HQ=原图**或**美颜版（1 pass = B，迭代 N pass = C，与 A 做单变量对比）；03e 在 03d 产出基础上对 hq_beauty 做 wavelet 去红润融合得 D 的 HQ（LQ 仍用 03d 的 lq_gauss）。
+- 四条路径 LQ/HQ 取舍对比：04b 真实配对 LQ=真实退化(360p 相机)、HQ=原图；03c/04c 在线 LQ=每 epoch 重随机高斯模糊、HQ=原图；03d 离线 LQ=固定高斯模糊、HQ=原图**或**美颜版（1 pass = B，迭代 N pass = C，与 A 做单变量对比）；03e 与 03d 并列、独立跑 RetouchFormer + wavelet 融合得 D 的 HQ（自己产 lq_gauss，同 seed 与 03d 逐像素一致）。
 
 ## 暖启动机制
 **背景**：官方 GitHub 的 `HYPIR/trainer/sd2.py` 里 `SD2Trainer.init_generator` 只做 `init_lora_weights="gaussian"`（随机初始化），**完全不加载 LoRA 权重** —— 即官方默认是从零训，没有暖启动。
