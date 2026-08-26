@@ -129,10 +129,14 @@ if [ "$_impl" != "CPython" ]; then
 fi
 
 # ── 6. Install PyTorch (pip, cu121) ───────────────────────────────────────
+# Local wheels in /mnt/d/wheel take priority; missing ones from download.pytorch.org.
 TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
+WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
     echo "📦 installing PyTorch (cu121)..."
-    pip install --index-url "$TORCH_INDEX_URL" torch torchvision || {
+    mkdir -p "$WHEELS_DIR"
+    pip install --index-url "$TORCH_INDEX_URL" --find-links "$WHEELS_DIR" \
+        --timeout 600 --retries 5 torch torchvision || {
         echo "❌ torch install failed" >&2
         echo "  Try cu124: TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 bash $0" >&2
         exit 1
@@ -172,7 +176,11 @@ else
 fi
 
 # ── 8. Install pip deps ───────────────────────────────────────────────────
-PIP_FLAGS=(--timeout 600 --retries 10)
+# pip: 先查本地 wheel (/mnt/d/wheel)，缺的从清华镜像补。
+WHEELS_DIR="${WHEELS_DIR:-/mnt/d/wheel}"
+mkdir -p "$WHEELS_DIR"
+PIP_FLAGS=(-i https://pypi.tuna.tsinghua.edu.cn/simple --find-links "$WHEELS_DIR" \
+    --timeout 600 --retries 5)
 
 echo "📦 installing VGGT-Omega runtime deps..."
 pip install "${PIP_FLAGS[@]}" "numpy<2" Pillow einops safetensors opencv-python \
