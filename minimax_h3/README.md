@@ -43,6 +43,27 @@ OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8 \
 OUTPUT_NAME=rotate_360.mp4 \
 bash minimax_h3/06a_diffusers_inference.sh
 
+# ── int8 常驻服务（06c，从 D 盘加载一次，多次请求不重新加载）──
+# 与 06a 相同的 int8 + block offload，但加载后启动 HTTP 服务保持模型在 RAM。
+# 适合从 D 盘（HDD）加载——20-40min 加载成本只付一次，后续每次生成不重新加载。
+# 详见下方「int8 常驻服务 (06c)」段。
+#
+# 终端 1：启动服务（加载 20-40min 从 D 盘，然后监听 :8000）
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+DEVICE=cuda:0 \
+MAX_PIXELS=133120 \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8 \
+bash minimax_h3/06c_int8_serve.sh
+#
+# 终端 2：发请求（模型已加载，直接生成）
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"...","first_frame":"/mnt/d/img.jpg","seed":42,"output_name":"rotate.mp4"}'
+# 健康检查 / 关闭服务
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/shutdown
+
 # ── Turbo LoRA 4 步加速（06b，单卡 bf16 + auto offload，比 06a 更快）──
 # 用 lightx2v/Minimax-h3-Turbo 蒸馏的 LoRA，把 50 步压到 4 步，推理快 ~10×。
 # bf16 不量化 + ComponentsManager auto CPU offload（单卡 80GB 可跑）。
@@ -308,6 +329,62 @@ bash minimax_h3/07_flashvsr_sr.sh
 - 首次 `INSTALL_DEPS=1`：自动 clone FlashVSR 仓（`../FlashVSR`，含 `diffsynth` + `examples/WanVSR/utils`）+ BSA 仓（`../Block-Sparse-Attention`）+ 编译 BSA CUDA kernel + `pip install -e` FlashVSR（`--no-deps`，不拉 torch 2.6/transformers 4.46.2/numpy 1.26.4 pin 降级 env）+ 版本无关运行时依赖。
 - 权重默认读 `model/FlashVSR/`（`FLASHVSR_MODEL_DIR` 覆盖）；full 检查 `diffusion_pytorch_model_streaming_dmd.safetensors` / `Wan2.1_VAE.pth` / `LQ_proj_in.ckpt`，tiny_long 把 `Wan2.1_VAE.pth` 换成 `TCDecoder.ckpt`。
 
+## int8 常驻服务 (06c)
+`06c_int8_serve.sh` 调 `06c_int8_serve.py`：与 06a 相同的 int8 + block offload 加载逻辑，但加载后启动 HTTP 服务（Python 内置 `http.server`，无需 FastAPI/Flask），保持模型在 RAM 中，多次 `POST /generate` 请求不重新加载。
+
+> 适合从 D 盘（HDD）加载的场景——20-40min 加载成本只付一次。模型放 D 盘只影响加载速度（HDD + drvfs 9p 慢），不影响推理速度（模型加载后驻留 RAM，推理只走 GPU 计算 + CPU↔GPU 搬运）。
+
+### API
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/health` | 健康检查，返回 `{"status":"ready","busy":false,"generations":N,...}` |
+| `POST` | `/generate` | 生成视频；JSON body 见下；返回 `{"path":...,"size_mb":...,"time_s":...}` |
+| `POST` | `/shutdown` | 优雅关闭服务 |
+
+generate JSON body（除 `prompt` 外均可选）：
+```json
+{
+  "prompt": "integrated_multimodal_description: ...",
+  "first_frame": "/mnt/d/img.jpg",
+  "last_frame": "/mnt/d/last.jpg",
+  "num_frames": 124,
+  "seed": 42,
+  "max_pixels": 133120,
+  "fps": 24,
+  "width": 0,
+  "height": 0,
+  "output_name": "my.mp4"
+}
+```
+- `first_frame` 有值时 task=fl2va，无值时 task=t2va（同一 FL2VA pipeline，不需重新加载）。
+- `width/height=0` 时 auto 分辨率（有首帧从图片比例算，无则 16:9）。
+- 生成中收到新请求返回 429（busy）；生成出错返回 500 但服务不挂。
+
+### 命令
+```bash
+# 终端 1：启动服务（加载 20-40min 从 D 盘 HDD）
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+DEVICE=cuda:0 \
+MAX_PIXELS=133120 \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8 \
+bash minimax_h3/06c_int8_serve.sh
+
+# 终端 2：发请求
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"a drone shot over mountains","seed":42}'
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"...","first_frame":"/mnt/d/subject.jpg","num_frames":124,"seed":42,"output_name":"rotate.mp4"}'
+
+# 健康检查 / 关闭
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/shutdown
+```
+- 权重放 D 盘（`/mnt/d/wheel/minimaxh3_ms`）vs Linux fs（`~/model/MiniMax-H3`）：加载慢 15-35min（HDD+9p），推理一样快。vhdx 空间不够时放 D 盘是可接受折中。
+- 单卡 24GB（RTX 3090）可跑：int8 后 transformer+text_encoder 各 ~31GB block offload 到 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB) + 激活。需 ~56GB CPU RAM（WSL `.wslconfig` `memory=56GB`）。
+
 ## Full 2K Workflow（调 MiniMax API，非开源部分）
 要 2K 输出需把本地 768p 结果喂回 MiniMax API 的 H3-Regenerate-2K，并用 H3-Context-IR API 预处理自由 prompt。本目录不含这部分（要 API Token），步骤：
 1. 本地起 H3-Base 服务（本目录 02）；
@@ -514,10 +591,22 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `OUTPUT_DIR` / `OUTPUT_NAME` | `../../output/minimaxh3_rotate_results/results_sr` / `<input>_sr.mp4` | |
 | `INSTALL_DEPS` | `0` | `1`=clone 仓 + 装 BSA + diffsynth + requirements |
 
+### int8 常驻服务 (06c)
+| var | default | note |
+|---|---|---|
+| `MODEL_PATH` | `/mnt/d/wheel/minimaxh3_ms` | D 盘模型路径（HDD 慢加载但空间够） |
+| `PORT` | `8000` | HTTP 服务端口 |
+| `DEVICE` | `cuda:0` | GPU 设备 |
+| `OUTPUT_DIR` | `~/output/minimaxh3_rotate_results/results_int8` | 视频输出目录 |
+| `MAX_PIXELS` | `133120` | 默认分辨率上限（~486×273，可被请求 JSON 覆盖） |
+| `FPS` | `24` | 默认帧率（可被请求 JSON 覆盖） |
+| `NUM_FRAMES` | `124` | 默认帧数（可被请求 JSON 覆盖） |
+
 ## Outputs
 - **02 serve**: 日志 `../MiniMax-H3/logs/serve_<variant>_<port>.log` + PID 文件 `serve_<variant>_<port>.pid`（BG 模式）。
 - **03 generate**: 视频 `../../output/minimaxh3_rotate_results/results/<task>/<name>.mp4`（含原生立体声）。
 - **06/06a diffusers**: 视频 `OUTPUT_DIR/<name>.mp4`（768p/低分辨率 24fps 含原生立体声）。
+- **06c 常驻服务**: 视频 `OUTPUT_DIR/<name>.mp4`（同 06a；模型常驻 RAM，多次请求不重新加载）。
 - **06b Turbo LoRA**: 视频 `OUTPUT_DIR/<name>.mp4`（4/8 步加速，bf16 768p/544p 24fps 含原生立体声）。
 - **07 FlashVSR SR**: 视频 `../../output/minimaxh3_rotate_results/results_sr/<name>_sr.mp4`（4× 超分，mux 原音频）。
 
