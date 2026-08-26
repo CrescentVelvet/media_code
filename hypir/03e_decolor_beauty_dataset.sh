@@ -14,8 +14,9 @@
 #   compare/<name>.png          = [LQ|orig|beauty|decolor] 横拼（SAVE_COMPARE=1）
 #   rest_beauty_decolor.parquet = lq_gauss -> hq_beauty_decolor（04b 直接训）
 #
-# 原理：RetouchFormer 红润是权重低频色偏(VRT 把瑕疵区推向周围皮肤统计，偏暖)；
-#   磨皮是高频变化。wavelet 融合保留美颜高频(磨皮)+原图低频(原色调)即去红润保磨皮。
+# 原理：RetouchFormer 红润在 beauty 高频(per-channel DC，美颜把皮肤推向暖色统计)；
+#   磨皮是高频结构变化。DECOLOR_MODE=high_freq_dc 减 beauty_high 的 per-channel DC
+#   (剥掉红色调常数项，不动高频结构即保留磨皮) + 原图低频(原色调) -> 去红润保磨皮。
 #   HQ 目标去红润 -> LoRA 学到的还原也去红润 -> 训练(04b)/推理(02)脚本均不改，
 #   只换 PARQUET_PATH/WEIGHT_PATH。
 #
