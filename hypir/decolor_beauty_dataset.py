@@ -50,11 +50,11 @@ Model loading mirrors the official ``img_retouching.py`` exactly (same as
     model.load_state_dict(torch.load(WEIGHT_PATH, map_location=device))
     model.eval()
     beauty, _ = model(src)                          # src in [-1,1], beauty in [-1,1]
-    decolor = wavelet_reconstruction(beauty, src)   # content=beauty, style=src
+    decolor = decolor_image(beauty, src, DECOLOR_MODE)  # wavelet | high_freq_dc
 
 Env (set by 03e_decolor_beauty_dataset.sh):
   RETOUCH_DIR, WEIGHT_PATH, MODEL_NAME, INPUT_DIR, OUTPUT_DIR,
-  RESIZE_MODE, SIZE, DEVICE, SAVE_COMPARE, BLUR_SEED, SKIP_BLUR
+  RESIZE_MODE, SIZE, DEVICE, SAVE_COMPARE, BLUR_SEED, SKIP_BLUR, DECOLOR_MODE
 """
 import os
 import sys
@@ -144,7 +144,7 @@ DEVICE = os.environ.get("DEVICE", "cuda")
 SAVE_COMPARE = os.environ.get("SAVE_COMPARE", "0") == "1"
 BLUR_SEED = int(os.environ.get("BLUR_SEED", "231"))
 SKIP_BLUR = os.environ.get("SKIP_BLUR", "0") == "1"     # 1 = don't build lq_gauss
-DECOLOR_MODE = os.environ.get("DECOLOR_MODE", "wavelet")  # wavelet | high_freq_dc (see decolor())
+DECOLOR_MODE = os.environ.get("DECOLOR_MODE", "wavelet")  # wavelet | high_freq_dc (see decolor_image())
 
 # Multi-GPU sharding via torchrun: each process is independent (no comms).
 # torchrun sets LOCAL_RANK/WORLD_SIZE; standalone (plain python) defaults to 0/1.
@@ -201,7 +201,7 @@ def make_blur_fn():
 # ── END copy from build_beauty_dataset.py ─────────────────────────────────────
 
 
-def decolor(beauty, orig, mode):
+def decolor_image(beauty, orig, mode):
     """De-color RetouchFormer's reddish bias from the beautified image.
 
     Both modes take the beautified image's HIGH-freq (smoothing/blemish-removal,
@@ -343,7 +343,7 @@ def main():
                 # (true skin tone). content=beauty, style=src(=hq_orig). Linear ops =>
                 # range-agnostic, but clamp below to guard tiny out-of-range drift.
                 # DECOLOR_MODE: wavelet(只换低频,去不掉高频红) | high_freq_dc(高频减DC去红).
-                decolor = decolor(beauty, src, DECOLOR_MODE)
+                decolor = decolor_image(beauty, src, DECOLOR_MODE)
                 dt = time.time() - t1
                 decolor = decolor.clamp(-1, 1)
                 save_image(decolor, str(decolor_path), normalize=True, value_range=(-1, 1))
