@@ -156,6 +156,7 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
 ├── proxy.env                     # WSL 路径覆盖 + HF_TOKEN + HF_ENDPOINT（00a 自动生成）
 └── vggt_human/
     ├── 00a_setup_env.sh          # WSL 安装脚本
+    ├── 01b_heic_to_jpg.sh        # HEIC→JPG 转换（iPhone 照片）
     ├── 01_face_enhance.sh        # 以下脚本与服务器共用，通过 proxy.env 自动用 WSL 路径
     ├── 02_run_inference.sh
     ├── ...
@@ -178,16 +179,24 @@ cd /mnt/c/code/media_code
 
 # ── 0) 安装环境（首次，见上方「首次准备」）──
 
+# ── 1b) HEIC → JPG 转换（iPhone 照片是 .heic，VGGT-Omega 不认）──
+#    输入：D:\dataset\sample\image（.heic 文件夹）
+#    输出：D:\dataset\sample\image_jpg（.jpg 文件夹，自动创建在同级目录）
+GPU=0 \
+INPUT_DIR=/mnt/d/dataset/sample/image \
+bash vggt_human/01b_heic_to_jpg.sh
+
 # ── 1) 前处理人脸增强（HYPIR 遗留问题，暂跳过）──
-#    跳过此步，直接用原始图像喂 step 02
+#    跳过此步，直接用原始图像（或 step 1b 的 JPG）喂 step 02
 #    准备好 HYPIR 后再启用：
-# GPU=0 INPUT_DIR=/mnt/d/dataset/sample/image \
+# GPU=0 INPUT_DIR=/mnt/d/dataset/sample/image_jpg \
 #   RESULTS_DIR=~/output/vggt_human_results \
 #   bash vggt_human/01_face_enhance.sh
 
 # ── 2) VGGT-Omega 前馈推理（图像 → 位姿+深度 → predictions.npz + scene.ply）──
+#    INPUT_DIR 指向 step 1b 的 JPG 输出（如果不是 .heic 则直接用原始图夹）
 GPU=0 \
-INPUT_DIR=/mnt/d/dataset/sample/image \
+INPUT_DIR=/mnt/d/dataset/sample/image_jpg \
 MODEL_DIR=~/model/VGGT-Omega \
 RESULTS_DIR=~/output/vggt_human_results \
 MAX_POINTS=2000000 \
@@ -213,14 +222,21 @@ bash vggt_human/03_npz_to_colmap.sh
 #   sparse/0/points3D.txt     # ~200k 初始点
 
 # ── 4) 原版 3DGS 训练 + 渲染 ──
+#    增强开关（默认全开，改 0 即关）：
+#      POSE_ADJUST=1          训练前位姿变换（居中+重力对齐+尺度归一化）
+#      POSE_REFINE=1          训练中位姿精炼（可学四元数+平移）
+#      ENABLE_DYNAMIC_MASK=0  动态掩码（需 SAM2+GroundingDINO，WSL 暂跳过）
+#      ENABLE_DYNAMIC_FILTER=0 动态点云过滤（需掩码先开）
+#      ENABLE_MLP_DYNAMIC=0   DINOv2+MLP 动态感知（需 DINOv2，WSL 暂跳过）
+#      USE_DEPTH_NORMAL=1      深度-法线一致性约束（无需额外模型）
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
 POSE_ADJUST=1 \
 POSE_REFINE=1 \
-ENABLE_DYNAMIC_MASK=1 \
-ENABLE_DYNAMIC_FILTER=1 \
-ENABLE_MLP_DYNAMIC=1 \
+ENABLE_DYNAMIC_MASK=0 \
+ENABLE_DYNAMIC_FILTER=0 \
+ENABLE_MLP_DYNAMIC=0 \
 USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
@@ -230,20 +246,59 @@ bash vggt_human/04_train_3dgs.sh
 #   train/ours_30000/renders/*.png                 # 重建渲染
 #   train/ours_30000/gt/*.png                      # GT
 
-# ── 5~7) 去噪增强 + 人脸后处理 + 增强场景训练（可选）──
-#    详见 README.md 的 step 05/06/07，命令结构相同，改 RESULTS_DIR 即可
-#    注意 step 05 的 DENOISER=diffbir 需要 INSTALL_DENOISER=1（00a 时加）
+# ── 5) 渲染新视角 → 去噪 → AdaIN → 增强 COLMAP（可选）──
+#    DENOISER 可选: diffbir（扩散，质量高）| swinir（前馈，快）| none（跳过去噪）
+#    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 bash vggt_human/00a_setup_env.sh
+GPU=0 \
+DENOISER=swinir \
+NUM_NOVEL_VIEWS=10 \
+ITERATION=30000 \
+RESULTS_DIR=~/output/vggt_human_results \
+bash vggt_human/05_denoise_novel.sh
+
+# 输出：~/output/vggt_human_results/
+#   novel_renders/*.png     # 3DGS 渲染的新视角
+#   novel_alpha/*.png       # 覆盖度图
+#   source_aug/             # 增强COLMAP场景（原图+去噪图）
+
+# ── 6) 后处理人脸增强（可选，需 HYPIR 已就绪）──
+#    对 source_aug/images/ 做人脸增强（与 step 01 同一个 face_enhance.py）
+GPU=0 \
+RESULTS_DIR=~/output/vggt_human_results \
+bash vggt_human/06_face_enhance.sh
+
+# 输出：~/output/vggt_human_results/source_aug_face/
+#   images/  # 原图+去噪图，人脸区域已增强+融合
+#   sparse/  # COLMAP 原样复制
+
+# ── 7) 用增强场景训练 3DGS（可选）──
+#    原图 + 去噪虚拟相机 + 人脸增强 共同监督
+#    增强开关同 step 4
+GPU=0 \
+ITERATIONS=30000 \
+WHITE_BG=0 \
+POSE_ADJUST=1 \
+POSE_REFINE=1 \
+ENABLE_DYNAMIC_MASK=0 \
+ENABLE_DYNAMIC_FILTER=0 \
+ENABLE_MLP_DYNAMIC=0 \
+USE_DEPTH_NORMAL=1 \
+RESULTS_DIR=~/output/vggt_human_results \
+bash vggt_human/07_train_denoise.sh
+
+# 输出：~/output/vggt_human_results/model_3dgs_denoise/
+#   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 
 # ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output（释放 WSL 空间）──
 # 预览（不实际移动）：
-DRY_RUN=1 SRC=~/output/vggt_human_results DST=/mnt/d/my_output bash vggt_human/08_move_output.sh
+DRY_RUN=1 bash vggt_human/08_move_output.sh
 
 # 实际搬运（默认 ~/output/vggt_human_results → /mnt/d/output/vggt_human_results）：
-SRC=~/output/vggt_human_results DST=/mnt/d/my_output bash vggt_human/08_move_output.sh
-
+bash vggt_human/08_move_output.sh
 ```
 
 - 结果：VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
+- PLY 可拖到 [supersplat](https://playcanvas.com/supersplat/editor) 在线查看。
 
 ## 可能遇到的问题（WSL 专属）
 
