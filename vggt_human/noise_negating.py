@@ -441,7 +441,7 @@ def mlp_update(epoch, camera, mlp_model, mask_mlp, mlp_optimizer,
     cosine_dissim = cosine_dissim.clamp(0, 1)         # (1, F, F)
     # Upsample to image resolution
     cosine_dissim = F.interpolate(
-        cosine_dissim, size=(H, W), mode="bilinear", align_corners=False)  # (1, H, W)
+        cosine_dissim.unsqueeze(0), size=(H, W), mode="bilinear", align_corners=False).squeeze(0)  # (1, H, W)
 
     # 5. MLP loss
     reg_loss = 0.5 * mlp_model.get_regularizer()
