@@ -24,57 +24,57 @@
 ## transformer/ (16 files, 66.3GB — ALL DOWNLOADED)
 # ====================================================================
 # [done] 1KB    transformer/config.json
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/config.json -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00001-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00002-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00003-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00004-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00005-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00006-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00007-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00008-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00009-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00010-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00011-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00012-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00013-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00014-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model.safetensors.index.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00001-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00002-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00003-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00004-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00005-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00006-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00007-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00008-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00009-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00010-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00011-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00012-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00013-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model-00014-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/transformer/diffusion_pytorch_model.safetensors.index.json -->
 
 # ====================================================================
 ## text_encoder/ (23 files, 66.7GB — 6 done, 17 to download)
 # ====================================================================
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/chat_template.json -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/config.json -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/merges.txt -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00001-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00002-of-00014.safetensors -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00003-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/chat_template.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/merges.txt -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00001-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00002-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00003-of-00014.safetensors -->
 # --- 以下 11 个 shards 待下载（各 ~4.88GB，最后一个 3.27GB）---
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00004-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00005-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00006-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00007-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00008-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00009-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00010-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00011-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00012-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00013-of-00014.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00014-of-00014.safetensors
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00004-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00005-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00006-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00007-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00008-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00009-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00010-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00011-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00012-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00013-of-00014.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model-00014-of-00014.safetensors -->
 # --- 以下小文件待下载 ---
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model.safetensors.index.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/preprocessor_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/tokenizer.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/tokenizer_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/video_preprocessor_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/vocab.json
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/model.safetensors.index.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/preprocessor_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/tokenizer.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/tokenizer_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/video_preprocessor_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/text_encoder/vocab.json -->
 
 # ====================================================================
 ## vae/ (5 files, 10.4GB — 2 done, 3 to download)
 # ====================================================================
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/config.json -->
-# <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model.safetensors.index.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model.safetensors.index.json -->
 # --- 以下 3 个 shards 待下载 ---
 https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00001-of-00003.safetensors
 https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00002-of-00003.safetensors
