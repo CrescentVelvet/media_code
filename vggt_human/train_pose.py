@@ -240,7 +240,7 @@ def main():
     gaussians = GaussianModel(SH_DEGREE)
     pts_t = torch.tensor(points, dtype=torch.float32, device=DEVICE)
     cols_t = torch.tensor(colors, dtype=torch.float32, device=DEVICE) / 255.0
-    pcd = Namespace(points=pts_t, colors=cols_t, normals=None, metas=None)
+    pcd = Namespace(points=pts_t.cpu(), colors=cols_t.cpu(), normals=None, metas=None)
 
     camera_extent = 10.0 if POSE_ADJUST else 1.0
     gaussians.create_from_pcd(pcd, len(train_cameras), camera_extent)
