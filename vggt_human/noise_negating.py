@@ -100,17 +100,25 @@ class DINOFeatureExtractor(nn.Module):
 
     def _build_arch(self):
         """Build DINOv2 ViT-S/14 reg architecture (for loading local weights)."""
+        # 1. torch.hub with pretrained=False (uses cached repo, no download)
+        try:
+            model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg",
+                                  pretrained=False, trust_repo=True)
+            return model
+        except Exception as e:
+            print(f"⚠️ torch.hub build failed ({e})")
+        # 2. Fallback: timm
         try:
             from timm.models.vision_transformer import VisionTransformer
-            model = VisionTransformer(
+            return VisionTransformer(
                 img_size=518, patch_size=14, embed_dim=384, depth=12,
                 num_heads=6, mlp_ratio=4, reg_tokens=4,
             )
-            return model
         except Exception as e:
-            print(f"⚠️ timm build failed ({e}), falling back to torch.hub")
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg",
-                                  trust_repo=True)
+            print(f"⚠️ timm build failed ({e})")
+        # 3. Last resort: torch.hub with pretrained=True (downloads checkpoint)
+        return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg",
+                              trust_repo=True)
 
     def forward(self, image, feature_size):
         """Extract patch features as a 2D map.
