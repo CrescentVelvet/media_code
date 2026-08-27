@@ -44,12 +44,13 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 
 # ── 2. WSL path defaults (Linux fs: repos ~/repos, weights ~/model) ───────
 # Exported BEFORE sourcing _env.sh so its ${VAR:-default} picks these up.
 # Also written to proxy.env (step 3) so scripts 01-07 inherit them.
+# Repos + weights on Linux filesystem (fast I/O for compilation + training).
 export VGGT_DIR="${VGGT_DIR:-$HOME/repos/vggt-omega}"
 export GS_DIR="${GS_DIR:-$HOME/repos/gaussian-splatting}"
-export MODEL_DIR="${MODEL_DIR:-$HOME/model/VGGT-Omega}"
+export MODEL_DIR="${MODEL_DIR:-/mnt/d/wheel/vggt_human_ms/VGGT-Omega}"
 export RESULTS_DIR="${RESULTS_DIR:-$HOME/output/vggt_human_results}"
 export HYPIR_DIR="${HYPIR_DIR:-$HOME/repos/HYPIR}"
-export WEIGHTS_ROOT="${WEIGHTS_ROOT:-$HOME/model}"
+export WEIGHTS_ROOT="${WEIGHTS_ROOT:-/mnt/d/wheel/vggt_human_ms}"
 export DIFFBIR_DIR="${DIFFBIR_DIR:-$HOME/repos/DiffBIR}"
 export SWINIR_DIR="${SWINIR_DIR:-$HOME/repos/SwinIR}"
 
@@ -73,15 +74,20 @@ if [ ! -f "$PROXY_ENV" ]; then
 # HF mirror (huggingface.co 直连超时; 用 hf-mirror.com 镜像)
 export HF_ENDPOINT="https://hf-mirror.com"
 
-# Repos + weights on Linux filesystem (fast I/O for compilation + training).
+# Repos on Linux fs (compilation); Models on D:\wheel (read once, no copy needed).
 export VGGT_DIR="$HOME/repos/vggt-omega"
 export GS_DIR="$HOME/repos/gaussian-splatting"
 export HYPIR_DIR="$HOME/repos/HYPIR"
-export MODEL_DIR="$HOME/model/VGGT-Omega"
-export WEIGHTS_ROOT="$HOME/model"
+export MODEL_DIR="/mnt/d/wheel/vggt_human_ms/VGGT-Omega"
+export WEIGHTS_ROOT="/mnt/d/wheel/vggt_human_ms"
 export RESULTS_DIR="$HOME/output/vggt_human_results"
 export DIFFBIR_DIR="$HOME/repos/DiffBIR"
 export SWINIR_DIR="$HOME/repos/SwinIR"
+# 动态掩码模型（D 盘直接读）
+export SAM2_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/sam2"
+export SAM2_DIR="$HOME/repos/segment-anything-2"
+export GROUNDING_DINO_ID="/mnt/d/wheel/vggt_human_ms/grounding-dino-tiny"
+export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg.pth"
 ENVEOF
     echo "  ✅ written (edit to add HF_TOKEN before step 02)"
 else
