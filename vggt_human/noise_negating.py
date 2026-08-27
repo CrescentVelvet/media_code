@@ -105,11 +105,12 @@ class DINOFeatureExtractor(nn.Module):
             model = VisionTransformer(
                 img_size=518, patch_size=14, embed_dim=384, depth=12,
                 num_heads=6, mlp_ratio=4, reg_tokens=4,
-                block_fn=None,
             )
             return model
-        except Exception:
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
+        except Exception as e:
+            print(f"⚠️ timm build failed ({e}), falling back to torch.hub")
+            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg",
+                                  trust_repo=True)
 
     def forward(self, image, feature_size):
         """Extract patch features as a 2D map.
