@@ -368,8 +368,7 @@ def main():
         if iteration < densify_until:
             gaussians.add_densification_stats(
                 render_pkg["viewspace_points"],
-                render_pkg["visibility_filter"],
-                render_pkg["radii"])
+                render_pkg["visibility_filter"])
             if iteration > densify_from and iteration % densify_interval == 0:
                 size_thr = 20 if iteration > opacity_reset else None
                 try:
