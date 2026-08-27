@@ -212,20 +212,19 @@ def main():
         image_path = os.path.join(images_dir, name)
         if os.path.isfile(image_path):
             img_pil = Image.open(image_path).convert("RGB")
-            image_tensor = to_tensor(img_pil)
         else:
             print(f"  ⚠️ image not found: {image_path}, using zeros")
-            image_tensor = torch.zeros(3, H, W)
+            img_pil = Image.fromarray(np.zeros((H, W, 3), dtype=np.uint8))
 
         FoVx = focal2fov(float(fx), W)
         FoVy = focal2fov(float(fy), H)
         R_np = w2c_r_list[i].float().numpy()
         T_np = w2c_t_list[i].float().numpy()
 
-        cam = Camera(colmap_id=cam_id, R=R_np, T=T_np,
-                     FoVx=FoVx, FoVy=FoVy,
-                     image=image_tensor, gt_image_mask=None,
-                     image_name=name, data_device=DEVICE)
+        cam = Camera(resolution=(W, H), colmap_id=cam_id, R=R_np, T=T_np,
+                     FoVx=FoVx, FoVy=FoVy, depth_params=None,
+                     image=img_pil, invdepthmap=None,
+                     image_name=name, uid=i, data_device=DEVICE)
         if POSE_REFINE:
             w2c_qvec = rotmat_to_quat(torch.tensor(R_np, dtype=torch.float32))
             w2c_tvec = torch.tensor(T_np, dtype=torch.float32)
