@@ -192,26 +192,26 @@ class PoseAdjuster:
     # ── Forward transforms ──────────────────────────────────────────────────
     def transform_camera(self, w2c_r, w2c_t):
         """Forward: original → adjusted coords. Returns (new_r, new_t)."""
-        center = self.center.to(w2c_r.device)
-        rot = self.pred_rot.to(w2c_r.device)
-        scale = self.scale.to(w2c_r.device)
+        center = self.center.to(w2c_r)
+        rot = self.pred_rot.to(w2c_r)
+        scale = self.scale.to(w2c_r)
         new_t = scale * (w2c_t + w2c_r @ center)
         new_r = w2c_r @ rot
         return new_r, new_t
 
     def transform_points(self, points):
         """Forward: original → adjusted coords. points: (N, 3)."""
-        center = self.center.to(points.device)
-        rot = self.pred_rot.to(points.device)
-        scale = self.scale.to(points.device)
+        center = self.center.to(points)
+        rot = self.pred_rot.to(points)
+        scale = self.scale.to(points)
         return scale * (points - center) @ rot
 
     # ── Reverse transforms (after training) ────────────────────────────────
     def reverse_points(self, points):
         """Reverse: adjusted → original coords. points: (N, 3)."""
-        center = self.center.to(points.device)
-        rot = self.pred_rot.to(points.device)
-        scale = self.scale.to(points.device)
+        center = self.center.to(points)
+        rot = self.pred_rot.to(points)
+        scale = self.scale.to(points)
         return (1.0 / scale) * points @ rot.T + center
 
     def reverse_scaling(self, scaling):
