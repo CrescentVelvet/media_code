@@ -244,7 +244,25 @@ def main():
 
     camera_extent = 10.0 if POSE_ADJUST else 1.0
     gaussians.create_from_pcd(pcd, train_cameras, camera_extent)
-    gaussians.training_setup(camera_extent)
+
+    # Standard 3DGS OptimizationParams defaults (this repo's training_setup expects full config)
+    training_args = Namespace(
+        iterations=ITERATIONS,
+        position_lr_init=0.00016,
+        position_lr_final=0.0000016,
+        position_lr_delay_mult=0.01,
+        position_lr_max_steps=ITERATIONS,
+        feature_lr=0.0025,
+        opacity_lr=0.025,
+        scaling_lr=0.005,
+        rotation_lr=0.001,
+        exposure_lr_init=0.01,
+        exposure_lr_final=0.001,
+        exposure_lr_delay_steps=0,
+        exposure_lr_delay_mult=0.0,
+        percent_dense=0.01,
+    )
+    gaussians.training_setup(training_args)
 
     # ── 5a. Precompute point cloud normals (if depth-normal enabled) ───
     point_normals = None
