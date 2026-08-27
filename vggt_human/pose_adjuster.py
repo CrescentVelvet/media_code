@@ -124,7 +124,7 @@ def estimate_down_vec(w2c_r_list):
     mean_down = torch.stack([r[:, 1] for r in w2c_r_list]).mean(dim=0)
     if torch.dot(down, mean_down) < 0:
         down = -down
-    return down.float()
+    return down
 
 
 # ---------------------------------------------------------------------------
