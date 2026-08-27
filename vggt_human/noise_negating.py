@@ -104,7 +104,7 @@ class DINOFeatureExtractor(nn.Module):
             from timm.models.vision_transformer import VisionTransformer
             model = VisionTransformer(
                 img_size=518, patch_size=14, embed_dim=384, depth=12,
-                num_heads=6, mlp_ratio=4, num_register_tokens=4,
+                num_heads=6, mlp_ratio=4, reg_tokens=4,
                 block_fn=None,
             )
             return model

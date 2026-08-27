@@ -65,6 +65,13 @@ GPU=0 HQ_DIR=../HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_
 # 💡02) 测试外插视角优化效果(在输入没有的角度上渲染图像会很模糊，考虑用HYPIR进行去噪增强)
 GPU=0 LQ_DIR=../../output/hypir_test_results/input UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth OUTPUT_DIR=../../output/hypir_test_results/output bash hypir/02_run_inference.sh
 
+# ── 模型打包与自测(服务器) ──
+conda activate 3dgsr
+python ../Reconstruction/enh_model_打包模型.py
+CUDA_VISIBLE_DEVICE=0 python ../Reconstruction/reconstruction_all.py
+python ../Reconstruction/uwa_video_封装视频.py
+
+
 # # ── 并行训练(04d) ── 越练越模糊是 L2 坍缩；扫 LR_G + loss 权重 + 真实退化配对 找最佳
 # #   (04d 默认 steps=30000 / ckpt_every=100 / LR_D=LR_G / 后台；逐 ckpt 评找峰值，常在早期)
 # # 复原+美颜：多个 LR 并行（各占一卡）：
