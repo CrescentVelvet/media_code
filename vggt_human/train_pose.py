@@ -243,7 +243,7 @@ def main():
     pcd = Namespace(points=pts_t.cpu(), colors=cols_t.cpu(), normals=None, metas=None)
 
     camera_extent = 10.0 if POSE_ADJUST else 1.0
-    gaussians.create_from_pcd(pcd, len(train_cameras), camera_extent)
+    gaussians.create_from_pcd(pcd, train_cameras, camera_extent)
     gaussians.training_setup(camera_extent)
 
     # ── 5a. Precompute point cloud normals (if depth-normal enabled) ───
