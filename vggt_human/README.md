@@ -534,6 +534,14 @@ CUDA 扩展没编成。重跑：
 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 ```
 
+**6b. `04` 报 `Camera.__init__() got an unexpected keyword argument` / `create_from_pcd()` 参数不匹配 / `training_setup()` 属性缺失**
+gaussian-splatting 的 main 分支更新了 API 签名，`train_pose.py` 已适配最新版。如果服务器上 clone 的是旧版（之前能跑、现在重 clone 后报错），说明 main 分支更新了。改动包括：`Camera.__init__` 加了 `resolution/depth_params/invdepthmap/uid`；`create_from_pcd` 加了 `cam_infos`；`training_setup` 要完整 config 对象；`densify_and_prune` 加了 `max_screen_size/radii`。重新 clone 最新版 + 用最新 `train_pose.py` 即可：
+```bash
+rm -rf $GS_DIR
+INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh   # 服务器
+# 或 WSL: rm -rf ~/repos/gaussian-splatting && bash vggt_human/00a_setup_env.sh
+```
+
 **7. 跑 `.sh` 报 `syntax error near unexpected token '('`**
 CRLF 行尾污染。`find vggt_human -name '*.sh' -exec sed -i 's/\r$//' {} +`（`.gitattributes` 强制 LF）。
 
