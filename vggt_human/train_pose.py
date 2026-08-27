@@ -293,7 +293,7 @@ def main():
           f"mlp_dynamic={ENABLE_MLP_DYNAMIC} depth_normal={USE_DEPTH_NORMAL}")
 
     bg = torch.ones(3, device=DEVICE) if WHITE_BG else torch.zeros(3, device=DEVICE)
-    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False)
+    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, antialiasing=False, debug=False)
 
     densify_from = 500
     densify_until = 15000
