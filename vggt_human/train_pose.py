@@ -308,8 +308,9 @@ def main():
     if not os.path.isfile(cfg_path):
         with open(cfg_path, "w") as f:
             f.write(f"Namespace(sh_degree={SH_DEGREE}, source_path='{SOURCE_DIR}', "
-                    f"images='images', resolution=1, white_background={WHITE_BG}, "
-                    f"data_device='{DEVICE}', eval=False, model_path='{GAUSSIAN_DIR}')")
+                    f"images='images', depths='', resolution=1, white_background={WHITE_BG}, "
+                    f"data_device='{DEVICE}', eval=False, train_test_exp=False, "
+                    f"model_path='{GAUSSIAN_DIR}')")
 
     for iteration in range(1, ITERATIONS + 1):
         gaussians.update_learning_rate(iteration)
