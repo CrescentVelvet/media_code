@@ -8,19 +8,57 @@
 
 > 📖 WSL2 + Ubuntu 24.04 + NVIDIA 驱动 + Miniconda 的基础环境搭建见 [`wsl/README.md`](../wsl/README.md)（本文件假设已按它配好 WSL + Miniconda）。
 
+## 当前状态（已配置完成，直接跑 06c）
+
+> 本机 RTX 3090 (24GB) + 64GB RAM + D 盘 9.3TB。环境已配好，权重已下完。
+
+| 组件 | 状态 | 路径 |
+|---|---|---|
+| conda env `minimax_h3` | ✅ 已建（python 3.11 + torch 2.6 cu124 + diffusers 0.40 + torchao 0.15 + transformers 5.15） | `~/miniconda3/envs/minimax_h3` |
+| gcc 12（triton JIT 编译用） | ✅ 已装（conda gxx_linux-64=12） | env 内 |
+| MiniMax-H3 权重（60 文件 135GB） | ✅ 全部下完 | `/mnt/d/wheel/minimaxh3_ms` |
+| WSL 内存 | ✅ `.wslconfig` memory=56GB + swap=32GB | vhdx 27GB（C 盘） |
+
+**直接跑 06c 常驻服务**（模型在 D 盘，输出也写 D 盘，不吃 C 盘空间）：
+```bash
+# 启动服务（从 D 盘加载 ~20-40min，然后监听 :8000）
+cd /mnt/c/code/media_code
+GPU=0 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+  DEVICE=cuda:0 MAX_PIXELS=133120 \
+  bash minimax_h3/06c_int8_serve.sh
+
+# 另一个终端发请求：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"a drone shot over mountains","seed":42}'
+
+# 带首帧图的 FL2VA：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"integrated_multimodal_description: ...","first_frame":"/mnt/d/your_image.jpg","seed":42,"output_name":"rotate.mp4"}'
+
+# 健康检查 / 关闭
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/shutdown
+```
+
+> 06a int8 虽然注释说"单卡 80GB 常驻"，实际代码用了 `enable_group_offload(block_level)`——transformer/text_encoder 按 block offload 到 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB) + 激活。RTX 3090 24GB **够用**，但需要 ~56GB CPU RAM 装 int8 后的 ~62GB 权重（部分走 swap）。
+
+---
+
 ## ⚠️ 显存现实检查（先看这个）
 
 MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120GB bf16**。本地复现前先对照你的卡：
 
-| 硬件 | 02 serve（SGLang 多卡） | 06（diffusers bf16） | 06a（int8 量化） | 06b（Turbo LoRA 4 步） | 07 FlashVSR |
+| 硬件 | 02 serve（SGLang 多卡） | 06（diffusers bf16） | 06a/06c（int8 + block offload） | 06b（Turbo LoRA 4 步） | 07 FlashVSR |
 |---|---|---|---|---|---|
 | **4× A100 80GB**（服务器） | ✅ FSDP 容量配方 | ✅ 两卡分拆 | ✅ 单卡常驻 | ✅ 最快 | ✅ |
-| **2× RTX 5090 32GB** | ⚠️ 逐层 offload（慢） | ❌ 放不下 | ❌ 放不下 | ⚠️ offload | ✅ |
-| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ❌ 放不下 | ⚠️ **唯一可行**（auto CPU offload，慢但能跑） | ✅ |
+| **2× RTX 5090 32GB** | ⚠️ 逐层 offload（慢） | ❌ 放不下 | ✅ block offload | ⚠️ offload | ✅ |
+| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ✅ **block offload**（~56GB CPU RAM） | ⚠️ offload | ✅ |
 
-> **RTX 3090 / 4090 单卡用户**：直接用 **06b Turbo LoRA**（4 步去噪 + auto CPU offload）。02/06/06a 都放不下。要跑完整 H3-Base 服务必须上多卡（≥ 2× 32GB 或 4× 80GB）。
+> **RTX 3090 单卡用户**：用 **06c int8 常驻服务**（加载一次 D 盘模型，多次请求不重新加载）。06a/06c 的代码用了 `enable_group_offload(block_level)`——transformer 按 block 搬到 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB)，24GB 够用。需 ~56GB CPU RAM（`.wslconfig` `memory=56GB`）。
 >
-> 06b 虽然用 offload（60GB 权重在 CPU↔GPU 间搬运），但 **4 步去噪**（vs 官方 50 步）让总耗时可控；单次生成约 10-30 分钟（视 CPU/内存/盘速）。
+> 06b Turbo LoRA 需 ~124GB CPU RAM（bf16 全量 offload），单机 64GB 跑不动，不推荐。
 
 ## 与服务器版的核心差异
 

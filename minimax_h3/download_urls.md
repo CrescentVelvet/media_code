@@ -76,44 +76,44 @@
 <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/config.json -->
 <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model.safetensors.index.json -->
 # --- 以下 3 个 shards 待下载 ---
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00001-of-00003.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00002-of-00003.safetensors
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00003-of-00003.safetensors
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00001-of-00003.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00002-of-00003.safetensors -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/vae/diffusion_pytorch_model-00003-of-00003.safetensors -->
 
 # ====================================================================
 ## audio_vae/ (2 files, 0.6GB — 2 to download)
 # ====================================================================
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_vae/config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_vae/diffusion_pytorch_model.safetensors
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_vae/config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_vae/diffusion_pytorch_model.safetensors -->
 
 # ====================================================================
 ## processor/ (7 files, 0.0GB — 7 to download)
 # ====================================================================
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/chat_template.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/merges.txt
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/preprocessor_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/tokenizer.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/tokenizer_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/video_preprocessor_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/vocab.json
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/chat_template.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/merges.txt -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/preprocessor_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/tokenizer.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/tokenizer_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/video_preprocessor_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/processor/vocab.json -->
 
 # ====================================================================
 ## tokenizer/ (4 files, 0.0GB — 4 to download)
 # ====================================================================
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/merges.txt
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/tokenizer.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/tokenizer_config.json
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/vocab.json
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/merges.txt -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/tokenizer.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/tokenizer_config.json -->
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/tokenizer/vocab.json -->
 
 # ====================================================================
 ## scheduler/ (1 file, 0.0GB — 1 to download)
 # ====================================================================
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/scheduler/scheduler_config.json
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/scheduler/scheduler_config.json -->
 
 # ====================================================================
 ## audio_scheduler/ (1 file, 0.0GB — 1 to download)
 # ====================================================================
-https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_scheduler/scheduler_config.json
+<!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_scheduler/scheduler_config.json -->
 
 # ====================================================================
 ## (root) (1 file — ALL DOWNLOADED)
@@ -121,9 +121,7 @@ https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/audio_scheduler/schedule
 # <!-- https://hf-mirror.com/MiniMaxAI/MiniMax-H3/resolve/main/model_index.json -->
 
 # ====================================================================
-## 汇总: 60 files, 144.1GB total
-## 已下载: 25 files, 81.0GB
-## 待下载: 35 files, 63.1GB（以上未注释的 URL）
+## 汇总: 60 files, 144.1GB total — ALL DOWNLOADED ✅
 # ====================================================================
 
 # 下载完成后，把文件按相对路径放到 /mnt/d/wheel/minimaxh3_ms/

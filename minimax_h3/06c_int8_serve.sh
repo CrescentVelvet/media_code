@@ -58,7 +58,7 @@ python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPi
 export MODEL_PATH="${MODEL_PATH:-/mnt/d/wheel/minimaxh3_ms}"
 export PORT="${PORT:-8000}"
 export DEVICE="${DEVICE:-cuda:0}"
-export OUTPUT_DIR="${OUTPUT_DIR:-$HOME/output/minimaxh3_rotate_results/results_int8}"
+export OUTPUT_DIR="${OUTPUT_DIR:-/mnt/d/output/minimaxh3_rotate_results/results_int8}"
 export MAX_PIXELS="${MAX_PIXELS:-133120}"
 export FPS="${FPS:-24}"
 export NUM_FRAMES="${NUM_FRAMES:-124}"

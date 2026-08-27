@@ -39,8 +39,8 @@ from urllib.parse import urlparse
 MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms"))
 PORT = int(os.environ.get("PORT", "8000"))
 DEVICE = os.environ.get("DEVICE", "cuda:0")
-OUTPUT_DIR = os.path.abspath(os.environ.get(
-    "OUTPUT_DIR", os.path.expanduser("~/output/minimaxh3_rotate_results/results_int8")))
+    OUTPUT_DIR = os.path.abspath(os.environ.get(
+    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/results_int8"))
 DEFAULT_MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(512 * 768)))
 DEFAULT_FPS = int(os.environ.get("FPS", "24"))
 DEFAULT_NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
