@@ -226,9 +226,9 @@ def main():
                      image=img_pil, invdepthmap=None,
                      image_name=name, uid=i, data_device=DEVICE)
         if POSE_REFINE:
-            w2c_qvec = rotmat_to_quat(torch.tensor(R_np, dtype=torch.float32))
-            w2c_tvec = torch.tensor(T_np, dtype=torch.float32)
-            intrinsic = torch.tensor([fx, fy, cx, cy], dtype=torch.float32)
+            w2c_qvec = rotmat_to_quat(torch.tensor(R_np, dtype=torch.float32, device=DEVICE))
+            w2c_tvec = torch.tensor(T_np, dtype=torch.float32, device=DEVICE)
+            intrinsic = torch.tensor([fx, fy, cx, cy], dtype=torch.float32, device=DEVICE)
             cam = PoseRefinedCamera(
                 cam, w2c_qvec, w2c_tvec, intrinsic,
                 refine_intrinsic=REFINE_INTRINSIC, device=DEVICE,
