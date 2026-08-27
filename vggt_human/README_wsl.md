@@ -196,7 +196,7 @@ bash vggt_human/01b_heic_to_jpg.sh
 # ── 2) VGGT-Omega 前馈推理（图像 → 位姿+深度 → predictions.npz + scene.ply）──
 #    INPUT_DIR 指向 step 1b 的 JPG 输出（如果不是 .heic 则直接用原始图夹）
 GPU=0 \
-INPUT_DIR=/mnt/d/dataset/sample/image_jpg \
+INPUT_DIR=/mnt/d/dataset/测试数据sample/3fe0604320a24d66a8bde164edf18c11/image_jpg \
 MODEL_DIR=~/model/VGGT-Omega \
 RESULTS_DIR=~/output/vggt_human_results \
 MAX_POINTS=2000000 \

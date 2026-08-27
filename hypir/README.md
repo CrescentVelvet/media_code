@@ -53,7 +53,7 @@ GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_2
 # 🚀04b) C 二次美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
 # 🚀04b) D 去红润美颜(LQ 同样模糊、HQ 换去红润美颜版 wavelet 融合，预期红润减弱、磨皮保留)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_decolor bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_decolor_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_decolor bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
 # 💡02) 测试原生(发布)模型 —— 指定输入路径

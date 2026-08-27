@@ -87,7 +87,7 @@ export SWINIR_DIR="$HOME/repos/SwinIR"
 export SAM2_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/sam2"
 export SAM2_DIR="$HOME/repos/segment-anything-2"
 export GROUNDING_DINO_ID="/mnt/d/wheel/vggt_human_ms/grounding-dino-tiny"
-export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg.pth"
+export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg4_pretrain.pth"
 ENVEOF
     echo "  ✅ written (edit to add HF_TOKEN before step 02)"
 else

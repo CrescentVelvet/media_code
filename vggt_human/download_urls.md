@@ -33,12 +33,10 @@
 
 # ============================================================================
 ## C. DINOv2 ViT-S/14 reg（MLP 动态感知特征提取，~85MB）
-## 保存到：D:\wheel\vggt_human_ms\dinov2\dinov2_vits14_reg.pth
-## proxy.env: export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg.pth"
-##（注意：下载的文件名是 dinov2_vits14_reg_03_pretrain.pth，要改名为
-##  dinov2_vits14_reg.pth，或直接设 DINO_MODEL_PATH 指向原始文件名）
+## 保存到：D:\wheel\vggt_human_ms\dinov2\dinov2_vits14_reg4_pretrain.pth
+## proxy.env: export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg4_pretrain.pth"
 # ============================================================================
-<!-- https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_reg_03_pretrain.pth -->
+<!-- https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_reg4_pretrain.pth -->
 
 # ============================================================================
 ## D. sam2 Python 包（需 clone + pip install，不是下载文件）
