@@ -86,8 +86,11 @@ export SWINIR_DIR="$HOME/repos/SwinIR"
 # 动态掩码模型（D 盘直接读）
 export SAM2_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/sam2"
 export SAM2_DIR="$HOME/repos/segment-anything-2"
+export SAM2_CONFIG="configs/sam2.1/sam2.1_hiera_l.yaml"
 export GROUNDING_DINO_ID="/mnt/d/wheel/vggt_human_ms/grounding-dino-tiny"
 export DINO_MODEL_PATH="/mnt/d/wheel/vggt_human_ms/dinov2/dinov2_vits14_reg4_pretrain.pth"
+# sam2 包不 pip install，直接加 PYTHONPATH
+export PYTHONPATH="$HOME/repos/segment-anything-2:$PYTHONPATH"
 ENVEOF
     echo "  ✅ written (edit to add HF_TOKEN before step 02)"
 else
