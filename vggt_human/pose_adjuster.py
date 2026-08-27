@@ -219,9 +219,11 @@ class PoseAdjuster:
         return scaling / self.scale.to(scaling.device)
 
     def reverse_rotation(self, rotation):
-        """Reverse gaussian rotation: multiply by pred_rot.T."""
+        """Reverse gaussian rotation: quaternions (N,4) -> matrices -> @ pred_rot.T -> quaternions."""
         rot = self.pred_rot.to(rotation.device)
-        return rotation @ rot.T
+        R = quat_to_rotmat(rotation)       # (N, 3, 3)
+        R_orig = R @ rot.T                 # (N, 3, 3) @ (3, 3) -> (N, 3, 3)
+        return rotmat_to_quat(R_orig)     # (N, 4)
 
     # ── Save / Load ────────────────────────────────────────────────────────
     def save(self, path):
