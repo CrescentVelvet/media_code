@@ -371,9 +371,9 @@ def main():
                 render_pkg["visibility_filter"])
             if iteration > densify_from and iteration % densify_interval == 0:
                 size_thr = 20 if iteration > opacity_reset else None
-                    gaussians.densify_and_prune(
-                        torch.tensor([0.0002], device=DEVICE), 0.005, camera_extent, size_thr,
-                        render_pkg["radii"])
+                gaussians.densify_and_prune(
+                    torch.tensor([0.0002], device=DEVICE), 0.005, camera_extent, size_thr,
+                    render_pkg["radii"])
 
         # Opacity reset
         if iteration == opacity_reset or iteration == opacity_reset + 1:
