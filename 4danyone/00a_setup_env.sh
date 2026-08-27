@@ -98,19 +98,47 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         echo "  ⚠️ $WHEELS_DIR not found — will download everything (slow). Pre-fetch wheels per download_urls.txt"
     fi
 
-    # 3a. torch 2.8 + torchvision 0.23 (PyPI wheel ships cu12x by default).
-    if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-        echo "📦 installing torch 2.8 + torchvision 0.23..."
-        pip install "${PIP_FLAGS[@]}" "torch>=2.8,<2.9" "torchvision>=0.23,<0.24" || {
+    # --- torch install is SPLIT into stages. pip with `-i INDEX --find-links`
+    #     still downloads the 888 MB torch wheel from the index instead of using
+    #     the local one (verified). So use `--no-index` to force local wheels for
+    #     the big ones (torch/triton/torchvision/nvidia-*), and the aliyun mirror
+    #     only for the small pure-Python deps that aren't in D:\wheel. ---
+
+    # 3a. torch's small pure-Python deps (filelock/sympy/...; not in D:\wheel).
+    if ! python -c "import torch" 2>/dev/null; then
+        echo "📦 [3a] torch's small deps (filelock/sympy/networkx/jinja2/fsspec) from aliyun..."
+        pip install "${PIP_FLAGS[@]}" filelock typing-extensions sympy networkx jinja2 fsspec || {
+            echo "❌ small deps install failed" >&2; exit 1
+        }
+    fi
+
+    # 3b. torch + triton from LOCAL wheels (--no-index; 14 nvidia-cu12 auto).
+    if ! python -c "import torch" 2>/dev/null; then
+        echo "📦 [3b] torch 2.8 + triton 3.4 from local wheels (--no-index, no download)..."
+        pip install --no-index --find-links "$WHEELS_DIR" "torch==2.8.0" "triton==3.4.0" || {
             echo "❌ torch install failed" >&2
-            echo "  Try default PyPI: PIP_MIRROR=https://pypi.org/simple bash $0" >&2
+            echo "  Ensure torch-2.8.0-cp311 + nvidia_*.whl + triton are in $WHEELS_DIR" >&2
             exit 1
         }
     fi
     python -c "import torch; print(f'  ✅ torch {torch.__version__}  cuda={torch.version.cuda}  available={torch.cuda.is_available()}')"
 
-    # 3b. 4DAnyone deps (filter torch/torchvision/numpy pins — handled above).
-    echo "📦 installing 4DAnyone deps (from requirements.txt, torch/numpy filtered)..."
+    # 3c. numpy + pillow (torchvision deps, not in D:\wheel) from aliyun.
+    if ! python -c "import torchvision" 2>/dev/null; then
+        echo "📦 [3c] numpy + pillow from aliyun (torchvision deps)..."
+        pip install "${PIP_FLAGS[@]}" "numpy>=1.26,<2" "pillow>=10,<13" || true
+    fi
+
+    # 3d. torchvision from LOCAL wheel (--no-index).
+    if ! python -c "import torchvision" 2>/dev/null; then
+        echo "📦 [3d] torchvision 0.23 from local wheel (--no-index)..."
+        pip install --no-index --find-links "$WHEELS_DIR" "torchvision==0.23.0" || \
+            echo "  ⚠️ torchvision local install failed — try: pip install ${PIP_FLAGS[@]} torchvision==0.23.0" >&2
+    fi
+
+    # 3e. 4DAnyone deps (filter torch/torchvision/numpy — handled above) from
+    #     aliyun; D:\wheel wheels reused via --find-links.
+    echo "📦 [3e] 4DAnyone deps from requirements.txt (aliyun + local wheels)..."
     if [ -f "$FDANYONE_DIR/requirements.txt" ]; then
         TMP_REQ="$(mktemp).txt"
         grep -v -iE '^[[:space:]]*(torch|torchvision|numpy)([=<>!~]|$|[[:space:]])' \
@@ -122,13 +150,16 @@ if [ "${INSTALL_DEPS:-0}" = "1" ]; then
         pip install "${PIP_FLAGS[@]}" \
             "av>=16,<17" colorlog einops ffmpeg-python fire ftfy \
             "huggingface-hub>=0.36,<1" hydra-core hydra-zen imageio \
-            kornia lapx "numpy>=1.26,<2" opencv-python pillow \
+            kornia lapx opencv-python \
             "pytorch-lightning>=2.3,<3" regex safetensors scipy \
             sentencepiece "smplx==0.1.28" "timm==0.9.12" tqdm \
-            "transformers>=4.57,<5" typing-extensions "ultralytics==8.2.42" yacs
+            "transformers>=4.57,<5" "ultralytics==8.2.42" yacs
     fi
 
-    # 3c. Pin numpy (1.26.x; <2 per requirements.txt, avoids 2.x ABI issues).
+    # 3f. numba — lapx's runtime dep (lapx's setup.py doesn't declare it).
+    pip install "${PIP_FLAGS[@]}" numba || echo "  ⚠️ numba (lapx runtime dep) install failed" >&2
+
+    # 3g. Pin numpy (1.26.x; <2 per requirements.txt, avoids 2.x ABI issues).
     pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps "numpy>=1.26,<2" || true
 fi
 

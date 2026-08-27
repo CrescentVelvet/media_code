@@ -60,7 +60,9 @@ mkdir -p "$MODEL_DIR"
 # ---------------------------------------------------------------------------
 # 1. Copy 4DAnyone model files from D:\wheel\4danyone_ms\ -> $MODEL_DIR.
 # ---------------------------------------------------------------------------
-if [ -d "$WHEELS_MS_DIR" ]; then
+if [ "$WHEELS_MS_DIR" = "$MODEL_DIR" ]; then
+    echo "⏭️  MODEL_DIR == WHEELS_MS_DIR ($MODEL_DIR): using models in place (no copy)"
+elif [ -d "$WHEELS_MS_DIR" ]; then
     _n=$(find "$WHEELS_MS_DIR" -type f 2>/dev/null | wc -l)
     echo "📦 copying $_n files from $WHEELS_MS_DIR -> $MODEL_DIR"
     cp -rn "$WHEELS_MS_DIR/." "$MODEL_DIR/" 2>/dev/null || \
