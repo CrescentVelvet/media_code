@@ -87,11 +87,14 @@ def main():
     print("=== 1. attention_list 格式 ===")
     print("=" * 64)
     print(f"len(attention_list) = {len(attention_list)}")
+    # 双引号串里撇号免转义；f-string 表达式部分({}内)不能含反斜杠(Python<3.12)，故提前定义而非内联三元字符串
+    TAG_OK = "  (sigmoid'd [0,1])"
+    TAG_BAD = "  (NOT [0,1])"
     for i, a in enumerate(attention_list):
         is01 = (a.min() >= -1e-3 and a.max() <= 1 + 1e-3)
         print(f"  [{i}] shape={tuple(a.shape)} dtype={a.dtype} "
               f"min={a.min():.4f} max={a.max():.4f} mean={a.mean():.4f}"
-              f"{'  (sigmoid\'d [0,1])' if is01 else '  (NOT [0,1])'}")
+              f"{TAG_OK if is01 else TAG_BAD}")
 
     # ── 2. 红润根源: beauty vs src per-channel mean ──
     print()
