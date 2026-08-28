@@ -99,6 +99,19 @@ def resolve_lora_path(p):
     sys.exit(f"❌ cannot resolve LoRA path: {p}  (传 .pth / checkpoint-N 目录 / 实验根目录)")
 
 
+def lora_label(weight_path):
+    """从 resolve 后的 .pth 路径取有区分度的标签。
+    <exp>/checkpoint-N/xxx.pth -> exp (跳过 checkpoint-N, 全是 step 号无区分度);
+    <exp>/xxx.pth             -> exp; 兜底用父目录名/文件名。"""
+    p = Path(weight_path)
+    if p.suffix == ".pth":
+        d = p.parent
+        if d.name.startswith("checkpoint-"):
+            d = d.parent
+        return d.name or p.stem
+    return p.name
+
+
 def load_hypir(weight_path):
     """新建一个 SD2Enhancer 并 init_models(加载 SD2 base + LoRA)。"""
     from HYPIR.enhancer.sd2 import SD2Enhancer
@@ -153,8 +166,8 @@ def main():
     print(f"[*] device={device}")
 
     lora_paths_raw = [x.strip() for x in LORA_PATHS.split(",") if x.strip()]
-    lora_labels = [Path(x).name for x in lora_paths_raw]
     lora_weights = [resolve_lora_path(x) for x in lora_paths_raw] if lora_paths_raw else []
+    lora_labels = [lora_label(w) for w in lora_weights]
 
     out = Path(OUTPUT_DIR)
     out.mkdir(parents=True, exist_ok=True)
