@@ -47,18 +47,18 @@ GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03
 
 # 04b) A/B/C/D 依次训练(无需先 accelerate config，换卡就改 GPU=列表、N_TRAIN_GPU 对齐)：
 # 🚀04b) A 基线(只高斯模糊，预期会长痘变丑)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=../HYPIR/experiments/rest bash hypir/04b_train_paired.sh
 # 🚀04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet  OUTPUT_DIR=../HYPIR/experiments/beauty bash hypir/04b_train_paired.sh
 # 🚀04b) C 二次美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_strong bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_strong bash hypir/04b_train_paired.sh
 # 🚀04b) D 去红润美颜(LQ 同样模糊、HQ 换去红润美颜版 wavelet 融合，预期红润减弱、磨皮保留)：
-GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_decolor_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_rest_beauty_decolor bash hypir/04b_train_paired.sh
+GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_decolor_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_decolor bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
 # 💡02) 测试原生(发布)模型 —— 指定输入路径
 GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 bash hypir/02_run_inference.sh
-# 💡02) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(小数据集在 experiments/ppr10k_faces_paired; 大数据集在 experiments/synthetic_exp1/; 退化数据集在experiments/guojia_datas_20260708/; 美颜数据集在 experiments/beauty_rest(A) / beauty_rest_beauty(B) / beauty_rest_beauty_strong(C) / beauty_rest_beauty_decolor(D))
+# 💡02) 测试自己训的 LoRA —— 指定输入路径 + 训练权重(小数据集在 experiments/ppr10k_faces_paired; 大数据集在 experiments/synthetic_exp1/; 退化数据集在experiments/guojia_datas_20260708/; 美颜数据集在 experiments/rest(A) / beauty(B) / beauty_strong(C) / beauty_decolor(D))
 GPU=0 LQ_DIR=../HYPIR/input/test_faces UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-65000/ema_state_dict.pth bash hypir/02_run_inference.sh
 # 💡06) 预览合成退化效果(HQ -> LQ，看 04c 训练时在线合成的退化长啥样)
 GPU=0 HQ_DIR=../HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_degradation.sh
@@ -306,16 +306,16 @@ GPU=0 INPUT_DIR=../../output/hypir_test_results/input \
   ```bash
   # A vs B vs C vs D 各推理一组测试图(OUTPUT_DIR 分开)
   GPU=0 LQ_DIR=.../test_faces \
-    WEIGHT_PATH=../HYPIR/experiments/beauty_rest/checkpoint-N/state_dict.pth \
+    WEIGHT_PATH=../HYPIR/experiments/rest/checkpoint-N/state_dict.pth \
     OUTPUT_DIR=../HYPIR/results/beauty_A bash hypir/02_run_inference.sh
   GPU=0 LQ_DIR=.../test_faces \
-    WEIGHT_PATH=../HYPIR/experiments/beauty_rest_beauty/checkpoint-N/state_dict.pth \
+    WEIGHT_PATH=../HYPIR/experiments/beauty/checkpoint-N/state_dict.pth \
     OUTPUT_DIR=../HYPIR/results/beauty_B bash hypir/02_run_inference.sh
   GPU=0 LQ_DIR=.../test_faces \
-    WEIGHT_PATH=../HYPIR/experiments/beauty_rest_beauty_strong/checkpoint-N/state_dict.pth \
+    WEIGHT_PATH=../HYPIR/experiments/beauty_strong/checkpoint-N/state_dict.pth \
     OUTPUT_DIR=../HYPIR/results/beauty_C bash hypir/02_run_inference.sh
   GPU=0 LQ_DIR=.../test_faces \
-    WEIGHT_PATH=../HYPIR/experiments/beauty_rest_beauty_decolor/checkpoint-N/state_dict.pth \
+    WEIGHT_PATH=../HYPIR/experiments/beauty_decolor/checkpoint-N/state_dict.pth \
     OUTPUT_DIR=../HYPIR/results/beauty_D bash hypir/02_run_inference.sh
   ```
 - 四条路径 LQ/HQ 取舍对比：04b 真实配对 LQ=真实退化(360p 相机)、HQ=原图；03c/04c 在线 LQ=每 epoch 重随机高斯模糊、HQ=原图；03d 离线 LQ=固定高斯模糊、HQ=原图**或**美颜版（1 pass = B，迭代 N pass = C，与 A 做单变量对比）；03e 与 03d 并列、独立跑 RetouchFormer + wavelet 融合得 D 的 HQ（自己产 lq_gauss，同 seed 与 03d 逐像素一致）。
