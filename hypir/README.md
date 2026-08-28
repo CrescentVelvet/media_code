@@ -288,13 +288,14 @@ LQ folder (.../lq/<stem>_faceN.png)  ┘
 - 模糊作用于 raw 对齐 crop（非 `USM(orig)`），与 03c 的 `LQ=blur(USM(orig))` 略有偏差；但 A/B/C 共用同一 `lq_gauss`，对比仍是单变量。NB：`lq_gauss` 是离线固定模糊（每图一个实现），不像 03c/04c 每 epoch 在线重随机——故 A 是「略少增强的 03c 基线」，但 A vs B vs C 是干净的单变量实验（只 HQ 目标不同）。
 
 #### 去红润诊断（`decolor_probe.py`）
-`decolor_probe.py` 是一次性诊断脚本，跑一张图量化红润来源、对比各去红方案，用于决定 03e 该用哪个 `DECOLOR_MODE`。它输出：beauty vs src 的 per-channel mean + ΔR-B（量化红润）、`beauty_high` 的 per-channel DC（判断红是全局 DC 还是局部）、方案 C（attention mask 像素融合：`mask·beauty + (1-mask)·src`，mask 取自 RetouchFormer forward 第 164-166 行返回的 `attention_list`，降维用 channel-max、取最细尺度 resize 到 512）的 soft/hard 变体 ΔR-B，并产一张 `[src|beauty|mask|C_soft|C_hard|high_freq_dc]` 横拼对比图。看三个数即可决策：`>0.5 blemish area (max)` 小=mask 方向对、≈1=反了用 `1-mask`；`C_soft ΔR-B` 接近 src(0)=方案 C 去红成功→整合进 03e 加 `DECOLOR_MODE=attention_mask`；仍红=瑕疵区也带红→方案 C + 色调校正组合。需在 `retouchformer` env 跑（脚本用其 forward 取 `attention_list`）：
+`decolor_probe.py` 是一次性诊断脚本，跑一张图量化红润来源、对比各去红方案，用于决定 03e 该用哪个 `DECOLOR_MODE`。它输出：beauty vs src 的 per-channel mean + ΔR-B（量化红润）、`beauty_high` 的 per-channel DC（判断红是全局 DC 还是局部）、方案 C（attention mask 像素融合：`mask·beauty + (1-mask)·src`，mask 取自 RetouchFormer forward 第 164-166 行返回的 `attention_list`，降维用 channel-max、取最细尺度 resize 到 512）的 soft/hard 变体 ΔR-B，并产一张 `[src|beauty|mask|C_soft|C_hard|high_freq_dc]` 横拼对比图。看三个数即可决策：`>0.5 blemish area (max)` 小=mask 方向对、≈1=反了用 `1-mask`；`C_soft ΔR-B` 接近 src(0)=方案 C 去红成功→整合进 03e 加 `DECOLOR_MODE=attention_mask`；仍红=瑕疵区也带红→方案 C + 色调校正组合。需在 `hypir` env 跑（脚本 import HYPIR SD2Enhancer 做 LoRA 推理；`retouchformer` env 无 diffusers 会崩）：
 ```bash
-conda activate retouchformer
+conda activate hypir
 GPU=0 INPUT_DIR=../HYPIR/input/test_faces_hq \
   OUTPUT_DIR=../../output/hypir_test_results/probe \
   python hypir/decolor_probe.py
-GPU=0 INPUT_DIR=../../output/hypir_test_results/input \
+GPU=0 LORA_PATHS=../HYPIR/experiments/beauty_ppr50k_20260721,../HYPIR/experiments/beauty_strong_20260814,../HYPIR/experiments/beauty_decolor_20260828 \
+  INPUT_DIR=../../output/hypir_test_results/input \
   OUTPUT_DIR=../../output/hypir_test_results/probe \
   python hypir/decolor_probe.py
 ```
