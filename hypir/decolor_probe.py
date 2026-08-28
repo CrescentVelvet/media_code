@@ -25,6 +25,13 @@ import sys
 import importlib
 from pathlib import Path
 
+# 直接 python 运行(不走 .sh/_env.sh)时 GPU->CUDA_VISIBLE_DEVICES 映射不存在；
+# torch 只认 CUDA_VISIBLE_DEVICES，必须在 import torch / 任何 cuda 调用前设，
+# 否则 CUDA context 已初始化、改了无效(进程仍跑默认卡 → OOM)
+_gpu = os.environ.get("GPU")
+if _gpu:
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu
+
 import torch
 from PIL import Image
 from torchvision.utils import save_image
