@@ -294,7 +294,7 @@ conda activate hypir
 GPU=0 INPUT_DIR=../HYPIR/input/test_faces_hq \
   OUTPUT_DIR=../../output/hypir_test_results/probe \
   python hypir/decolor_probe.py
-GPU=0 LORA_PATHS=../HYPIR/experiments/beauty_ppr50k_20260721,../HYPIR/experiments/beauty_strong_20260814,../HYPIR/experiments/beauty_decolor_20260828 \
+GPU=0 LORA_PATHS=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth,../HYPIR/experiments/beauty_strong_20260814/checkpoint-1000/ema_state_dict.pth,../HYPIR/experiments/beauty_decolor_20260828/checkpoint-1000/ema_state_dict.pth \
   INPUT_DIR=../../output/hypir_test_results/input \
   OUTPUT_DIR=../../output/hypir_test_results/probe \
   python hypir/decolor_probe.py
