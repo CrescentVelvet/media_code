@@ -36,9 +36,10 @@ _gpu = os.environ.get("GPU")
 if _gpu:
     os.environ["CUDA_VISIBLE_DEVICES"] = _gpu
 
+import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from torchvision.utils import save_image
 from torchvision.transforms.functional import to_tensor
 
@@ -110,6 +111,60 @@ def lora_label(weight_path):
             d = d.parent
         return d.name or p.stem
     return p.name
+
+
+_FONT_CACHE = {}
+
+
+def _load_font(size):
+    """按 size 缓存字体; 优先常见 TTF(Windows arial / Linux DejavV/Liberation),
+    找不到 fallback load_default()(位图, 偏小但能跑)。"""
+    f = _FONT_CACHE.get(size)
+    if f is not None:
+        return f
+    for fp in ("C:/Windows/Fonts/arial.ttf",
+               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+               "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"):
+        if os.path.isfile(fp):
+            try:
+                f = ImageFont.truetype(fp, size)
+                break
+            except Exception:
+                pass
+    if f is None:
+        f = ImageFont.load_default()
+    _FONT_CACHE[size] = f
+    return f
+
+
+def annotate(panel, label):
+    """在 panel(tensor [1,3,H,W] [-1,1]) 中间偏下写 label, 返回同形状 tensor。
+    PIL 只能 CPU: 拷到 CPU 画完再回 panel 的 device/dtype。"""
+    if not label:
+        return panel
+    t = panel[0].detach()
+    arr = (((t + 1) / 2).clamp(0, 1) * 255).byte().permute(1, 2, 0).cpu().numpy()
+    base = Image.fromarray(arr, "RGB").convert("RGBA")
+    W, H = base.size
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    size = max(14, H // 22)   # 512 -> ~23px
+    font = _load_font(size)
+    bbox = draw.textbbox((0, 0), label, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    if tw > W * 0.9:   # 长标签(如 beauty_ppr50k_20260721)自适应缩字号塞进去
+        size = max(10, int(size * (W * 0.9) / tw))
+        font = _load_font(size)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x = (W - tw) // 2
+    y = int(H * 0.75) - th // 2   # 水平居中, 垂直中间偏下
+    pad = 5
+    draw.rectangle([x - pad, y - pad, x + tw + pad, y + th + pad], fill=(0, 0, 0, 170))
+    draw.text((x, y), label, font=font, fill=(255, 255, 255, 255))
+    out = Image.alpha_composite(base, overlay).convert("RGB")
+    t = torch.from_numpy(np.array(out)).to(panel).permute(2, 0, 1).float()
+    return (t / 255 * 2 - 1).unsqueeze(0)   # [0,255]->[-1,1], [1,3,H,W]
 
 
 def load_hypir(weight_path):
@@ -312,6 +367,7 @@ def main():
         panels = [src, lq, beauty, mask_vis, decolor_C_soft, decolor_C_hard, decolor_dc] + lora_res
         labels = ["src(orig)", "lq(blur)", "beauty(red)", "mask(C-max)",
                   "C_soft", "C_hard", "high_freq_dc"] + lora_labels
+        panels = [annotate(p, l) for p, l in zip(panels, labels)]   # 标签烙进每个 panel
         n_cols = int(os.environ.get("N_COLS", "5"))   # 默认 5: 10 panel -> 2 行 x 5
         n_cols = max(1, min(n_cols, len(panels)))
         rows, label_rows = [], []
