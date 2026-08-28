@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import torch
 
 GS_DIR = os.environ.get("GS_DIR", "../gaussian-splatting")
 GAUSSIAN_DIR = os.environ.get("GAUSSIAN_DIR", "")

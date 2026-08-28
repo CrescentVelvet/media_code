@@ -250,7 +250,7 @@ bash vggt_human/04_train_3dgs.sh
 #    DENOISER 可选: diffbir（扩散，质量高）| swinir（前馈，快）| none（跳过去噪）
 #    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 bash vggt_human/00a_setup_env.sh
 GPU=0 \
-DENOISER=swinir \
+DENOISER=diffbir \
 NUM_NOVEL_VIEWS=10 \
 ITERATION=30000 \
 RESULTS_DIR=~/output/vggt_human_results \

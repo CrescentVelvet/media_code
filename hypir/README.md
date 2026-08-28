@@ -66,10 +66,15 @@ GPU=0 HQ_DIR=../HYPIR/input/test_faces_hq NUM_PER_IMAGE=4 bash hypir/06_preview_
 GPU=0 LQ_DIR=../../output/hypir_test_results/input UPSCALE=4 WEIGHT_PATH=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth OUTPUT_DIR=../../output/hypir_test_results/output bash hypir/02_run_inference.sh
 
 # ── 模型打包与自测(服务器) ──
+conda activate hypir
+python3 ../Reconstruction/enh_model_打包模型.py
 conda activate 3dgsr
-python ../Reconstruction/enh_model_打包模型.py
 CUDA_VISIBLE_DEVICE=0 python ../Reconstruction/reconstruction_all.py
-python ../Reconstruction/uwa_video_封装视频.py
+conda activate xcodec
+python3 ../Reconstruction/uwa_video_封装视频.py
+python3 ../Reconstruction/uwa_video_封装视频.py --only=test_human_zhaocheng
+重建模型在 ../Reconstruction/output/B003
+封装视频在 ../../output/uwa_format_mp4
 
 
 # # ── 并行训练(04d) ── 越练越模糊是 L2 坍缩；扫 LR_G + loss 权重 + 真实退化配对 找最佳
