@@ -293,16 +293,33 @@ def main():
                           f"ΔR-B={m[0]-m[2]:+.4f}  ({dt:.2f}s)")
                     lora_res.append(res)
 
-        # ── 拼 compare ──
+        # ── 拼 compare (多行 grid, 避免 N 张拼一行太长) ──
+        # 全 512x512; cat(dim=3)=横向, cat(dim=2)=纵向. 末行不足 N_COLS 补黑边(-1)对齐
         mask_vis = (mask * 2 - 1).repeat(1, 3, 1, 1)   # [0,1]->[-1,1]; [1,1,H,W]->[1,3,H,W] 灰度三联, 通道维对齐才能 cat(dim=3)
         panels = [src, lq, beauty, mask_vis, decolor_C_soft, decolor_C_hard, decolor_dc] + lora_res
         labels = ["src(orig)", "lq(blur)", "beauty(red)", "mask(C-max)",
                   "C_soft", "C_hard", "high_freq_dc"] + lora_labels
-        cmp = torch.cat(panels, dim=3)
+        n_cols = int(os.environ.get("N_COLS", "5"))   # 默认 5: 10 panel -> 2 行 x 5
+        n_cols = max(1, min(n_cols, len(panels)))
+        rows, label_rows = [], []
+        for r in range(0, len(panels), n_cols):
+            chunk = panels[r:r + n_cols]
+            rows.append(torch.cat(chunk, dim=3))
+            label_rows.append(labels[r:r + n_cols])
+        full_w = rows[0].shape[-1]
+        for i, row in enumerate(rows):
+            if row.shape[-1] < full_w:   # 末行不足补黑边
+                pad = torch.full((1, 3, row.shape[-2], full_w - row.shape[-1]),
+                                 -1.0, device=row.device)
+                rows[i] = torch.cat([row, pad], dim=3)
+        cmp = torch.cat(rows, dim=2)   # 行间纵向拼接
         cmp_path = out / f"probe_{fp.stem}.png"
         save_image(cmp, str(cmp_path), normalize=True, value_range=(-1, 1))
         print(f"\n🖼️ saved: {cmp_path}")
-        print(f"   panels L->R: {' | '.join(labels)}\n")
+        print(f"   grid ({len(rows)} rows x {n_cols} cols):")
+        for ri, rl in enumerate(label_rows):
+            print(f"   row {ri + 1}: {' | '.join(rl)}")
+        print()
 
     print(f"🎉 Done: {len(imgs)} compare images -> {out}")
 
