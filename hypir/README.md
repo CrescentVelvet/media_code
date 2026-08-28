@@ -294,6 +294,9 @@ conda activate retouchformer
 GPU=0 INPUT_DIR=../HYPIR/input/test_faces_hq \
   OUTPUT_DIR=../../output/hypir_test_results/probe \
   python hypir/decolor_probe.py
+GPU=0 INPUT_DIR=../../output/hypir_test_results/input \
+  OUTPUT_DIR=../../output/hypir_test_results/probe \
+  python hypir/decolor_probe.py
 ```
 
 ### A/B/C/D 对比训练
