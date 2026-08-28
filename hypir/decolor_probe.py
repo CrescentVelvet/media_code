@@ -169,7 +169,7 @@ def main():
 
     out = Path(OUTPUT_DIR)
     out.mkdir(parents=True, exist_ok=True)
-    mask_vis = mask * 2 - 1   # [0,1] -> [-1,1] for save_image value_range
+    mask_vis = (mask * 2 - 1).repeat(1, 3, 1, 1)   # [0,1]->[-1,1]; [1,1,H,W]->[1,3,H,W] 灰度三联, 通道维对齐才能 cat(dim=3)
     panels = [src, beauty, mask_vis, decolor_C_soft, decolor_C_hard, decolor_dc]
     labels = ["src(orig)", "beauty(red)", "mask(C-max)", "C_soft", "C_hard", "high_freq_dc"]
     cmp = torch.cat(panels, dim=3)
