@@ -174,6 +174,7 @@ echo "🎉 Done."
 - 错误用 `sys.exit("❌ ...")`
 - **不要吞异常** — `except Exception as e: print(f"⚠️ failed: {e}")`，不要 `except: continue`
 - 对未知 API 接口，先 `print(dir(obj))` introspect，贴给用户确认后再写正确调用
+- **注释**：允许加**简洁注释**说明非显然逻辑（魔术常数、为何这么取、绕坑的坑点、易错陷阱），但别流水账复述代码做了什么。一行能说清就一行；复杂逻辑可多行。坑点注释要写清「为什么」而非「是什么」
 
 ```python
 #!/usr/bin/env python3
