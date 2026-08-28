@@ -291,13 +291,16 @@ LQ folder (.../lq/<stem>_faceN.png)  ┘
 `decolor_probe.py` 是一次性诊断脚本，跑一张图量化红润来源、对比各去红方案，用于决定 03e 该用哪个 `DECOLOR_MODE`。它输出：beauty vs src 的 per-channel mean + ΔR-B（量化红润）、`beauty_high` 的 per-channel DC（判断红是全局 DC 还是局部）、方案 C（attention mask 像素融合：`mask·beauty + (1-mask)·src`，mask 取自 RetouchFormer forward 第 164-166 行返回的 `attention_list`，降维用 channel-max、取最细尺度 resize 到 512）的 soft/hard 变体 ΔR-B，并产一张 `[src|beauty|mask|C_soft|C_hard|high_freq_dc]` 横拼对比图。看三个数即可决策：`>0.5 blemish area (max)` 小=mask 方向对、≈1=反了用 `1-mask`；`C_soft ΔR-B` 接近 src(0)=方案 C 去红成功→整合进 03e 加 `DECOLOR_MODE=attention_mask`；仍红=瑕疵区也带红→方案 C + 色调校正组合。需在 `hypir` env 跑（脚本 import HYPIR SD2Enhancer 做 LoRA 推理；`retouchformer` env 无 diffusers 会崩）：
 ```bash
 conda activate hypir
+
 GPU=0 INPUT_DIR=../HYPIR/input/test_faces_hq \
-  OUTPUT_DIR=../../output/hypir_test_results/probe \
-  python hypir/decolor_probe.py
+OUTPUT_DIR=../../output/hypir_test_results/probe \
+python hypir/decolor_probe.py
+
 GPU=0 LORA_PATHS=../HYPIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth,../HYPIR/experiments/beauty_strong_20260814/checkpoint-1000/ema_state_dict.pth,../HYPIR/experiments/beauty_decolor_20260828/checkpoint-1000/ema_state_dict.pth \
-  INPUT_DIR=../../output/hypir_test_results/input \
-  OUTPUT_DIR=../../output/hypir_test_results/probe \
-  python hypir/decolor_probe.py
+N_COLS=5 \
+INPUT_DIR=../../output/hypir_test_results/input \
+OUTPUT_DIR=../../output/hypir_test_results/probe \
+python hypir/decolor_probe.py
 ```
 
 ### A/B/C/D 对比训练
