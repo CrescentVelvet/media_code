@@ -470,6 +470,15 @@ WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
 - **03e 专属** `DECOLOR_MODE`：`wavelet`（默认，只换低频，去不掉高频红，作对照）/ `high_freq_dc`（减 `beauty_high` 的 per-channel 空间 DC 去红，保留磨皮结构）。红润在 beauty 高频时必须设 `high_freq_dc`；若仍去不掉（红是局部非全局 DC），升级全局色调校正。
 - 模糊作用于 raw 对齐 crop（非 `USM(orig)`），与 03c 的 `LQ=blur(USM(orig))` 略有偏差；但 A/B/C 共用同一 `lq_gauss`，对比仍是单变量。NB：`lq_gauss` 是离线固定模糊（每图一个实现），不像 03c/04c 每 epoch 在线重随机——故 A 是「略少增强的 03c 基线」，但 A vs B vs C 是干净的单变量实验（只 HQ 目标不同）。
 
+#### 去红润诊断（`decolor_probe.py`）
+`decolor_probe.py` 是一次性诊断脚本，跑一张图量化红润来源、对比各去红方案，用于决定 03e 该用哪个 `DECOLOR_MODE`。它输出：beauty vs src 的 per-channel mean + ΔR-B（量化红润）、`beauty_high` 的 per-channel DC（判断红是全局 DC 还是局部）、方案 C（attention mask 像素融合：`mask·beauty + (1-mask)·src`，mask 取自 RetouchFormer forward 第 164-166 行返回的 `attention_list`，降维用 channel-max、取最细尺度 resize 到 512）的 soft/hard 变体 ΔR-B，并产一张 `[src|beauty|mask|C_soft|C_hard|high_freq_dc]` 横拼对比图。看三个数即可决策：`>0.5 blemish area (max)` 小=mask 方向对、≈1=反了用 `1-mask`；`C_soft ΔR-B` 接近 src(0)=方案 C 去红成功→整合进 03e 加 `DECOLOR_MODE=attention_mask`；仍红=瑕疵区也带红→方案 C + 色调校正组合。需在 `retouchformer` env 跑（脚本用其 forward 取 `attention_list`）：
+```bash
+conda activate retouchformer
+GPU=0 INPUT_DIR=../HYPIR/input/test_faces_hq \
+  OUTPUT_DIR=../../output/hypir_test_results/probe \
+  python hypir/decolor_probe.py
+```
+
 ### A/B/C/D 对比训练
 命令见上文「常用命令」#04b（A 基线 / B 美颜 / C 加强美颜 / D 去红润美颜，各自 `OUTPUT_DIR` 分开，默认暖启动 `HYPIR_sd2.pth`）。
 - 四条都默认从 `$MODEL_DIR/HYPIR_sd2.pth` 暖启动（暖启动机制见下文「⚠️ 暖启动机制」；勿把 clone 里 `sd2.py` 还原成官方版，否则暖启动静默失效）。
