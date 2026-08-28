@@ -120,18 +120,6 @@ HF_DISABLE_SSL=1 bash hypir/01_download_models.sh  # 下 SD2-base + HYPIR_sd2.pt
 
 以下为详细参考（流程原理 / 各脚本参数 / 排错 / 目录布局）。
 
-## Inference (02 — 更多用法)
-`02_run_inference.sh` 调 `run_inference.py`：加载一次、循环全图，逐图打印分辨率与耗时，输出 `OUTPUT_DIR/result/<rel>.png` + `prompt/<rel>.txt`。测原生 / 训练 LoRA 见上文「常用命令」#6/#7。其它覆盖示例：
-```bash
-# 原生 vs 训练 LoRA 对比：同一批 LQ 各跑一次(OUTPUT_DIR 分开)
-GPU=0 UPSCALE=1 LQ_DIR=.../lq OUTPUT_DIR=../HYPIR/results/native  bash hypir/02_run_inference.sh
-GPU=0 UPSCALE=1 LQ_DIR=.../lq WEIGHT_PATH=.../checkpoint-N/state_dict.pth OUTPUT_DIR=../HYPIR/results/trained bash hypir/02_run_inference.sh
-# 2x 超分 / 按长边放大：
-GPU=0 LQ_DIR=/path/to/lq UPSCALE=2 bash hypir/02_run_inference.sh
-GPU=0 LQ_DIR=/path/to/lq SCALE_BY=longest_side TARGET_LONGEST_SIDE=1920 bash hypir/02_run_inference.sh
-```
-LoRA 模块名 / 秩(256) 来自官方 HYPIR-SD2 config；换了训练配置才需 override `LORA_MODULES` / `LORA_RANK`。
-
 ## Pipeline（推理流程详解）
 对应官方代码 `HYPIR/enhancer/base.py::enhance` + `HYPIR/enhancer/sd2.py::forward_generator` + `HYPIR/utils/common.py`。一张 LQ 图像从输入到输出经过 5 步：
 
@@ -203,46 +191,6 @@ z0   = scheduler.step(eps, coeff_t=200, z_in).pred_original_sample   # 一步反
 > ```
 > 所以上面官方流程的**第一阶段后半（resize/noise/JPEG）和整个第二阶段（sinc/JPEG2/resize-back）在你环境里不发生**——LQ 只是「HQ 被 1-5 次随机高斯模糊」。`queue_size` 训练池保留（故 `256%6` 仍报错，见排错 #11）。**以你 clone 的 `batch_transform.py` 实际代码为准**；06 预览和 04c 训练复用的就是这版，看到/用到的是纯高斯模糊退化。想恢复完整官方退化就把 `batch_transform.py` 还原成 GitHub 版。
 
-## Dataset construction (03 — image folder → parquet)
-HYPIR's `RealESRGANDataset` (default `crop_type=none`, `out_size=512`) **asserts every GT image is exactly 512×512**. `03_build_dataset.sh` handles this:
-- `CROP=1` (default): slices each image into 512×512 patches (non-overlapping; set `CROP_STRIDE < CROP_SIZE` for overlap) saved under `<parquet_dir>/patches`, and the parquet points at the patches. This mirrors the README's "crop LSDIR into 512×512 patches".
-- `CROP=0`: uses images as-is (they must already be 512×512, or pass `CROP_TYPE=random` to `04_train.sh`).
-
-Output: a parquet (`image_path`[absolute], `prompt`) consumed by `configs/sd2_train.yaml`'s `file_meta`.
-```bash
-DATA_DIR=/data/LSDIR bash hypir/03_build_dataset.sh
-# -> /data/LSDIR/hypir_train.parquet  (+ /data/LSDIR/patches/*.png when CROP=1)
-
-# Custom: 256 stride (overlap), a fixed caption, output elsewhere:
-DATA_DIR=/data/LSDIR CROP_STRIDE=256 PROMPT="high quality, highly detailed" \
-  PARQUET_OUT=/data/hypir.parquet bash hypir/03_build_dataset.sh
-```
-
-## Training (04 — LoRA fine-tune)
-`04_train.sh` generates a **derived** config (`gen_train_config.py` fills the TODOs in `configs/sd2_train.yaml` — no official file is modified), patches in your hyperparams, and runs `accelerate launch train.py --config <filled>`. The trainer trains LoRA adapters on the SD2 UNet with a RealESRGAN degradation pipeline + GAN (ConvNeXt discriminator) + LPIPS + L2 losses.
-```bash
-# Build the parquet first (see 03), then:
-PARQUET_PATH=/data/LSDIR/hypir_train.parquet GPU=0 bash hypir/04_train.sh
-
-# Let 04 build the parquet for you from DATA_DIR, then train:
-DATA_DIR=/data/LSDIR GPU=0 bash hypir/04_train.sh
-
-# Your GT images are >512 and you did NOT pre-crop? use random crop in-config:
-PARQUET_PATH=/data/big.parquet CROP_TYPE=random OUT_SIZE=512 GPU=0 bash hypir/04_train.sh
-
-# Shorter run / custom batch / resume:
-PARQUET_PATH=/data/x.parquet MAX_TRAIN_STEPS=5000 BATCH_SIZE=4 LR_G=1e-5 \
-  RESUME=/path/to/checkpoint-500 GPU=0 bash hypir/04_train.sh
-
-# Multi-GPU (run `accelerate config` once first; leave GPU unset):
-PARQUET_PATH=/data/x.parquet N_TRAIN_GPU=8 bash hypir/04_train.sh
-```
-Checkpoints land in `OUTPUT_DIR/checkpoint-<step>/state_dict.pth` (LoRA params only). Use one for inference:
-```bash
-WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_inference.sh
-```
-> The official trainer also saves `ema_state_dict.pth` alongside each checkpoint. To use EMA weights, point `WEIGHT_PATH` at the EMA file (same key set) — the loader in `SD2Enhancer.init_generator` accepts either.
-
 ## Paired face fine-tuning on REAL LQ+HQ (03b / 04b) — `crop_faces_paired.py` output → HYPIR
 
 The official `03`/`04` path trains on **HQ only** and *synthesizes* LQ via
@@ -275,54 +223,6 @@ LQ folder (.../lq/<stem>_faceN.png)  ┘
                                       the unchanged one-step + L2/LPIPS/GAN loop
 ```
 
-### Usage
-```bash
-# Dataset already uploaded as .../ppr10k_faces_20260703/{hq,lq} (defaults):
-GPU=0 bash hypir/04b_train_paired.sh
-
-# Build the parquet only (no train):
-HQ_DIR=.../hq LQ_DIR=.../lq bash hypir/03b_build_paired_dataset.sh
-
-# Custom everything:
-GPU=0 DATASET_ROOT=.../ppr10k_faces_20260703 MAX_TRAIN_STEPS=20000 \
-    LR_G=5e-6 BATCH_SIZE=8 bash hypir/04b_train_paired.sh
-
-# Train from scratch (no warm-start) instead of fine-tuning the released LoRA:
-LORA_WEIGHT_PATH= GPU=0 bash hypir/04b_train_paired.sh
-```
-Inference with your checkpoint (same as 02):
-```bash
-WEIGHT_PATH=$OUTPUT_DIR/checkpoint-N/state_dict.pth GPU=0 bash hypir/02_run_inference.sh
-```
-
-### Why fine-tune (warm-start) instead of from scratch
-The released `HYPIR_sd2.pth` was trained on a large dataset at batch 1024. With
-only ~7k face pairs you cannot relearn the one-step restoration from scratch —
-so `04b_train_paired.sh` **warm-starts** from `HYPIR_sd2.pth` by default
-(`LORA_WEIGHT_PATH`) and adapts it to your face domain. Set `LORA_WEIGHT_PATH=`
-to disable (gaussian-init from scratch, official behaviour).
-
-### Training parameters (for ~7k paired face crops)
-| var | default | note |
-| --- | --- | --- |
-| `DATASET_ROOT` | `../HYPIR/dataset/ppr10k_faces_20260703` | expects `hq/` and `lq/` subdirs |
-| `LORA_WEIGHT_PATH` | `$MODEL_DIR/HYPIR_sd2.pth` | warm-start; `""` = from scratch |
-| `OUT_SIZE` | `512` | HQ & LQ both resized to this (HYPIR's VAE patch size) |
-| `CROP_TYPE` | `none` | resize whole face; `random` for paired random-patch aug |
-| `MAX_TRAIN_STEPS` | `15000` | ~2 epochs over 7k at bs=6; try 10k–30k |
-| `BATCH_SIZE` | `6` | per-GPU; raise to 8–12 on A100/H100 |
-| `LR_G` / `LR_D` | `1e-5` / `1e-5` | use `5e-6` for gentler adaptation |
-| `GRAD_ACCUM` | `1` | increase if a bigger effective batch is wanted |
-| `CHECKPOINTING_STEPS` | `500` | saves `checkpoint-N/state_dict.pth` |
-| `CHECKPOINTS_TOTAL_LIMIT` | _(空=全留)_ | 空=None 全留(默认，防过拟合丢好点)；数字=留 N 个；⚠️`0`=只留最新 1 个(非全留) |
-| `N_TRAIN_GPU` | _(unset)_ | `>1` → multi-GPU (run `accelerate config` first) |
-| `RESUME` | _(unset)_ | a `checkpoint-N` dir to resume from |
-
-> The HQ/LQ scale of these pairs is ~10× (full RAW decode); both are rendered at
-> `OUT_SIZE=512`, so the model learns real 360p-camera → clean face restoration.
-> `use_sharpener=true` (USM on HQ) matches the preprocessing the released LoRA
-> was trained with — keep it on when warm-starting.
-
 ## 配对人脸微调全流程
 
 这篇给第一次用的人：从「数据已上传」到「跑完训练、看到还原结果」，每步都有可复制的命令。命令都在服务器上执行。
@@ -335,89 +235,6 @@ to disable (gaussian-init from scratch, official behaviour).
 
 ### 训练到底在干什么（一句话版）
 把「模糊的 360p LQ 人脸」和「清晰的 HQ 人脸」**成对**喂给模型，让它学会把模糊脸还原成清晰脸。我们不是从零训练，而是在官方已发布的 `HYPIR_sd2.pth` 上**继续练（暖启动）**，让它专精你的人脸数据——所以 7 千张就够、收敛也快。
-
-### 整体流程
-1. 拉本仓 + 配代理 → 2. 建专用 conda 环境 + 装依赖 → 3. 下官方权重 → 4. 确认数据在位 → 5. 一条命令开训 → 6. 看进度/曲线 → 7. 用 checkpoint 推理看图。
-
----
-
-### Step 1 — 拉仓库、配代理（一次性）
-```bash
-cd /data_3d/w00xxxxxx/code
-git -c http.sslVerify=false clone https://github.com/CrescentVelvet/media_code.git
-cd media_code
-cp proxy.env.example proxy.env
-# 编辑 proxy.env：填 http_proxy / https_proxy（公司代理用）；自用网络可跳过
-```
-
-### Step 2 — 建专用环境 + 装依赖（一次性）
-HYPIR 的依赖和本仓别的算法冲突，**务必用独立环境**：
-```bash
-conda create -n hypir python=3.10 -y
-conda activate hypir
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-CONDA_ENV=hypir INSTALL_DEPS=1 bash hypir/00_setup_env.sh   # 装官方 requirements.txt
-pip install polars pillow                                    # 配对数据集要用
-pip install lpips
-pip install vision_aided_loss
-pip install open-clip-torch
-python -c "import open_clip; open_clip.create_model_and_transforms('convnext_xxlarge', pretrained='laion2b_s34b_b82k_augreg_soup')"
-```
-
-### Step 3 — 下官方权重（一次性）
-```bash
-conda activate hypir
-bash hypir/setup_ca_bundle.sh          # 公司代理才需要：建 CA 包；自用网络可跳过
-HF_DISABLE_SSL=1 bash hypir/01_download_models.sh
-# 下完在 ../../model/HYPIR/ 下：sd2_base/（基座）和 HYPIR_sd2.pth（暖启动用的 LoRA）
-```
-
-### Step 4 — 确认数据集在位
-```bash
-# Windows
-scp -r D:\模型数据集\ppr10k_faces_20260703 w00xxxxxx@xx.xx.xxx.xxx:../HYPIR/dataset
-# Ubuntu
-DATA=../HYPIR/dataset/ppr10k_faces_20260703
-ls $DATA/hq | head        # 应能看到 0_0_face1.png 之类
-ls $DATA/lq | head        # hq/ 与 lq/ 文件名必须一一相同
-```
-
-### Step 5 — 开始训练（一条命令）
-```bash
-conda activate hypir
-GPU=2,7 BG=0 bash hypir/04b_train_paired.sh
-```
-这一条命令会自动：按文件名建配对 parquet → 填配置 → 从 `HYPIR_sd2.pth` 暖启动 LoRA → `accelerate launch` 开训。
-默认 15000 步、bs=6、lr=1e-5，每 500 步存一个 checkpoint 到：
-`../HYPIR/experiments/ppr10k_faces_paired/checkpoint-N/state_dict.pth`
-
-### Step 6 — 看训练进度
-- 终端每 100 步打印一次 loss。
-- TensorBoard 看曲线：
-```bash
-tensorboard --logdir ../HYPIR/experiments/ppr10k_faces_paired --port 6006
-# 本地浏览器开 http://<服务器IP>:6006
-```
-- 看已存的 checkpoint：
-```bash
-ls ../HYPIR/experiments/ppr10k_faces_paired/
-```
-中途想停没问题。续训：
-```bash
-RESUME=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-5000 GPU=0 bash hypir/04b_train_paired.sh
-```
-
-### Step 7 — 用训好的 checkpoint 还原人脸、看效果
-```bash
-conda activate hypir
-CKPT=../HYPIR/experiments/ppr10k_faces_paired/checkpoint-15000/state_dict.pth
-LQ=../HYPIR/dataset/ppr10k_faces_20260703/lq
-WEIGHT_PATH=$CKPT GPU=0 LQ_DIR=$LQ \
-  SCALE_BY=longest_side TARGET_LONGEST_SIDE=512 \
-  bash hypir/02_run_inference.sh
-```
-还原结果在 `../HYPIR/results/lq/result/*.png`。下载下来和原 LQ 对比，脸应更清晰。
-> 想用别的 checkpoint，把 `CKPT` 路径里的步数换掉即可（如 `checkpoint-10000`）。
 
 ### 调参速查（按需改）
 - 显存不够：`BATCH_SIZE=4`，或 `GRAD_ACCUM=2`（等效翻倍 batch）。
@@ -531,30 +348,6 @@ torch.load(config.weight_path) → load_state_dict    # 真正把发布 LoRA 载
 grep -n "weight_path\|torch.load" $HYPIR_DIR/HYPIR/trainer/sd2.py
 # 应见 init_generator 里那两行 torch.load(self.config.weight_path)；没有 = 暖启动已坏
 ```
-
-## Evaluation (05 — 定量评测训练效果)
-`05_eval.sh` 用训练好的 LoRA（`WEIGHT_PATH`）复原 LQ 测试图，并与同名 HQ 计算 **PSNR / SSIM / LPIPS**，同时给出 **bicubic 基线**（无模型，纯插值）作对比——两者之差即模型增益。还存三联对比图（LQ | result | HQ）和 `metrics.csv`。PSNR/SSIM 纯 numpy/torch 无额外依赖；LPIPS 用 `lpips` 包（HYPIR 自带依赖，首次会下 VGG 权重，代理失败则自动跳过 LPIPS、仍出 PSNR/SSIM）。
-```bash
-# 默认指向 04b_train_paired.sh 的产物（权重 checkpoint-65000 + 数据集 lq/hq），评 50 张:
-GPU=0 bash hypir/05_eval.sh
-
-# 评全量、换别的 checkpoint:
-GPU=0 CKPT_STEP=70000 EVAL_LIMIT=0 bash hypir/05_eval.sh
-
-# 指向留出测试集做客观评测（默认 TEST_LQ/HQ 即训练集，指标反映拟合程度）:
-GPU=0 TEST_LQ_DIR=/data/holdout/lq TEST_HQ_DIR=/data/holdout/hq bash hypir/05_eval.sh
-
-# 只想看复原图、不算指标（不传 TEST_HQ_DIR）——等价于 02 但用训练 LoRA:
-GPU=0 TEST_LQ_DIR=.../lq TEST_HQ_DIR="" bash hypir/05_eval.sh
-```
-输出（默认 `$TRAIN_DIR/eval_ckpt<STEP>/`）：`result/`（复原图）、`compare/`（LQ|result|HQ 三联图）、`metrics.csv`（逐图指标）。汇总打印形如：
-```
-[*] === 指标汇总 (model vs HQ; bicubic 为无模型基线) ===
-    bicubic: PSNR 18.32  SSIM 0.6120  LPIPS 0.4210
-    model  : PSNR 24.15  SSIM 0.7831  LPIPS 0.1980
-    ΔPSNR  : +5.83 dB
-```
-> 只想肉眼对比原生 vs 训练 LoRA、不需要指标的话，直接用 02 跑两次（见上文 Inference 小节）即可，05 是给定量评测用的。
 
 ## 可能遇到的问题
 
