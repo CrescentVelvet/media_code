@@ -210,7 +210,10 @@ def generate(req):
 
     t0 = time.time()
     print(f"  🎬 generating (Turbo {DEFAULT_NUM_INFERENCE_STEPS}-step)...")
-    with torch.inference_mode():
+    # 用 no_grad 而非 inference_mode：inference_mode + int8 Int8Tensor 跨设备 .to()
+    # （group offload 搬运时）会触发 storage aliasing 报错（torch 2.6 + torchao 0.16）；
+    # no_grad 同样禁 autograd 且无此问题。06c 本来就没用 inference_mode。
+    with torch.no_grad():
         results = pipe(**kwargs)
     dt = time.time() - t0
 
