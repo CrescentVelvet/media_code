@@ -67,12 +67,12 @@ GPU=0 LQ_DIR=../../output/hypir_test_results/input UPSCALE=4 WEIGHT_PATH=../HYPI
 
 # ── 模型打包与自测(服务器) ──
 conda activate hypir
-python3 ../Reconstruction/enh_model_打包模型.py
+CUDA_VISIBLE_DEVICES=7 python3 ../Reconstruction/enh_model_打包模型.py
 conda activate 3dgsr
-CUDA_VISIBLE_DEVICE=0 python ../Reconstruction/reconstruction_all.py
+CUDA_VISIBLE_DEVICES=7 python ../Reconstruction/reconstruction_all.py
 conda activate xcodec
-python3 ../Reconstruction/uwa_video_封装视频.py
-python3 ../Reconstruction/uwa_video_封装视频.py --only=test_human_zhaocheng
+CUDA_VISIBLE_DEVICES=7 python3 ../Reconstruction/uwa_video_封装视频.py
+CUDA_VISIBLE_DEVICES=7 python3 ../Reconstruction/uwa_video_封装视频.py --only=test_human_zhaocheng
 重建模型在 ../Reconstruction/output/B003
 封装视频在 ../../output/uwa_format_mp4
 
