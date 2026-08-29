@@ -193,7 +193,7 @@ HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8 \
+OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
@@ -203,7 +203,7 @@ bash minimax_h3/06d_int8_turbo_serve.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8 \
+OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
@@ -213,7 +213,7 @@ bash minimax_h3/06d_int8_turbo_serve.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8 \
+OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
