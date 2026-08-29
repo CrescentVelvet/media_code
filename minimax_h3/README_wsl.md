@@ -187,6 +187,66 @@ bash minimax_h3/00a_setup_env.sh
 # 1) 下权重（FL2VA ~120GB；需 HF_TOKEN）
 HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 
+# 6d) int8 + Turbo 常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步蒸馏，又快又省）
+#   （v1.1 / 8-step 同理换文件名；配方见 README.md「Turbo LoRA (06b)」checkpoint 表）
+# 8-step
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+NUM_FRAMES=124 \
+bash minimax_h3/06d_int8_turbo_serve.sh
+
+# v1.0
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+NUM_FRAMES=124 \
+bash minimax_h3/06d_int8_turbo_serve.sh
+
+# v1.1
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+NUM_FRAMES=124 \
+bash minimax_h3/06d_int8_turbo_serve.sh
+
+# 另一个终端发请求（06c/06d API 一致）：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "prompt":"integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout.",
+  "seed":42
+  }'
+
+# 带首帧图的 FL2VA：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "prompt":"integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout.",
+  "first_frame":"/mnt/d/dataset/测试数据sample/3fe0604320a24d66a8bde164edf18c11/image_jpg/679448043695000.jpg",
+  "seed":42,
+  "output_name":"rotate.mp4"
+  }'
+
+# 健康检查 / 关闭
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/shutdown
+
+# ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM；降 NUM_FRAMES=81，或换 544p checkpoint：
+#   LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
+#   VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
+
+```
+
+> 目前用不上的命令
+
+```bash
 # 6c) int8 常驻服务（50 步原版，3090 能跑但慢；要快用下方 06d）
 # 模型在 D 盘，加载 ~20-40min 后监听 :8000，输出也写 D 盘
 GPU=0 \
@@ -204,24 +264,6 @@ curl -X POST http://localhost:8000/generate \
 # 健康检查 / 关闭
 curl http://localhost:8000/health
 curl -X POST http://localhost:8000/shutdown
-
-# 6d) int8 + Turbo 4 步常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步，又快又省）
-# 先下 LoRA（~1.4GB，06b/06d 共用）——modelscope 迅雷直链（本机可达）：
-#   https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
-#   下完放到 D:\wheel\minimaxh3_ms\minimax_h3_turbo\minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors（期望 1383677808 字节）
-#   （v1.1 / 8-step 同理换文件名；配方见 README.md「Turbo LoRA (06b)」checkpoint 表）
-GPU=0 \
-  MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-  LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-  DEVICE=cuda:0 \
-  MAX_PIXELS=1032192 \
-  NUM_FRAMES=124 \
-  bash minimax_h3/06d_int8_turbo_serve.sh
-# 起好后发请求（同 06c）：curl -X POST http://localhost:8000/generate \
-#   -H 'Content-Type: application/json' -d '{"prompt":"...","first_frame":"/mnt/d/img.jpg","seed":42}'
-# ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM；降 NUM_FRAMES=81，或换 544p checkpoint：
-#   LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
-#   VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
 
 # 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 跑不了——需 ~124GB RAM；
 #     A100 80GB 或 ≥128GB RAM 机器用；3090 要 4 步加速改用上方 06d）
@@ -261,8 +303,6 @@ PROMPT="视频中的人物保持绝对静止，相机围绕画面中心水平旋
 FIRST_FRAME=https://raw.githubusercontent.com/CrescentVelvet/media_code/main/minimax_h3/examples/681533632532078.jpg \
 bash minimax_h3/08_context_ir.sh
 ```
-
-
 
 ## 可能遇到的问题（WSL 专属）
 
