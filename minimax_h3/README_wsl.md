@@ -50,15 +50,31 @@ curl -X POST http://localhost:8000/shutdown
 
 MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120GB bf16**。本地复现前先对照你的卡：
 
-| 硬件 | 02 serve（SGLang 多卡） | 06（diffusers bf16） | 06a/06c（int8 + block offload） | 06b（Turbo LoRA 4 步） | 07 FlashVSR |
-|---|---|---|---|---|---|
-| **4× A100 80GB**（服务器） | ✅ FSDP 容量配方 | ✅ 两卡分拆 | ✅ 单卡常驻 | ✅ 最快 | ✅ |
-| **2× RTX 5090 32GB** | ⚠️ 逐层 offload（慢） | ❌ 放不下 | ✅ block offload | ⚠️ offload | ✅ |
-| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ✅ **block offload**（~56GB CPU RAM） | ⚠️ offload | ✅ |
+| 硬件 | 02 serve（SGLang 多卡） | 06（diffusers bf16） | 06a/06c（int8+block offload,50步） | 06d（int8+Turbo,4步） | 06b（Turbo,bf16 全量） | 07 FlashVSR |
+|---|---|---|---|---|---|---|
+| **4× A100 80GB**（服务器） | ✅ FSDP 容量配方 | ✅ 两卡分拆 | ✅ 单卡常驻 | ✅ 最快 | ✅ 最快 | ✅ |
+| **2× RTX 5090 32GB** | ⚠️ 逐层 offload（慢） | ❌ 放不下 | ✅ block offload | ✅ block offload | ⚠️ offload | ✅ |
+| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ✅ block offload（~56GB RAM） | ✅ **block offload（最快）** | ❌ 需 124GB RAM | ✅ |
 
-> **RTX 3090 单卡用户**：用 **06c int8 常驻服务**（加载一次 D 盘模型，多次请求不重新加载）。06a/06c 的代码用了 `enable_group_offload(block_level)`——transformer 按 block 搬到 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB)，24GB 够用。需 ~56GB CPU RAM（`.wslconfig` `memory=56GB`）。
+> **单 RTX 3090 用户**：能跑 **06c**（int8 50 步常驻，能跑但慢）或 **06d**（int8 + Turbo 4 步常驻，最快，推荐）。两者都用 `enable_group_offload(block_level)`——transformer 按 block 搬 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB)，24GB 够用；int8 把权重压到 ~62GB，需 ~56GB CPU RAM + swap（`.wslconfig` `memory=56GB`）。06c/06d 加载一次多次请求不重载。
 >
-> 06b Turbo LoRA 需 ~124GB CPU RAM（bf16 全量 offload），单机 64GB 跑不动，不推荐。
+> **06b 跑不了**：bf16 全量 ~124GB CPU RAM，单机 64GB 不够（RAM OOM）。要 4 步加速改用 **06d**（int8 把权重压到 ~62GB 才塞得下）。02/06 也跑不了（bf16 120GB，需多卡 80GB）。
+
+## 脚本区别（06 / 06a / 06b / 06c / 06d）
+
+| 脚本 | 量化 | 去噪步数 | 加载方式 | 常驻 | 单 3090 24GB | 说明 |
+|---|---|---|---|---|---|---|
+| **06** | bf16 | 50 | 两卡分拆（transformer cuda:0 + text_encoder cuda:1） | 否 | ❌ | 需 2×80GB；diffusers 直跑 |
+| **06a** | int8 | 50 | block offload（transformer/te 按 block 搬 CPU） | 否（一次性） | ✅ | 同 06c 加载，跑完即退；单次生成可用 |
+| **06b** | bf16 | 4（Turbo LoRA） | auto CPU offload（全量权重驻 RAM） | 否 | ❌ | 需 ~124GB RAM；A100 80GB 或大内存机用 |
+| **06c** | int8 | 50 | block offload | ✅（HTTP 服务） | ✅ | 3090 能跑但 50 步慢；多次生成省加载 |
+| **06d** | int8 | 4（Turbo LoRA） | block offload | ✅（HTTP 服务） | ✅ **推荐** | 06c 的 int8 加载 + 06b 的 4 步；3090 最快 |
+| **02/03** | bf16 | 50 | SGLang 多卡（FSDP/TP） | ✅（服务） | ❌ | 需多卡 80GB；多卡并行最快 |
+
+> **单 3090 选哪个**：要快用 **06d**（int8+Turbo 4 步），要稳/不折腾用 **06c**（int8 50 步原版）。
+> 06b 在 3090 跑不动（bf16 全量 ~124GB RAM > 64GB）；06d 用 int8 把权重压到 ~62GB 才塞得下。
+> 06d 的 int8+LoRA 组合是把 06c 的加载与 06b 的 4 步蒸馏拼起来——LoRA 的 A/B 是新增 bf16 参数，
+> 与 int8 量化权重不冲突（独立计算支路）。若运行时 `add_adapter` 与 int8 有兼容问题，退回 06c。
 
 ## 与服务器版的核心差异
 
@@ -193,8 +209,27 @@ bash minimax_h3/00a_setup_env.sh
 # 1) 下权重（FL2VA ~120GB；需 HF_TOKEN）
 HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 
-# 6b) Turbo LoRA 4 步推理（单卡 bf16 + auto offload，⚠️ WSL 单卡唯一可行路径）
-# 先下 LoRA（~2GB）：
+# 6d) int8 + Turbo 4 步常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步，又快又省）
+# 先下 LoRA（~2GB，06b/06d 共用）：
+#   hf download lightx2v/Minimax-h3-Turbo \
+#     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+#     --local-dir ~/model/MiniMax-H3-Turbo
+GPU=0 \
+  MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+  LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+  DEVICE=cuda:0 \
+  MAX_PIXELS=1032192 \
+  NUM_FRAMES=124 \
+  bash minimax_h3/06d_int8_turbo_serve.sh
+# 起好后发请求（同 06c）：curl -X POST http://localhost:8000/generate \
+#   -H 'Content-Type: application/json' -d '{"prompt":"...","first_frame":"/mnt/d/img.jpg","seed":42}'
+# ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM；降 NUM_FRAMES=81，或换 544p checkpoint：
+#   LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
+#   VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
+
+# 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 跑不了——需 ~124GB RAM；
+#     A100 80GB 或 ≥128GB RAM 机器用；3090 要 4 步加速改用上方 06d）
+# 先下 LoRA（同 06d，~2GB）：
 #   hf download lightx2v/Minimax-h3-Turbo \
 #     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
 #     --local-dir ~/model/MiniMax-H3-Turbo

@@ -64,6 +64,23 @@ curl -X POST http://localhost:8000/generate \
 curl http://localhost:8000/health
 curl -X POST http://localhost:8000/shutdown
 
+# ── int8 + Turbo 4 步常驻服务（06d，3090/小卡最优——06c 的 int8 加载 + 06b 的 4 步）──
+# 06c 的 int8 + block offload（权重 ~62GB，24GB 卡够）+ 06b 的 Turbo LoRA（50→4 步）。
+# A100 80GB 直接用 06c 常驻或 06b 即可；06d 是为 3090/24GB 这类小卡写的（把 06b 塞不下的
+# bf16 全量 124GB 用 int8 压到 62GB）。各 06* 脚本区别见 README_wsl.md「脚本区别」表。
+# 先下 LoRA（同 06b，~2GB）：
+#   hf download lightx2v/Minimax-h3-Turbo \
+#     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+#     --local-dir ../../model/MiniMax-H3-Turbo
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=../../model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+OUTPUT_DIR=../../output/minimaxh3_rotate_results/results_int8turbo \
+bash minimax_h3/06d_int8_turbo_serve.sh
+# 起好后发请求同 06c（curl POST /generate）；⚠️ 小卡跑 768p 可能 VAE OOM，降 NUM_FRAMES 或换 544p checkpoint（VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240）
+
 # ── Turbo LoRA 4 步加速（06b，单卡 bf16 + auto offload，比 06a 更快）──
 # 用 lightx2v/Minimax-h3-Turbo 蒸馏的 LoRA，把 50 步压到 4 步，推理快 ~10×。
 # bf16 不量化 + ComponentsManager auto CPU offload（单卡 80GB 可跑）。
