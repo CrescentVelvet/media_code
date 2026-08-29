@@ -18,7 +18,7 @@
 #
 # 用法：
 #   GPU=0 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-#     LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+#     LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
 #     bash minimax_h3/06d_int8_turbo_serve.sh
 #   # 另一个终端：
 #   curl -X POST http://localhost:8000/generate -H 'Content-Type: application/json' \
@@ -64,13 +64,15 @@ fi
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; import torchao, peft; print('✅ diffusers + torchao + peft ok')" 2>/dev/null || \
     { echo "❌ diffusers/torchao/peft not ready" >&2; exit 1; }
 
-# 前置检查：LoRA 权重（默认指向 768p 4-step v1.0，可被 LORA_PATH 覆盖）
-LORA_PATH="${LORA_PATH:-~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
+# 前置检查：LoRA 权重（默认放模型同目录 /mnt/d/wheel/minimaxh3_ms，可被 LORA_PATH 覆盖）
+LORA_PATH="${LORA_PATH:-/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
 if [ ! -f "$LORA_PATH" ]; then
     echo "❌ ERROR: LoRA checkpoint not found: $LORA_PATH" >&2
-    echo "   download from https://huggingface.co/lightx2v/Minimax-h3-Turbo" >&2
-    echo "   e.g. hf download lightx2v/Minimax-h3-Turbo \\" >&2
-    echo "          minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir ~/model/MiniMax-H3-Turbo" >&2
+    echo "   modelscope 迅雷直链（~1.3GB，本机可达）:" >&2
+    echo "     https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors" >&2
+    echo "   下完放到: /mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors" >&2
+    echo "   （期望大小 1383677808 字节；或 hf download lightx2v/Minimax-h3-Turbo \\" >&2
+    echo "     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir /mnt/d/wheel/minimaxh3_ms)" >&2
     echo "   then set LORA_PATH=/your/lora.safetensors" >&2
     exit 1
 fi
