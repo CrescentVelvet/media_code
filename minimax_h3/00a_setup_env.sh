@@ -265,6 +265,15 @@ if ! python -c "import huggingface_hub" 2>/dev/null; then
     pip install --upgrade huggingface_hub || echo "  ⚠️ huggingface_hub install failed" >&2
 fi
 
+# ── 10b. Install av (PyAV, for diffusers encode_video 写 mp4) ─────────────
+# 06c/06d/06a/06b 的 generate 调 diffusers.utils.export_utils.encode_video 写
+# mp4+音频，依赖 PyAV（av 包，manylinux wheel 内嵌 ffmpeg 库，无需系统 ffmpeg）。
+# 没装会报 "PyAV is required to use `encode_video`. You can install it with `pip install av`."
+if ! python -c "import av" 2>/dev/null; then
+    echo "📦 installing av (PyAV, for encode_video mp4 output)..."
+    pip install av || echo "  ⚠️ av install failed (encode_video 会报错，手动: pip install av)" >&2
+fi
+
 # ── 11. conda init bash (so interactive shells have conda on PATH) ─────────
 if ! grep -q "miniconda3" "$HOME/.bashrc" 2>/dev/null; then
     echo "📦 running 'conda init bash'..."
@@ -284,6 +293,8 @@ python -c "import torch; print(f'  ✅ torch {torch.__version__} cuda={torch.cud
 python -c "import sglang; print(f'  ✅ sglang {getattr(sglang, \"__version__\", \"unknown\")}')" 2>/dev/null || echo "  [MISS] sglang"
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; print('  ✅ diffusers MiniMax-H3 module')" 2>/dev/null || \
     echo "  [---] diffusers MiniMax-H3 module (06/06a/06b will auto-install on first run)"
+python -c "import av; print(f'  ✅ av {av.__version__} (encode_video mp4 输出)')" 2>/dev/null || \
+    echo "  [MISS] av (06c/06d encode_video 会报错，pip install av)"
 if [ "${SKIP_CUDA_TOOLKIT:-0}" != "1" ]; then
     command -v nvcc >/dev/null 2>&1 && echo "  ✅ nvcc (for 07 BSA kernel)" || echo "  [MISS] nvcc (07 BSA kernel compile will fail)"
 fi
