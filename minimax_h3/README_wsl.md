@@ -14,7 +14,7 @@
 
 | 组件 | 状态 | 路径 |
 |---|---|---|
-| conda env `minimax_h3` | ✅ 已建（python 3.11 + torch 2.6 cu124 + diffusers 0.40 + torchao 0.15 + transformers 5.15） | `~/miniconda3/envs/minimax_h3` |
+| conda env `minimax_h3` | ✅ 已建（python 3.11 + torch 2.6 cu124 + diffusers 0.40 + torchao 0.16 + transformers 5.15） | `~/miniconda3/envs/minimax_h3` |
 | gcc 12（triton JIT 编译用） | ✅ 已装（conda gxx_linux-64=12） | env 内 |
 | MiniMax-H3 权重（60 文件 135GB） | ✅ 全部下完 | `/mnt/d/wheel/minimaxh3_ms` |
 | WSL 内存 | ✅ `.wslconfig` memory=56GB + swap=32GB | vhdx 27GB（C 盘） |
@@ -231,7 +231,7 @@ curl -X POST http://localhost:8000/generate \
   "prompt":"integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout.",
   "first_frame":"/mnt/d/dataset/测试数据sample/3fe0604320a24d66a8bde164edf18c11/image_jpg/679448043695000.jpg",
   "seed":42,
-  "output_name":"rotate.mp4"
+  "output_name":"rotate_360.mp4"
   }'
 
 # 健康检查 / 关闭

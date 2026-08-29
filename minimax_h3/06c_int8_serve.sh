@@ -45,11 +45,12 @@ if ! python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3Modu
         echo "❌ clone diffusers failed" >&2; exit 1
     fi
 fi
-# 检测 torchao（int8 量化要 >=0.15.0）
-if ! python -c "import torchao; assert tuple(map(int, torchao.__version__.split('.')[:2])) >= (0, 15)" 2>/dev/null; then
-    echo "📦 torchao too old or missing (need >=0.15.0), installing torchao==0.15.0 ---"
-    python -m pip install "${PIP_FLAGS[@]}" "torchao==0.15.0" || \
-        { echo "❌ pip install torchao==0.15.0 failed" >&2; exit 1; }
+# 检测 torchao（int8 量化 + 06d peft torchao LoRA dispatcher 要 >=0.16.0；
+#   peft is_torchao_available 在 <0.16 会 raise → add_adapter 炸；06a/06c/06d 统一 0.16）
+if ! python -c "import torchao; assert tuple(map(int, torchao.__version__.split('.')[:2])) >= (0, 16)" 2>/dev/null; then
+    echo "📦 torchao too old or missing (need >=0.16.0 for peft torchao LoRA dispatcher), installing torchao==0.16.0 ---"
+    python -m pip install "${PIP_FLAGS[@]}" "torchao==0.16.0" || \
+        { echo "❌ pip install torchao==0.16.0 failed" >&2; exit 1; }
 fi
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; import torchao; print('✅ diffusers + torchao ok')" 2>/dev/null || \
     { echo "❌ diffusers/torchao not ready" >&2; exit 1; }
