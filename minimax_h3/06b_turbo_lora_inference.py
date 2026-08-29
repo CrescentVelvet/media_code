@@ -178,6 +178,8 @@ def main():
 
     # 加载 pipeline（bf16，不量化；用 ComponentsManager auto CPU offload）
     print("📦 loading pipeline (this takes minutes)...")
+    from _ensure_modular_index import ensure_modular_model_index
+    print(f"  📦 {ensure_modular_model_index(MODEL_PATH)}")
     manager = ComponentsManager()
     manager.enable_auto_cpu_offload(device=DEVICE, memory_reserve_margin="12GB")
     pipe = ModularPipeline.from_pretrained(MODEL_PATH, components_manager=manager)

@@ -104,6 +104,8 @@ def main():
     # text_encoder 放 TEXT_ENCODER_DEVICE，rest（transformer/vae/...）放 TRANSFORMER_DEVICE。
     # pretrained_model_name_or_path 覆盖 modular_model_index.json 里的 HF Hub ID，强制本地加载。
     print("📦 loading pipeline (two-card split, this takes minutes)...")
+    from _ensure_modular_index import ensure_modular_model_index
+    print(f"  📦 {ensure_modular_model_index(MODEL_PATH)}")
     workflow = ModularPipeline.from_pretrained(MODEL_PATH).blocks.get_workflow("fl2va")
 
     # 1) text_encoder 拆出来放 TEXT_ENCODER_DEVICE

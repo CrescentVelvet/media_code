@@ -71,6 +71,9 @@ def load_model():
     print(f"  💾 output: {OUTPUT_DIR}")
     print(f"  ⏳ loading from D drive (HDD) — this takes 20-40 min...")
 
+    from _ensure_modular_index import ensure_modular_model_index
+    print(f"  📦 {ensure_modular_model_index(MODEL_PATH)}")
+
     t0 = time.time()
     p = ModularPipeline.from_pretrained(MODEL_PATH)
     p.update_components(

@@ -88,6 +88,8 @@ def main():
     # FL2VA/transformer/ 是原始格式（blocks.*, model-*.safetensors），MiniMaxH3Transformer3DModel 不认。
     # 关键模块（proj_in/out, AdaLN, time_embedder, visual, embed_tokens 等）不量化
     print("📦 loading int8 quantized pipeline (this takes minutes)...")
+    from _ensure_modular_index import ensure_modular_model_index
+    print(f"  📦 {ensure_modular_model_index(MODEL_PATH)}")
     pipe = ModularPipeline.from_pretrained(MODEL_PATH)
     pipe.update_components(
         transformer=MiniMaxH3Transformer3DModel.from_pretrained(
