@@ -8,7 +8,7 @@
 
 > 📖 WSL2 + Ubuntu 24.04 + NVIDIA 驱动 + Miniconda 的基础环境搭建见 [`wsl/README.md`](../wsl/README.md)（本文件假设已按它配好 WSL + Miniconda）。
 
-## 当前状态（已配置完成，直接跑 06c / 06d）
+## 当前状态（已配置完成）
 
 > 本机 RTX 3090 (24GB) + 64GB RAM + D 盘 9.3TB。环境已配好，权重已下完。
 
@@ -19,58 +19,8 @@
 | MiniMax-H3 权重（60 文件 135GB） | ✅ 全部下完 | `/mnt/d/wheel/minimaxh3_ms` |
 | WSL 内存 | ✅ `.wslconfig` memory=56GB + swap=32GB | vhdx 27GB（C 盘） |
 
-**直接跑 06d（int8 + Turbo 4 步，3090 最快——06c 的 int8 加载 + 06b 的 4 步）**（需先下 Turbo LoRA）：
-```bash
-# 启动服务（从 D 盘加载 ~20-40min，然后监听 :8000；4 步去噪比 06c 的 50 步快 ~10×）  
-cd /mnt/c/code/media_code
-# v1.0
-GPU=0 \
-MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-DEVICE=cuda:0 \
-MAX_PIXELS=1032192 \
-NUM_FRAMES=124 \
-bash minimax_h3/06d_int8_turbo_serve.sh
-
-# v1.1（只改 LORA_PATH，其余配方不变）
-GPU=0 \
-MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16.safetensors \
-DEVICE=cuda:0 \
-MAX_PIXELS=1032192 \
-NUM_FRAMES=124 \
-bash minimax_h3/06d_int8_turbo_serve.sh
-
-# 发请求 / 健康检查 / 关闭：API 与 06c 完全一致，见下方 06c 块
-# ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM：降 NUM_FRAMES=81，或换 544p checkpoint
-#   （LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors
-#    VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240）
-```
-
-**直接跑 06c 常驻服务**（模型在 D 盘，输出也写 D 盘，不吃 C 盘空间）：
-```bash
-# 启动服务（从 D 盘加载 ~20-40min，然后监听 :8000）
-cd /mnt/c/code/media_code
-GPU=0 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-  DEVICE=cuda:0 MAX_PIXELS=133120 \
-  bash minimax_h3/06c_int8_serve.sh
-
-# 另一个终端发请求：
-curl -X POST http://localhost:8000/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"a drone shot over mountains","seed":42}'
-
-# 带首帧图的 FL2VA：
-curl -X POST http://localhost:8000/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"integrated_multimodal_description: ...","first_frame":"/mnt/d/your_image.jpg","seed":42,"output_name":"rotate.mp4"}'
-
-# 健康检查 / 关闭
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/shutdown
-```
-
-> 06a int8 虽然注释说"单卡 80GB 常驻"，实际代码用了 `enable_group_offload(block_level)`——transformer/text_encoder 按 block offload 到 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB) + 激活。RTX 3090 24GB **够用**，但需要 ~56GB CPU RAM 装 int8 后的 ~62GB 权重（部分走 swap）。
+> 可运行命令全部在下方「常用命令」（06c / 06d 常驻服务 + 07 超分 + 08 扩 prompt）。
+> 单 3090 推荐 **06d**（int8 + Turbo 4 步常驻，最快），要稳用 **06c**（int8 50 步原版）；各 06* 脚本区别见下方「脚本区别」表。
 
 ---
 
@@ -237,6 +187,24 @@ bash minimax_h3/00a_setup_env.sh
 # 1) 下权重（FL2VA ~120GB；需 HF_TOKEN）
 HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 
+# 6c) int8 常驻服务（50 步原版，3090 能跑但慢；要快用下方 06d）
+# 模型在 D 盘，加载 ~20-40min 后监听 :8000，输出也写 D 盘
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+DEVICE=cuda:0 MAX_PIXELS=133120 \
+bash minimax_h3/06c_int8_serve.sh
+# 另一个终端发请求（06c/06d API 一致）：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"a drone shot over mountains","seed":42}'
+# 带首帧图的 FL2VA：
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"integrated_multimodal_description: ...","first_frame":"/mnt/d/your_image.jpg","seed":42,"output_name":"rotate.mp4"}'
+# 健康检查 / 关闭
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/shutdown
+
 # 6d) int8 + Turbo 4 步常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步，又快又省）
 # 先下 LoRA（~1.4GB，06b/06d 共用）——modelscope 迅雷直链（本机可达）：
 #   https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
@@ -294,28 +262,7 @@ FIRST_FRAME=https://raw.githubusercontent.com/CrescentVelvet/media_code/main/min
 bash minimax_h3/08_context_ir.sh
 ```
 
-## 多卡 serve（02 — 仅多 GPU WSL 用，单卡跳过）
 
-单 RTX 3090 (24GB) 跑不了 02 serve（120GB 权重放不下）。多卡 WSL 可按服务器配方跑，路径换成 `~/model/MiniMax-H3`：
-
-```bash
-# 2× RTX 5090 32GB 逐层 offload（慢但能塞下；64GB 共需靠 offload 搬运）
-GPU=0,1 NUM_GPUS=2 MODEL_PATH=~/model/MiniMax-H3 \
-EXTRA_SGLANG_FLAGS="--performance-mode memory --layerwise-offload-components dit,text_encoder,vae --dit-layerwise-resident-layers 20" \
-bash minimax_h3/02_serve.sh
-
-# 4× A100 80GB（如 WSL 机器有 4 卡）— FSDP 容量配方（最稳）
-GPU=0,1,2,3 NUM_GPUS=4 ULYSSES_DEGREE=4 USE_FSDP=1 \
-  MODEL_PATH=~/model/MiniMax-H3 bash minimax_h3/02_serve.sh
-# 起好服务后发请求：
-GPU=0,1,2,3 SERVER_URL=http://localhost:30010 \
-  TASK=fl2va FIRST_FRAME=~/my_images/first.png DURATION=8 \
-  PROMPT="..." \
-  OUTPUT_DIR=~/output/minimaxh3_rotate_results/results/fl2va OUTPUT_NAME=fl2va.mp4 \
-  bash minimax_h3/03_generate.sh
-```
-
-其他 02 配方（TP2+Ulysses2、offload 选项、BG 后台模式等）见 [`README.md` 的「Serving」段](README.md#serving-02--sglang-起-h3-base-服务)。
 
 ## 可能遇到的问题（WSL 专属）
 
