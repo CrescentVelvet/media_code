@@ -580,10 +580,14 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 
 | checkpoint | NFE | VIDEO_SHIFT | LORA_ALPHA | MAX_PIXELS |
 |---|---|---|---|---|
-| `minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16` | 4 | 6 | 128 | 1032192 (1344×768) |
-| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 8 | 12 | 8 | 522240 (960×544) |
+| `minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16` | 4 | 6 | 128 | 1032192 (1344×768) ← 06b/06d 默认 |
+| `minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16` | 4 | 6 | 128† | 1032192 (1344×768) v1.1 质量改进版 |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 8 | 6 | 128† | 1032192 (1344×768) 质量优先（官方 Studio 用，比 4 步慢 2×） |
 | `minimax_h3_fl2v_turbo_4step_v0.1` | 4 | 12 | 8 | 522240 (960×544) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 8 | 12 | 8 | 522240 (960×544) |
 | `minimax_h3_ref2v_turbo_4step_v0.1_bf16` | 4 | 12 | 8 | 522240 (Ref2VA，需 `TASK=ref2va`) |
+
+† v1.1 / 8-step 768p 的 alpha=128 按 768p 系列推断（官方 model-specs 表未列 v1.1，8-step 768p 也未给 alpha）；v1.0 768p 的 shift 6/alpha 128 官方确认。
 
 ### FlashVSR SR (07)
 | var | default | note |

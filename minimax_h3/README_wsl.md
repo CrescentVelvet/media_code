@@ -21,20 +21,29 @@
 
 **直接跑 06d（int8 + Turbo 4 步，3090 最快——06c 的 int8 加载 + 06b 的 4 步）**（需先下 Turbo LoRA）：
 ```bash
-# 先下 Turbo LoRA（~1.4GB，06b/06d 共用）——modelscope 迅雷直链（本机可达）：
-#   https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
-#   下完放到 D:\wheel\minimaxh3_ms\minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors（期望 1383677808 字节）
-#   备用（hf-mirror）：https://hf-mirror.com/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
-
-# 启动服务（从 D 盘加载 ~20-40min，然后监听 :8000；4 步去噪比 06c 的 50 步快 ~10×）
+# 启动服务（从 D 盘加载 ~20-40min，然后监听 :8000；4 步去噪比 06c 的 50 步快 ~10×）  
 cd /mnt/c/code/media_code
-GPU=0 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-  LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-  DEVICE=cuda:0 MAX_PIXELS=1032192 NUM_FRAMES=124 \
-  bash minimax_h3/06d_int8_turbo_serve.sh
+# v1.0
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+NUM_FRAMES=124 \
+bash minimax_h3/06d_int8_turbo_serve.sh
+
+# v1.1（只改 LORA_PATH，其余配方不变）
+GPU=0 \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16.safetensors \
+DEVICE=cuda:0 \
+MAX_PIXELS=1032192 \
+NUM_FRAMES=124 \
+bash minimax_h3/06d_int8_turbo_serve.sh
+
 # 发请求 / 健康检查 / 关闭：API 与 06c 完全一致，见下方 06c 块
 # ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM：降 NUM_FRAMES=81，或换 544p checkpoint
-#   （LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v0.1.safetensors
+#   （LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors
 #    VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240）
 ```
 
@@ -231,10 +240,11 @@ HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 # 6d) int8 + Turbo 4 步常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步，又快又省）
 # 先下 LoRA（~1.4GB，06b/06d 共用）——modelscope 迅雷直链（本机可达）：
 #   https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
-#   下完放到 D:\wheel\minimaxh3_ms\minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors（期望 1383677808 字节）
+#   下完放到 D:\wheel\minimaxh3_ms\minimax_h3_turbo\minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors（期望 1383677808 字节）
+#   （v1.1 / 8-step 同理换文件名；配方见 README.md「Turbo LoRA (06b)」checkpoint 表）
 GPU=0 \
   MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-  LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+  LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
   DEVICE=cuda:0 \
   MAX_PIXELS=1032192 \
   NUM_FRAMES=124 \
@@ -242,7 +252,7 @@ GPU=0 \
 # 起好后发请求（同 06c）：curl -X POST http://localhost:8000/generate \
 #   -H 'Content-Type: application/json' -d '{"prompt":"...","first_frame":"/mnt/d/img.jpg","seed":42}'
 # ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM；降 NUM_FRAMES=81，或换 544p checkpoint：
-#   LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
+#   LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
 #   VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
 
 # 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 跑不了——需 ~124GB RAM；

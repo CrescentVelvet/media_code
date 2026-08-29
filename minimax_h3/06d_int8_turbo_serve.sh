@@ -10,15 +10,18 @@
 #   checkpoint                                   NFE  VIDEO_SHIFT  LORA_ALPHA  MAX_PIXELS
 #   ─────────────────────────────────────────────────────────────────────────────────────
 #   minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16    4    6            128         1032192 (1344x768)  ← 默认
+#   minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16    4    6            128*        1032192 (1344x768)  v1.1 质量改进版（同配方）
+#   minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16    8    6            128*        1032192 (1344x768)  质量优先（Studio 用，比 4 步慢 2×）
 #   minimax_h3_fl2v_turbo_4step_v0.1              4    12           8           522240  (960x544)   ← 3090 OOM 兜底
 #   minimax_h3_ref2v_turbo_4step_v0.1_bf16        4    12           8           522240  (Ref2VA，06d 不支持，用 06b)
 # ⚠️ shift/alpha 与 checkpoint 绑定，换 checkpoint 必须同步改 VIDEO_SHIFT/LORA_ALPHA/MAX_PIXELS。
+# * v1.1 / 8-step 768p 的 alpha=128 按 768p 系列推断（官方 model-specs 表未列）；v1.0 768p 的 6/128 官方确认。
 # ⚠️ 768p LoRA 在远低于 1344x768 的分辨率上跑会掉质（蒸馏是分辨率敏感的）；3090 若 768p VAE
 #    解码 OOM，降 NUM_FRAMES 或换 544p checkpoint（VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240）。
 #
 # 用法：
 #   GPU=0 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-#     LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+#     LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
 #     bash minimax_h3/06d_int8_turbo_serve.sh
 #   # 另一个终端：
 #   curl -X POST http://localhost:8000/generate -H 'Content-Type: application/json' \
@@ -64,15 +67,15 @@ fi
 python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline; import torchao, peft; print('✅ diffusers + torchao + peft ok')" 2>/dev/null || \
     { echo "❌ diffusers/torchao/peft not ready" >&2; exit 1; }
 
-# 前置检查：LoRA 权重（默认放模型同目录 /mnt/d/wheel/minimaxh3_ms，可被 LORA_PATH 覆盖）
-LORA_PATH="${LORA_PATH:-/mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
+# 前置检查：LoRA 权重（默认放模型子目录 minimax_h3_turbo/，可被 LORA_PATH 覆盖）
+LORA_PATH="${LORA_PATH:-/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
 if [ ! -f "$LORA_PATH" ]; then
     echo "❌ ERROR: LoRA checkpoint not found: $LORA_PATH" >&2
-    echo "   modelscope 迅雷直链（~1.3GB，本机可达）:" >&2
+    echo "   modelscope 迅雷直链（~1.4GB，本机可达）:" >&2
     echo "     https://modelscope.cn/models/lightx2v/Minimax-h3-Turbo/resolve/master/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors" >&2
-    echo "   下完放到: /mnt/d/wheel/minimaxh3_ms/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors" >&2
+    echo "   下完放到: /mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors" >&2
     echo "   （期望大小 1383677808 字节；或 hf download lightx2v/Minimax-h3-Turbo \\" >&2
-    echo "     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir /mnt/d/wheel/minimaxh3_ms)" >&2
+    echo "     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir /mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo)" >&2
     echo "   then set LORA_PATH=/your/lora.safetensors" >&2
     exit 1
 fi
