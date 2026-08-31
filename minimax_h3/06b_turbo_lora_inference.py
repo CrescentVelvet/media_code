@@ -35,14 +35,14 @@ from _turbo_lora import load_lora_adapter
 
 
 def main():
-    MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "../../model/MiniMax-H3"))
+    MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms"))
     LORA_PATH = os.environ.get("LORA_PATH", "")
     TASK = os.environ.get("TASK", "")
     PROMPT = os.environ.get("PROMPT", "")
     PROMPT_FILE = os.environ.get("PROMPT_FILE", "")
     FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
     LAST_FRAME = os.environ.get("LAST_FRAME", "")
-    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "../MiniMax-H3/results/turbo")
+    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/results_turbo")
     if not TASK:
         TASK = "fl2va" if FIRST_FRAME else "t2va"
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_turbo_seed{os.environ.get('SEED','0')}.mp4"

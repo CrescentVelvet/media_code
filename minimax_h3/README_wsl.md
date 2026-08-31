@@ -275,22 +275,19 @@ curl -X POST http://localhost:8000/shutdown
 
 # 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 需 .wslconfig swap≥96GB 才跑得动（慢，靠 swap 撑 124GB）；
 #     A100 80GB 或 ≥128GB RAM 机器用；3090 要 4 步加速改用上方 06d）
-# 先下 LoRA（同 06d，~2GB）：
-#   hf download lightx2v/Minimax-h3-Turbo \
-#     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-#     --local-dir ~/model/MiniMax-H3-Turbo
+# 先下 LoRA（同 06d，~1.4GB，modelscope 迅雷直链 + 放 minimax_h3_turbo/ 子目录，见上方 06d 块）
 GPU=0 \
-MODEL_PATH=~/model/MiniMax-H3 \
-LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
+MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
+LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 FPS=24 \
 NUM_FRAMES=124 \
 SEED=42 \
 TASK=fl2va \
-FIRST_FRAME=~/my_images/subject.jpg \
+FIRST_FRAME=/mnt/d/dataset/subject.jpg \
 PROMPT="integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout." \
-OUTPUT_DIR=~/output/minimaxh3_rotate_results/results_turbo \
+OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_turbo \
 OUTPUT_NAME=rotate_360_turbo.mp4 \
 bash minimax_h3/06b_turbo_lora_inference.sh
 

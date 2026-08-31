@@ -52,12 +52,12 @@ python -c "from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPi
     { echo "❌ diffusers/peft not ready" >&2; exit 1; }
 
 # 前置检查：LoRA 权重必须存在（默认指向 768p 4-step v1.0，可被 LORA_PATH 覆盖）
-LORA_PATH="${LORA_PATH:-../../model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
+LORA_PATH="${LORA_PATH:-/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors}"
 if [ ! -f "$LORA_PATH" ]; then
     echo "❌ ERROR: LoRA checkpoint not found: $LORA_PATH" >&2
     echo "   download from https://huggingface.co/lightx2v/Minimax-h3-Turbo" >&2
     echo "   e.g. hf download lightx2v/Minimax-h3-Turbo \\" >&2
-    echo "          minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir ../../model/MiniMax-H3-Turbo" >&2
+    echo "          minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors --local-dir /mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo" >&2
     echo "   then set LORA_PATH=/your/lora.safetensors" >&2
     exit 1
 fi
