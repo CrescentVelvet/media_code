@@ -17,7 +17,7 @@
 | conda env `minimax_h3` | ✅ 已建（python 3.11 + torch 2.6 cu124 + diffusers 0.40 + torchao 0.16 + transformers 5.15） | `~/miniconda3/envs/minimax_h3` |
 | gcc 12（triton JIT 编译用） | ✅ 已装（conda gxx_linux-64=12） | env 内 |
 | MiniMax-H3 权重（60 文件 135GB） | ✅ 全部下完 | `/mnt/d/wheel/minimaxh3_ms` |
-| WSL 内存 | ✅ `.wslconfig` memory=56GB + swap=32GB | vhdx 27GB（C 盘） |
+| WSL 内存 | ✅ `.wslconfig` memory=56GB + swap=128GB（06b bf16 靠 swap 撑 124GB） | vhdx ~27GB（C 盘） |
 
 > 可运行命令全部在下方「常用命令」（06c / 06d 常驻服务 + 07 超分 + 08 扩 prompt）。
 > 单 3090 推荐 **06d**（int8 + Turbo 4 步常驻，最快），要稳用 **06c**（int8 50 步原版）；各 06* 脚本区别见下方「脚本区别」表。
@@ -32,11 +32,11 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 |---|---|---|---|---|---|---|
 | **4× A100 80GB**（服务器） | ✅ FSDP 容量配方 | ✅ 两卡分拆 | ✅ 单卡常驻 | ✅ 最快 | ✅ 最快 | ✅ |
 | **2× RTX 5090 32GB** | ⚠️ 逐层 offload（慢） | ❌ 放不下 | ✅ block offload | ✅ block offload | ⚠️ offload | ✅ |
-| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ✅ block offload（~56GB RAM） | ✅ **block offload（最快）** | ❌ 需 124GB RAM | ✅ |
+| **单 RTX 3090 24GB**（WSL 常见） | ❌ 放不下 | ❌ 放不下 | ✅ block offload（~56GB RAM） | ✅ **block offload（最快）** | ⚠️ 需 swap≥96GB | ✅ |
 
 > **单 RTX 3090 用户**：能跑 **06c**（int8 50 步常驻，能跑但慢）或 **06d**（int8 + Turbo 4 步常驻，最快，推荐）。两者都用 `enable_group_offload(block_level)`——transformer 按 block 搬 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB)，24GB 够用；int8 把权重压到 ~62GB，需 ~56GB CPU RAM + swap（`.wslconfig` `memory=56GB`）。06c/06d 加载一次多次请求不重载。
 >
-> **06b 跑不了**：bf16 全量 ~124GB CPU RAM，单机 64GB 不够（RAM OOM）。要 4 步加速改用 **06d**（int8 把权重压到 ~62GB 才塞得下）。02/06 也跑不了（bf16 120GB，需多卡 80GB）。
+> **06b 现在能跑**（不再 RAM-OOM）：bf16 全量 ~124GB，64GB RAM 不够，但 `.wslconfig` `swap≥96GB`（memory=56GB + swap=96GB+ = 152GB+ 虚拟）就能靠 swap 撑——慢（每步搬运 ~124GB 走 swap）。⚠️ 但目前 bf16 路径也出噪点（跟 06c/06d 同根因，待查，见下方「脚本区别」），06b 暂不算可用方案。02/06 跑不了（bf16 120GB 需多卡 80GB）。
 
 ## 脚本区别（06 / 06a / 06b / 06c / 06d）
 
@@ -44,13 +44,15 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 |---|---|---|---|---|---|---|
 | **06** | bf16 | 50 | 两卡分拆（transformer cuda:0 + text_encoder cuda:1） | 否 | ❌ | 需 2×80GB；diffusers 直跑 |
 | **06a** | int8 | 50 | block offload（transformer/te 按 block 搬 CPU） | 否（一次性） | ✅ | 同 06c 加载，跑完即退；单次生成可用 |
-| **06b** | bf16 | 4（Turbo LoRA） | auto CPU offload（全量权重驻 RAM） | 否 | ❌ | 需 ~124GB RAM；A100 80GB 或大内存机用 |
+| **06b** | bf16 | 4（Turbo LoRA） | auto CPU offload（全量权重驻 RAM） | 否 | ⚠️ 靠 swap | 需 ~124GB RAM（swap≥96GB 慢跑）；A100 80GB 或大内存机用 |
 | **06c** | int8 | 50 | block offload | ✅（HTTP 服务） | ✅ | 3090 能跑但 50 步慢；多次生成省加载 |
 | **06d** | int8 | 4（Turbo LoRA） | block offload | ✅（HTTP 服务） | ✅ **推荐** | 06c 的 int8 加载 + 06b 的 4 步；3090 最快 |
 | **02/03** | bf16 | 50 | SGLang 多卡（FSDP/TP） | ✅（服务） | ❌ | 需多卡 80GB；多卡并行最快 |
 
 > **单 3090 选哪个**：要快用 **06d**（int8+Turbo 4 步），要稳/不折腾用 **06c**（int8 50 步原版）。
-> 06b 在 3090 跑不动（bf16 全量 ~124GB RAM > 64GB）；06d 用 int8 把权重压到 ~62GB 才塞得下。
+> 06b 在 3090 需 `.wslconfig` `swap≥96GB` 才跑得动（bf16 全量 ~124GB 靠 swap 撑，慢）；06d 用 int8 把权重压到 ~62GB 直接塞 56GB RAM。
+>
+> ⚠️ **当前 06b/06c/06d 都出噪点**（彩色方块，根因待查）。已排除 int8/LoRA/配方/scheduler/VAE/权重损坏/key 映射——疑似模型↔pipeline 兼容问题，排查中，暂无可用生成路径。
 > 06d 的 int8+LoRA 组合是把 06c 的加载与 06b 的 4 步蒸馏拼起来——LoRA 的 A/B 是新增 bf16 参数，
 > 与 int8 量化权重不冲突（独立计算支路）。若运行时 `add_adapter` 与 int8 有兼容问题，退回 06c。
 
@@ -254,8 +256,11 @@ curl -X POST http://localhost:8000/shutdown
 # 模型在 D 盘，加载 ~20-40min 后监听 :8000，输出也写 D 盘
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-DEVICE=cuda:0 MAX_PIXELS=133120 \
+DEVICE=cuda:0 \
+MAX_PIXELS=133120 \
+OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8 \
 bash minimax_h3/06c_int8_serve.sh
+
 # 另一个终端发请求（06c/06d API 一致）：
 curl -X POST http://localhost:8000/generate \
   -H 'Content-Type: application/json' \
@@ -268,7 +273,7 @@ curl -X POST http://localhost:8000/generate \
 curl http://localhost:8000/health
 curl -X POST http://localhost:8000/shutdown
 
-# 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 跑不了——需 ~124GB RAM；
+# 6b) Turbo LoRA 4 步推理（bf16 全量 + auto offload，⚠️ 3090 需 .wslconfig swap≥96GB 才跑得动（慢，靠 swap 撑 124GB）；
 #     A100 80GB 或 ≥128GB RAM 机器用；3090 要 4 步加速改用上方 06d）
 # 先下 LoRA（同 06d，~2GB）：
 #   hf download lightx2v/Minimax-h3-Turbo \
