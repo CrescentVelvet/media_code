@@ -184,9 +184,13 @@ def generate(req):
         kwargs["image"] = load_image(first_frame)
     if last_frame:
         kwargs["last_image"] = load_image(last_frame)
+    # 可选 num_inference_steps 覆盖（不传则 pipeline 默认 50；诊断可传少步数如 12 快速看去不去噪）
+    nis = req.get("num_inference_steps")
+    if nis:
+        kwargs["num_inference_steps"] = int(nis)
 
     t0 = time.time()
-    print("  🎬 generating...")
+    print(f"  🎬 generating{' (' + str(nis) + ' steps)' if nis else ''}...")
     results = pipe(**kwargs)
     dt = time.time() - t0
 
