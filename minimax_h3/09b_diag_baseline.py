@@ -129,8 +129,12 @@ def main():
     pipe.transformer.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
 
+    # low_cpu_mem_usage=True 是 64GB 内存的硬性要求：默认 False 时 offload 会把
+    # 全部权重 pin 成锁页内存（transformer 33GB + text_encoder 32GB ≈ 65GB > 物理内存
+    # → pin_memory() 直接 CUDA OOM）。True 时不复制不 pin，页可换出 swap。
     offload = dict(onload_device=torch.device(DEVICE),
-                   offload_device=torch.device("cpu"))
+                   offload_device=torch.device("cpu"),
+                   low_cpu_mem_usage=True)
     used_stream = False
     if not DEV_NO_STREAM:
         offload["use_stream"] = True
