@@ -7,15 +7,15 @@ docs/source/en/api/pipelines/minimax_h3.md 的 consumer card (24-32GB) 配方加
 pipeline、权重都没问题，锅全在你的 06c/06d 魔改上；如果它也是马赛克，
 问题就在模型/pipeline 这一层，跟你的优化无关。
 
-与 06c/06d 的关键差异（都是官方原样，不要动）：
-  · transformer 加载    low_cpu_mem_usage=False   ← 06c/06d 写的是 True
-  · text_encoder 加载   不传 low_cpu_mem_usage     ← 06c/06d 传了 True
-  · offload kwargs      use_stream=True           ← 06c/06d 缺失
-  · group offload 调用   不传 low_cpu_mem_usage     ← 06c/06d 传了 True
+与官方 doc 配方的关系（实测勘误，2026-09-01）：
+  · 官方 doc 写 low_cpu_mem_usage=False，但实测 diffusers 0.40.0（含 main）
+    在 from_pretrained 里硬性断言「量化加载必须 low_cpu_mem_usage=True」，
+    False 直接 ValueError。doc 与代码矛盾，以代码为准 → 三处全部 True。
+    06c/06d 原本写 True 反而是对的，此前对它的怀疑撤回。
+  · offload kwargs      use_stream=True（若当前版本不支持则自动回退）
   · generator           torch.Generator("cpu")    ← 06c/06d 用的是 cuda:0
 
 A/B 开关（默认全关 = 官方原样）。想验证「到底是不是魔改的锅」时再打开：
-  DEV_LOW_CPU_MEM=1   把三处 low_cpu_mem_usage 改回 True（复现 06c/06d 行为）
   DEV_NO_STREAM=1     去掉 use_stream=True
   DEV_CUDA_GEN=1      用 torch.Generator("cuda:0") 代替 CPU generator
 
@@ -45,7 +45,6 @@ PROMPT = os.environ.get("PROMPT", "A red fox trotting through a snowy pine fores
                                   "snow crunching underfoot")
 FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
 
-DEV_LOW_CPU_MEM = os.environ.get("DEV_LOW_CPU_MEM", "0") == "1"
 DEV_NO_STREAM = os.environ.get("DEV_NO_STREAM", "0") == "1"
 DEV_CUDA_GEN = os.environ.get("DEV_CUDA_GEN", "0") == "1"
 
@@ -95,11 +94,11 @@ def main():
     print(f"  device    : {DEVICE}  {torch.cuda.get_device_name(0)}")
     print(f"  video     : {NUM_FRAMES}f {WIDTH}x{HEIGHT} @ {FPS}fps")
     print(f"  steps     : {NIS} (={NIS - 1} 次去噪)  seed={SEED}")
-    print(f"  A/B 开关  : low_cpu_mem={DEV_LOW_CPU_MEM}  no_stream={DEV_NO_STREAM}  "
-          f"cuda_gen={DEV_CUDA_GEN}")
+    print(f"  A/B 开关  : no_stream={DEV_NO_STREAM}  cuda_gen={DEV_CUDA_GEN}"
+          f"  (low_cpu_mem 恒为 True：量化加载硬性要求)")
     print(f"{'=' * 68}")
 
-    lcm_flag = True if DEV_LOW_CPU_MEM else False
+    lcm_flag = True  # 量化加载在 diffusers（0.40.0 起，main 同）强制要求 True
     from _ensure_modular_index import ensure_modular_model_index
     print(f"\n  📦 {ensure_modular_model_index(MODEL_PATH)}")
 
@@ -113,7 +112,7 @@ def main():
                 Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=NOT_CONVERT,
             ),
-            low_cpu_mem_usage=lcm_flag,          # ← 官方: False
+            low_cpu_mem_usage=lcm_flag,
         ),
         text_encoder=Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, subfolder="text_encoder", dtype=torch.bfloat16,
@@ -121,7 +120,7 @@ def main():
                 Int8WeightOnlyConfig(version=2),
                 modules_to_not_convert=TE_NOT_CONVERT,
             ),
-            **({"low_cpu_mem_usage": True} if DEV_LOW_CPU_MEM else {}),
+            low_cpu_mem_usage=True,
         ),
     )
     workflow = "fl2va" if FIRST_FRAME else "t2va"
@@ -132,13 +131,24 @@ def main():
 
     offload = dict(onload_device=torch.device(DEVICE),
                    offload_device=torch.device("cpu"))
+    used_stream = False
     if not DEV_NO_STREAM:
-        offload["use_stream"] = True             # ← 官方: True
-    extra = {"low_cpu_mem_usage": True} if DEV_LOW_CPU_MEM else {}
-    pipe.transformer.enable_group_offload(
-        offload_type="block_level", num_blocks_per_group=1, **extra, **offload)
-    apply_group_offloading(
-        pipe.text_encoder.model, offload_type="leaf_level", **extra, **offload)
+        offload["use_stream"] = True
+    try:
+        pipe.transformer.enable_group_offload(
+            offload_type="block_level", num_blocks_per_group=1, **offload)
+        apply_group_offloading(
+            pipe.text_encoder.model, offload_type="leaf_level", **offload)
+        used_stream = not DEV_NO_STREAM
+    except TypeError as e:
+        # 旧版 enable_group_offload 可能没有 use_stream 参数
+        print(f"  ⚠️ use_stream 不被当前版本支持（{e}），回退到无流式 offload")
+        offload.pop("use_stream", None)
+        pipe.transformer.enable_group_offload(
+            offload_type="block_level", num_blocks_per_group=1, **offload)
+        apply_group_offloading(
+            pipe.text_encoder.model, offload_type="leaf_level", **offload)
+    print(f"  ℹ️ streamed offload: {'ON' if used_stream else 'OFF'}")
     pipe.vae.to(DEVICE)
     pipe.audio_vae.to(DEVICE)
     print(f"  ✅ loaded in {(time.time() - t0) / 60:.1f} min")
