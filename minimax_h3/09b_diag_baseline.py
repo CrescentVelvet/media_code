@@ -27,6 +27,9 @@ import os
 import sys
 import time
 
+# 必须在 torch/CUDA 初始化之前设置：缓解 WSL2 下的显存碎片
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms")
@@ -153,7 +156,12 @@ def main():
         apply_group_offloading(
             pipe.text_encoder.model, offload_type="leaf_level", **offload)
     print(f"  ℹ️ streamed offload: {'ON' if used_stream else 'OFF'}")
-    pipe.vae.to(DEVICE)
+    # VAE fp32 10.4GB 不常驻 GPU（去噪阶段用不到，省出 11GB 给 transformer 激活）；
+    # 解码时 leaf 级按需搬入。09a 已验证 tile 分块解码单卡放得下。
+    pipe.vae.enable_group_offload(onload_device=torch.device(DEVICE),
+                                  offload_device=torch.device("cpu"),
+                                  offload_type="leaf_level",
+                                  low_cpu_mem_usage=True)
     pipe.audio_vae.to(DEVICE)
     print(f"  ✅ loaded in {(time.time() - t0) / 60:.1f} min")
 
