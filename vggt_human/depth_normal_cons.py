@@ -27,13 +27,17 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------
 # Depth → normal (Sobel)
 # ---------------------------------------------------------------------------
-def estimate_normal_from_depth(depth, fx, fy, cx, cy):
+def estimate_normal_from_depth(depth, fx, fy, cx, cy, edge_correction=True):
     """Estimate per-pixel surface normals from a depth map via Sobel gradients.
 
-    In camera coords: x = (u - cx) * z / fx, y = (v - cy) * z / fy.
-    The surface normal is perpendicular to the depth-gradient tangents:
-      nx = -dz/du / fx,  ny = -dz/dv / fy,  nz = 1.0
-    then normalized.
+    In camera coords: X = (u - cx) * Z / fx, Y = (v - cy) * Z / fy.
+    Taking the cross product of the two surface tangents gives
+
+        n ∝ (-Zu * fx,  -Zv * fy,  Z + (u - cx) * Zu + (v - cy) * Zv)
+
+    where Zu = ∂Z/∂u, Zv = ∂Z/∂v.  The last two terms are the off-axis
+    (edge) correction; pass ``edge_correction=False`` for the usual
+    small-field approximation n ∝ (-Zu*fx, -Zv*fy, Z).
 
     Args:
         depth: (1, H, W) or (H, W) tensor — rendered depth (camera z).
@@ -71,10 +75,24 @@ def estimate_normal_from_depth(depth, fx, fy, cx, cy):
         dz_dx = dz_dx.unsqueeze(0)
         dz_dy = dz_dy.unsqueeze(0)
 
-    # Normal = (-dz/dx / fx, -dz/dy / fy, 1)
-    nx = -dz_dx / fx
-    ny = -dz_dy / fy
-    nz = torch.ones_like(dz_dx)
+    # 由 P(u,v) = ((u-cx)*Z/fx, (v-cy)*Z/fy, Z) 取 ∂P/∂u × ∂P/∂v，化简后
+    #   n ∝ (-Zu*fx, -Zv*fy,  Z + (u-cx)*Zu + (v-cy)*Zv)
+    # 中心区域忽略后两项即常见的 (-Zu*fx, -Zv*fy, Z)。
+    #
+    # ⚠️ 原实现误写成 (-Zu/fx, -Zv/fy, 1)：既把 fx/fy 乘除弄反（差 fx² 倍，fx≈1000），
+    # 又用常数 1 当 nz。结果法线退化成近似 (0,0,1)（全部垂直指向相机），
+    # 与真实表面法线几乎无关 —— 实测该 loss 恒在 1.0 附近且不下沉（等同随机）。
+    dtype = dz_dx.dtype
+    device = dz_dx.device
+    nx = -dz_dx * fx
+    ny = -dz_dy * fy
+    if edge_correction:
+        H, W = dz_dx.shape
+        us = torch.arange(W, device=device, dtype=dtype) - cx   # (W,)
+        vs = torch.arange(H, device=device, dtype=dtype) - cy   # (H,)
+        nz = d.squeeze() + us.view(1, -1) * dz_dx + vs.view(-1, 1) * dz_dy
+    else:
+        nz = d.squeeze()
     normal = torch.stack([nx, ny, nz], dim=0)  # (3, H, W)
     normal = F.normalize(normal, dim=0, eps=1e-6)
     return normal

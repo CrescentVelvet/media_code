@@ -80,11 +80,17 @@ if [ -n "${TRAIN_EXTRA_ARGS:-}" ]; then
     TRAIN_FLAGS+=($TRAIN_EXTRA_ARGS)
 fi
 
-# Official 3DGS train.py (always). Custom enhancers (pose_adjust/refine,
-# dynamic mask/filter/MLP, depth-normal) were moved to archive/ — they are
-# re-integrated one-by-one on top of this clean baseline.
-echo "🏋️ using official train.py (baseline reconstruction)"
-( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+# 默认走官方 3DGS train.py（干净基线）。增强逐个加回后在此加开关分支，
+# 只有显式开启时才切到对应的 train_*.py（它们是官方 train.py 的副本 + 单一 hook）。
+if [ "${USE_DEPTH_NORMAL:-0}" = "1" ]; then
+    echo "🏋️ using train_depth_normal.py (depth-normal 约束, w=${DEPTH_NORMAL_WEIGHT:-0.05})"
+    export USE_DEPTH_NORMAL
+    export DEPTH_NORMAL_WEIGHT DEPTH_NORMAL_INTERVAL DEPTH_NORMAL_SAMPLE_POINTS
+    ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_depth_normal.py" "${TRAIN_FLAGS[@]}" )
+else
+    echo "🏋️ using official train.py (baseline reconstruction)"
+    ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+fi
 if [ $? -ne 0 ]; then
     echo "❌ FAILED. 3DGS training did not complete." >&2
     exit 1
