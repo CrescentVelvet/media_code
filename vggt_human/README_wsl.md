@@ -290,11 +290,16 @@ bash vggt_human/07_train_denoise.sh
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 
 # ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output（释放 WSL 空间）──
-# 预览（不实际移动）：
-DRY_RUN=1 SRC=~/output/vggt_human_results DST=/mnt/d/my_output bash vggt_human/08_move_output.sh
+# 预览（不实际移动，默认 DST=/mnt/d/output/vggt_human_results）：
+# DRY_RUN=1 bash vggt_human/08_move_output.sh
 
 # 实际搬运（默认 ~/output/vggt_human_results → /mnt/d/output/vggt_human_results）：
-SRC=~/output/vggt_human_results DST=/mnt/d/my_output bash vggt_human/08_move_output.sh
+bash vggt_human/08_move_output.sh
+
+# 若想搬到别的目录，才需要显式传 DST，例如：
+# SRC=~/output/vggt_human_results \
+# DST=/mnt/d/output/vggt_human_results \
+# bash vggt_human/08_move_output.sh
 ```
 
 - 结果：VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。

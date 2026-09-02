@@ -115,7 +115,8 @@ if [ "$MOVE_EXTRA_DIRS" = "1" ]; then
         "$REPO_DIR/../vggt_human_results" \
         "$REPO_DIR/../vggt_human_experiments"; do
         if [ -d "$_extra" ] && [ "$(ls -A "$_extra" 2>/dev/null)" ]; then
-            _extra_dst="/mnt/d/output/$(basename "$_extra")"
+            # 额外产物与主结果放到同一目标父目录下（与 DST 保持一致）
+            _extra_dst="$(dirname "$DST")/$(basename "$_extra")"
             echo ""
             echo "📦 搬运额外目录: $_extra -> $_extra_dst"
             mkdir -p "$_extra_dst"
