@@ -208,10 +208,10 @@ bash vggt_human/02_run_inference.sh
 #   frames/            # 喂给模型的图
 
 # ── 3) npz → COLMAP 转换（自适应置信度过滤 + 体素降采样 ~200k + 坐标系对齐）──
+#    ALIGN=1：把场景居中到原点（官方 train.py 直接吃这个坐标系即可收敛）
 GPU=0 \
 TARGET_POINTS=200000 \
-POSE_ADJUST=1 \
-POSE_REFINE=1 \
+ALIGN=1 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/03_npz_to_colmap.sh
 
@@ -222,22 +222,13 @@ bash vggt_human/03_npz_to_colmap.sh
 #   sparse/0/points3D.txt     # ~200k 初始点
 
 # ── 4) 原版 3DGS 训练 + 渲染 ──
-#    增强开关（默认全开，改 0 即关）：
-#      POSE_ADJUST=1          训练前位姿变换（居中+重力对齐+尺度归一化）
-#      POSE_REFINE=1          训练中位姿精炼（可学四元数+平移）
-#      ENABLE_DYNAMIC_MASK=0  动态掩码（需 SAM2+GroundingDINO，WSL 暂跳过）
-#      ENABLE_DYNAMIC_FILTER=0 动态点云过滤（需掩码先开）
-#      ENABLE_MLP_DYNAMIC=0   DINOv2+MLP 动态感知（需 DINOv2，WSL 暂跳过）
-#      USE_DEPTH_NORMAL=1      深度-法线一致性约束（无需额外模型）
+#    ⚠️ 现在恒走官方 gaussian-splatting 的 train.py（干净官方基线）。
+#    自研增强脚本已移入 vggt_human/archive/（train_pose/pose_refine/dynamic_mask/
+#    dynamic_filter/noise_negating/depth_normal_cons），不参与本步。
+#    之后想加回某个增强，见 archive/README.md 的「加回步骤」。
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
-POSE_ADJUST=1 \
-POSE_REFINE=1 \
-ENABLE_DYNAMIC_MASK=1 \
-ENABLE_DYNAMIC_FILTER=1 \
-ENABLE_MLP_DYNAMIC=1 \
-USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
 
@@ -273,16 +264,10 @@ bash vggt_human/06_face_enhance.sh
 
 # ── 7) 用增强场景训练 3DGS（可选）──
 #    原图 + 去噪虚拟相机 + 人脸增强 共同监督
-#    增强开关同 step 4
+#    同样恒走官方 train.py（增强已归档到 archive/，需加回见 archive/README.md）
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
-POSE_ADJUST=1 \
-POSE_REFINE=1 \
-ENABLE_DYNAMIC_MASK=0 \
-ENABLE_DYNAMIC_FILTER=0 \
-ENABLE_MLP_DYNAMIC=0 \
-USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/07_train_denoise.sh
 

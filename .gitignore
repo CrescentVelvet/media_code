@@ -5,3 +5,7 @@ proxy.env
 
 # MediaPipe BlazeFace face detector models (auto-downloaded by face_crop/crop_faces.py)
 face_crop/models/*.tflite
+
+.workbuddy
+# temporary WSL diagnostic scripts (vggt_human debug)
+.tmp_diag/

@@ -299,25 +299,8 @@ def main():
     images_info = parse_images_txt(images_path)
     print(f"  {len(cameras_info)} cameras, {len(images_info)} images")
 
-    # 1b. Load PoseAdjuster (if training used it, transform cameras to adjusted coords)
-    adjuster = None
-    adjuster_path = os.path.join(GAUSSIAN_DIR, "pose_adjuster.json")
-    if os.path.isfile(adjuster_path):
-        from pose_adjuster import PoseAdjuster
-        adjuster = PoseAdjuster.load(adjuster_path, device=DEVICE)
-        print(f"  🏋️ PoseAdjuster loaded — transforming cameras to adjusted coords")
-        # Transform each camera's R/T to adjusted coords
-        adjusted_images = []
-        for img in images_info:
-            quat = img[1]  # [qw, qx, qy, qz]
-            t = img[2]
-            from pose_adjuster import quat_to_rotmat, rotmat_to_quat as r2q
-            R = quat_to_rotmat(torch.tensor(quat, dtype=torch.float32))
-            T = torch.tensor(t, dtype=torch.float32)
-            new_R, new_T = adjuster.transform_camera(R, T)
-            new_q = r2q(new_R)  # [w, x, y, z]
-            adjusted_images.append((img[0], new_q.tolist(), new_T.tolist(), img[3], img[4]))
-        images_info = adjusted_images
+    # (no PoseAdjuster transform: official train.py trains in the COLMAP frame,
+    #  so novel views are inserted directly in the source scene's coordinates)
 
     # 2. Select novel viewpoints
     print(f"🎯 [2/3] selecting {NUM_NOVEL_VIEWS} novel viewpoints")
