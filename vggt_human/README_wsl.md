@@ -201,6 +201,33 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
 > **7000 iter 亮度比值已达 0.995，赶时间够用；出最终交付 PLY 用 30000（0.998）。**
 > ⚠️ 重跑 04 会覆盖同名 `iteration_*` / `ours_*` 目录（想留旧结果先备份）。
 
+### 增强 P1-1：depth-normal consistency（已加回 + 修复）
+
+加回 `depth_normal_cons.py` + `train_depth_normal.py`（官方 train.py 副本 + 单一 hook）。实测 30000 iter：
+
+| 指标 | 官方基线 | depth-normal |
+|---|---|---|
+| 渲染亮度 | 127.6 | 126.0 |
+| GT 亮度 | 127.9 | 125.7 |
+| 亮度比值 | 0.998 | 1.002 |
+| PLY 大小 | 290 MB | 292.6 MB |
+| 训练耗时 | 42 min | 45 min |
+
+> DN Loss 在 densify 结束后（>15000 iter）才启用，densify 阶段跳过（否则点数爆炸导致 8.5s/iter）。
+> DN Loss 稳定在 0.46，约束生效但未损害亮度指标。几何质量提升需看 PLY 细节。
+
+**修复了原模块的 3 个 bug：**
+1. **法线公式错误**（致命）：`(-dz/dx/fx, -dz/dy/fy, 1)` → `(-Zu*fx, -Zv*fy, Z)`。原版把 fx/fy 乘除弄反（差 fx² 倍），nz 用常数 1 而非深度 Z，导致法线退化成 (0,0,1)、DN Loss≈1.0 等同随机噪声、约束静默失效。
+2. **缓存尺寸不匹配崩溃**：densify 后点数变化，缓存的法线索引对不上当前点云，`tensor a (7163) must match b (9679)`。
+3. **densify 阶段速度崩塌**：点数爆炸导致投影+赋值开销线性增长，5450 iter 后从 16 it/s 崩到 8.5 s/iter。改为 densify 阶段跳过 DN Loss。
+
+**用法：**
+```bash
+GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_dn \
+  USE_DEPTH_NORMAL=1 DEPTH_NORMAL_WEIGHT=0.05 \
+  bash vggt_human/04_train_3dgs.sh
+```
+
 ## 全流程命令
 
 > 假设已完成「首次准备」，输入图像在 `D:\dataset\sample\image`。
@@ -326,7 +353,7 @@ bash vggt_human/08_move_output.sh
 - 结果：VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
 - PLY 可拖到 [supersplat](https://playcanvas.com/supersplat/editor) 在线查看。
 
-## 可能遇到的问题（WSL 专属）
+## 可能遇到的问题（WSL 专属）（可以迁移到pipeline.html中）
 
 **1. `conda: command not found`（运行脚本时）**
 00a 末尾执行 `conda init bash`。如果还没 `source ~/.bashrc`：
