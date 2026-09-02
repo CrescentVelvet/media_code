@@ -32,10 +32,15 @@
     让它理解 group-offload 模型的真实显存占用）
   · audio_vae 显式搬到 cuda:0（保持 09b 一致）
 
-预期：~45 分钟一次（加载 20-40min + 去噪 ~45min）。
-若出片干净 → 09b 的 manual offload 路径与 ComponentsManager 状态机冲突，
-            改回官方路径即可（06c/06d 也是同理）；
-若仍马赛克 → 100% 锁定量化损失，下一步 09f：transformer bf16 对照。
+⚠️ 2026-09-02 失效声明（不要跑）：官方 doc 实为两条互斥配方，本脚本把
+「手动 int8 update_components（消费卡配方 B）」与「ComponentsManager auto
+offload（80GB 配方 A）」错误混搭。update_components 注入的实例脱离
+from_pretrained 路径，永不注册进 ComponentsManager（源码
+modular_pipeline.py:2151 要求 spec.default_creation_method=="from_pretrained"），
+cm 为空 → enable_auto_cpu_offload 管不到任何组件 → 全量加载 OOM Killed。
+且官方消费卡方案（配方 B，即 09b 的做法）明确「不传 components_manager」，
+所以「manual offload 与 CM 冲突」首嫌疑已洗清。判定改由 09c 承担
+（VAE 常驻解码对照）。本文件保留供考古，不再修改。
 
 Env vars: 与 09b 一致。
 """
