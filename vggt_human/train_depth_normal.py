@@ -10,6 +10,15 @@
 #
 
 import os
+import sys
+
+# train_depth_normal.py 位于 vggt_human/，但它的 import 依赖官方仓
+# gaussian-splatting 根目录下的模块（utils/、gaussian_renderer/、scene/）。
+# Python 只把脚本所在目录加进 sys.path[0]，所以这里显式注入 GS_DIR。
+_GS_DIR = os.environ.get("GS_DIR") or os.path.expanduser("~/repos/gaussian-splatting")
+if _GS_DIR not in sys.path:
+    sys.path.insert(0, _GS_DIR)
+
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -165,7 +174,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Depth-normal consistency (vggt_human P1-1)
         # 深度取官方 render_pkg["depth"]；法线由点云 KNN+PCA 得到，作为监督信号
         if USE_DEPTH_NORMAL:
-            if dn_cache is None or iteration % DN_INTERVAL == 0:
+            # densification 会 clone/split 高斯，点数变化后缓存索引失效。
+            # 除固定间隔外，点数变化时也立即重算（防 tensor 尺寸不匹配崩溃）。
+            cur_n = gaussians.get_xyz.shape[0]
+            need_recompute = (dn_cache is None
+                              or iteration % DN_INTERVAL == 0
+                              or dn_cache[2] != cur_n)
+            if need_recompute:
                 with torch.no_grad():
                     xyz_all = gaussians.get_xyz
                     n_pts = xyz_all.shape[0]
@@ -175,8 +190,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     else:
                         sel = None
                         xyz_s = xyz_all
-                    dn_cache = (estimate_point_normals(xyz_s, k=20), sel)
-            dn_normals, dn_sel = dn_cache
+                    dn_cache = (estimate_point_normals(xyz_s, k=20), sel, n_pts)
+            dn_normals, dn_sel, _ = dn_cache
             # 采样索引保持可微，法线本身 no_grad
             xyz_dn = gaussians.get_xyz if dn_sel is None else gaussians.get_xyz[dn_sel]
             dn_loss = depth_normal_consistency_loss(
