@@ -123,6 +123,11 @@ class PoseRefinedCamera:
         self.uid = base_camera.uid
         self.image_name = base_camera.image_name
 
+    # ── 未定义属性委托给 base Camera（alpha_mask, depth_reliable 等）─────────
+    def __getattr__(self, name):
+        # __getattr__ 只在正常查找失败时触发，不会拦截已定义的属性
+        return getattr(self.base, name)
+
     # ── Delegated to base Camera ────────────────────────────────────────────
     @property
     def original_image(self):
@@ -173,13 +178,15 @@ class PoseRefinedCamera:
         """4x4 w2c matrix in 3DGS convention: [[R, 0], [T, 1]] (row-major, differentiable).
 
         Matches original Camera: getWorld2View(R,T).transpose(0,1) = [[R, 0], [T, 1]].
+        用 cat 构造而非 zeros+in-place 赋值，保证梯度可流回位姿参数。
         """
         R = self.pose_module.w2c_r_mat            # (3, 3) w2c rotation from quaternion
         T = self.pose_module.w2c_t_vec            # (3,) w2c translation
-        wvt = torch.zeros(4, 4, device=R.device, dtype=torch.float32)
-        wvt[:3, :3] = R                            # top-left 3x3 = R
-        wvt[3, :3] = T                             # bottom-left 1x3 = T
-        wvt[3, 3] = 1.0
+        # 顶 3 行: [R | 0]
+        top = torch.cat([R, torch.zeros(3, 1, device=R.device, dtype=R.dtype)], dim=1)  # (3,4)
+        # 底 1 行: [T | 1]
+        bottom = torch.cat([T.unsqueeze(0), torch.ones(1, 1, device=R.device, dtype=R.dtype)], dim=1)  # (1,4)
+        wvt = torch.cat([top, bottom], dim=0)     # (4,4) [[R,0],[T,1]]
         return wvt.contiguous()
 
     @property

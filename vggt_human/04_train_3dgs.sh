@@ -87,6 +87,11 @@ if [ "${USE_DEPTH_NORMAL:-0}" = "1" ]; then
     export USE_DEPTH_NORMAL
     export DEPTH_NORMAL_WEIGHT DEPTH_NORMAL_INTERVAL DEPTH_NORMAL_SAMPLE_POINTS
     ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_depth_normal.py" "${TRAIN_FLAGS[@]}" )
+elif [ "${USE_POSE_REFINE:-0}" = "1" ]; then
+    echo "🎥 using train_pose_refine.py (位姿精炼, w=${POSE_REFINE_WEIGHT:-0.01})"
+    export USE_POSE_REFINE
+    export POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_LR_I REFINE_INTRINSIC
+    ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_pose_refine.py" "${TRAIN_FLAGS[@]}" )
 else
     echo "🏋️ using official train.py (baseline reconstruction)"
     ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
