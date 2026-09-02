@@ -48,6 +48,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 if os.environ.get("DEV_EXP_SEG", "0") == "1":
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+# 模块级 import：vae.decode 钩子（logged_decode/stats）在 main() 之外被调用，
+# torch 必须在模块作用域可用。run#5 教训：钩子里 NameError 杀掉了 37 分钟的
+# 去噪成果 —— 诊断代码绝不允许弄丢生成结果。
+import torch  # noqa: E402  (必须在上面 env 设置之后)
+
 MODEL_PATH = os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms")
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 WIDTH = int(os.environ.get("WIDTH", "960"))
@@ -246,17 +251,41 @@ def main():
 
     def logged_decode(z, *a, **kw):
         n["calls"] += 1
-        print(f"\n  🔍 [VAE decode #{n['calls']}] 输入 latent:")
-        stats("z (video latent)", z)
-        lm = torch.tensor(pipe.vae.config.latents_mean,
-                          device=z.device).view(1, -1, 1, 1, 1)
-        ls = torch.tensor(pipe.vae.config.latents_std,
-                          device=z.device).view(1, -1, 1, 1, 1)
-        stats("z * std + mean (反归一化)", z * ls + lm)
+        print(f"\n  🔍 [VAE decode #{n['calls']}]")
+        # ① 先落盘再干别的：去噪 37 分钟的成果绝不能再丢。
+        #    存的就是喂给 vae.decode 的原始输入，09c 可离线重解码。
+        try:
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            lat_path = os.path.join(OUTPUT_DIR, f"latent_decode{n['calls']}.pt")
+            torch.save(
+                {"z": z.detach().to("cpu", torch.float32),
+                 "latents_mean": list(pipe.vae.config.latents_mean),
+                 "latents_std": list(pipe.vae.config.latents_std),
+                 "meta": {"width": WIDTH, "height": HEIGHT,
+                          "num_frames": NUM_FRAMES, "fps": FPS,
+                          "seed": SEED, "steps": NIS}},
+                lat_path)
+            print(f"  💾 latent 已存盘: {lat_path}")
+        except Exception as e:
+            print(f"  ⚠️ latent 存盘失败（不影响继续）: {type(e).__name__}: {e}")
+        # ② 统计打印：任何失败都不允许杀掉生成（run#5 的教训）
+        try:
+            print(f"  🔍 [VAE decode #{n['calls']}] 输入 latent:")
+            stats("z (video latent)", z)
+            lm = torch.tensor(pipe.vae.config.latents_mean,
+                              device=z.device).view(1, -1, 1, 1, 1)
+            ls = torch.tensor(pipe.vae.config.latents_std,
+                              device=z.device).view(1, -1, 1, 1, 1)
+            stats("z * std + mean (反归一化)", z * ls + lm)
+        except Exception as e:
+            print(f"  ⚠️ latent 统计失败（不影响继续）: {type(e).__name__}: {e}")
         out = orig_decode(z, *a, **kw)
-        sample = out.sample if hasattr(out, "sample") else out[0]
-        print(f"  🔍 [VAE decode #{n['calls']}] 输出像素:")
-        stats("decoded sample", sample)
+        try:
+            sample = out.sample if hasattr(out, "sample") else out[0]
+            print(f"  🔍 [VAE decode #{n['calls']}] 输出像素:")
+            stats("decoded sample", sample)
+        except Exception as e:
+            print(f"  ⚠️ 输出统计失败（不影响继续）: {type(e).__name__}: {e}")
         return out
 
     pipe.vae.decode = logged_decode
