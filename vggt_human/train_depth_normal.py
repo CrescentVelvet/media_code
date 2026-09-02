@@ -175,49 +175,51 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Depth-normal consistency (vggt_human P1-1)
         # 深度取官方 render_pkg["depth"]；法线由点云 KNN+PCA 得到，作为监督信号
         if USE_DEPTH_NORMAL:
-            # densification 会 clone/split 高斯，点数变化后缓存索引失效。
-            # 策略：点数变化时只标记 stale，在固定间隔时才重算（避免 densify 阶段
-            # 点数持续增长导致每 iter 都重算 KNN，开销巨大）。
-            cur_n = gaussians.get_xyz.shape[0]
-            if dn_cache is None:
-                dn_stale = True
-            elif dn_cache[2] != cur_n:
-                # 点数变了，标记 stale 但不立即重算
-                dn_stale = True
-            need_recompute = dn_stale and (iteration % DN_INTERVAL == 0 or dn_cache is None)
-            if need_recompute:
-                with torch.no_grad():
-                    xyz_all = gaussians.get_xyz
-                    n_pts = xyz_all.shape[0]
-                    if n_pts > DN_SAMPLE_POINTS:
-                        sel = torch.randperm(n_pts, device=xyz_all.device)[:DN_SAMPLE_POINTS]
-                        xyz_s = xyz_all[sel]
-                    else:
-                        sel = None
-                        xyz_s = xyz_all
-                    dn_cache = (estimate_point_normals(xyz_s, k=20), sel, n_pts)
-                    dn_stale = False
-                dn_normals, dn_sel, _ = dn_cache
-                xyz_dn = gaussians.get_xyz if dn_sel is None else gaussians.get_xyz[dn_sel]
-            elif dn_stale and dn_cache is not None:
-                # stale 但还没到重算间隔：用旧缓存，但采样索引可能越界，
-                # 所以只取索引仍在范围内的点
-                dn_normals, dn_sel, _ = dn_cache
-                if dn_sel is not None:
-                    dn_sel = dn_sel[dn_sel < cur_n]
-                xyz_dn = gaussians.get_xyz[dn_sel] if dn_sel is not None and len(dn_sel) > 0 else gaussians.get_xyz[:dn_normals.shape[0]]
-                # 截断法线到匹配的点的数量
-                dn_normals = dn_normals[:xyz_dn.shape[0]]
+            # densify 阶段（densify_from_iter ~ densify_until_iter）点数频繁变化，
+            # 缓存索引失效 + KNN 重算开销随点数爆炸（实测 5450 iter 后从 16it/s
+            # 崩到 8.5s/it）。策略：densify 结束后才启用 DN Loss，densify 期间跳过。
+            if iteration < opt.densify_until_iter:
+                # densify 阶段：跳过 DN Loss，不碰缓存
+                dn_loss = torch.zeros(1, device="cuda")
             else:
-                dn_normals, dn_sel, _ = dn_cache
-                xyz_dn = gaussians.get_xyz if dn_sel is None else gaussians.get_xyz[dn_sel]
-            dn_loss = depth_normal_consistency_loss(
-                render_pkg["depth"], None, dn_normals, xyz_dn, viewpoint_cam)
+                # densify 结束后：点数稳定，正常计算 DN Loss
+                cur_n = gaussians.get_xyz.shape[0]
+                if dn_cache is None:
+                    dn_stale = True
+                elif dn_cache[2] != cur_n:
+                    dn_stale = True
+                need_recompute = dn_stale and (iteration % DN_INTERVAL == 0 or dn_cache is None)
+                if need_recompute:
+                    with torch.no_grad():
+                        xyz_all = gaussians.get_xyz
+                        n_pts = xyz_all.shape[0]
+                        if n_pts > DN_SAMPLE_POINTS:
+                            sel = torch.randperm(n_pts, device=xyz_all.device)[:DN_SAMPLE_POINTS]
+                            xyz_s = xyz_all[sel]
+                        else:
+                            sel = None
+                            xyz_s = xyz_all
+                        dn_cache = (estimate_point_normals(xyz_s, k=20), sel, n_pts)
+                        dn_stale = False
+                    dn_normals, dn_sel, _ = dn_cache
+                    xyz_dn = gaussians.get_xyz if dn_sel is None else gaussians.get_xyz[dn_sel]
+                elif dn_stale and dn_cache is not None:
+                    dn_normals, dn_sel, _ = dn_cache
+                    if dn_sel is not None:
+                        dn_sel = dn_sel[dn_sel < cur_n]
+                    xyz_dn = gaussians.get_xyz[dn_sel] if dn_sel is not None and len(dn_sel) > 0 else gaussians.get_xyz[:dn_normals.shape[0]]
+                    dn_normals = dn_normals[:xyz_dn.shape[0]]
+                else:
+                    dn_normals, dn_sel, _ = dn_cache
+                    xyz_dn = gaussians.get_xyz if dn_sel is None else gaussians.get_xyz[dn_sel]
+                dn_loss = depth_normal_consistency_loss(
+                    render_pkg["depth"], None, dn_normals, xyz_dn, viewpoint_cam)
+                if not torch.isfinite(dn_loss):
+                    print(f"⚠️ iter {iteration}: dn_loss 非有限值({dn_loss.item()})，本步跳过")
+                    dn_loss = torch.zeros(1, device="cuda")
             if torch.isfinite(dn_loss):
                 loss = loss + DN_WEIGHT * dn_loss
                 ema_dn_for_log = 0.1 * dn_loss.item() + 0.9 * ema_dn_for_log
-            else:
-                print(f"⚠️ iter {iteration}: dn_loss 非有限值({dn_loss.item()})，本步跳过")
 
         loss.backward()
 
