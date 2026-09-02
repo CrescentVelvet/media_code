@@ -112,7 +112,11 @@ GPU=0 VARIANT=1b_512 bash vggt-omega/01_download_models.sh
 ```
 
 > 用了 `HF_ENDPOINT=https://hf-mirror.com` 镜像，4.6GB 约 3 分钟下完。
-> 权重存到 `~/model/VGGT-Omega/vggt_omega_1b_512.pt`。
+> 权重**实际**落在 `proxy.env` 里 `MODEL_DIR` 指向的位置，本机是
+> `/mnt/d/wheel/vggt_human_ms/VGGT-Omega/vggt_omega_1b_512.pt`；
+> **不是** `~/model/VGGT-Omega/`（那里只有 HF 的 `.cache/`，没有 `.pt`）。
+> 原因：`_env.sh` 会 source `proxy.env`，`MODEL_DIR` 非空时下载脚本的默认路径被覆盖。
+> step 02 硬性检查 `$MODEL_DIR/vggt_omega_1b_512.pt`，路径写错会直接报错退出 —— 全流程命令里要显式用 D 盘这个路径。
 
 ### HYPIR 人脸增强（step 01/06）— 遗留问题
 
@@ -168,6 +172,32 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
     └── vggt_human_results/
 ```
 
+## 基线验证实测（RTX 3090 / 2026-09-02）
+
+`02 → 03 → 04 → 05` 官方基线全流程跑通（无任何增强开关），输入 125 张 1440×1920。
+
+### 核心结论：渲染不再是黑图
+
+| 指标 | 旧 `train_pose.py`（已归档） | 官方 `train.py`（当前） |
+|---|---|---|
+| 渲染平均亮度 | 0.8（全黑 + 白点） | **127.2** |
+| GT 平均亮度 | 127.9 | 127.9 |
+| 亮度比值 | ~0.006 | **0.995** ✅ |
+| 高斯数量 | 17,912 | ~360k（PLY 225 MB） |
+| 场景尺度 (x-span) | 162（爆炸） | **3.35** |
+
+### 各步耗时（7000 iter）
+
+| 步骤 | 耗时 | 关键产物 |
+|---|---|---|
+| 02 推理 | 35s | 2,000,000 点，`extent=[3.35, 1.62, 1.72]` |
+| 03 npz→COLMAP | ~1 min | 125 图 + ~200k 初始点 |
+| 04 训练 | 7 min（16.7 it/s） | `point_cloud/iteration_7000/point_cloud.ply` 225 MB |
+| 04 渲染评估 | 2 min | `train/ours_7000/{renders,gt}/` |
+| 05 新视角 | 14s | `source_aug/` 130 cameras（125 原图 + 5 新增） |
+
+> Loss 0.34 → 0.048，7000 iter 已收敛。**30000 iter 约 30 min**，出最终 PLY 时再改 `ITERATIONS`。
+
 ## 全流程命令
 
 > 假设已完成「首次准备」，输入图像在 `D:\dataset\sample\image`。
@@ -197,7 +227,7 @@ bash vggt_human/01b_heic_to_jpg.sh
 #    INPUT_DIR 指向 step 1b 的 JPG 输出（如果不是 .heic 则直接用原始图夹）
 GPU=0 \
 INPUT_DIR=/mnt/d/dataset/测试数据sample/3fe0604320a24d66a8bde164edf18c11/image_jpg \
-MODEL_DIR=~/model/VGGT-Omega \
+MODEL_DIR=/mnt/d/wheel/vggt_human_ms/VGGT-Omega \
 RESULTS_DIR=~/output/vggt_human_results \
 MAX_POINTS=2000000 \
 bash vggt_human/02_run_inference.sh
@@ -226,6 +256,7 @@ bash vggt_human/03_npz_to_colmap.sh
 #    自研增强脚本已移入 vggt_human/archive/（train_pose/pose_refine/dynamic_mask/
 #    dynamic_filter/noise_negating/depth_normal_cons），不参与本步。
 #    之后想加回某个增强，见 archive/README.md 的「加回步骤」。
+#    实测结果（渲染亮度 127.2 vs GT 127.9）见上方「基线验证实测」小节。
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
@@ -240,6 +271,8 @@ bash vggt_human/04_train_3dgs.sh
 # ── 5) 渲染新视角 → 去噪 → AdaIN → 增强 COLMAP（可选）──
 #    DENOISER 可选: diffbir（扩散，质量高）| swinir（前馈，快）| none（跳过去噪）
 #    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 bash vggt_human/00a_setup_env.sh
+#    ⚠️ 本步是 ITERATION（单数），step 04/07 是 ITERATIONS（复数），别写混。
+#       值必须等于 step 04 实际跑的迭代数，否则报 "3DGS checkpoint not found"。
 GPU=0 \
 DENOISER=diffbir \
 NUM_NOVEL_VIEWS=10 \
