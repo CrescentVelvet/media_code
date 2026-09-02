@@ -12,12 +12,26 @@ pipeline、权重都没问题，锅全在你的 06c/06d 魔改上；如果它也
     在 from_pretrained 里硬性断言「量化加载必须 low_cpu_mem_usage=True」，
     False 直接 ValueError。doc 与代码矛盾，以代码为准 → 三处全部 True。
     06c/06d 原本写 True 反而是对的，此前对它的怀疑撤回。
-  · offload kwargs      use_stream=True（若当前版本不支持则自动回退）
+  · offload kwargs      use_stream：官方 doc 推荐 ON，但本脚本默认 OFF，原因见下
   · generator           torch.Generator("cpu")    ← 06c/06d 用的是 cuda:0
 
-A/B 开关（默认全关 = 官方原样）。想验证「到底是不是魔改的锅」时再打开：
-  DEV_NO_STREAM=1     去掉 use_stream=True
+⚠️ 为什么 use_stream 默认关（2026-09-02 实测）：
+  读 diffusers/hooks/group_offloading.py 确认，use_stream=True 会走两个额外机制：
+    1. ModuleGroup._onload_from_memory() 在每次 onload 时对该组全部张量做
+       _pinned_memory_tensors()（临时 pin_memory）。
+    2. _apply_group_offloading_leaf_level() / block_level 会注册
+       LazyPrefetchGroupOffloadingHook —— 它靠 trace 首帧的执行顺序来预取下一组。
+  机制 2 在本模型上是脆的：t2va 工作流下 Qwen3-VL 的 ~150 个 visual.* 层根本不执行，
+  diffusers 自己就会打出「layers were not executed ... lead to device-mismatch related
+  errors」警告，trace 出来的顺序必然是残缺的。
+  关掉 stream 后：不 pin、不预取、同步 H2D，是最保守也最不容易出驱动级错误的路径。
+  代价只是权重搬运不与计算重叠（本场景早已是 swap/IO 瓶颈，损失有限）。
+
+A/B 开关（默认全关 = 最保守路径）：
+  DEV_STREAM=1        打开 use_stream=True（官方 doc 推荐，但会启用 lazy prefetch）
   DEV_CUDA_GEN=1      用 torch.Generator("cuda:0") 代替 CPU generator
+  DEV_EXP_SEG=1       设置 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+                      （默认不开：run#3 的 OOM 真因是 VAE 常驻占 11GB，不是碎片）
 
 Env vars:
   MODEL_PATH, DEVICE, WIDTH, HEIGHT, NUM_FRAMES, FPS, SEED,
@@ -27,10 +41,12 @@ import os
 import sys
 import time
 
-# 必须在 torch/CUDA 初始化之前设置：缓解 WSL2 下的显存碎片
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 必须在 torch/CUDA 初始化之前设置。默认不开：WSL2 下 CUDA VMM(虚拟内存)接口
+# 不够稳，而 run#3 的 OOM 真因是 VAE 常驻占 11GB，并非碎片。
+if os.environ.get("DEV_EXP_SEG", "0") == "1":
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms")
 DEVICE = os.environ.get("DEVICE", "cuda:0")
@@ -48,8 +64,9 @@ PROMPT = os.environ.get("PROMPT", "A red fox trotting through a snowy pine fores
                                   "snow crunching underfoot")
 FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
 
-DEV_NO_STREAM = os.environ.get("DEV_NO_STREAM", "0") == "1"
+DEV_STREAM = os.environ.get("DEV_STREAM", "0") == "1"
 DEV_CUDA_GEN = os.environ.get("DEV_CUDA_GEN", "0") == "1"
+DEV_EXP_SEG = os.environ.get("DEV_EXP_SEG", "0") == "1"
 
 NOT_CONVERT = [
     "proj_in", "audio_proj_in", "context_embedder", "time_embedder", "time_proj",
@@ -75,6 +92,58 @@ def stats(name, t):
     )
 
 
+def _host_mem_gb():
+    """(总GB, 可用GB, swap已用GB)；非 Linux 返回 None。"""
+    try:
+        info = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                info[k] = int(v.split()[0]) / 1024 / 1024
+        return (info["MemTotal"], info.get("MemAvailable", 0.0),
+                info["SwapTotal"] - info.get("SwapFree", info["SwapTotal"]))
+    except Exception:
+        return None
+
+
+def preflight(torch):
+    """5 秒自检，把「GPU 状态坏」从 20 分钟后的失败提前成 5 秒后的失败。
+
+    起因：run#3 以 torch.OutOfMemoryError 硬崩（PyTorch 自报在 24GB 卡上
+    分配了 65.68GiB，明显异常），run#4 紧接着在第一次 H2D 传输就报
+    CUDA driver error: device not ready —— 这是驱动级错误，不是内存错误，
+    典型原因是 WSL2 的 GPU 分区在上次崩溃后没释放干净。
+    """
+    print("\n🩺 pre-flight GPU 自检（约 5 秒）...")
+    try:
+        a = torch.randn(2048, 2048, device=DEVICE, dtype=torch.float16)
+        b = torch.randn(2048, 2048, device=DEVICE, dtype=torch.float16)
+        s = (a @ b).sum().item()
+        torch.cuda.synchronize()
+        del a, b
+        free, total = torch.cuda.mem_get_info()
+        print(f"  ✅ GPU 响应正常（matmul={s:.3e}）  "
+              f"VRAM free={free / 2 ** 30:.1f}GB / total={total / 2 ** 30:.1f}GB")
+        if free / 2 ** 30 < 20:
+            print("  ⚠️  显存不足 20GB 空闲：可能有残留进程占着，先 `nvidia-smi` 看一眼")
+    except Exception as e:
+        print(f"\n  ❌ GPU 自检失败：{type(e).__name__}: {e}")
+        print("  → 上一次 OOM 后 WSL2 的 GPU 分区很可能没释放干净。")
+        print("    Windows PowerShell 执行： wsl --shutdown")
+        print("    等 10 秒重开终端，`nvidia-smi` 确认正常后再重跑本脚本。")
+        raise SystemExit(1)
+
+    m = _host_mem_gb()
+    if m:
+        tot, avail, swap_used = m
+        print(f"  🖥️  主机内存：总 {tot:.1f}GB，可用 {avail:.1f}GB，"
+              f"swap 已用 {swap_used:.1f}GB")
+        if avail < 8:
+            print("  ⚠️  可用主机内存偏低。int8 权重工作集约 76GB"
+                  "（transformer 33 + text_encoder 32 + VAE 10.4 + audio_vae 0.6），"
+                  "超出部分走 swap：慢，且极端时会触发驱动超时。")
+
+
 def main():
     import torch
     from diffusers import (
@@ -97,9 +166,11 @@ def main():
     print(f"  device    : {DEVICE}  {torch.cuda.get_device_name(0)}")
     print(f"  video     : {NUM_FRAMES}f {WIDTH}x{HEIGHT} @ {FPS}fps")
     print(f"  steps     : {NIS} (={NIS - 1} 次去噪)  seed={SEED}")
-    print(f"  A/B 开关  : no_stream={DEV_NO_STREAM}  cuda_gen={DEV_CUDA_GEN}"
-          f"  (low_cpu_mem 恒为 True：量化加载硬性要求)")
+    print(f"  A/B 开关  : stream={DEV_STREAM}  cuda_gen={DEV_CUDA_GEN}"
+          f"  exp_seg={DEV_EXP_SEG}  (low_cpu_mem 恒为 True：量化加载硬性要求)")
     print(f"{'=' * 68}")
+
+    preflight(torch)
 
     lcm_flag = True  # 量化加载在 diffusers（0.40.0 起，main 同）强制要求 True
     from _ensure_modular_index import ensure_modular_model_index
@@ -139,14 +210,14 @@ def main():
                    offload_device=torch.device("cpu"),
                    low_cpu_mem_usage=True)
     used_stream = False
-    if not DEV_NO_STREAM:
+    if DEV_STREAM:
         offload["use_stream"] = True
     try:
         pipe.transformer.enable_group_offload(
             offload_type="block_level", num_blocks_per_group=1, **offload)
         apply_group_offloading(
             pipe.text_encoder.model, offload_type="leaf_level", **offload)
-        used_stream = not DEV_NO_STREAM
+        used_stream = DEV_STREAM
     except TypeError as e:
         # 旧版 enable_group_offload 可能没有 use_stream 参数
         print(f"  ⚠️ use_stream 不被当前版本支持（{e}），回退到无流式 offload")
@@ -155,7 +226,8 @@ def main():
             offload_type="block_level", num_blocks_per_group=1, **offload)
         apply_group_offloading(
             pipe.text_encoder.model, offload_type="leaf_level", **offload)
-    print(f"  ℹ️ streamed offload: {'ON' if used_stream else 'OFF'}")
+    # VAE 一律不走 stream：避免再挂一份 LazyPrefetch 到 VAE 上
+    print(f"  ℹ️ streamed offload: {'ON（含 lazy prefetch）' if used_stream else 'OFF'}")
     # VAE fp32 10.4GB 不常驻 GPU（去噪阶段用不到，省出 11GB 给 transformer 激活）；
     # 解码时 leaf 级按需搬入。09a 已验证 tile 分块解码单卡放得下。
     pipe.vae.enable_group_offload(onload_device=torch.device(DEVICE),
