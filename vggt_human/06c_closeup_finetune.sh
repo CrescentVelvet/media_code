@@ -83,13 +83,17 @@ fi
 echo ""
 
 # ── Step 2: HYPIR enhance closeup renders ─────────────────────────────────
+# face_enhance.py expects INPUT_SOURCE_DIR (with images/ subdir or plain images)
+# and SOURCE_FACE_DIR (output root; creates SOURCE_FACE_DIR/images/).
+# Our closeup_renders/ has images directly, so we pass it as INPUT_SOURCE_DIR
+# and face_enhance.py will detect it as a plain image folder.
 if [ ! -d "$CLOSEUP_ENHANCED" ] || [ "$(ls "$CLOSEUP_ENHANCED"/*.png 2>/dev/null | wc -l)" -lt 2 ]; then
     echo "🎨 Step 2: HYPIR enhance closeup renders"
-    mkdir -p "$CLOSEUP_ENHANCED"
+    mkdir -p "$(dirname "$CLOSEUP_ENHANCED")"
+    INPUT_SOURCE_DIR="$CLOSEUP_RENDERS" \
+    SOURCE_FACE_DIR="$(dirname "$CLOSEUP_ENHANCED")" \
     HYPIR_BASE_MODEL="$HYPIR_BASE_MODEL" \
     HYPIR_WEIGHT="$HYPIR_WEIGHT" \
-    INPUT_DIR="$CLOSEUP_RENDERS" \
-    OUTPUT_DIR="$(dirname "$CLOSEUP_ENHANCED")" \
     python "$SCRIPT_DIR/face_enhance.py"
     if [ $? -ne 0 ]; then
         echo "❌ HYPIR enhance failed" >&2
@@ -122,7 +126,9 @@ echo "🏋️ Step 4: finetune (original + closeup views)"
 # Merge face images: original enhanced + closeup enhanced
 MERGED_FACE_IMAGES="$RESULTS_DIR/merged_face_images/images"
 mkdir -p "$MERGED_FACE_IMAGES"
-cp "$RESULTS_DIR/source_face/images/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
+# Original enhanced images are in source_aug/images/ (from 01 face_enhance step)
+cp "$RESULTS_DIR/source_aug/images/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
+cp "$RESULTS_DIR/source_aug/images/"*.jpg "$MERGED_FACE_IMAGES/" 2>/dev/null || true
 cp "$CLOSEUP_ENHANCED/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
 
 # Merge masks: original SAM2 + closeup SAM2
