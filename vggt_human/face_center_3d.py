@@ -85,9 +85,17 @@ def load_ply_points(ply_path):
 
 
 def parse_colmap_cameras(source_dir):
-    """Parse COLMAP cameras.txt + images.txt → list of (stem, qvec, tvec, fx, fy, cx, cy, W, H)."""
+    """Parse COLMAP cameras.txt + images.txt → list of (stem, qvec, tvec, fx, fy, cx, cy, W, H).
+
+    Handles layouts: sparse/0/cameras.txt, sparse/0_text/cameras.txt,
+    or source_dir/cameras.txt.
+    """
     cam_file = Path(source_dir) / "sparse" / "0" / "cameras.txt"
     img_file = Path(source_dir) / "sparse" / "0" / "images.txt"
+    if not cam_file.exists():
+        # Try sparse/0_text/ (BA output text format)
+        cam_file = Path(source_dir) / "sparse" / "0_text" / "cameras.txt"
+        img_file = Path(source_dir) / "sparse" / "0_text" / "images.txt"
     if not cam_file.exists():
         cam_file = Path(source_dir) / "cameras.txt"
         img_file = Path(source_dir) / "images.txt"

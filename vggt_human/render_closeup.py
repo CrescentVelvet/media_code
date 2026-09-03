@@ -65,10 +65,19 @@ def quat_to_rotmat(qw, qx, qy, qz):
 
 
 def parse_colmap(source_dir):
-    """Parse COLMAP cameras.txt + images.txt → list of view dicts."""
+    """Parse COLMAP cameras.txt + images.txt → list of view dicts.
+
+    Handles layouts: sparse/0/cameras.txt, sparse/0_text/cameras.txt,
+    or source_dir/cameras.txt.
+    """
     sparse = Path(source_dir) / "sparse" / "0"
     cam_file = sparse / "cameras.txt"
     img_file = sparse / "images.txt"
+    if not cam_file.exists():
+        # Try sparse/0_text/ (BA output text format)
+        sparse_text = Path(source_dir) / "sparse" / "0_text"
+        cam_file = sparse_text / "cameras.txt"
+        img_file = sparse_text / "images.txt"
     if not cam_file.exists():
         cam_file = Path(source_dir) / "cameras.txt"
         img_file = Path(source_dir) / "images.txt"
