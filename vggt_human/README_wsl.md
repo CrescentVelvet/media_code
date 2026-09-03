@@ -509,6 +509,39 @@ bash vggt_human/07_train_denoise.sh
 # 输出：~/output/vggt_human_results/model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 
+# ── 7b) 人脸模糊治理·方案一升级版（推荐，替代 6+7 的"重训"路线）──
+#    30k 训完后从 ply 续训 finetune：人脸区互补双监督，追加不替换。
+#    依赖：06_face_enhance.sh（HYPIR 增强图）+ face_masks.py（loss mask）。
+GPU=0 \
+RESULTS_DIR=~/output/vggt_human_verify \
+bash vggt_human/06b_face_finetune.sh
+#    默认: 30000→35000 iters, LR×0.1, densify OFF, FACE_WEIGHT=0.5(dual 双监督)
+#    FACE_WEIGHT=1.0 → complement(增强图独占人脸监督)；FACE_SOFT=1 → 羽化软权重
+#    输出: $RESULTS_DIR/model_3dgs_face/point_cloud/iteration_35000/point_cloud.ply
+#
+#    face_masks.py 的 mask = HYPIR 实际改动区域（MediaPipe bbox×1.2 + feather
+#    阈值化 + 腐蚀 2px），与 face_enhance.py 同检测器同参数，逐位对应；
+#    无人脸帧（检测跳过）自动退化为纯官方监督。
+#    train_face_finetune.py 是官方 train.py 副本 + 单一 hook（🧑 标注差异）：
+#    ply 续训(含 exposure.json，30k 收敛为恒等阵)、LR 缩放、densification 冻结。
+#
+#    评估（人脸区指标，验收=LPIPS对原图防偏离 + Laplacian方差/梯度能量测锐度）：
+#    先用 render_train_views.py（按原始文件名保存，便于 face_metrics 按 stem 匹配）
+#    分别渲染 30k 基线与 35k finetune 的训练视角：
+GS_DIR=~/repos/gaussian-splatting python vggt_human/render_train_views.py \
+    -s $RESULTS_DIR/source -m $RESULTS_DIR/model_3dgs \
+    --iteration 30000 --out_dir $RESULTS_DIR/render_baseline --quiet
+GS_DIR=~/repos/gaussian-splatting python vggt_human/render_train_views.py \
+    -s $RESULTS_DIR/source -m $RESULTS_DIR/model_3dgs_face \
+    --iteration 35000 --out_dir $RESULTS_DIR/render_face --quiet
+#    再跑 face_metrics 对比：
+python vggt_human/face_metrics.py \
+    --render_a $RESULTS_DIR/render_baseline \
+    --render_b $RESULTS_DIR/render_face \
+    --ref_dir  $RESULTS_DIR/source/images \
+    --masks_dir $RESULTS_DIR/face_masks \
+    --out $RESULTS_DIR/face_metrics.json
+
 # ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output（释放 WSL 空间）──
 # 预览（不实际移动，默认 DST=/mnt/d/output/vggt_human_results）：
 # DRY_RUN=1 bash vggt_human/08_move_output.sh

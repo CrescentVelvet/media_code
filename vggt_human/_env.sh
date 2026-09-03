@@ -99,8 +99,11 @@ SWINIR_CKPT="${SWINIR_CKPT:-$WEIGHTS_ROOT/SwinIR/model_gaussian_gray_denoising_b
 # HYPIR (face enhancement, step 01/06; HYPIR deps installed in vggt_human env).
 HYPIR_DIR="${HYPIR_DIR:-$REPO_DIR/../HYPIR}"
 HYPIR_MODEL_DIR="${HYPIR_MODEL_DIR:-$WEIGHTS_ROOT/HYPIR}"
-HYPIR_BASE_MODEL="${HYPIR_BASE_MODEL:-$HYPIR_MODEL_DIR/sd2_base}"
-HYPIR_WEIGHT="${HYPIR_WEIGHT:-$HYPIR_DIR/experiments/beauty_ppr50k_20260721/checkpoint-1000/ema_state_dict.pth}"
+# HYPIR 官方 README 明确基于 Stable Diffusion 2.1（非 2.0-base）。
+# sd21_base 复用 osediff_ms 已下好的 diffusers 格式（model_index.json +
+# unet/text_encoder/vae/scheduler/tokenizer 齐全），HYPIR_sd2.pth 是 LoRA 权重。
+HYPIR_BASE_MODEL="${HYPIR_BASE_MODEL:-/mnt/d/wheel/osediff_ms/sd21_base}"
+HYPIR_WEIGHT="${HYPIR_WEIGHT:-$HYPIR_MODEL_DIR/HYPIR_sd2.pth}"
 
 # Pose optimization (step 04/07; PoseAdjuster + PoseRefineModule)
 export POSE_ADJUST="${POSE_ADJUST:-1}"
