@@ -20,6 +20,9 @@
 #   FINETUNE_ITERATIONS=35000    # finetune 终点迭代（默认 +5000）
 #   GAUSSIAN_FACE_DIR=           # 输出模型目录 (默认 model_3dgs_face)
 #   FACE_WEIGHT=0.5              # 人脸区增强监督权重 (1.0=complement, 0.5=dual)
+#                                # A/B 实测（79 帧）：w=0.5 Laplacian +2.3%、LPIPS -0.9%（更贴原图）；
+#                                # w=1.0 Laplacian +5.4% 但 LPIPS +1.4%、PSNR 下降（偏离原图）。
+#                                # 默认 0.5 = 锐度够且保真，更稳健；需更强锐化可调 1.0。
 #   FACE_SOFT=0                  # 1=用羽化 alpha 软权重, 0=二值 mask(阈值化+腐蚀)
 #   LR_SCALE=0.1                 # 学习率缩放
 #   WHITE_BG=0                   # 1=白底光栅化（须与 04 一致！）
