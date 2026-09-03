@@ -106,6 +106,12 @@ HYPIR_MODEL_DIR="${HYPIR_MODEL_DIR:-$WEIGHTS_ROOT/HYPIR}"
 HYPIR_BASE_MODEL="${HYPIR_BASE_MODEL:-$HYPIR_MODEL_DIR/sd21_base}"
 HYPIR_WEIGHT="${HYPIR_WEIGHT:-$HYPIR_MODEL_DIR/HYPIR_sd2.pth}"
 
+# SAM2 (face segmentation, step 03b/scheme-2; SAM-2 pip package in vggt_human env).
+# sam2.1_hiera_large.pt = pixel-level face masks (replaces MediaPipe bbox).
+SAM2_MODEL_DIR="${SAM2_MODEL_DIR:-$WEIGHTS_ROOT/sam2}"
+SAM2_CKPT="${SAM2_CKPT:-$SAM2_MODEL_DIR/sam2.1_hiera_large.pt}"
+SAM2_CFG="${SAM2_CFG:-configs/sam2.1/sam2.1_hiera_l.yaml}"
+
 # Pose optimization (step 04/07; PoseAdjuster + PoseRefineModule)
 export POSE_ADJUST="${POSE_ADJUST:-1}"
 export POSE_REFINE="${POSE_REFINE:-1}"

@@ -264,8 +264,24 @@ GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_dn \
 只对高斯参数（means/scales/rot/opacity/SH）求梯度，**不支持可微相机位姿**。
 所以位姿精炼在当前后端下拿不到梯度，无法工作。
 
-**可行替代（未实施）**：① 换 gsplat 后端（原生支持可微位姿，但改动面大）；
-② 在 03 之后加一轮 COLMAP bundle adjustment（不依赖 rasterizer 梯度）。
+**可行替代（已实施 03b）**：① 换 gsplat 后端（原生支持可微位姿，但改动面大）；
+② 在 03 之后加一轮 COLMAP bundle adjustment（不依赖 rasterizer 梯度）——**已实施，见 03b_colmap_ba.sh**。
+
+### 增强 P1-2b：COLMAP BA（03b，固定内参只精修位姿）
+
+`03b_colmap_ba.sh` + `colmap_ba.py`：用 pycolmap 在 03 输出上加一轮 BA，
+**固定内参**（`refine_focal_length=False`, `refine_principal_point=False`,
+`refine_extra_params=False`），只优化外参（位姿）+ 3D 点。
+
+理由：VGGT-Omega 的逐视图内参质量已足够（fx 波动仅 ±1.2%，z-score 检查无突变），
+松开内参会让 BA 有自由度迁就外参误差，可能把好内参拉坏。
+
+```bash
+RESULTS_DIR=~/output/vggt_human_verify \
+  bash vggt_human/03b_colmap_ba.sh
+# 输出: $RESULTS_DIR/source_ba/sparse/0/{cameras,images,points3D}.txt
+# → 重跑 04: SOURCE_DIR=$RESULTS_DIR/source_ba bash vggt_human/04_train_3dgs.sh
+```
 
 > `USE_POSE_REFINE=1` 时 `04_train_3dgs.sh` 会打印告警并退化为官方 train.py，不会静默跑坏。
 
