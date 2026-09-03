@@ -35,13 +35,21 @@ _lpips_model = None
 def load_lpips():
     global _lpips_model
     if _lpips_model is None:
-        # 复用 gaussian-splatting 自带的 lpipsPyTorch（GS_DIR 注入 sys.path）
-        from lpipsPyTorch import lpips
+        # 优先用 lpips pip 包（权重可能已缓存），回退到 lpipsPyTorch（GS 仓自带）
         import torch
-        _lpips_model = lambda a, b: lpips(  # noqa: E731
-            torch.from_numpy(a).permute(2, 0, 1)[None].float().cuda(),
-            torch.from_numpy(b).permute(2, 0, 1)[None].float().cuda(),
-        ).item()
+        try:
+            import lpips as lpips_pkg
+            _net = lpips_pkg.LPIPS(net="alex").cuda()
+            _lpips_model = lambda a, b: _net(
+                torch.from_numpy(a).permute(2, 0, 1)[None].float().cuda(),
+                torch.from_numpy(b).permute(2, 0, 1)[None].float().cuda(),
+            ).item()
+        except Exception:
+            from lpipsPyTorch import lpips
+            _lpips_model = lambda a, b: lpips(
+                torch.from_numpy(a).permute(2, 0, 1)[None].float().cuda(),
+                torch.from_numpy(b).permute(2, 0, 1)[None].float().cuda(),
+            ).item()
     return _lpips_model
 
 
@@ -56,6 +64,8 @@ def imread_rgb(path):
 
 def sharpness(gray):
     """(laplacian_var, grad_energy) on a grayscale face crop."""
+    # cv2.Laplacian/Sobel 要求 src 与 ddepth 匹配；统一转 float64
+    gray = np.asarray(gray, dtype=np.float64)
     try:
         import cv2
         lap = cv2.Laplacian(gray, cv2.CV_64F)
@@ -74,7 +84,7 @@ def sharpness(gray):
         return float(lap.var()), float(np.mean(np.sqrt(gx ** 2 + gy ** 2)))
 
 
-def face_crop_stats(img, alpha, min_frac=0.02):
+def face_crop_stats(img, alpha, min_frac=0.001):
     """Stats on the face region (alpha-weighted); returns dict or None."""
     a = alpha / max(alpha.max(), 1e-8)
     if (a > 0.1).mean() < min_frac:      # 人脸区过小 → 视为无人脸

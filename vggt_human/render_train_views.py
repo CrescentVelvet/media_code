@@ -35,7 +35,7 @@ except Exception:
 
 def main():
     parser = ArgumentParser()
-    model = ModelParams(parser, sentinel=True)
+    model = ModelParams(parser, sentinel=False)
     pipeline = PipelineParams(parser)
     parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--out_dir", default="", help="output dir (default: $model_path/train_renders)")
