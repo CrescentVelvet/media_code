@@ -201,6 +201,24 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
 > **7000 iter 亮度比值已达 0.995，赶时间够用；出最终交付 PLY 用 30000（0.998）。**
 > ⚠️ 重跑 04 会覆盖同名 `iteration_*` / `ours_*` 目录（想留旧结果先备份）。
 
+### 全流程复现验证（2026-09-03，增强加回之后）
+
+所有增强模块加回后，用全新 `RESULTS_DIR` 完整重跑 02→03→04(30000)→05
+（全部开关默认关闭，确认默认链路 = 纯官方基线不受影响）。
+脚本 `.tmp_diag/run_verify_full.sh`，总耗时 50 min，四步全 EXIT=0，
+04 分支确认走官方 train.py、dynamic 预处理被正确跳过。
+
+| 指标 | 原 30000 基线（/mnt/d） | 全流程复现（~/vggt_human_verify） |
+|---|---|---|
+| PSNR（125 帧同源对比） | 27.37 dB | **27.37 dB** |
+| L1 | 0.0219 | 0.0220 |
+| 渲染/GT 亮度比值 | 1.002 | 1.002 |
+| 初始点云 | 7,163 | 7,163（02/03 输出逐位一致） |
+| 05 新视角 | 5 张达覆盖阈值 | 6 张达覆盖阈值（`source_aug` 129 cams） |
+
+**结论：模块加回与开关化改造对默认链路零影响，基线完全可复现。**
+（04 训练内评估 PSNR：7000=25.96、30000=26.92，与原基线一致量级。）
+
 ### 增强 P1-1：depth-normal consistency（已加回 + 修复）
 
 加回 `depth_normal_cons.py` + `train_depth_normal.py`（官方 train.py 副本 + 单一 hook）。实测 30000 iter：
@@ -435,11 +453,12 @@ bash vggt_human/03_npz_to_colmap.sh
 #   sparse/0/points3D.txt     # ~200k 初始点
 
 # ── 4) 原版 3DGS 训练 + 渲染 ──
-#    ⚠️ 现在恒走官方 gaussian-splatting 的 train.py（干净官方基线）。
-#    自研增强脚本已移入 vggt_human/archive/（train_pose/pose_refine/dynamic_mask/
-#    dynamic_filter/noise_negating/depth_normal_cons），不参与本步。
-#    之后想加回某个增强，见 archive/README.md 的「加回步骤」。
-#    实测结果（渲染亮度 127.2 vs GT 127.9）见上方「基线验证实测」小节。
+#    默认恒走官方 gaussian-splatting 的 train.py（干净官方基线）。
+#    增强（已加回、默认全关，见上方各实测小节）：训练脚本切换
+#      USE_DEPTH_NORMAL=1 / USE_NOISE_NEGATE=1（pose_refine 不可用）；
+#    训练前预处理开关：ENABLE_DYNAMIC_MASK=1 / ENABLE_DYNAMIC_FILTER=1
+#      （prompt 用 DYNAMIC_PROMPTS 覆盖，默认 "TV screen monitor" 不含 person）。
+#    未加回的归档脚本见 archive/README.md。
 GPU=0 \
 ITERATIONS=30000 \
 WHITE_BG=0 \
@@ -454,7 +473,7 @@ bash vggt_human/04_train_3dgs.sh
 # ── 5) 渲染新视角 → 去噪 → AdaIN → 增强 COLMAP（可选）──
 #    DENOISER 可选: diffbir（扩散，质量高）| swinir（前馈，快）| none（跳过去噪）
 #    首次用 DiffBIR/SwinIR 需先: INSTALL_DENOISER=1 bash vggt_human/00a_setup_env.sh
-#    ⚠️ 本步是 ITERATION（单数），step 04/07 是 ITERATIONS（复数），别写混。
+#    ⚠️ 本步是 ITERATION（单数），step 04/07 是 ITERATIONS（复数），别写混。这不是小bug吗，怎么不改？
 #       值必须等于 step 04 实际跑的迭代数，否则报 "3DGS checkpoint not found"。
 GPU=0 \
 DENOISER=diffbir \
