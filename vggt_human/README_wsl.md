@@ -195,7 +195,7 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
 | 04 训练 7000 iter | 7 min | `iteration_7000/point_cloud.ply` 214 MB |
 | 04 训练 30000 iter | **42 min** | `iteration_30000/point_cloud.ply` 290 MB |
 | 04 渲染评估 | 2 min | `train/ours_{7000,30000}/{renders,gt}/` |
-| 05 新视角 | 14s | `source_aug/` 130 cameras（125 原图 + 5 新增） |
+| 05 新视角 | 14s | `05_source_aug/` 130 cameras（125 原图 + 5 新增） |
 
 > Loss 0.34 → 0.040。训练速度随高斯增密递减（17.6 → 9 it/s），所以 30000 iter 不是 7000 的 4 倍耗时。
 > **7000 iter 亮度比值已达 0.995，赶时间够用；出最终交付 PLY 用 30000（0.998）。**
@@ -214,7 +214,7 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
 | L1 | 0.0219 | 0.0220 |
 | 渲染/GT 亮度比值 | 1.002 | 1.002 |
 | 初始点云 | 7,163 | 7,163（02/03 输出逐位一致） |
-| 05 新视角 | 5 张达覆盖阈值 | 6 张达覆盖阈值（`source_aug` 129 cams） |
+| 05 新视角 | 5 张达覆盖阈值 | 6 张达覆盖阈值（`05_source_aug` 129 cams） |
 
 **结论：模块加回与开关化改造对默认链路零影响，基线完全可复现。**
 （04 训练内评估 PSNR：7000=25.96、30000=26.92，与原基线一致量级。）
@@ -279,8 +279,8 @@ GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_dn \
 ```bash
 RESULTS_DIR=~/output/vggt_human_verify \
   bash vggt_human/03b_colmap_ba.sh
-# 输出: $RESULTS_DIR/source_ba/sparse/0/{cameras,images,points3D}.txt
-# → 重跑 04: SOURCE_DIR=$RESULTS_DIR/source_ba bash vggt_human/04_train_3dgs.sh
+# 输出: $RESULTS_DIR/03b_source_ba/sparse/0/{cameras,images,points3D}.txt
+# → 重跑 04: SOURCE_DIR=$RESULTS_DIR/03b_source_ba bash vggt_human/04_train_3dgs.sh
 ```
 
 > `USE_POSE_REFINE=1` 时 `04_train_3dgs.sh` 会打印告警并退化为官方 train.py，不会静默跑坏。
@@ -368,7 +368,7 @@ SAM2 config 文件名是缩写（`sam2.1_hiera_l.yaml`），代码已按 checkpo
 **集成**：`04_train_3dgs.sh` 训练前新增第 0 步——
 `ENABLE_DYNAMIC_MASK=1` 生成掩码（缓存于 `$RESULTS_DIR/dynamic_mask`，
 `FORCE_DYNAMIC_MASK=1` 强制重生成）→ `ENABLE_DYNAMIC_FILTER=1` 过滤
-`source/sparse/0/points3D.ply`（原始点云备份为 `points3D.ply.orig`，可随时还原）。
+`03_source/sparse/0/points3D.ply`（原始点云备份为 `points3D.ply.orig`，可随时还原）。
 ⚠️ prompt 默认 `TV screen monitor`，**刻意不含 person**：静态人物数据集里
 person 是主体，过滤它等于删主体。真动态场景用
 `DYNAMIC_PROMPTS="person TV screen"` 显式传。
@@ -449,7 +449,7 @@ RESULTS_DIR=~/output/vggt_human_results \
 MAX_POINTS=2000000 \
 bash vggt_human/02_run_inference.sh
 
-# 输出：~/output/vggt_human_results/vggt/<scene>/
+# 输出：~/output/vggt_human_results/02_vggt/<scene>/
 #   predictions.npz   # 位姿+深度+点云+置信度
 #   scene.ply          # 点云（供检查）
 #   frames/            # 喂给模型的图
@@ -462,7 +462,7 @@ ALIGN=1 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/03_npz_to_colmap.sh
 
-# 输出：~/output/vggt_human_results/source/
+# 输出：~/output/vggt_human_results/03_source/
 #   images/*.png              # 训练图
 #   sparse/0/cameras.txt      # 内参
 #   sparse/0/images.txt       # 外参 w2c
@@ -481,7 +481,7 @@ WHITE_BG=0 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
 
-# 输出：~/output/vggt_human_results/model_3dgs/
+# 输出：~/output/vggt_human_results/04_model_3dgs/
 #   point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
 #   train/ours_30000/renders/*.png                 # 重建渲染
 #   train/ours_30000/gt/*.png                      # GT
@@ -499,17 +499,17 @@ RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/05_denoise_novel.sh
 
 # 输出：~/output/vggt_human_results/
-#   novel_renders/*.png     # 3DGS 渲染的新视角
-#   novel_alpha/*.png       # 覆盖度图
-#   source_aug/             # 增强COLMAP场景（原图+去噪图）
+#   05_novel_renders/*.png     # 3DGS 渲染的新视角
+#   05_novel_alpha/*.png       # 覆盖度图
+#   05_source_aug/            # 增强COLMAP场景（原图+去噪图）
 
 # ── 6) 后处理人脸增强（可选，需 HYPIR 已就绪）──
-#    对 source_aug/images/ 做人脸增强（与 step 01 同一个 face_enhance.py）
+#    对 05_source_aug/images/ 做人脸增强（与 step 01 同一个 face_enhance.py）
 GPU=0 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/06_face_enhance.sh
 
-# 输出：~/output/vggt_human_results/source_aug_face/
+# 输出：~/output/vggt_human_results/06_source_aug_face/
 #   images/  # 原图+去噪图，人脸区域已增强+融合
 #   sparse/  # COLMAP 原样复制
 
@@ -522,7 +522,7 @@ WHITE_BG=0 \
 RESULTS_DIR=~/output/vggt_human_results \
 bash vggt_human/07_train_denoise.sh
 
-# 输出：~/output/vggt_human_results/model_3dgs_denoise/
+# 输出：~/output/vggt_human_results/07_model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 
 # ── 7b) 人脸模糊治理·方案一升级版（推荐，替代 6+7 的"重训"路线）──
@@ -533,7 +533,7 @@ RESULTS_DIR=~/output/vggt_human_verify \
 bash vggt_human/06b_face_finetune.sh
 #    默认: 30000→35000 iters, LR×0.1, densify OFF, FACE_WEIGHT=0.5(dual 双监督)
 #    FACE_WEIGHT=1.0 → complement(增强图独占人脸监督)；FACE_SOFT=1 → 羽化软权重
-#    输出: $RESULTS_DIR/model_3dgs_face/point_cloud/iteration_35000/point_cloud.ply
+#    输出: $RESULTS_DIR/06b_model_3dgs_face/point_cloud/iteration_35000/point_cloud.ply
 #
 #    face_masks.py 的 mask = HYPIR 实际改动区域（MediaPipe bbox×1.2 + feather
 #    阈值化 + 腐蚀 2px），与 face_enhance.py 同检测器同参数，逐位对应；
@@ -545,17 +545,17 @@ bash vggt_human/06b_face_finetune.sh
 #    先用 render_train_views.py（按原始文件名保存，便于 face_metrics 按 stem 匹配）
 #    分别渲染 30k 基线与 35k finetune 的训练视角：
 GS_DIR=~/repos/gaussian-splatting python vggt_human/render_train_views.py \
-    -s $RESULTS_DIR/source -m $RESULTS_DIR/model_3dgs \
+    -s $RESULTS_DIR/03_source -m $RESULTS_DIR/04_model_3dgs \
     --iteration 30000 --out_dir $RESULTS_DIR/render_baseline --quiet
 GS_DIR=~/repos/gaussian-splatting python vggt_human/render_train_views.py \
-    -s $RESULTS_DIR/source -m $RESULTS_DIR/model_3dgs_face \
+    -s $RESULTS_DIR/03_source -m $RESULTS_DIR/06b_model_3dgs_face \
     --iteration 35000 --out_dir $RESULTS_DIR/render_face --quiet
 #    再跑 face_metrics 对比：
 python vggt_human/face_metrics.py \
     --render_a $RESULTS_DIR/render_baseline \
     --render_b $RESULTS_DIR/render_face \
-    --ref_dir  $RESULTS_DIR/source/images \
-    --masks_dir $RESULTS_DIR/face_masks \
+    --ref_dir  $RESULTS_DIR/03_source/images \
+    --masks_dir $RESULTS_DIR/06b_face_masks \
     --out $RESULTS_DIR/face_metrics.json
 
 # ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output（释放 WSL 空间）──
@@ -571,13 +571,13 @@ bash vggt_human/08_move_output.sh
 # bash vggt_human/08_move_output.sh
 ```
 
-- 结果：VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
+- 结果：VGGT-Omega 推理 → `02_vggt/<scene>/predictions.npz`；COLMAP 场景 → `03_source/`；3DGS 高斯 → `04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
 - PLY 可拖到 [supersplat](https://playcanvas.com/supersplat/editor) 在线查看。
 
 ## 可能遇到的问题（WSL 专属）（可以迁移到pipeline.html中）
 
 **1. `conda: command not found`（运行脚本时）**
-00a 末尾执行 `conda init bash`。如果还没 `source ~/.bashrc`：
+00a 末尾执行 `conda init bash`。如果还没 `03_source ~/.bashrc`：
 ```bash
 source ~/.bashrc
 # 或每次手动 source：

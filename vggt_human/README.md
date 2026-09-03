@@ -51,7 +51,7 @@ GPU=0 INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 #     结构与 test_task 一致, 01 的 INPUT_DIR 指向 <OUTPUT_DIR> 即可自动检测
 GPU=0 \
 INPUT_DIR=../../output/vggt_human_results/input_video/生成环绕人物视频.mp4 \
-OUTPUT_DIR=../../output/vggt_human_results/input_frames/生成环绕人物视频 \
+OUTPUT_DIR=../../output/vggt_human_results/01a_input_frames/生成环绕人物视频 \
 VIDEO_FPS=2 \
 bash vggt_human/01a_video_to_frames.sh
 
@@ -60,25 +60,25 @@ bash vggt_human/01a_video_to_frames.sh
 # 1) 前处理人脸增强 (MediaPipe + HYPIR + 渐变融合, 对原始输入图)
 #    INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh 建好 vggt_human env (含 mediapipe + HYPIR)
 #    HYPIR_WEIGHT 指向 beauty_ppr50k 训练的 checkpoint
-#    视频输入: 先跑 01a 抽帧, INPUT_DIR 指向 01a 的输出 (input_frames)
+#    视频输入: 先跑 01a 抽帧, INPUT_DIR 指向 01a 的输出 (01a_input_frames)
 # 图像夹输入 (原流程): INPUT_DIR=../Reconstruction/dataset/B003_Human_Data_w_pose/test_task_id_3a8b3cc746304f49b9e3275e36aa9374
 GPU=0 \
-INPUT_DIR=../../output/vggt_human_results/input_frames/生成环绕人物视频 \
+INPUT_DIR=../../output/vggt_human_results/01a_input_frames/生成环绕人物视频 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/01_face_enhance.sh
 
-# 输出：<RESULTS_DIR>/input_face/images/  # 人脸增强后的原始图
+# 输出：<RESULTS_DIR>/01_input_face/images/  # 人脸增强后的原始图
 
 # 2) VGGT-Omega 前馈推理 (图像 -> 位姿+深度 -> predictions.npz + scene.ply)
-#    INPUT_DIR 指向 step 01 的输出 (input_face)
+#    INPUT_DIR 指向 step 01 的输出 (01_input_face)
 GPU=0 \
-INPUT_DIR=../../output/vggt_human_results/input_face \
+INPUT_DIR=../../output/vggt_human_results/01_input_face \
 MODEL_DIR=../../model/VGGT-Omega \
 RESULTS_DIR=../../output/vggt_human_results \
 MAX_POINTS=2000000 \
 bash vggt_human/02_run_inference.sh
 
-# 输出：<RESULTS_DIR>/vggt/<scene>/
+# 输出：<RESULTS_DIR>/02_vggt/<scene>/
 #   predictions.npz   # 原始输出 (extrinsic w2c, intrinsic, world_points, depth_conf, images)
 #   scene.ply          # 置信度过滤后的彩色点云 (供检查)
 #   frames/            # 喂给模型的图 (复制/抽帧)
@@ -91,7 +91,7 @@ POSE_REFINE=1 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/03_npz_to_colmap.sh
 
-# 输出：<RESULTS_DIR>/source/
+# 输出：<RESULTS_DIR>/03_source/
 #   images/*.png                      # 训练图 (从 frames/ 复制, 内参自动缩放)
 #   sparse/0/cameras.txt              # PINHOLE (VGGT-Omega 实际内参)
 #   sparse/0/images.txt              # w2c (qw qx qy qz tx ty tz)
@@ -117,7 +117,7 @@ USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/04_train_3dgs.sh
 
-# 输出：<RESULTS_DIR>/model_3dgs/
+# 输出：<RESULTS_DIR>/04_model_3dgs/
 #   point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
 #   train/ours_30000/renders/*.png                 # 重建渲染 (vs GT)
 #   train/ours_30000/gt/*.png                      # GT
@@ -134,18 +134,18 @@ RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/05_denoise_novel.sh
 
 # 输出：<RESULTS_DIR>/
-#   novel_renders/*.png     # 3DGS 渲染的新视角 (有伪影)
-#   novel_alpha/*.png       # 覆盖度图 (低 alpha = 稀疏区)
-#   novel_poses.json        # 虚拟相机参数
-#   source_aug/             # 增强COLMAP场景 (原图 + 去噪图)
+#   05_novel_renders/*.png     # 3DGS 渲染的新视角 (有伪影)
+#   05_novel_alpha/*.png       # 覆盖度图 (低 alpha = 稀疏区)
+#   05_novel_poses.json        # 虚拟相机参数
+#   05_source_aug/             # 增强COLMAP场景 (原图 + 去噪图)
 
 # 6) 后处理人脸增强 (对增强 COLMAP 场景中的图)
-#    与 step 01 调用同一个 face_enhance.py, 但对 source_aug/images/ 做后处理
+#    与 step 01 调用同一个 face_enhance.py, 但对 05_source_aug/images/ 做后处理
 GPU=0 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/06_face_enhance.sh
 
-# 输出：<RESULTS_DIR>/source_aug_face/
+# 输出：<RESULTS_DIR>/06_source_aug_face/
 #   images/  # 原图 + 去噪图, 人脸区域已 HYPIR 增强 + 渐变融合
 #   sparse/0/  # COLMAP 相机/点云 (原样复制)
 
@@ -163,11 +163,11 @@ USE_DEPTH_NORMAL=1 \
 RESULTS_DIR=../../output/vggt_human_results \
 bash vggt_human/07_train_denoise.sh
 
-# 输出：<RESULTS_DIR>/model_3dgs_denoise/
+# 输出：<RESULTS_DIR>/07_model_3dgs_denoise/
 #   point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 ```
 
-- 结果：前处理人脸增强 → `input_face/images/`；VGGT-Omega 推理 → `vggt/<scene>/predictions.npz`；COLMAP 场景 → `source/`；3DGS 高斯 → `model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。
+- 结果：前处理人脸增强 → `01_input_face/images/`；VGGT-Omega 推理 → `02_vggt/<scene>/predictions.npz`；COLMAP 场景 → `03_source/`；3DGS 高斯 → `04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。
 
 ## 首次准备
 
@@ -229,7 +229,7 @@ INPUT_DIR/                           (一组场景图像 / 视频)
     │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图 (upscale=1)
     │  └─ 二次衰减渐变 mask: 中心=增强, 边缘=原图 → 无缝融合
     ▼
-$RESULTS_DIR/input_face/images/      (人脸增强后的原始图)
+$RESULTS_DIR/01_input_face/images/      (人脸增强后的原始图)
     │
     ▼
 [02] VGGT-Omega 前馈推理 (doll env)  — 一次前向 → 所有视图位姿 + 深度图
@@ -237,7 +237,7 @@ $RESULTS_DIR/input_face/images/      (人脸增强后的原始图)
     │  ├─ encoding_to_camera -> 外参 w2c (N,3,4) + 内参 (N,3,3)
     │  └─ unproject_depth -> 世界坐标点云 + 置信度过滤 -> scene.ply
     ▼
-$RESULTS_DIR/vggt/<scene>/
+$RESULTS_DIR/02_vggt/<scene>/
     predictions.npz      # extrinsic(w2c) + intrinsic + world_points + depth_conf + images
     scene.ply             # 置信度过滤后的彩色点云 (供检查)
     frames/               # 喂给模型的图 (复制/抽帧)
@@ -245,13 +245,13 @@ $RESULTS_DIR/vggt/<scene>/
     ▼
 [03] npz -> COLMAP 转换 (doll env) — 自适应过滤 + 降采样 + 坐标对齐
     │  ├─ 加载 predictions.npz: extrinsic(w2c), intrinsic, world_points, depth_conf
-    │  ├─ 复制 frames/ -> source/images/ (内参按原图尺寸缩放)
+    │  ├─ 复制 frames/ -> 03_source/images/ (内参按原图尺寸缩放)
     │  ├─ 自适应置信度过滤: Otsu 阈值 (分离高/低置信度点)
     │  ├─ 体素降采样 -> ~200k 点 (每体素保留最高置信度点)
     │  ├─ 坐标对齐: 点云 + 相机平移居中到原点
     │  └─ 写 COLMAP 文本格式: cameras.txt + images.txt + points3D.txt
     ▼
-$RESULTS_DIR/source/
+$RESULTS_DIR/03_source/
     images/*.png                  # 训练图
     sparse/0/cameras.txt          # PINHOLE (VGGT-Omega 实际内参)
     sparse/0/images.txt           # w2c (qw qx qy qz tx ty tz)
@@ -259,11 +259,11 @@ $RESULTS_DIR/source/
     │
     ▼
 [04] 3DGS 训练 (doll env) — 原版 gaussian-splatting
-    │  ├─ train.py -s source -m model_3dgs --iterations 30000
+    │  ├─ train.py -s 03_source -m 04_model_3dgs --iterations 30000
     │  │   (L1+SSIM loss, adaptive density: split/clone/prune, 30k iter)
-    │  └─ render.py -s source -m model_3dgs (渲染训练视角 vs GT)
+    │  └─ render.py -s 03_source -m 04_model_3dgs (渲染训练视角 vs GT)
     ▼
-$RESULTS_DIR/model_3dgs/
+$RESULTS_DIR/04_model_3dgs/
     point_cloud/iteration_30000/point_cloud.ply    # 最终高斯
     train/ours_30000/renders/*.png                 # 重建渲染
     train/ours_30000/gt/*.png                      # GT
@@ -273,7 +273,7 @@ $RESULTS_DIR/model_3dgs/
     │  ├─ Stage 1 (render_novel.py): 加载3DGS → 轨迹找间隙 → 插入虚拟相机 → 渲染 (black+white bg for alpha)
     │  └─ Stage 2 (denoise_images.py): alpha<阈值=稀疏 → DENOISER去噪 → AdaIN颜色校正 → 写增强COLMAP
     ▼
-$RESULTS_DIR/source_aug/
+$RESULTS_DIR/05_source_aug/
     images/*.png + novel_*.png     # 原图 + 去噪虚拟视角图
     sparse/0/{cameras,images,points3D}.txt  # 原相机 + 虚拟相机
     │
@@ -283,15 +283,15 @@ $RESULTS_DIR/source_aug/
     │  ├─ HYPIR (SD2Enhancer + LoRA beauty_ppr50k) 增强裁剪图
     │  └─ 二次衰减渐变 mask: 中心=增强, 边缘=原图 → 无缝融合
     ▼
-$RESULTS_DIR/source_aug_face/
+$RESULTS_DIR/06_source_aug_face/
     images/  # 原图 + 去噪图 (人脸区域已增强+融合)
     sparse/0/  # COLMAP 原样复制
     │
     ▼
 [07] 3DGS 训练 (增强场景) — 原图 + 去噪虚拟相机 + 前后处理人脸增强 共同监督
-    │  └─ train.py -s source_aug_face -m model_3dgs_denoise --iterations 30000
+    │  └─ train.py -s 06_source_aug_face -m 07_model_3dgs_denoise --iterations 30000
     ▼
-$RESULTS_DIR/model_3dgs_denoise/
+$RESULTS_DIR/07_model_3dgs_denoise/
     point_cloud/iteration_30000/point_cloud.ply    # 增强训练后的高斯
 ```
 
@@ -309,7 +309,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 ### Step 01 — 前处理人脸增强 (`01_face_enhance.sh` → `face_enhance.py`)
 
-对原始输入图（`INPUT_DIR`）做前处理人脸增强。与 Step 06（后处理）调用**同一个 `face_enhance.py`**，区别是输入：01 对原始图（无 COLMAP 场景），06 对增强 COLMAP 场景中的图。`face_enhance.py` 自动适配输入结构（`images/` 子夹 / `image/` 子夹 / 散图夹）。输出到 `input_face/images/`，作为 Step 02 的输入。
+对原始输入图（`INPUT_DIR`）做前处理人脸增强。与 Step 06（后处理）调用**同一个 `face_enhance.py`**，区别是输入：01 对原始图（无 COLMAP 场景），06 对增强 COLMAP 场景中的图。`face_enhance.py` 自动适配输入结构（`images/` 子夹 / `image/` 子夹 / 散图夹）。输出到 `01_input_face/images/`，作为 Step 02 的输入。
 
 ### Step 02 — VGGT-Omega 前馈推理 (`02_run_inference.sh` → `run_batch.py`)
 
@@ -339,7 +339,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 **两阶段 pipeline**（分进程执行，避免 GPU 显存冲突）：
 
-**Stage 1 — `render_novel.py`**：从 step 04 的 checkpoint 加载 3DGS 高斯 → 解析 COLMAP 相机轨迹 → 按绕场景中心的方位角排序 → 找最大间隙 → 插入 `NUM_NOVEL_VIEWS` 个中间视角（位置线性插值 + 旋转 SLERP）→ 渲染每个新视角（黑底 + 白底两次渲染算 alpha）→ 保存 PNG + `novel_poses.json`。
+**Stage 1 — `render_novel.py`**：从 step 04 的 checkpoint 加载 3DGS 高斯 → 解析 COLMAP 相机轨迹 → 按绕场景中心的方位角排序 → 找最大间隙 → 插入 `NUM_NOVEL_VIEWS` 个中间视角（位置线性插值 + 旋转 SLERP）→ 渲染每个新视角（黑底 + 白底两次渲染算 alpha）→ 保存 PNG + `05_novel_poses.json`。
 
 **Stage 2 — `denoise_images.py`**：逐视角检查 alpha → `avg_alpha < ALPHA_THRESH` 的 = 稀疏区（3DGS 有伪影）→ `DENOISER` 去噪（DiffBIR / SwinIR / none 可切换）→ AdaIN 颜色校正（去噪图的均值/标准差对齐到最近训练图）→ 写增强 COLMAP 场景（原图 + 去噪图，原相机 + 虚拟相机）。
 
@@ -347,7 +347,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 
 ### Step 06 — 后处理人脸增强 (`06_face_enhance.sh` → `face_enhance.py`)
 
-**用 `vggt_human` env**（有 diffusers/transformers/peft + mediapipe）。对 `source_aug/images/`（或 `source/images/`）中的每张图：
+**用 `vggt_human` env**（有 diffusers/transformers/peft + mediapipe）。对 `05_source_aug/images/`（或 `03_source/images/`）中的每张图：
 
 1. **MediaPipe BlazeFace** 检测人脸框 → 放大 `FACE_PADDING`（默认 20%）后裁剪。
 2. **HYPIR 增强**：裁剪图喂给 `SD2Enhancer`（加载 `HYPIR_WEIGHT` 指向的 beauty_ppr50k LoRA checkpoint），`upscale=1`（只增强不超分）。
@@ -384,7 +384,7 @@ $RESULTS_DIR/model_3dgs_denoise/
 ### Step 02 params
 | var | default | note |
 | --- | --- | --- |
-| `VGGT_OUTPUT_DIR` | `$RESULTS_DIR/vggt` | Step 02 输出 |
+| `VGGT_OUTPUT_DIR` | `$RESULTS_DIR/02_vggt` | Step 02 输出 |
 | `VARIANT` | `1b_512` | checkpoint 变体 |
 | `RESOLUTION` | `512` | 输入分辨率（`1b_256_text` 用 `256`） |
 | `MODE` | `balanced` | `balanced` / `max_size` |
@@ -396,21 +396,21 @@ $RESULTS_DIR/model_3dgs_denoise/
 | var | default | note |
 | --- | --- | --- |
 | `INPUT_DIR` | _(required)_ | 单个视频文件路径 (.mp4/.mov/.avi/.mkv) |
-| `OUTPUT_DIR` | `$RESULTS_DIR/input_frames` | 抽帧输出父夹（帧在 `<OUTPUT_DIR>/image/`） |
+| `OUTPUT_DIR` | `$RESULTS_DIR/01a_input_frames` | 抽帧输出父夹（帧在 `<OUTPUT_DIR>/image/`） |
 | `VIDEO_FPS` | `2` | 抽帧 fps |
 
 ### Step 03 params
 | var | default | note |
 | --- | --- | --- |
 | `SCENE_NAME` | _(auto)_ | 场景子夹名（空 = 自动检测 VGGT_OUTPUT_DIR 下第一个） |
-| `SOURCE_DIR` | `$RESULTS_DIR/source` | COLMAP 输出 |
+| `SOURCE_DIR` | `$RESULTS_DIR/03_source` | COLMAP 输出 |
 | `TARGET_POINTS` | `200000` | 体素降采样目标点数 |
 | `ALIGN` | `1` | `1` = 居中场景到原点 |
 
 ### Step 04 params
 | var | default | note |
 | --- | --- | --- |
-| `GAUSSIAN_DIR` | `$RESULTS_DIR/model_3dgs` | 高斯输出 |
+| `GAUSSIAN_DIR` | `$RESULTS_DIR/04_model_3dgs` | 高斯输出 |
 | `ITERATIONS` | `30000` | 训练迭代数 |
 | `RES` | _(unset)_ | `--resolution` 因子；不设 = 全分辨率 |
 | `WHITE_BG` | `0` | `1` = 白底光栅化 |
@@ -456,8 +456,8 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `ALPHA_THRESH` | `0.3` | 渲染 alpha 低于此值 = 稀疏区，需去噪 |
 | `ADAIN_REF` | `nearest` | AdaIN 颜色参考：`nearest`（最近训练图） \| `mean`（全局均值色） |
 | `ITERATION` | `30000` | 加载 04 的哪个 iteration 的 checkpoint |
-| `GAUSSIAN_DIR` | `$RESULTS_DIR/model_3dgs` | 3DGS 模型目录（04 的输出） |
-| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug` | 增强 COLMAP 输出 |
+| `GAUSSIAN_DIR` | `$RESULTS_DIR/04_model_3dgs` | 3DGS 模型目录（04 的输出） |
+| `SOURCE_AUG_DIR` | `$RESULTS_DIR/05_source_aug` | 增强 COLMAP 输出 |
 
 ### Step 06 params (face enhance)
 | var | default | note |
@@ -468,13 +468,13 @@ $RESULTS_DIR/model_3dgs_denoise/
 | `UPSCALE` | `1` | HYPIR upscale (1 = 不超分, 只增强) |
 | `PATCH_SIZE` | `512` | HYPIR patch size |
 | `STRIDE` | `256` | HYPIR stride |
-| `SOURCE_FACE_DIR` | `$RESULTS_DIR/source_aug_face` | 输出目录 |
+| `SOURCE_FACE_DIR` | `$RESULTS_DIR/06_source_aug_face` | 输出目录 |
 
 ### Step 07 params (train on enhanced scene)
 | var | default | note |
 | --- | --- | --- |
-| `SOURCE_AUG_DIR` | `$RESULTS_DIR/source_aug_face` | 增强场景（06 的输出; fallback: source_aug） |
-| `GAUSSIAN_DENOISE_DIR` | `$RESULTS_DIR/model_3dgs_denoise` | 增强训练的模型输出 |
+| `SOURCE_AUG_DIR` | `$RESULTS_DIR/06_source_aug_face` | 增强场景（06 的输出; fallback: 05_source_aug） |
+| `GAUSSIAN_DENOISE_DIR` | `$RESULTS_DIR/07_model_3dgs_denoise` | 增强训练的模型输出 |
 | `ITERATIONS` | `30000` | 训练迭代数 |
 | `RES` | _(unset)_ | `--resolution` 因子；不设 = 全分辨率 |
 | `WHITE_BG` | `0` | `1` = 白底光栅化 |
@@ -523,7 +523,7 @@ GPU=0 VARIANT=1b_512 MODEL_DIR=../../model/VGGT-Omega bash vggt-omega/01_downloa
 显存随帧数线性增长。降压：`RESOLUTION=256`、`MODE=max_size`，或喂更少帧。`run_batch.py` 会捕获 OOM 并继续。
 
 **5. `03` 报 `predictions.npz not found`**
-确认 step 02 已跑完，npz 在 `$RESULTS_DIR/vggt/<scene>/predictions.npz`。若 `SCENE_NAME` 自动检测错误，手动指定：
+确认 step 02 已跑完，npz 在 `$RESULTS_DIR/02_vggt/<scene>/predictions.npz`。若 `SCENE_NAME` 自动检测错误，手动指定：
 ```bash
 GPU=0 SCENE_NAME=image RESULTS_DIR=../../output/vggt_human_results bash vggt_human/03_npz_to_colmap.sh
 ```
@@ -558,7 +558,7 @@ INSTALL_DENOISER=1 INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh
 **10. `07` 想从 04 续训但找不到 checkpoint**
 3DGS 默认不保存 `.pth` checkpoint（只存 PLY）。续训需在 04 加 `CHECKPOINT_ITERATIONS=30000`（透传 `--checkpoint_iterations 30000`），然后：
 ```bash
-GPU=0 MODEL_PATH=../../output/vggt_human_results/model_3dgs LOADED_ITER=30000 \
+GPU=0 MODEL_PATH=../../output/vggt_human_results/04_model_3dgs LOADED_ITER=30000 \
   RESULTS_DIR=../../output/vggt_human_results bash vggt_human/07_train_denoise.sh
 ```
 不续训则从头训（增强场景有更多相机，结果通常更好）。
@@ -619,37 +619,71 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 ├── SwinIR/                          # SwinIR 官方代码 (00 clone, DENOISER=swinir 时)
 ├── HYPIR/                           # HYPIR 官方代码 (00 clone, step 01/06 用)
 └── output/vggt_human_results/      # 输出 (repo 外)
-    ├── input_frames/               # step 01a: 视频抽帧输出 (test_task 结构)
+    ├── 01a_input_frames/           # step 01a: 视频抽帧输出 (test_task 结构)
     │   └── image/                  #   000000.png, 000001.png, ...
-    ├── input_face/                 # step 01: 前处理人脸增强后的原始图
+    ├── 01_input_face/              # step 01: 前处理人脸增强后的原始图
     │   └── images/                 #   人脸增强图
-    ├── vggt/<scene>/               # step 02: VGGT-Omega 推理
-    │   ├── predictions.npz          #   原始输出
-    │   ├── scene.ply                #   点云 (供检查)
-    │   └── frames/                  #   训练图
-    ├── source/                      # step 03: COLMAP 场景
-    │   ├── images/                  #   训练图 (复制)
-    │   └── sparse/0/
-    │       ├── cameras.txt          #   PINHOLE 内参
-    │       ├── images.txt           #   w2c 外参
-    │       └── points3D.txt          #   ~200k 初始点
-    └── model_3dgs/                  # step 04: 3DGS 高斯
-        ├── point_cloud/iteration_30000/point_cloud.ply   # 最终高斯
-        └── train/ours_30000/        # 渲染 (重建 vs GT)
-            ├── renders/*.png
-            └── gt/*.png
-    ├── novel_renders/               # step 05 stage 1: 渲染的新视角
-    ├── novel_alpha/                #   覆盖度图 (低 alpha = 稀疏区)
-    ├── novel_poses.json            #   虚拟相机参数
-    ├── source_aug/                 # step 05 stage 2: 增强 COLMAP 场景
+    ├── 02_vggt/<scene>/            # step 02: VGGT-Omega 推理
+    │   ├── predictions.npz         #   原始输出
+    │   ├── scene.ply               #   点云 (供检查)
+    │   └── frames/                 #   训练图
+    ├── 03_source/                  # step 03: COLMAP 场景
+    │   ├── images/                 #   训练图 (复制)
+    │   └── sparse/0/               #   cameras.txt / images.txt / points3D.txt
+    ├── 03b_source_ba/              # step 03b: COLMAP BA 精修后的场景
+    │   ├── images/                 #   训练图 (复制)
+    │   └── sparse/0/               #   BA binary 输出
+    │   └── sparse/0_text/          #   BA text 输出 (脚本读这份)
+    ├── 04_model_3dgs/              # step 04: 3DGS 高斯
+    │   ├── point_cloud/iteration_30000/point_cloud.ply   # 最终高斯
+    │   └── train/ours_30000/       #   渲染 (重建 vs GT)
+    ├── 04b_model_3dgs_ba/          # step 04 用 03b_source_ba 训练的高斯
+    ├── 05_novel_renders/           # step 05 stage 1: 渲染的新视角
+    ├── 05_novel_alpha/             #   覆盖度图 (低 alpha = 稀疏区)
+    ├── 05_novel_poses.json         #   虚拟相机参数
+    ├── 05_source_aug/              # step 05 stage 2: 增强 COLMAP 场景
     │   ├── images/                 #   原图 + 去噪虚拟视角图
     │   └── sparse/0/               #   原相机 + 虚拟相机
-    ├── source_aug_face/            # step 06: 人脸增强后的场景
-    │   ├── images/                 #   原图 + 去噪图 (人脸已 HYPIR 增强 + 渐变融合)
-    │   └── sparse/0/               #   COLMAP 原样复制
-    └── model_3dgs_denoise/         # step 07: 增强训练后的高斯
+    ├── 06_source_aug_face/         # step 06: 人脸增强后的场景
+    │   └── images/                 #   人脸已 HYPIR 增强 + 渐变融合
+    ├── 06b_source_face/            # step 06: 对 03_source 做人脸增强的场景
+    ├── 06b_face_masks/             # step 06b: MediaPipe bbox 人脸 loss mask
+    ├── 06b_model_3dgs_face/        # step 06b: 方案一 finetune 后的高斯
+    ├── 06c_sam2_face_masks/        # step 06c: SAM2 像素级人脸 mask (原始视角)
+    ├── 06c_face_center.json        # step 06c: 人脸 3D 中心
+    ├── 06c_closeup_renders/        # step 06c: 外插近景渲染
+    ├── 06c_closeup_alpha/          #   近景覆盖度图
+    ├── 06c_closeup_poses.json      #   近景相机参数
+    ├── 06c_closeup_enhanced/       # step 06c: HYPIR 增强后的近景图
+    │   └── images/
+    ├── 06c_closeup_masks/          # step 06c: 近景图的人脸 mask
+    ├── 06c_merged_face_images/     # step 06c: 原始 + 近景 合并训练集
+    ├── 06c_merged_face_masks/      # step 06c: 合并的人脸 mask
+    ├── 06c_model_3dgs_closeup/     # step 06c: 方案二 finetune 后的高斯
+    └── 07_model_3dgs_denoise/      # step 07: 增强训练后的高斯
         └── point_cloud/iteration_30000/point_cloud.ply
 ```
+
+### 输出目录命名规则
+
+`$RESULTS_DIR/` 下的每个产物目录/文件都带**产生它的步骤号前缀**，按前缀排序即等于按 pipeline 顺序排序，一眼能看出"谁产出的、什么时候产出的"。
+
+| 前缀 | 产出步骤 | 产物 |
+|---|---|---|
+| `01a_` | `01a_video_to_frames.sh` | `01a_input_frames/` |
+| `01_` | `01_face_enhance.sh` | `01_input_face/` |
+| `02_` | `02_run_inference.sh` | `02_vggt/` |
+| `03_` | `03_npz_to_colmap.sh` | `03_source/` |
+| `03b_` | `03b_colmap_ba.sh` | `03b_source_ba/` |
+| `04_` | `04_train_3dgs.sh` | `04_model_3dgs/` |
+| `04b_` | `04_train_3dgs.sh`（输入 `03b_source_ba`） | `04b_model_3dgs_ba/` |
+| `05_` | `05_denoise_novel.sh` | `05_novel_*`、`05_source_aug/` |
+| `06_` | `06_face_enhance.sh` | `06_source_aug_face/` |
+| `06b_` | `06b_face_finetune.sh` | `06b_source_face/`、`06b_face_masks/`、`06b_model_3dgs_face/` |
+| `06c_` | `06c_closeup_finetune.sh` | `06c_sam2_face_masks/`、`06c_face_center.json`、`06c_closeup_*`、`06c_merged_*`、`06c_model_3dgs_closeup/` |
+| `07_` | `07_train_denoise.sh` | `07_model_3dgs_denoise/` |
+
+> 脚本内部已按此命名设好默认值，直接用环境变量覆盖即可（`RESULTS_DIR` / `SOURCE_DIR` / `GAUSSIAN_DIR` …）。改前缀只影响默认值，不影响已有产物。
 
 ## Notes
 - Pipeline: VGGT-Omega（前馈位姿+深度）→ COLMAP（格式转换）→ 3DGS（优化训练）。前馈给初始化，优化给质量。
@@ -675,14 +709,14 @@ GPU=0 \
   POSE_ADJUST=0 POSE_REFINE=0 \
   RESULTS_DIR=../../output/vggt_human_results \
   bash vggt_human/04_train_3dgs.sh
-# → $RESULTS_DIR/model_3dgs/
+# → $RESULTS_DIR/04_model_3dgs/
 
 # ── B: 有位姿优化（默认开启，显式写出便于对比）──
 GPU=0 \
   POSE_ADJUST=1 POSE_REFINE=1 \
   RESULTS_DIR=../../output/vggt_human_results \
   bash vggt_human/04_train_3dgs.sh
-# → $RESULTS_DIR/model_3dgs/ (同目录，B 覆盖 A — 惢保留则用不同 RESULTS_DIR)
+# → $RESULTS_DIR/04_model_3dgs/ (同目录，B 覆盖 A — 惢保留则用不同 RESULTS_DIR)
 
 # 更清晰：用不同目录隔离
 GPU=0 POSE_ADJUST=0 POSE_REFINE=0 \

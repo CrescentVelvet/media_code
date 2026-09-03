@@ -241,7 +241,7 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <div class="io">
         <div class="in"><span class="iotag">IN</span> <code>INPUT_DIR/</code> 原始多视图图 (或 01a 输出)</div>
-        <div class="out"><span class="iotag">OUT</span> <code>input_face/images/</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>01_input_face/images/</code></div>
       </div>
       <div class="flow-box">
         <div class="flow-node">🤖 MediaPipe BlazeFace → 人脸 bbox</div>
@@ -259,7 +259,7 @@ td code { font-size:12px; }
     </div>
   </div>
 
-  <div class="arrow-down"><div class="line"></div><span class="label">input_face/images/</span><div class="head">▼</div></div>
+  <div class="arrow-down"><div class="line"></div><span class="label">01_input_face/images/</span><div class="head">▼</div></div>
 
   <!-- Step 02 -->
   <div class="step-row">
@@ -269,9 +269,9 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <span class="pbadge pbadge-heavy">1B 参数</span>
       <div class="io">
-        <div class="in"><span class="iotag">IN</span> <code>input_face/images/</code></div>
+        <div class="in"><span class="iotag">IN</span> <code>01_input_face/images/</code></div>
         <div class="in"><span class="iotag">IN</span> <code>VGGT-Omega/vggt_omega_1b_512.pt</code> (gated)</div>
-        <div class="out"><span class="iotag">OUT</span> <code>vggt/&lt;scene&gt;/predictions.npz</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>02_vggt/&lt;scene&gt;/predictions.npz</code></div>
         <div class="out"><span class="iotag">OUT</span> <code>scene.ply</code> + <code>frames/</code></div>
       </div>
       <div class="flow-box">
@@ -302,7 +302,7 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-cpu">CPU</span>
       <div class="io">
         <div class="in"><span class="iotag">IN</span> <code>predictions.npz</code></div>
-        <div class="out"><span class="iotag">OUT</span> <code>source/</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>03_source/</code></div>
       </div>
       <div class="flow-box">
         <div class="flow-node">📊 Otsu 自适应置信度过滤 (最大化类间方差)</div>
@@ -321,7 +321,7 @@ td code { font-size:12px; }
     </div>
   </div>
 
-  <div class="arrow-down"><div class="line"></div><span class="label">source/ (COLMAP 文本格式)</span><div class="head">▼</div></div>
+  <div class="arrow-down"><div class="line"></div><span class="label">03_source/ (COLMAP 文本格式)</span><div class="head">▼</div></div>
 
   <!-- Step 04 -->
   <div class="step-row">
@@ -331,8 +331,8 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <span class="pbadge pbadge-heavy">30k iter</span>
       <div class="io">
-        <div class="in"><span class="iotag">IN</span> <code>source/</code> (COLMAP 场景)</div>
-        <div class="out"><span class="iotag">OUT</span> <code>model_3dgs/point_cloud/iteration_30000/point_cloud.ply</code></div>
+        <div class="in"><span class="iotag">IN</span> <code>03_source/</code> (COLMAP 场景)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply</code></div>
       </div>
       <div class="substeps">
         <div class="substep">
@@ -383,8 +383,8 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <span class="pbadge pbadge-optional">可选</span>
       <div class="io">
-        <div class="in"><span class="iotag">IN</span> <code>model_3dgs/point_cloud.ply</code></div>
-        <div class="out"><span class="iotag">OUT</span> <code>source_aug/</code> (原图 + 去噪虚拟视角)</div>
+        <div class="in"><span class="iotag">IN</span> <code>04_model_3dgs/point_cloud.ply</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>05_source_aug/</code> (原图 + 去噪虚拟视角)</div>
       </div>
       <div class="flow-box">
         <div class="flow-node">📷 轨迹分析 → 找最大间隙 → SLERP 插入虚拟相机</div>
@@ -403,7 +403,7 @@ td code { font-size:12px; }
     </div>
   </div>
 
-  <div class="arrow-down"><div class="line"></div><span class="label">source_aug/ (原图 + 去噪虚拟视角)</span><div class="head">▼</div></div>
+  <div class="arrow-down"><div class="line"></div><span class="label">05_source_aug/ (原图 + 去噪虚拟视角)</span><div class="head">▼</div></div>
 
   <!-- Step 06 -->
   <div class="step-row">
@@ -413,8 +413,8 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <span class="pbadge pbadge-optional">可选</span>
       <div class="io">
-        <div class="in"><span class="iotag">IN</span> <code>source_aug/images/</code></div>
-        <div class="out"><span class="iotag">OUT</span> <code>source_aug_face/</code></div>
+        <div class="in"><span class="iotag">IN</span> <code>05_source_aug/images/</code></div>
+        <div class="out"><span class="iotag">OUT</span> <code>06_source_aug_face/</code></div>
       </div>
       <div class="detail">
         <li>与 01 调用同一个 <code>face_enhance.py</code></li>
@@ -425,7 +425,7 @@ td code { font-size:12px; }
     </div>
   </div>
 
-  <div class="arrow-down"><div class="line"></div><span class="label">source_aug_face/ (人脸增强后的增强场景)</span><div class="head">▼</div></div>
+  <div class="arrow-down"><div class="line"></div><span class="label">06_source_aug_face/ (人脸增强后的增强场景)</span><div class="head">▼</div></div>
 
   <!-- Step 07 -->
   <div class="step-row">
@@ -435,8 +435,8 @@ td code { font-size:12px; }
       <span class="pbadge pbadge-gpu">GPU</span>
       <span class="pbadge pbadge-optional">可选</span>
       <div class="io">
-        <div class="in"><span class="iotag">IN</span> <code>source_aug_face/</code> (原图 + 去噪图 + 人脸增强)</div>
-        <div class="out"><span class="iotag">OUT</span> <code>model_3dgs_denoise/point_cloud/iteration_30000/point_cloud.ply</code></div>
+        <div class="in"><span class="iotag">IN</span> <code>06_source_aug_face/</code> (原图 + 去噪图 + 人脸增强)</div>
+        <div class="out"><span class="iotag">OUT</span> <code>07_model_3dgs_denoise/point_cloud/iteration_30000/point_cloud.ply</code></div>
       </div>
       <div class="detail">
         <li>原图 = 真实 GT 监督</li>
@@ -502,25 +502,25 @@ td code { font-size:12px; }
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <h2>📂 输出目录结构</h2>
 <div class="tree"><span class="dir">vggt_human_results/</span>
-├── <span class="dir">input_frames/</span>                 <span class="comment"># Step 01a: 视频抽帧 (test_task 结构)</span>
+├── <span class="dir">01a_input_frames/</span>                 <span class="comment"># Step 01a: 视频抽帧 (test_task 结构)</span>
 │   └── <span class="dir">image/</span>                     <span class="comment">#   000000.png, 000001.png, ...</span>
 │
-├── <span class="highlight">input_face/</span>                    <span class="comment"># Step 01: 前处理人脸增强</span>
+├── <span class="highlight">01_input_face/</span>                    <span class="comment"># Step 01: 前处理人脸增强</span>
 │   └── <span class="dir">images/</span>                     <span class="comment">#   人脸增强后的原始图</span>
 │
-├── <span class="dir">vggt/&lt;scene&gt;/</span>                   <span class="comment"># Step 02: VGGT-Omega 推理</span>
+├── <span class="dir">02_vggt/&lt;scene&gt;/</span>                   <span class="comment"># Step 02: VGGT-Omega 推理</span>
 │   ├── predictions.npz            <span class="comment">#   原始输出 (extrinsic w2c, intrinsic, world_points, depth_conf, images)</span>
 │   ├── scene.ply                  <span class="comment">#   置信度过滤后的彩色点云 (供检查)</span>
 │   └── <span class="dir">frames/</span>                    <span class="comment">#   喂给模型的图 (复制/抽帧)</span>
 │
-├── <span class="highlight">source/</span>                        <span class="comment"># Step 03: COLMAP 场景</span>
+├── <span class="highlight">03_source/</span>                        <span class="comment"># Step 03: COLMAP 场景</span>
 │   ├── <span class="dir">images/</span>                     <span class="comment">#   训练图 (从 frames/ 复制)</span>
 │   └── <span class="dir">sparse/0/</span>
 │       ├── cameras.txt            <span class="comment">#   PINHOLE (VGGT-Omega 实际内参)</span>
 │       ├── images.txt             <span class="comment">#   w2c (qw qx qy qz tx ty tz)</span>
 │       └── points3D.txt           <span class="comment">#   ~200k 初始点 (Otsu + 体素降采样)</span>
 │
-├── <span class="highlight">model_3dgs/</span>                     <span class="comment"># Step 04: 3DGS 训练产物</span>
+├── <span class="highlight">04_model_3dgs/</span>                     <span class="comment"># Step 04: 3DGS 训练产物</span>
 │   ├── <span class="dir">dynamic_mask/</span>               <span class="comment">#   P0-1: 动态掩码 (每帧 mask.png)</span>
 │   ├── <span class="dir">point_cloud/</span>
 │   │   └── <span class="dir">iteration_30000/</span>
@@ -529,19 +529,19 @@ td code { font-size:12px; }
 │       ├── <span class="dir">renders/</span>                <span class="comment">#   重建渲染 (vs GT)</span>
 │       └── <span class="dir">gt/</span>                     <span class="comment">#   GT</span>
 │
-├── novel_renders/                 <span class="comment"># Step 05 stage 1: 渲染的新视角</span>
-├── novel_alpha/                   <span class="comment">#   覆盖度图 (低 alpha = 稀疏区)</span>
-├── novel_poses.json               <span class="comment">#   虚拟相机参数</span>
+├── 05_novel_renders/                 <span class="comment"># Step 05 stage 1: 渲染的新视角</span>
+├── 05_novel_alpha/                   <span class="comment">#   覆盖度图 (低 alpha = 稀疏区)</span>
+├── 05_novel_poses.json               <span class="comment">#   虚拟相机参数</span>
 │
-├── <span class="dir">source_aug/</span>                      <span class="comment"># Step 05 stage 2: 增强 COLMAP 场景</span>
+├── <span class="dir">05_source_aug/</span>                      <span class="comment"># Step 05 stage 2: 增强 COLMAP 场景</span>
 │   ├── <span class="dir">images/</span>                     <span class="comment">#   原图 + 去噪虚拟视角图</span>
 │   └── <span class="dir">sparse/0/</span>                  <span class="comment">#   原相机 + 虚拟相机</span>
 │
-├── <span class="dir">source_aug_face/</span>                <span class="comment"># Step 06: 人脸增强后的增强场景</span>
+├── <span class="dir">06_source_aug_face/</span>                <span class="comment"># Step 06: 人脸增强后的增强场景</span>
 │   ├── <span class="dir">images/</span>                     <span class="comment">#   原图 + 去噪图 (人脸已 HYPIR 增强)</span>
 │   └── <span class="dir">sparse/0/</span>                  <span class="comment">#   COLMAP 原样复制</span>
 │
-└── <span class="highlight">model_3dgs_denoise/</span>             <span class="comment"># Step 07: 增强训练后的高斯</span>
+└── <span class="highlight">07_model_3dgs_denoise/</span>             <span class="comment"># Step 07: 增强训练后的高斯</span>
     └── <span class="dir">point_cloud/</span>
         └── <span class="dir">iteration_30000/</span>
             └── <span class="highlight">point_cloud.ply</span>  <span class="comment"># 增强训练后的高斯</span></div>
@@ -780,7 +780,7 @@ c = SH(SH_coefficients, dir)          &nbsp;&nbsp;# 球谐颜色（视角相关�
 <h3>训练前预处理（P0-1 + P0-2）</h3>
 <p>在 COLMAP 加载后、GaussianModel 初始化前执行：</p>
 <ol>
-<li><b>P0-1 动态掩码生成</b>（<code>ENABLE_DYNAMIC_MASK=1</code>）：对 <code>source/images/</code> 每张图运行 GroundingDINO（文本提示如 "person" "TV screen"）→ bbox → SAM2/SAM 分割 → 二值掩码存 <code>dynamic_mask/</code>。</li>
+<li><b>P0-1 动态掩码生成</b>（<code>ENABLE_DYNAMIC_MASK=1</code>）：对 <code>03_source/images/</code> 每张图运行 GroundingDINO（文本提示如 "person" "TV screen"）→ bbox → SAM2/SAM 分割 → 二值掩码存 <code>dynamic_mask/</code>。</li>
 <li><b>P0-2 动态点过滤</b>（<code>ENABLE_DYNAMIC_FILTER=1</code>）：对 <code>points3D.txt</code> 中每个 3D 点，投影到所有相机，检查投影像素是否在对应相机的动态 mask 内。mask 先膨胀 <code>DYNAMIC_DILATE_PX</code> 像素防边缘漏判。<code>dynamic_ratio = in_mask / valid &gt; DYNAMIC_THRESHOLD</code> → 移除该点。</li>
 </ol>
 <div class="formula">
@@ -1007,7 +1007,7 @@ I_white = α × color + (1-α) × 1<br>
 <li><b>Alpha 检查</b>：<code>avg_alpha < ALPHA_THRESH</code> 的视角 = 稀疏区，需去噪。高 alpha = 覆盖够，跳过。</li>
 <li><b>去噪</b>：<code>DENOISER</code> 可切换（DiffBIR / SwinIR / none）。<code>denoisers.py</code> 用 registry 模式——每个去噪器是函数 <code>(image, device) → image</code>，lazy load + cache。</li>
 <li><b>AdaIN 颜色校正</b>：去噪图的颜色分布可能与原图不同（DiffBIR 可能偏色）。用 AdaIN 把去噪图的均值/标准差对齐到最近训练图。</li>
-<li><b>写增强 COLMAP</b>：原图 + 去噪图 → <code>source_aug/images/</code>；原相机 + 虚拟相机 → <code>cameras.txt</code> + <code>images.txt</code>；<code>points3D.txt</code> 不变。</li>
+<li><b>写增强 COLMAP</b>：原图 + 去噪图 → <code>05_source_aug/images/</code>；原相机 + 虚拟相机 → <code>cameras.txt</code> + <code>images.txt</code>；<code>points3D.txt</code> 不变。</li>
 </ol>
 <div class="formula">
 <span class="label">AdaIN 颜色校正</span>
@@ -1023,7 +1023,7 @@ corrected = (source - s_mean) / (s_std + ε) × t_std + t_mean
 <!-- ===== Step 06 ===== -->
 <h2><span class="tag purple">06</span> 后处理人脸增强</h2>
 <div class="box" style="border-left:4px solid #f778ba;">
-<p>与 step 01 调用<b>同一个 <code>face_enhance.py</code></b>，算法和实现完全一致（MediaPipe → HYPIR → 渐变融合）。区别仅在输入：01 对原始输入图，06 对增强 COLMAP 场景中的图（<code>source_aug/images/</code>）。COLMAP <code>sparse/</code> 原样复制（只增强图像，不改相机参数）。</p>
+<p>与 step 01 调用<b>同一个 <code>face_enhance.py</code></b>，算法和实现完全一致（MediaPipe → HYPIR → 渐变融合）。区别仅在输入：01 对原始输入图，06 对增强 COLMAP 场景中的图（<code>05_source_aug/images/</code>）。COLMAP <code>sparse/</code> 原样复制（只增强图像，不改相机参数）。</p>
 <p>前后两次人脸增强的作用互补：01 让 VGGT-Omega 看到更好的人脸纹理 → 重建更准；06 让 3DGS 训练时有更好的面部 GT → 渲染质量更高。</p>
 </div>
 
