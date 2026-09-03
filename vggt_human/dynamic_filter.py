@@ -100,9 +100,7 @@ def filter_dynamic_points(points, colors, cameras, dynamic_masks,
 
     for cam in cameras:
         name = cam["image_name"]
-        if name not in dynamic_masks:
-            continue
-        cams_with_mask += 1
+        has_mask = name in dynamic_masks
 
         R = torch.tensor(cam["R"], dtype=torch.float32, device=device)
         T = torch.tensor(cam["T"], dtype=torch.float32, device=device)
@@ -123,7 +121,13 @@ def filter_dynamic_points(points, colors, cameras, dynamic_masks,
         v = P_cam[:, 1] / z_safe * fy + cy
 
         in_image = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        # 分母=所有可见视角（含无掩码的相机）。曾只在有掩码的相机上累加，
+        # 导致"125 帧里只有 1 帧有掩码"时 ratio 恒为 1/1，过度删除。
         valid_count += in_image.float()
+
+        if not has_mask:
+            continue
+        cams_with_mask += 1
 
         # Dilate mask (cached dilated masks could be precomputed, but
         # re-dilating per camera is cheap for typical mask sizes)
@@ -175,8 +179,7 @@ if __name__ == "__main__":
     from plyfile import PlyData, PlyElement
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, SCRIPT_DIR)
-    from render_novel import parse_cameras_txt, parse_images_txt
-    from pose_adjuster import quat_to_rotmat
+    from render_novel import parse_cameras_txt, parse_images_txt, quat_to_rotmat
 
     # Load PLY
     print(f"📦 loading {args.points}")
@@ -198,9 +201,9 @@ if __name__ == "__main__":
         name = img[4]
         _, W, H, params = cameras_info[cam_id]
         fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-        quat = img[1]
+        quat = img[1]  # [qw,qx,qy,qz] scalar-first, w2c（COLMAP 约定）
         t = img[2]
-        R = quat_to_rotmat(torch.tensor(quat, dtype=torch.float64)).numpy()
+        R = np.asarray(quat_to_rotmat(*quat), dtype=np.float64)
         T = np.array(t, dtype=np.float64)
         cameras.append({
             "R": R, "T": T, "fx": fx, "fy": fy, "cx": cx, "cy": cy,
@@ -233,12 +236,17 @@ if __name__ == "__main__":
     # Save output PLY
     out_path = args.output or os.path.splitext(args.points)[0] + "_filtered.ply"
     print(f"💾 saving {out_path}")
+    # ⚠️ 官方 3DGS fetchPly 要求 nx/ny/nz 字段齐全，缺了会 ValueError。
     dtype = [("x", "f4"), ("y", "f4"), ("z", "f4"),
+             ("nx", "f4"), ("ny", "f4"), ("nz", "f4"),
              ("red", "u1"), ("green", "u1"), ("blue", "u1")]
     el_arr = np.empty(len(points), dtype=dtype)
     el_arr["x"] = points[:, 0]
     el_arr["y"] = points[:, 1]
     el_arr["z"] = points[:, 2]
+    el_arr["nx"] = 0.0
+    el_arr["ny"] = 0.0
+    el_arr["nz"] = 0.0
     el_arr["red"] = colors[:, 0].clip(0, 255).astype(np.uint8)
     el_arr["green"] = colors[:, 1].clip(0, 255).astype(np.uint8)
     el_arr["blue"] = colors[:, 2].clip(0, 255).astype(np.uint8)

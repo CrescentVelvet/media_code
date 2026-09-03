@@ -64,6 +64,52 @@ fi
 
 mkdir -p "$GAUSSIAN_DIR"
 
+# ── 0. 动态掩码 + 初始点云过滤（可选，03→04 之间） ────────────────────────────
+# ENABLE_DYNAMIC_MASK=1   生成逐帧动态掩码（GroundingDINO+SAM2，缓存于 $MASKS_DIR）
+# ENABLE_DYNAMIC_FILTER=1 多视角投票过滤 sparse/0/points3D.ply 中的动态点
+# ⚠️ prompt 默认 "TV screen monitor"——刻意不含 person！本数据集主体是静态人物，
+#    对 person 建掩码会把主体删掉（README_wsl.md「dynamic_mask 实测」）。
+#    真动态场景请显式传 DYNAMIC_PROMPTS="person TV screen" 之类。
+MASKS_DIR="${DYNAMIC_MASKS_DIR:-$RESULTS_DIR/dynamic_mask}"
+if [ "${ENABLE_DYNAMIC_MASK:-0}" = "1" ]; then
+    if [ -d "$MASKS_DIR" ] && [ "$(ls "$MASKS_DIR"/*.png 2>/dev/null | wc -l)" -gt 0 ] \
+       && [ "${FORCE_DYNAMIC_MASK:-0}" != "1" ]; then
+        echo "⏭️ dynamic masks already exist: $MASKS_DIR (FORCE_DYNAMIC_MASK=1 to regenerate)"
+    else
+        echo "🎭 generating dynamic masks (GroundingDINO + SAM2)"
+        # shellcheck disable=SC2086
+        python "$SCRIPT_DIR/dynamic_mask.py" \
+            --images_dir "$SOURCE_DIR/images" \
+            --output_dir "$RESULTS_DIR" \
+            --prompts ${DYNAMIC_PROMPTS:-"TV screen monitor"}
+        if [ $? -ne 0 ]; then
+            echo "❌ FAILED. dynamic mask generation failed." >&2
+            exit 1
+        fi
+    fi
+fi
+if [ "${ENABLE_DYNAMIC_FILTER:-0}" = "1" ]; then
+    P3D="$SOURCE_DIR/sparse/0/points3D.ply"
+    if [ ! -f "$P3D" ]; then
+        echo "❌ ERROR: $P3D not found (step 03 must run first)" >&2
+        exit 1
+    fi
+    if [ ! -f "$P3D.orig" ]; then
+        cp "$P3D" "$P3D.orig"   # 首次过滤前备份原始点云
+    fi
+    echo "✂️ filtering dynamic points from points3D.ply (threshold=${DYNAMIC_THRESHOLD:-0.3}, dilate=${DYNAMIC_DILATE_PX:-5}px)"
+    python "$SCRIPT_DIR/dynamic_filter.py" \
+        --points "$P3D.orig" \
+        --sparse_dir "$SOURCE_DIR/sparse/0" \
+        --images_dir "$SOURCE_DIR/images" \
+        --masks_dir "$MASKS_DIR" \
+        --output "$P3D"
+    if [ $? -ne 0 ]; then
+        echo "❌ FAILED. dynamic point filtering failed." >&2
+        exit 1
+    fi
+fi
+
 # ── 1. Training ────────────────────────────────────────────────────────────
 echo "🏋️ 3DGS training ($ITERATIONS iterations)"
 TRAIN_FLAGS=(

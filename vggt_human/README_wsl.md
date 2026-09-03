@@ -320,6 +320,67 @@ GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_nn \
   bash vggt_human/04_train_3dgs.sh
 ```
 
+### dynamic_mask + dynamic_filter 实测（2026-09-03）
+
+机制：**训练前的点云预处理**（不是训练中的 loss）。`dynamic_mask.py` 用
+GroundingDINO（文本→框）+ SAM2.1（框→掩码）给每帧训练图生成动态掩码；
+`dynamic_filter.py` 把初始点云投到所有视角做多视角投票，落入掩码比例
+> `DYNAMIC_THRESHOLD`(0.3) 的点删除——从源头减少动态物体污染的高斯。
+
+**环境**：`sam2` 包（gh-proxy 镜像装，`--no-build-isolation` 复用环境 torch 2.5.1；
+`configs/` 目录需从源码树补拷进 site-packages），GroundingDINO 走 hf-mirror 自动下载。
+SAM2 config 文件名是缩写（`sam2.1_hiera_l.yaml`），代码已按 checkpoint 名自动映射。
+
+**集成**：`04_train_3dgs.sh` 训练前新增第 0 步——
+`ENABLE_DYNAMIC_MASK=1` 生成掩码（缓存于 `$RESULTS_DIR/dynamic_mask`，
+`FORCE_DYNAMIC_MASK=1` 强制重生成）→ `ENABLE_DYNAMIC_FILTER=1` 过滤
+`source/sparse/0/points3D.ply`（原始点云备份为 `points3D.ply.orig`，可随时还原）。
+⚠️ prompt 默认 `TV screen monitor`，**刻意不含 person**：静态人物数据集里
+person 是主体，过滤它等于删主体。真动态场景用
+`DYNAMIC_PROMPTS="person TV screen"` 显式传。
+
+**实测（7000 iter，prompt=person 刻意验证机制链路）**：
+
+| 指标 | 官方基线 7000 | dynamic_mask+filter 7000 |
+|---|---|---|
+| 掩码生成 | — | 125 帧 ~23% dynamic，SAM2.1-large + GroundingDINO-tiny，~4 min |
+| 初始点云 | 7,163 | 3,962（删 44.7%） |
+| PSNR | 25.97 dB | 25.59 dB（−0.38 dB） |
+| L1 | 0.0269 | 0.0281（+4.5%） |
+| 训练速度 | ~17 it/s | ~13 it/s（点云减半后 densify 更快回血） |
+
+结论：**机制端到端有效且损害温和**。即使删掉近半初始点云，训练中的 densify
+也会重新长出被删区域（GT 监督仍含 person），只掉 0.38 dB。静态场景默认关闭
+（`ENABLE_DYNAMIC_MASK/FILTER` 默认 0）；真动态场景（行人、屏幕闪烁）下
+预期是正收益，因为那时删掉的点是被污染的。
+
+**修复了原模块的 5 个 bug**（单元测试 `.tmp_diag/test_df.py` 全过）：
+
+1. **GroundingDINO 后处理 API 变更**：transformers ≥4.46 把
+   `post_process_grounded_object_detection` 的 `box_threshold=` 改名 `threshold=`，
+   参数名不对抛 TypeError，且不在旧代码 `except AttributeError`范围内 → 直接崩。
+   改为多组参数名依次尝试。
+2. **SAM fallback 输入框格式错**：`SamProcessor` 期望 `[[[x1,y1,x2,y2],...]]`，
+   原代码写成角点对 `[[[x1,y1],[x2,y2]]]`。
+3. **有效视角分母只数有掩码的相机**（单测抓出）：原实现 `if name not in masks:
+   continue` 跳过无掩码相机、分母不累加 → "125 帧只有 1 帧有掩码"时 ratio 恒为
+   1/1，过度删除。改为分母数全部可见视角。
+4. **过滤输出缺 nx/ny/nz 字段**：官方 `fetchPly` 读这三个字段，缺了直接
+   `ValueError: no field of name nx`（外层静默吞成 `point_cloud=None` →
+   `create_from_pcd` 崩 `'NoneType' object has no attribute 'points'`）。
+   输出补齐字段（置 0）。
+5. **`proxy.env` 无条件覆盖 `RESULTS_DIR`**：`_env.sh` 第 12 行先 source
+   proxy.env，把外部传入的 RESULTS_DIR 冲掉 → 曾导致掩码/过滤写进原数据集目录
+   （靠 `.orig` 备份恢复）。改为 `:-` 条件赋值（00a_setup_env.sh 同步修）。
+
+**用法（真动态场景）：**
+```bash
+GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_dmf \
+  ENABLE_DYNAMIC_MASK=1 ENABLE_DYNAMIC_FILTER=1 \
+  DYNAMIC_PROMPTS="person TV screen" \
+  bash vggt_human/04_train_3dgs.sh
+```
+
 ## 全流程命令
 
 > 假设已完成「首次准备」，输入图像在 `D:\dataset\sample\image`。

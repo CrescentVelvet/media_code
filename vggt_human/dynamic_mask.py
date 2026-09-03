@@ -150,7 +150,17 @@ def _load_segmenter():
             device = _device()
             sam2 = None
             last_err = None
-            for cfg in (SAM2_CONFIG, _abs_config(SAM2_CONFIG)):
+            # checkpoint 名 → 官方 config 名映射（repo 里是缩写：large→l、base_plus→b+）
+            cfg_candidates = [SAM2_CONFIG, _abs_config(SAM2_CONFIG)]
+            ckpt_base = os.path.basename(ckpt).lower()
+            for full, short in (("large", "l"), ("base_plus", "b+"),
+                                ("small", "s"), ("tiny", "t")):
+                if full in ckpt_base:
+                    d = os.path.basename(SAM2_CONFIG).replace(full, short)
+                    cfg_candidates += [f"configs/sam2.1/{d}", d,
+                                       f"configs/sam2.1/{d}".replace("sam2.1", "sam2")]
+                    break
+            for cfg in dict.fromkeys(cfg_candidates):   # 去重保序
                 try:
                     sam2 = build_sam2(cfg, ckpt, device=device)
                     print(f"🏋️ SAM2 loaded (ckpt={ckpt}, cfg={cfg}, device={device})")
@@ -214,18 +224,25 @@ def _detect_boxes(pil_image, text_prompt):
     with torch.no_grad():
         outputs = model(**inputs)
 
-    # Post-process (API varies by transformers version)
-    try:
-        results = processor.post_process_grounded_object_detection(
-            outputs, inputs["input_ids"],
-            box_threshold=BOX_THRESHOLD,
-            text_threshold=TEXT_THRESHOLD,
-            target_sizes=[(H, W)],  # target_sizes expects (H, W)
-        )
-    except AttributeError:
-        results = processor.post_process_object_detection(
-            outputs, threshold=BOX_THRESHOLD, target_sizes=[(H, W)]
-        )
+    # Post-process (API varies by transformers version: <4.46 用 box_threshold=，
+    # >=4.46 改名 threshold=，参数名不对抛 TypeError 而非 AttributeError)
+    results = None
+    for kwargs in (
+        dict(threshold=BOX_THRESHOLD, text_threshold=TEXT_THRESHOLD),   # >=4.46
+        dict(box_threshold=BOX_THRESHOLD, text_threshold=TEXT_THRESHOLD),  # 旧版
+        dict(threshold=BOX_THRESHOLD),                                   # 兜底
+    ):
+        try:
+            results = processor.post_process_grounded_object_detection(
+                outputs, inputs["input_ids"],
+                target_sizes=[(H, W)],  # target_sizes expects (H, W)
+                **kwargs,
+            )
+            break
+        except TypeError:
+            continue
+    if results is None:
+        sys.exit("❌ post_process_grounded_object_detection: 无兼容参数组合")
 
     if not results or len(results) == 0:
         return np.zeros((0, 4), dtype=np.float32)
@@ -243,6 +260,7 @@ def _segment_boxes_sam2(rgb_np, boxes):
     masks = []
     for box in boxes:
         # Try both (4,) and (1,4) shapes (mirrors segment_all.py defensive style)
+        m = None
         for box_arg in (box, box[None, :]):
             try:
                 m, scores, _ = predictor.predict(
@@ -251,6 +269,9 @@ def _segment_boxes_sam2(rgb_np, boxes):
                 break
             except Exception:
                 continue
+        if m is None:
+            print(f"  ⚠️ SAM2 predict failed for box {box.tolist()}, skipping")
+            continue
         m_arr = np.asarray(m)
         if hasattr(m_arr, "cpu"):
             m_arr = m_arr.cpu().numpy()
@@ -264,8 +285,9 @@ def _segment_boxes_sam(pil_image, boxes):
     """SAM (transformers): boxes → list of (H, W) bool arrays."""
     model, processor = _sam_model
     device = _device()
-    # SAM processor expects boxes as [[[x1,y1],[x2,y2]], ...] per image
-    input_boxes = [[[float(b[0]), float(b[1])], [float(b[2]), float(b[3])]] for b in boxes]
+    # SAM (transformers) processor 期望 input_boxes=[[box, ...]]，box 为
+    # [x1, y1, x2, y2] 四元 XYXY（官方示例格式），不是角点对。
+    input_boxes = [[[float(v) for v in b] for b in boxes]]
     inputs = processor(pil_image, input_boxes=[input_boxes], return_tensors="pt")
     inputs = {k: v.to(device) if hasattr(v, "to") else v for k, v in inputs.items()}
     with torch.no_grad():

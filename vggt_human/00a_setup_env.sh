@@ -80,7 +80,7 @@ export GS_DIR="$HOME/repos/gaussian-splatting"
 export HYPIR_DIR="$HOME/repos/HYPIR"
 export MODEL_DIR="/mnt/d/wheel/vggt_human_ms/VGGT-Omega"
 export WEIGHTS_ROOT="/mnt/d/wheel/vggt_human_ms"
-export RESULTS_DIR="$HOME/output/vggt_human_results"
+export RESULTS_DIR="${RESULTS_DIR:-$HOME/output/vggt_human_results}"
 export DIFFBIR_DIR="$HOME/repos/DiffBIR"
 export SWINIR_DIR="$HOME/repos/SwinIR"
 # 动态掩码模型（D 盘直接读）

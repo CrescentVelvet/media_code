@@ -112,10 +112,16 @@ export POSE_REFINE_LR_T="${POSE_REFINE_LR_T:-1e-3}"
 export POSE_REFINE_LR_I="${POSE_REFINE_LR_I:-1e-4}"
 export GRAVITY_PRIOR="${GRAVITY_PRIOR:-0}"
 
-# Dynamic mask & filtering & MLP (step 04; P0-1/P0-2/P0-3, independently toggleable for ablation)
-export ENABLE_DYNAMIC_MASK="${ENABLE_DYNAMIC_MASK:-1}"
-export ENABLE_DYNAMIC_FILTER="${ENABLE_DYNAMIC_FILTER:-1}"
-export ENABLE_MLP_DYNAMIC="${ENABLE_MLP_DYNAMIC:-1}"
+# Dynamic mask & filtering (step 04 预处理; P0-1/P0-2)
+# 默认 0（与其它增强一致：默认干净基线，显式开启）。
+# ⚠️ 曾默认 1 + prompt 含 person，静态人物数据集会把主体当"动态"删点。
+#   prompt 用 DYNAMIC_PROMPTS 覆盖（默认 "TV screen monitor"）。
+export ENABLE_DYNAMIC_MASK="${ENABLE_DYNAMIC_MASK:-0}"
+export ENABLE_DYNAMIC_FILTER="${ENABLE_DYNAMIC_FILTER:-0}"
+export ENABLE_MLP_DYNAMIC="${ENABLE_MLP_DYNAMIC:-0}"   # 保留占位，当前无代码引用
+export DYNAMIC_PROMPTS="${DYNAMIC_PROMPTS:-TV screen monitor}"
+export DYNAMIC_THRESHOLD="${DYNAMIC_THRESHOLD:-0.3}"
+export DYNAMIC_DILATE_PX="${DYNAMIC_DILATE_PX:-5}"
 export SAM2_MODEL_PATH="${SAM2_MODEL_PATH:-$MODEL_DIR/sam2}"
 export DINO_MODEL_PATH="${DINO_MODEL_PATH:-$MODEL_DIR/dinov2}"
 
