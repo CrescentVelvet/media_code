@@ -12,9 +12,9 @@ Strategy (from grill-me design):
   6. 3DGS render all 20 extrapolated views → save RGB + alpha + poses.
 
 Output:
-  closeup_renders/closeup_0001.png ... closeup_0020.png
-  closeup_alpha/closeup_0001.png ...
-  closeup_poses.json  (camera params for HYPIR enhance + finetune)
+  06c_closeup_renders/closeup_0001.png ... closeup_0020.png
+  06c_closeup_alpha/closeup_0001.png ...
+  06c_closeup_poses.json  (camera params for HYPIR enhance + finetune)
 
 Env vars:
   GAUSSIAN_DIR  : 3DGS model dir (has point_cloud/iteration_*/point_cloud.ply)
@@ -393,12 +393,12 @@ def main():
 
     # 6. 3DGS render
     print(f"\n🖼️ rendering closeup views...")
-    renders_dir = os.path.join(RESULTS_DIR, "closeup_renders")
-    alpha_dir = os.path.join(RESULTS_DIR, "closeup_alpha")
+    renders_dir = os.path.join(RESULTS_DIR, "06c_closeup_renders")
+    alpha_dir = os.path.join(RESULTS_DIR, "06c_closeup_alpha")
     poses = render_views(closeup_views, renders_dir, alpha_dir)
 
     # 7. Save poses
-    poses_path = os.path.join(RESULTS_DIR, "closeup_poses.json")
+    poses_path = os.path.join(RESULTS_DIR, "06c_closeup_poses.json")
     with open(poses_path, "w") as f:
         json.dump(poses, f, indent=2)
     print(f"\n💾 poses: {poses_path}")

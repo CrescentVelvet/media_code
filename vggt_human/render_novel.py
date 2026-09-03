@@ -7,8 +7,8 @@ Stage 1 of the denoise-augment pipeline (called by 05_denoise_novel.sh):
   3. Find angular gaps in the camera trajectory; insert NUM_NOVEL_VIEWS
      intermediate viewpoints (linear position + SLERP rotation).
   4. Render each novel viewpoint (black + white bg) → RGB + alpha.
-  5. Save: novel_renders/*.png (RGB), novel_alpha/*.png (alpha),
-           novel_poses.json (camera params for stage 2).
+  5. Save: 05_novel_renders/*.png (RGB), 05_novel_alpha/*.png (alpha),
+           05_novel_poses.json (camera params for stage 2).
 
 Stage 2 (denoise_images.py) reads these outputs, denoises, AdaIN-corrects,
 and writes the augmented COLMAP scene.
@@ -227,8 +227,8 @@ def render_novel_views(novel_views):
     bg_black = torch.zeros(3, device=DEVICE)
     bg_white = torch.ones(3, device=DEVICE)
 
-    renders_dir = Path(RESULTS_DIR) / "novel_renders"
-    alpha_dir = Path(RESULTS_DIR) / "novel_alpha"
+    renders_dir = Path(RESULTS_DIR) / "05_novel_renders"
+    alpha_dir = Path(RESULTS_DIR) / "05_novel_alpha"
     renders_dir.mkdir(parents=True, exist_ok=True)
     alpha_dir.mkdir(parents=True, exist_ok=True)
 
@@ -308,7 +308,7 @@ def main():
     print(f"  → {len(novel_views)} novel views")
 
     # Save novel poses for stage 2
-    poses_path = Path(RESULTS_DIR) / "novel_poses.json"
+    poses_path = Path(RESULTS_DIR) / "05_novel_poses.json"
     with open(poses_path, "w") as f:
         json.dump({"novel_cameras": novel_views}, f, indent=2)
     print(f"  → {poses_path}")
@@ -318,9 +318,9 @@ def main():
     render_novel_views(novel_views)
 
     print(f"\n🎉 Done. {time.time() - t0:.1f}s")
-    print(f"  renders: {RESULTS_DIR}/novel_renders/*.png")
-    print(f"  alpha:   {RESULTS_DIR}/novel_alpha/*.png")
-    print(f"  poses:   {RESULTS_DIR}/novel_poses.json")
+    print(f"  renders: {RESULTS_DIR}/05_novel_renders/*.png")
+    print(f"  alpha:   {RESULTS_DIR}/05_novel_alpha/*.png")
+    print(f"  poses:   {RESULTS_DIR}/05_novel_poses.json")
     print(f"  Next: denoise_images.py (stage 2)")
 
 

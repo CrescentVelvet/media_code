@@ -3,10 +3,10 @@
 #
 # Reads the npz from step 01 (predictions.npz: extrinsic w2c, intrinsic,
 # world_points_from_depth, depth_conf, images) and produces a COLMAP scene:
-#   source/images/<frame>.png
-#   source/sparse/0/cameras.txt      # PINHOLE (actual VGGT-Omega intrinsics)
-#   source/sparse/0/images.txt       # w2c quaternion + translation
-#   source/sparse/0/points3D.txt     # adaptive-conf filtered + voxel-downsampled
+#   03_source/images/<frame>.png
+#   03_source/sparse/0/cameras.txt      # PINHOLE (actual VGGT-Omega intrinsics)
+#   03_source/sparse/0/images.txt       # w2c quaternion + translation
+#   03_source/sparse/0/points3D.txt     # adaptive-conf filtered + voxel-downsampled
 #
 # VGGT-Omega outputs w2c directly (OpenCV convention = COLMAP convention), so no
 # c2w->w2c inversion is needed (unlike Pi3). Intrinsics are the model's actual
@@ -16,9 +16,9 @@
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=             # output root
-#   VGGT_OUTPUT_DIR=         # step 01 output (default: $RESULTS_DIR/vggt)
+#   VGGT_OUTPUT_DIR=         # step 01 output (default: $RESULTS_DIR/02_vggt)
 #   SCENE_NAME=              # scene subfolder (auto-detected if unset)
-#   SOURCE_DIR=              # COLMAP output (default: $RESULTS_DIR/source)
+#   SOURCE_DIR=              # COLMAP output (default: $RESULTS_DIR/03_source)
 #   TARGET_POINTS=200000     # voxel downsample target
 #   ALIGN=1                  # 1 = center scene at origin
 #   INTRINSIC_ZSCORE=3.0     # fx/fy z-score above this = anomaly (robust median+MAD)
@@ -29,8 +29,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-VGGT_OUTPUT_DIR="${VGGT_OUTPUT_DIR:-$RESULTS_DIR/vggt}"
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
+VGGT_OUTPUT_DIR="${VGGT_OUTPUT_DIR:-$RESULTS_DIR/02_vggt}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
 TARGET_POINTS="${TARGET_POINTS:-200000}"
 ALIGN="${ALIGN:-1}"
 INTRINSIC_ZSCORE="${INTRINSIC_ZSCORE:-3.0}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """denoise_images.py — Stage 2: denoise rendered novel views + AdaIN + augmented COLMAP.
 
-Reads novel_renders/*.png + novel_alpha/*.png + novel_poses.json from render_novel.py
+Reads 05_novel_renders/*.png + 05_novel_alpha/*.png + 05_novel_poses.json from render_novel.py
 (stage 1). For each novel view:
   1. Check alpha — if avg alpha < ALPHA_THRESH, the region is sparse (needs denoising).
   2. Denoise the rendered image (DENOISER=diffbir|swinir|nafnet|none).
@@ -83,9 +83,9 @@ def main():
     if not RESULTS_DIR:
         sys.exit("❌ RESULTS_DIR not set")
 
-    poses_path = os.path.join(RESULTS_DIR, "novel_poses.json")
-    renders_dir = os.path.join(RESULTS_DIR, "novel_renders")
-    alpha_dir = os.path.join(RESULTS_DIR, "novel_alpha")
+    poses_path = os.path.join(RESULTS_DIR, "05_novel_poses.json")
+    renders_dir = os.path.join(RESULTS_DIR, "05_novel_renders")
+    alpha_dir = os.path.join(RESULTS_DIR, "05_novel_alpha")
 
     if not os.path.isfile(poses_path):
         sys.exit(f"❌ {poses_path} not found — run render_novel.py first")

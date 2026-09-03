@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 INPUT_DIR="${INPUT_DIR:-}"
-OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/input_frames}"
+OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/01a_input_frames}"
 VIDEO_FPS="${VIDEO_FPS:-2}"
 BLUR_THRESHOLD="${BLUR_THRESHOLD:-100}"
 

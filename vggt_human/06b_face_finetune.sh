@@ -4,7 +4,7 @@
 #
 # 流程（对应设计定稿）：
 #   前提: 04 训完 30k（$GAUSSIAN_DIR/point_cloud/iteration_30000/point_cloud.ply）
-#         06_face_enhance.sh 已跑（$FACE_IMAGES_DIR，即 source_face/images）
+#         06_face_enhance.sh 已跑（$FACE_IMAGES_DIR，即 06b_source_face/images）
 #         人脸 mask 已生成（$FACE_MASKS_DIR；缺失时本脚本自动调 face_masks.py 补）
 #   1. 校验 mask 与增强图一一对应（无 mask 的帧自动退化为纯官方监督）
 #   2. train_face_finetune.py：ply 续训 + 互补 L1 + SSIM(原图)，--lr_scale 0.1
@@ -12,13 +12,13 @@
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=                 # 输出根
-#   GAUSSIAN_DIR=                # 30k 模型目录 (默认 model_3dgs)
-#   SOURCE_DIR=                  # COLMAP 场景 (默认 source；scenes 的 sparse/0 必须在)
-#   FACE_IMAGES_DIR=             # HYPIR 增强图 (默认 source_face/images)
-#   FACE_MASKS_DIR=              # 人脸 loss mask (默认 face_masks；无则自动生成)
+#   GAUSSIAN_DIR=                # 30k 模型目录 (默认 04_model_3dgs)
+#   SOURCE_DIR=                  # COLMAP 场景 (默认 03_source；scenes 的 sparse/0 必须在)
+#   FACE_IMAGES_DIR=             # HYPIR 增强图 (默认 06b_source_face/images)
+#   FACE_MASKS_DIR=              # 人脸 loss mask (默认 06b_face_masks；无则自动生成)
 #   FINETUNE_FROM=30000          # 起始迭代（ply 路径里的 iteration_N）
 #   FINETUNE_ITERATIONS=35000    # finetune 终点迭代（默认 +5000）
-#   GAUSSIAN_FACE_DIR=           # 输出模型目录 (默认 model_3dgs_face)
+#   GAUSSIAN_FACE_DIR=           # 输出模型目录 (默认 06b_model_3dgs_face)
 #   FACE_WEIGHT=0.5              # 人脸区增强监督权重 (1.0=complement, 0.5=dual)
 #                                # A/B 实测（79 帧）：w=0.5 Laplacian +2.3%、LPIPS -0.9%（更贴原图）；
 #                                # w=1.0 Laplacian +5.4% 但 LPIPS +1.4%、PSNR 下降（偏离原图）。
@@ -34,13 +34,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/model_3dgs}"
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
-FACE_IMAGES_DIR="${FACE_IMAGES_DIR:-$RESULTS_DIR/source_face/images}"
-FACE_MASKS_DIR="${FACE_MASKS_DIR:-$RESULTS_DIR/face_masks}"
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/04_model_3dgs}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
+FACE_IMAGES_DIR="${FACE_IMAGES_DIR:-$RESULTS_DIR/06b_source_face/images}"
+FACE_MASKS_DIR="${FACE_MASKS_DIR:-$RESULTS_DIR/06b_face_masks}"
 FINETUNE_FROM="${FINETUNE_FROM:-30000}"
 FINETUNE_ITERATIONS="${FINETUNE_ITERATIONS:-35000}"
-GAUSSIAN_FACE_DIR="${GAUSSIAN_FACE_DIR:-$RESULTS_DIR/model_3dgs_face}"
+GAUSSIAN_FACE_DIR="${GAUSSIAN_FACE_DIR:-$RESULTS_DIR/06b_model_3dgs_face}"
 FACE_WEIGHT="${FACE_WEIGHT:-0.5}"
 FACE_SOFT="${FACE_SOFT:-0}"
 LR_SCALE="${LR_SCALE:-0.1}"

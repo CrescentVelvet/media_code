@@ -9,7 +9,7 @@ Strategy:
      (multi-view consistency, default N=3).
   5. Face 3D center = centroid of all face points.
 
-Output: face_center.json with {center: [x,y,z], n_face_points, n_total_points,
+Output: 06c_face_center.json with {center: [x,y,z], n_face_points, n_total_points,
        per_view_coverage: {frame: coverage%}}
 
 Env vars:

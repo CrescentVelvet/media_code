@@ -10,12 +10,12 @@
 #
 # Prerequisites:
 #   - INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh (first time; compiles CUDA exts)
-#   - step 01 (predictions.npz) + step 02 (COLMAP source/) already run
+#   - step 01 (predictions.npz) + step 02 (COLMAP 03_source/) already run
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=             # output root
-#   SOURCE_DIR=              # COLMAP scene (default: $RESULTS_DIR/source)
-#   GAUSSIAN_DIR=            # gaussians output (default: $RESULTS_DIR/model_3dgs)
+#   SOURCE_DIR=              # COLMAP scene (default: $RESULTS_DIR/03_source)
+#   GAUSSIAN_DIR=            # gaussians output (default: $RESULTS_DIR/04_model_3dgs)
 #   ITERATIONS=30000         # total training iterations
 #   RES=                     # --resolution factor (UNSET = full-res)
 #   WHITE_BG=0               # 1 = white rasterizer bg
@@ -28,8 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
-GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/model_3dgs}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/04_model_3dgs}"
 ITERATIONS="${ITERATIONS:-30000}"
 RES="${RES:-}"
 WHITE_BG="${WHITE_BG:-0}"

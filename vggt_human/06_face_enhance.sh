@@ -9,12 +9,12 @@
 #   5. COLMAP sparse/ 原样复制 (只增强图像, 不改相机)
 #
 # Prerequisites: INSTALL_DEPS=1 bash vggt_human/00_setup_env.sh (建好 vggt_human env + HYPIR).
-#               step 02 (source/) 或 step 04 (source_aug/) 已跑.
+#               step 02 (03_source/) 或 step 04 (05_source_aug/) 已跑.
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=             # 输出根
-#   SOURCE_AUG_DIR=          # 输入 (step 04 输出, 默认 source_aug; 不存在则用 source)
-#   SOURCE_FACE_DIR=         # 输出 (默认 source_aug_face)
+#   SOURCE_AUG_DIR=          # 输入 (step 05 输出, 默认 05_source_aug; 不存在则用 03_source)
+#   SOURCE_FACE_DIR=         # 输出 (默认 06_source_aug_face)
 #   HYPIR_WEIGHT=            # HYPIR LoRA checkpoint
 #   HYPIR_BASE_MODEL=        # SD2 base model dir
 #   FACE_PADDING=0.2         # 人脸框放大比例
@@ -27,15 +27,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-# Input: prefer source_aug (step 04), fall back to source (step 02)
-INPUT_SOURCE_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/source_aug}"
+# Input: prefer 05_source_aug (step 05), fall back to 03_source (step 03)
+INPUT_SOURCE_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/05_source_aug}"
 if [ ! -d "$INPUT_SOURCE_DIR/images" ]; then
-    INPUT_SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
+    INPUT_SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
 fi
-SOURCE_FACE_DIR="${SOURCE_FACE_DIR:-$RESULTS_DIR/source_aug_face}"
-# If input was source (not source_aug), output to source_face
-if [ "$INPUT_SOURCE_DIR" = "${SOURCE_DIR:-$RESULTS_DIR/source}" ]; then
-    SOURCE_FACE_DIR="${SOURCE_FACE_DIR:-$RESULTS_DIR/source_face}"
+SOURCE_FACE_DIR="${SOURCE_FACE_DIR:-$RESULTS_DIR/06_source_aug_face}"
+# If input was 03_source (not 05_source_aug), output to 06b_source_face
+if [ "$INPUT_SOURCE_DIR" = "${SOURCE_DIR:-$RESULTS_DIR/03_source}" ]; then
+    SOURCE_FACE_DIR="${SOURCE_FACE_DIR:-$RESULTS_DIR/06b_source_face}"
 fi
 
 echo "🚀 [05] 人脸增强 (MediaPipe + HYPIR + 渐变融合)"

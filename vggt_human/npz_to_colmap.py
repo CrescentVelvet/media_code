@@ -3,11 +3,11 @@
 
 Reads the npz saved by run_batch.py (step 01) and produces a COLMAP scene
 that 3DGS train.py -s reads:
-  source/images/<frame>.png
-  source/sparse/0/cameras.txt      # PINHOLE intrinsics (from VGGT-Omega's actual)
-  source/sparse/0/images.txt       # w2c (qw qx qy qz tx ty tz) — VGGT-Omega
+  03_source/images/<frame>.png
+  03_source/sparse/0/cameras.txt      # PINHOLE intrinsics (from VGGT-Omega's actual)
+  03_source/sparse/0/images.txt       # w2c (qw qx qy qz tx ty tz) — VGGT-Omega
                                    # outputs w2c directly (no c2w->w2c needed)
-  source/sparse/0/points3D.txt     # adaptive-conf filtered + voxel-downsampled
+  03_source/sparse/0/points3D.txt     # adaptive-conf filtered + voxel-downsampled
 
 VGGT-Omega extrinsic is world-to-camera [R | t] (OpenCV convention), same as
 COLMAP. Pi3 outputs c2w (needs inversion); VGGT-Omega outputs w2c directly.
@@ -36,7 +36,7 @@ import numpy as np
 
 NPZ_PATH = os.environ.get("NPZ_PATH", "")
 FRAMES_DIR = os.environ.get("FRAMES_DIR", "")
-SOURCE_DIR = os.environ.get("SOURCE_DIR", "./source")
+SOURCE_DIR = os.environ.get("SOURCE_DIR", "./03_source")
 TARGET_POINTS = int(os.environ.get("TARGET_POINTS", "200000"))
 ALIGN = os.environ.get("ALIGN", "1") == "1"
 # If POSE_ADJUST=1, PoseAdjuster handles coordinate transform (step 04/07).
@@ -255,7 +255,7 @@ def main():
     print(f"  extrinsic={extrinsic.shape}, intrinsic={intrinsic.shape}")
     print(f"  world_points={world_points.shape}, depth_conf={depth_conf.shape}")
 
-    # ── 2. Copy images to source/images/ + scale intrinsics ─────────────────
+    # ── 2. Copy images to 03_source/images/ + scale intrinsics ─────────────────
     print(f"🖼️ [2/5] preparing images -> {images_dir}")
     # Prefer original images from frames/ (better quality for 3DGS training).
     frame_names = []
@@ -363,7 +363,7 @@ def main():
             intrinsic = intrinsic[keep_mask]
             extrinsic = extrinsic[keep_mask]
             frame_names = [frame_names[i] for i in range(N) if keep_mask[i]]
-            # Also remove their copied images from source/images/.
+            # Also remove their copied images from 03_source/images/.
             for i in np.where(anomaly_mask)[0]:
                 img_path = images_dir / frame_names[i] if hasattr(images_dir, '__truediv__') else \
                     os.path.join(str(images_dir), frame_names[i])

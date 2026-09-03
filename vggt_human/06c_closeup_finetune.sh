@@ -2,9 +2,9 @@
 # 06c_closeup_finetune.sh — 方案二：外插近景视角 HYPIR 增强 + 人脸 finetune
 #
 # 流程（对应 grill-me 设计定稿）：
-#   前提: 04 训完 30k（或 BA 精修后重训的 model_3dgs_ba）
+#   前提: 04 训完 30k（或 BA 精修后重训的 04b_model_3dgs_ba）
 #         SAM2 人脸 mask 已生成（sam2_face_masks.py）
-#         人脸 3D 中心已计算（face_center_3d.py → face_center.json）
+#         人脸 3D 中心已计算（face_center_3d.py → 06c_face_center.json）
 #   1. render_closeup.py: 方位角分桶 10 帧 → 向人脸中心推进 → pitch ±10° → 20 视角
 #   2. HYPIR 增强这 20 张渲染图（face_enhance.py，只增强人脸区域）
 #   3. SAM2 对增强后的近景图做人脸 mask
@@ -12,14 +12,14 @@
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=                 # 输出根
-#   GAUSSIAN_DIR=                # 基线模型 (默认 model_3dgs 或 model_3dgs_ba)
+#   GAUSSIAN_DIR=                # 基线模型 (默认 04_model_3dgs 或 04b_model_3dgs_ba)
 #   SOURCE_DIR=                  # COLMAP 场景
-#   MASKS_DIR=                   # SAM2 人脸 mask (默认 sam2_face_masks)
-#   FACE_CENTER=                # face_center.json (默认 $RESULTS_DIR/face_center.json)
-#   CLOSEUP_RENDERS=             # 近景渲染输出 (默认 closeup_renders)
-#   CLOSEUP_ENHANCED=            # HYPIR 增强后近景图 (默认 closeup_enhanced/images)
-#   CLOSEUP_MASKS=               # 近景图人脸 mask (默认 closeup_masks)
-#   GAUSSIAN_CLOSEUP_DIR=        # 输出模型 (默认 model_3dgs_closeup)
+#   MASKS_DIR=                   # SAM2 人脸 mask (默认 06c_sam2_face_masks)
+#   FACE_CENTER=                # 06c_face_center.json (默认 $RESULTS_DIR/06c_face_center.json)
+#   CLOSEUP_RENDERS=             # 近景渲染输出 (默认 06c_closeup_renders)
+#   CLOSEUP_ENHANCED=            # HYPIR 增强后近景图 (默认 06c_closeup_enhanced/images)
+#   CLOSEUP_MASKS=               # 近景图人脸 mask (默认 06c_closeup_masks)
+#   GAUSSIAN_CLOSEUP_DIR=        # 输出模型 (默认 06c_model_3dgs_closeup)
 #   N_BINS=10                    # 方位角分桶数
 #   TARGET_COV=40                # 目标人脸覆盖率 %
 #   MIN_DIST_RATIO=0.3           # 最小物距比例
@@ -34,15 +34,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT}"
-GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/model_3dgs_ba}"
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source_ba}"
-MASKS_DIR="${MASKS_DIR:-$RESULTS_DIR/sam2_face_masks}"
-FACE_CENTER="${FACE_CENTER:-$RESULTS_DIR/face_center.json}"
-CLOSEUP_RENDERS="${CLOSEUP_RENDERS:-$RESULTS_DIR/closeup_renders}"
-CLOSEUP_ALPHA="${CLOSEUP_ALPHA:-$RESULTS_DIR/closeup_alpha}"
-CLOSEUP_ENHANCED="${CLOSEUP_ENHANCED:-$RESULTS_DIR/closeup_enhanced/images}"
-CLOSEUP_MASKS="${CLOSEUP_MASKS:-$RESULTS_DIR/closeup_masks}"
-GAUSSIAN_CLOSEUP_DIR="${GAUSSIAN_CLOSEUP_DIR:-$RESULTS_DIR/model_3dgs_closeup}"
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/04b_model_3dgs_ba}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03b_source_ba}"
+MASKS_DIR="${MASKS_DIR:-$RESULTS_DIR/06c_sam2_face_masks}"
+FACE_CENTER="${FACE_CENTER:-$RESULTS_DIR/06c_face_center.json}"
+CLOSEUP_RENDERS="${CLOSEUP_RENDERS:-$RESULTS_DIR/06c_closeup_renders}"
+CLOSEUP_ALPHA="${CLOSEUP_ALPHA:-$RESULTS_DIR/06c_closeup_alpha}"
+CLOSEUP_ENHANCED="${CLOSEUP_ENHANCED:-$RESULTS_DIR/06c_closeup_enhanced/images}"
+CLOSEUP_MASKS="${CLOSEUP_MASKS:-$RESULTS_DIR/06c_closeup_masks}"
+GAUSSIAN_CLOSEUP_DIR="${GAUSSIAN_CLOSEUP_DIR:-$RESULTS_DIR/06c_model_3dgs_closeup}"
 N_BINS="${N_BINS:-10}"
 TARGET_COV="${TARGET_COV:-40}"
 MIN_DIST_RATIO="${MIN_DIST_RATIO:-0.3}"
@@ -85,7 +85,7 @@ echo ""
 # ── Step 2: HYPIR enhance closeup renders ─────────────────────────────────
 # face_enhance.py expects INPUT_SOURCE_DIR (with images/ subdir or plain images)
 # and SOURCE_FACE_DIR (output root; creates SOURCE_FACE_DIR/images/).
-# Our closeup_renders/ has images directly, so we pass it as INPUT_SOURCE_DIR
+# Our 06c_closeup_renders/ has images directly, so we pass it as INPUT_SOURCE_DIR
 # and face_enhance.py will detect it as a plain image folder.
 if [ ! -d "$CLOSEUP_ENHANCED" ] || [ "$(ls "$CLOSEUP_ENHANCED"/*.png 2>/dev/null | wc -l)" -lt 2 ]; then
     echo "🎨 Step 2: HYPIR enhance closeup renders"
@@ -124,15 +124,15 @@ echo ""
 echo "🏋️ Step 4: finetune (original + closeup views)"
 
 # Merge face images: original enhanced + closeup enhanced
-MERGED_FACE_IMAGES="$RESULTS_DIR/merged_face_images/images"
+MERGED_FACE_IMAGES="$RESULTS_DIR/06c_merged_face_images/images"
 mkdir -p "$MERGED_FACE_IMAGES"
-# Original enhanced images are in source_aug/images/ (from 01 face_enhance step)
-cp "$RESULTS_DIR/source_aug/images/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
-cp "$RESULTS_DIR/source_aug/images/"*.jpg "$MERGED_FACE_IMAGES/" 2>/dev/null || true
+# Original enhanced images are in 05_source_aug/images/ (from 01 face_enhance step)
+cp "$RESULTS_DIR/05_source_aug/images/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
+cp "$RESULTS_DIR/05_source_aug/images/"*.jpg "$MERGED_FACE_IMAGES/" 2>/dev/null || true
 cp "$CLOSEUP_ENHANCED/"*.png "$MERGED_FACE_IMAGES/" 2>/dev/null || true
 
 # Merge masks: original SAM2 + closeup SAM2
-MERGED_MASKS="$RESULTS_DIR/merged_face_masks"
+MERGED_MASKS="$RESULTS_DIR/06c_merged_face_masks"
 mkdir -p "$MERGED_MASKS"
 cp "$MASKS_DIR"/*.mask.png "$MERGED_MASKS/" 2>/dev/null || true
 cp "$MASKS_DIR"/*.alpha.png "$MERGED_MASKS/" 2>/dev/null || true

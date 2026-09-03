@@ -12,8 +12,8 @@
   python face_metrics.py \
       --render_a  $RESULTS_DIR/render_baseline \
       --render_b  $RESULTS_DIR/render_face \
-      --ref_dir   $RESULTS_DIR/source/images \
-      --masks_dir $RESULTS_DIR/face_masks \
+      --ref_dir   $RESULTS_DIR/03_source/images \
+      --masks_dir $RESULTS_DIR/06b_face_masks \
       --out       $RESULTS_DIR/face_metrics.json
 
 命名约定: 三个目录中同一 stem 的文件视为同一相机。mask 用 .alpha.png（软权重，

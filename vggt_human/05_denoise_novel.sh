@@ -4,7 +4,7 @@
 # Two-stage pipeline (separate Python processes to avoid GPU memory conflicts):
 #   Stage 1 (render_novel.py): Load 3DGS model from step 03 → find angular gaps
 #     in camera trajectory → insert NUM_NOVEL_VIEWS intermediate viewpoints →
-#     render each (black+white bg for alpha) → save PNG + novel_poses.json.
+#     render each (black+white bg for alpha) → save PNG + 05_novel_poses.json.
 #   Stage 2 (denoise_images.py): For each novel view with alpha < ALPHA_THRESH
 #     (sparse region): denoise (DENOISER switchable) → AdaIN color-correct to
 #     nearest training image → write augmented COLMAP scene (orig + novel cams).
@@ -18,9 +18,9 @@
 #   ADAIN_REF=nearest        # nearest (closest train img) | mean (global avg color)
 #   ITERATION=30000          # which 3DGS checkpoint iteration to load
 #   RESULTS_DIR=             # output root
-#   SOURCE_DIR=              # original COLMAP scene (default: $RESULTS_DIR/source)
-#   GAUSSIAN_DIR=            # 3DGS model dir (default: $RESULTS_DIR/model_3dgs)
-#   SOURCE_AUG_DIR=          # augmented COLMAP output (default: $RESULTS_DIR/source_aug)
+#   SOURCE_DIR=              # original COLMAP scene (default: $RESULTS_DIR/03_source)
+#   GAUSSIAN_DIR=            # 3DGS model dir (default: $RESULTS_DIR/04_model_3dgs)
+#   SOURCE_AUG_DIR=          # augmented COLMAP output (default: $RESULTS_DIR/05_source_aug)
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,9 +32,9 @@ NUM_NOVEL_VIEWS="${NUM_NOVEL_VIEWS:-10}"
 ALPHA_THRESH="${ALPHA_THRESH:-0.3}"
 ADAIN_REF="${ADAIN_REF:-nearest}"
 ITERATION="${ITERATION:-30000}"
-GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/model_3dgs}"
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
-SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/source_aug}"
+GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/04_model_3dgs}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
+SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/05_source_aug}"
 DEVICE="${DEVICE:-cuda}"
 
 echo "🚀 [04] Render novel views → denoise → AdaIN → augmented COLMAP"

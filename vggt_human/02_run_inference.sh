@@ -13,7 +13,7 @@
 #   INPUT_DIR=             # images folder / video / scene folders
 #   MODEL_DIR=             # VGGT-Omega checkpoint (gated)
 #   RESULTS_DIR=           # output root
-#   VGGT_OUTPUT_DIR=       # step 01 output (default: $RESULTS_DIR/vggt)
+#   VGGT_OUTPUT_DIR=       # step 01 output (default: $RESULTS_DIR/02_vggt)
 #   VARIANT=1b_512         # checkpoint variant (must match downloaded weights)
 #   RESOLUTION=512         # input resolution (1b_256_text -> 256)
 #   MODE=balanced          # balanced | max_size
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 INPUT_DIR="${INPUT_DIR:-$VGGT_DIR/examples}"
-VGGT_OUTPUT_DIR="${VGGT_OUTPUT_DIR:-$RESULTS_DIR/vggt}"
+VGGT_OUTPUT_DIR="${VGGT_OUTPUT_DIR:-$RESULTS_DIR/02_vggt}"
 VARIANT="${VARIANT:-1b_512}"
 RESOLUTION="${RESOLUTION:-512}"
 MODE="${MODE:-balanced}"

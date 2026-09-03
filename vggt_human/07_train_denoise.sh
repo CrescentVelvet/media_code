@@ -9,17 +9,17 @@
 # ⚠️ Resuming from step 03's checkpoint: 3DGS saves chkpnt{N}.pth only when
 #    --checkpoint_iterations is set. If you ran 03 with CHECKPOINT_ITERATIONS=30000,
 #    you can resume here by pointing train.py at the old model dir:
-#      MODEL_PATH=$RESULTS_DIR/model_3dgs LOADED_ITER=30000 bash 07_train_denoise.sh
+#      MODEL_PATH=$RESULTS_DIR/04_model_3dgs LOADED_ITER=30000 bash 07_train_denoise.sh
 #    Otherwise, training starts from scratch on the augmented scene (re-does
 #    initial training, but the extra cameras usually improve the result).
 #
-# Prerequisites: step 04 (source_aug) + step 05 (source_aug_face) already run.
-# If step 05 skipped, falls back to source_aug (step 04).
+# Prerequisites: step 04 (05_source_aug) + step 05 (06_source_aug_face) already run.
+# If step 05 skipped, falls back to 05_source_aug (step 04).
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=                # output root
-#   SOURCE_AUG_DIR=             # face-enhanced scene (default: source_aug_face; fallback: source_aug)
-#   GAUSSIAN_DENOISE_DIR=        # model output (default: $RESULTS_DIR/model_3dgs_denoise)
+#   SOURCE_AUG_DIR=             # face-enhanced scene (default: 06_source_aug_face; fallback: 05_source_aug)
+#   GAUSSIAN_DENOISE_DIR=        # model output (default: $RESULTS_DIR/07_model_3dgs_denoise)
 #   ITERATIONS=30000             # training iterations
 #   RES=                         # --resolution factor (UNSET = full-res)
 #   WHITE_BG=0                   # 1 = white rasterizer bg
@@ -34,12 +34,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/source_aug_face}"
-# Fallback: if source_aug_face doesn't exist, use source_aug (step 04 only)
-if [ ! -d "$SOURCE_AUG_DIR/images" ] && [ -d "$RESULTS_DIR/source_aug/images" ]; then
-    SOURCE_AUG_DIR="$RESULTS_DIR/source_aug"
+SOURCE_AUG_DIR="${SOURCE_AUG_DIR:-$RESULTS_DIR/06_source_aug_face}"
+# Fallback: if 06_source_aug_face doesn't exist, use 05_source_aug (step 04 only)
+if [ ! -d "$SOURCE_AUG_DIR/images" ] && [ -d "$RESULTS_DIR/05_source_aug/images" ]; then
+    SOURCE_AUG_DIR="$RESULTS_DIR/05_source_aug"
 fi
-GAUSSIAN_DENOISE_DIR="${GAUSSIAN_DENOISE_DIR:-$RESULTS_DIR/model_3dgs_denoise}"
+GAUSSIAN_DENOISE_DIR="${GAUSSIAN_DENOISE_DIR:-$RESULTS_DIR/07_model_3dgs_denoise}"
 ITERATIONS="${ITERATIONS:-30000}"
 RES="${RES:-}"
 WHITE_BG="${WHITE_BG:-0}"
@@ -148,6 +148,6 @@ echo "🎉 [07] Done. 3DGS training complete."
 echo "  🏋️ Gaussians: $GAUSSIAN_DENOISE_DIR/point_cloud/iteration_$ITERATIONS/point_cloud.ply"
 echo ""
 echo "  Compare with step 03 (no denoise):"
-echo "    $RESULTS_DIR/model_3dgs/point_cloud/iteration_30000/point_cloud.ply"
+echo "    $RESULTS_DIR/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply"
 echo ""
 echo "  Inspect: https://playcanvas.com/supersplat/editor (drag .ply)"

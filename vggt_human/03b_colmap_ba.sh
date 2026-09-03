@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 03b_colmap_ba.sh — COLMAP Bundle Adjustment with VGGT poses (fixed intrinsics).
 #
-# VGGT reconstruction (source/sparse/0) has cameras (PINHOLE, VGGT intrinsics)
+# VGGT reconstruction (03_source/sparse/0) has cameras (PINHOLE, VGGT intrinsics)
 # + images (VGGT poses) + points3D (VGGT cloud), BUT no 2D-3D observations
 # (num_points3D=0 per image). BA cannot optimize without observations.
 #
@@ -16,9 +16,9 @@
 #
 # Env (all optional, defaults shown):
 #   RESULTS_DIR=             # output root
-#   SOURCE_DIR=              # VGGT COLMAP scene (default: $RESULTS_DIR/source)
+#   SOURCE_DIR=              # VGGT COLMAP scene (default: $RESULTS_DIR/03_source)
 #   IMAGES_DIR=              # original images (default: $SOURCE_DIR/images)
-#   OUTPUT_DIR=              # refined output (default: $RESULTS_DIR/source_ba)
+#   OUTPUT_DIR=              # refined output (default: $RESULTS_DIR/03b_source_ba)
 #   BA_VERBOSE=0             # 1 = print progress
 set -o pipefail
 
@@ -27,9 +27,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT}"
-SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
+SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03_source}"
 IMAGES_DIR="${IMAGES_DIR:-$SOURCE_DIR/images}"
-OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/source_ba}"
+OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/03b_source_ba}"
 BA_VERBOSE="${BA_VERBOSE:-0}"
 
 echo "🔧 [03b] COLMAP BA (VGGT poses → triangulate → refine, intrinsics FIXED)"
@@ -66,4 +66,4 @@ echo "  $OUTPUT_DIR/sparse/0_text/cameras.txt"
 echo "  $OUTPUT_DIR/sparse/0_text/images.txt"
 echo "  $OUTPUT_DIR/sparse/0_text/points3D.txt"
 echo ""
-echo "  → Use with 04_train_3dgs.sh: SOURCE_DIR=$RESULTS_DIR/source_ba ..."
+echo "  → Use with 04_train_3dgs.sh: SOURCE_DIR=$RESULTS_DIR/03b_source_ba ..."

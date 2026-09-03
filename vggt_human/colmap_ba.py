@@ -57,9 +57,9 @@ def main():
         images_dir = os.path.join(source_dir, "images")
         print(f"  IMAGES_DIR not set, defaulting to {images_dir}")
     if not output_dir:
-        # Default: $RESULTS_DIR/source_ba (sibling of source)
+        # Default: $RESULTS_DIR/03b_source_ba (sibling of 03_source)
         parent = os.path.dirname(source_dir.rstrip("/\\"))
-        output_dir = os.path.join(parent, "source_ba")
+        output_dir = os.path.join(parent, "03b_source_ba")
         print(f"  OUTPUT_DIR not set, defaulting to {output_dir}")
 
     sparse_in = Path(source_dir) / "sparse" / "0"

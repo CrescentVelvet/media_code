@@ -2,8 +2,8 @@
 # 01_face_enhance.sh — 前处理: 对原始输入图像做人脸增强 (MediaPipe + HYPIR + 渐变融合).
 #
 # 与 06_face_enhance.sh (后处理) 调用同一个 face_enhance.py, 但:
-#   - 06 对增强 COLMAP 场景中的图做后处理 (source_aug/images/ → source_aug_face/)
-#   - 01 对原始输入图做前处理 (INPUT_DIR → input_face/images/)
+#   - 06 对增强 COLMAP 场景中的图做后处理 (05_source_aug/images/ → 06_source_aug_face/)
+#   - 01 对原始输入图做前处理 (INPUT_DIR → 01_input_face/images/)
 #
 # 前处理后的图像作为 step 02 (VGGT-Omega 推理) 的输入.
 # face_enhance.py 自动适配: COLMAP场景(images/子夹) / test_task结构(image/子夹) / 散图夹.
@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 INPUT_DIR="${INPUT_DIR:-$VGGT_DIR/examples}"
-INPUT_FACE_DIR="${INPUT_FACE_DIR:-$RESULTS_DIR/input_face}"
+INPUT_FACE_DIR="${INPUT_FACE_DIR:-$RESULTS_DIR/01_input_face}"
 FACE_PADDING="${FACE_PADDING:-0.2}"
 UPSCALE="${UPSCALE:-1}"
 DEVICE="${DEVICE:-cuda}"
