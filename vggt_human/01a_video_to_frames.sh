@@ -12,6 +12,7 @@
 #   RESULTS_DIR=           # output root
 #   OUTPUT_DIR=             # frames output parent (frames go to <OUTPUT_DIR>/image/)
 #   VIDEO_FPS=2            # frame sampling fps
+#   BLUR_THRESHOLD=100     # Laplacian variance below this = skip (0=disable blur gate)
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,11 +22,13 @@ source "$SCRIPT_DIR/_env.sh"
 INPUT_DIR="${INPUT_DIR:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/input_frames}"
 VIDEO_FPS="${VIDEO_FPS:-2}"
+BLUR_THRESHOLD="${BLUR_THRESHOLD:-100}"
 
 echo "🎬 [01a] Video → image folder (frames)"
 echo "  🎬 input video: $INPUT_DIR"
 echo "  💾 output:      $OUTPUT_DIR"
 echo "  📐 video_fps:   $VIDEO_FPS"
+echo "  🔍 blur gate:   BLUR_THRESHOLD=$BLUR_THRESHOLD (0=off)"
 echo ""
 
 if [ -z "$INPUT_DIR" ]; then
@@ -37,7 +40,7 @@ if [ ! -f "$INPUT_DIR" ]; then
     exit 1
 fi
 
-export INPUT_DIR OUTPUT_DIR VIDEO_FPS
+export INPUT_DIR OUTPUT_DIR VIDEO_FPS BLUR_THRESHOLD
 python "$SCRIPT_DIR/video_to_frames.py"
 if [ $? -ne 0 ]; then
     echo "❌ FAILED" >&2

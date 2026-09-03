@@ -21,6 +21,8 @@
 #   SOURCE_DIR=              # COLMAP output (default: $RESULTS_DIR/source)
 #   TARGET_POINTS=200000     # voxel downsample target
 #   ALIGN=1                  # 1 = center scene at origin
+#   INTRINSIC_ZSCORE=3.0     # fx/fy z-score above this = anomaly (robust median+MAD)
+#   INTRINSIC_REJECT=0       # 1 = remove anomalous frames; 0 = report only
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,11 +33,14 @@ VGGT_OUTPUT_DIR="${VGGT_OUTPUT_DIR:-$RESULTS_DIR/vggt}"
 SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/source}"
 TARGET_POINTS="${TARGET_POINTS:-200000}"
 ALIGN="${ALIGN:-1}"
+INTRINSIC_ZSCORE="${INTRINSIC_ZSCORE:-3.0}"
+INTRINSIC_REJECT="${INTRINSIC_REJECT:-0}"
 
 echo "✂️ [02] npz -> COLMAP conversion"
 echo "  📂 VGGT output: $VGGT_OUTPUT_DIR"
 echo "  💾 COLMAP src:  $SOURCE_DIR"
 echo "  📐 target pts:  $TARGET_POINTS  align=$ALIGN"
+echo "  📏 intrinsic:   zscore=$INTRINSIC_ZSCORE  reject=$INTRINSIC_REJECT"
 echo ""
 
 # Auto-detect scene subfolder if SCENE_NAME not set
@@ -61,7 +66,7 @@ if [ ! -f "$NPZ_PATH" ]; then
     exit 1
 fi
 
-export NPZ_PATH FRAMES_DIR SOURCE_DIR TARGET_POINTS ALIGN
+export NPZ_PATH FRAMES_DIR SOURCE_DIR TARGET_POINTS ALIGN INTRINSIC_ZSCORE INTRINSIC_REJECT
 python "$SCRIPT_DIR/npz_to_colmap.py"
 if [ $? -ne 0 ]; then
     echo "❌ FAILED" >&2

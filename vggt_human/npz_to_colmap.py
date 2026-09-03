@@ -44,6 +44,12 @@ ALIGN = os.environ.get("ALIGN", "1") == "1"
 if os.environ.get("POSE_ADJUST", "0") == "1":
     ALIGN = False
 
+# Intrinsic consistency check: flag frames whose fx/fy deviate > z-score threshold
+# from the median (catches focus/zoom jumps that VGGT-Omega's per-view intrinsics
+# propagate into COLMAP). Smooth zoom frames are NOT flagged (only sudden jumps).
+INTRINSIC_ZSCORE = float(os.environ.get("INTRINSIC_ZSCORE", "3.0"))
+INTRINSIC_REJECT = os.environ.get("INTRINSIC_REJECT", "0") == "1"
+
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp")
 
 
@@ -324,6 +330,52 @@ def main():
         print(f"  centered at origin (centroid was [{centroid[0]:.2f}, {centroid[1]:.2f}, {centroid[2]:.2f}])")
 
     # cameras.txt — one PINHOLE per image (VGGT-Omega's actual intrinsics)
+    # Intrinsic consistency check: flag frames whose fx/fy deviate > z-score
+    # from the median (catches focus/zoom jumps). Smooth zoom is NOT flagged
+    # (only sudden jumps relative to the overall distribution).
+    fx_arr = intrinsic[:, 0, 0].astype(np.float64)
+    fy_arr = intrinsic[:, 1, 1].astype(np.float64)
+
+    def robust_zscore(x):
+        """Median + MAD z-score (robust to outliers, unlike mean+std)."""
+        med = np.median(x)
+        mad = np.median(np.abs(x - med))
+        # 1.4826 scales MAD to ~std for normal data; add eps to avoid div-by-0.
+        return np.abs(x - med) / (1.4826 * mad + 1e-8), med, mad
+
+    fx_z, fx_med, fx_mad = robust_zscore(fx_arr)
+    fy_z, fy_med, fy_mad = robust_zscore(fy_arr)
+    # Per-frame: max of fx/fy z-score (flag if either is anomalous).
+    max_z = np.maximum(fx_z, fy_z)
+    anomaly_mask = max_z > INTRINSIC_ZSCORE
+    n_anomaly = int(anomaly_mask.sum())
+
+    print(f"  📏 intrinsic check: fx median={fx_med:.2f} (MAD={fx_mad:.2f}), "
+          f"fy median={fy_med:.2f} (MAD={fy_mad:.2f})")
+    if n_anomaly > 0:
+        print(f"  ⚠️ {n_anomaly} frame(s) with z-score > {INTRINSIC_ZSCORE}:")
+        for i in np.where(anomaly_mask)[0]:
+            print(f"     frame {i} ({frame_names[i]}): fx={fx_arr[i]:.2f} "
+                  f"(z={fx_z[i]:.2f}), fy={fy_arr[i]:.2f} (z={fy_z[i]:.2f})")
+        if INTRINSIC_REJECT:
+            keep_mask = ~anomaly_mask
+            print(f"  🗑️ INTRINSIC_REJECT=1 → removing {n_anomaly} anomalous frame(s)")
+            intrinsic = intrinsic[keep_mask]
+            extrinsic = extrinsic[keep_mask]
+            frame_names = [frame_names[i] for i in range(N) if keep_mask[i]]
+            # Also remove their copied images from source/images/.
+            for i in np.where(anomaly_mask)[0]:
+                img_path = images_dir / frame_names[i] if hasattr(images_dir, '__truediv__') else \
+                    os.path.join(str(images_dir), frame_names[i])
+                if os.path.exists(str(img_path)):
+                    os.remove(str(img_path))
+            N = len(frame_names)
+            print(f"  → {N} frames remaining after rejection")
+        else:
+            print(f"  (reporting only; set INTRINSIC_REJECT=1 to remove them)")
+    else:
+        print(f"  ✅ all {N} frames pass intrinsic consistency (z < {INTRINSIC_ZSCORE})")
+
     cameras = []
     for i in range(N):
         fx = float(intrinsic[i, 0, 0])
