@@ -82,16 +82,27 @@ fi
 
 # 默认走官方 3DGS train.py（干净基线）。增强逐个加回后在此加开关分支，
 # 只有显式开启时才切到对应的 train_*.py（它们是官方 train.py 的副本 + 单一 hook）。
-if [ "${USE_DEPTH_NORMAL:-0}" = "1" ]; then
+# ⚠️ 分支顺序=优先级。曾经这里先判 USE_DEPTH_NORMAL，而 _env.sh 把它的默认值
+# 设成过 1，导致 `USE_NOISE_NEGATE=1` 时静默跑成了 depth-normal 训练。
+# 现在：noise negating 优先，且所有增强开关默认都是 0（见 _env.sh）。
+if [ "${USE_NOISE_NEGATE:-0}" = "1" ]; then
+    echo "🎭 using train_noise_negate.py (DINOv2+MLP 动态区域抑制)"
+    echo "   warmup=${NN_WARMUP_EPOCHS:-15} epochs, max_dynamic=${NN_MAX_DYNAMIC_RATIO:-0.2}"
+    export USE_NOISE_NEGATE
+    export DINO_MODEL_PATH
+    export NN_FEATURE_SIZE NN_WARMUP_EPOCHS NN_MAX_DYNAMIC_RATIO NN_FIXED_THR \
+           NN_DILATE_RADIUS NN_MLP_LR NN_SAMPLE_PIXELS
+    ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_noise_negate.py" "${TRAIN_FLAGS[@]}" )
+elif [ "${USE_DEPTH_NORMAL:-0}" = "1" ]; then
     echo "🏋️ using train_depth_normal.py (depth-normal 约束, w=${DEPTH_NORMAL_WEIGHT:-0.05})"
     export USE_DEPTH_NORMAL
     export DEPTH_NORMAL_WEIGHT DEPTH_NORMAL_INTERVAL DEPTH_NORMAL_SAMPLE_POINTS
     ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_depth_normal.py" "${TRAIN_FLAGS[@]}" )
 elif [ "${USE_POSE_REFINE:-0}" = "1" ]; then
-    echo "🎥 using train_pose_refine.py (位姿精炼, w=${POSE_REFINE_WEIGHT:-0.01})"
-    export USE_POSE_REFINE
-    export POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_LR_I REFINE_INTRINSIC
-    ( cd "$GS_DIR" && python "$SCRIPT_DIR/train_pose_refine.py" "${TRAIN_FLAGS[@]}" )
+    echo "⚠️ train_pose_refine.py 当前不可用：diff_gaussian_rasterization 的 CUDA"
+    echo "   rasterizer 不支持对 viewmatrix 求梯度，位姿参数拿不到 grad，精炼不生效。"
+    echo "   改用官方 train.py（详见 README_wsl.md「pose_refine 现状」）"
+    ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
 else
     echo "🏋️ using official train.py (baseline reconstruction)"
     ( cd "$GS_DIR" && python train.py "${TRAIN_FLAGS[@]}" )

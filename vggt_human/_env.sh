@@ -120,7 +120,9 @@ export SAM2_MODEL_PATH="${SAM2_MODEL_PATH:-$MODEL_DIR/sam2}"
 export DINO_MODEL_PATH="${DINO_MODEL_PATH:-$MODEL_DIR/dinov2}"
 
 # Depth-normal consistency (step 04, P1-1)
-export USE_DEPTH_NORMAL="${USE_DEPTH_NORMAL:-1}"
+# 默认 0 = 走官方基线 train.py。曾默认 1，导致不明说就静默切到增强分支
+# （且会盖掉其它增强开关），与「默认干净基线、增强逐个显式开启」的设计冲突。
+export USE_DEPTH_NORMAL="${USE_DEPTH_NORMAL:-0}"
 export DEPTH_NORMAL_WEIGHT="${DEPTH_NORMAL_WEIGHT:-0.05}"
 
 export REPO_DIR VGGT_DIR VGGT_REPO GS_DIR GS_REPO MODEL_DIR RESULTS_DIR \

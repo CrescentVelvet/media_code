@@ -16,8 +16,16 @@ fork（官方原版）上它们与训练语义脱节，会把 3DGS 训练跑坏*
 | `pose_refine.py` | 训练中可学位姿（四元数+平移） | import 依赖 pose_adjuster；未接入官方 camera/optimizer 语义 |
 | `dynamic_mask.py` | 动态掩码（SAM2+GroundingDINO） | 需外部大模型权重；基于错误 API 写的，官方 fork 上不对接 |
 | `dynamic_filter.py` | 动态点云过滤 | 依赖 pose_adjuster、dynamic_mask 产物 |
-| `noise_negating.py` | DINOv2+MLP 动态感知 / 噪声抑制 | 需 DINOv2；NN loss 接入点与官方光栅化不匹配 |
-| `depth_normal_cons.py` | 深度-法线一致性约束 | 期望 `render_pkg["render_depth"]/["render_normal"]`，官方 render 只有 `"depth"` 且无法线输出 → 该约束在官方 fork 上永远静默不生效 |
+| `noise_negating.py` | DINOv2+MLP 动态感知 / 噪声抑制 | **已移回主目录**（见下）。原问题：需 DINOv2；NN loss 接入点与官方光栅化不匹配 |
+| `depth_normal_cons.py` | 深度-法线一致性约束 | **已移回主目录**（见下）。原问题：期望 `render_pkg["render_depth"]/["render_normal"]`，官方 render 只有 `"depth"` 且无法线输出 → 该约束在官方 fork 上永远静默不生效 |
+
+### 已移回主目录（不再归档）
+
+| 文件 | 配套训练脚本 | 状态 |
+|---|---|---|
+| `depth_normal_cons.py` | `train_depth_normal.py`（`USE_DEPTH_NORMAL=1`） | ✅ 30000 iter 验证通过 |
+| `noise_negating.py` | `train_noise_negate.py`（`USE_NOISE_NEGATE=1`） | ✅ 单元测试全过，训练验证中 |
+| `pose_refine.py` | `train_pose_refine.py`（`USE_POSE_REFINE=1`） | ⚠️ **不可用**：CUDA rasterizer 不支持对 viewmatrix 求梯度，位姿参数拿不到 grad。脚本保留但 04 会退化为官方 train.py 并打印告警 |
 
 > `pose_adjuster.py` **不在归档内**：它被另一个算法目录 `pdfgs_human/02b_pose_adjust.sh`
 > 跨目录 import（`sys.path` 指向 `../vggt_human` 后 `from pose_adjuster import`），用于
@@ -30,6 +38,10 @@ fork（官方原版）上它们与训练语义脱节，会把 3DGS 训练跑坏*
   → `05 render_novel.py + denoise_images.py` → `06 face_enhance.py`（可选）
 - `render_novel.py` 中对 pose_adjuster 的条件 transform 已移除（官方 train 不再产生
   `pose_adjuster.json`，novel 视图直接在源场景坐标系插入）。
+
+> ⚠️ **所有增强开关默认必须是 0**（`_env.sh`）。曾经 `USE_DEPTH_NORMAL` 默认 1，
+> 结果不明说就静默切到增强分支，还会盖掉其它增强开关
+> （`USE_NOISE_NEGATE=1` 被判成跑 depth-normal）。已改回 0。
 
 ## 加回步骤（每个增强的通用流程）
 

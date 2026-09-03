@@ -228,6 +228,98 @@ GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_dn \
   bash vggt_human/04_train_3dgs.sh
 ```
 
+### 增强 P1-2：pose_refine（已加回，但当前后端不可用）
+
+加回 `pose_refine.py` + `train_pose_refine.py`（可学位姿：四元数 + 平移）。修完 3 个 bug
+后暴露出**根本性限制**：
+
+1. `world_view_transform` 原用 `torch.zeros(4,4)` + in-place 赋值构造 → 断梯度，改 `torch.cat`
+2. `PoseRefinedCamera` 缺 `alpha_mask` 等属性 → 加 `__getattr__` 委托 base Camera
+3. `_rotmat_to_quat` 用了 `np` 但 numpy 在条件块内 import → 移到顶部
+
+| 梯度检查 | 结果 |
+|---|---|
+| `world_view_transform.sum().backward()` | 位姿参数**有**梯度 ✅（说明 cat 构造确实修好了梯度链） |
+| `render(...)` 后 L1 loss 再 backward | 位姿参数 `grad=None` ❌ |
+
+**根因**：`diff_gaussian_rasterization` 的 CUDA rasterizer 把 viewmatrix 当**常量**用于投影，
+只对高斯参数（means/scales/rot/opacity/SH）求梯度，**不支持可微相机位姿**。
+所以位姿精炼在当前后端下拿不到梯度，无法工作。
+
+**可行替代（未实施）**：① 换 gsplat 后端（原生支持可微位姿，但改动面大）；
+② 在 03 之后加一轮 COLMAP bundle adjustment（不依赖 rasterizer 梯度）。
+
+> `USE_POSE_REFINE=1` 时 `04_train_3dgs.sh` 会打印告警并退化为官方 train.py，不会静默跑坏。
+
+### 数据集动态性诊断（决定要不要开"噪声抑制类"增强）
+
+加 `noise_negating` / `dynamic_mask` / `dynamic_filter` 之前，先判断这个数据集到底有没有
+动态内容。用基线 30000 的 `renders/` vs `gt/`（125 帧）做统计：
+
+| 指标 | 实测 | 解读 |
+|---|---|---|
+| 训练 loss（基线 30000） | 0.34 → **0.040** | 静态场景的典型收敛值；若有动态物体，3DGS 拟合不了会卡在 0.1 以上 |
+| 误差空间集中度（top-20% 块贡献的残差） | **46.8%** | 误差高度集中，不是随机欠拟合 |
+| 高误差块跨视角重合 IoU | 0.175（随机基线 0.111） | 略高于随机。但相机绕人转、各视角图像坐标系不可比，**该指标参考性有限** |
+
+**结论：这是静态场景**（多视角拍摄静止人物）。误差集中在难重建区域（图像边缘、头发、
+反光），而不是跨视角不一致的动态物体。
+
+- `noise_negating` / `dynamic_mask` / `dynamic_filter` 三件套**大概率有害**：
+  MLP 会把"始终高误差的静态难区"当成动态区域永久屏蔽，反而丢细节。
+- 后续优化应转向**提升静态重建质量**（位姿精度、点云密度、几何约束），
+  而不是动态区域抑制。
+
+### 增强 P0-3：noise negating（已加回 + 修复，但对**静态人物场景有害**，默认关闭）
+
+加回 `noise_negating.py` + `train_noise_negate.py`：DINOv2 ViT-S/14 提特征 +
+轻量 MLP（384→16→1）在线学习每帧动态掩码，loss 只在静态像素上计算。
+
+实测 7000 iter 同源对比（125 帧全量 `renders/` vs `gt/`）：
+
+| 指标 | 官方基线 7000 | noise negating 7000 | 差异 |
+|---|---|---|---|
+| PSNR | 25.97 dB | 24.35 dB | **−1.62 dB** ❌ |
+| L1 | 0.0269 | 0.0314 | +16.7% ❌ |
+| 亮度比值 | 1.001 | 0.996 | −0.005 |
+| 训练耗时 | 7 min | 10 min（另加 3 min DINOv2 加载） | 慢 ~85% |
+
+**为什么不适用**：MLP 把"始终高误差的静态难区"（图像边缘、头发、反光）当成动态区域屏蔽，
+这些区域失去监督后高斯既不被优化、也因 densify 梯度不足而缺发育 → PSNR 掉 1.6 dB。
+训练中 `Static%` 稳定在 90~99%（只屏蔽 7% 左右），说明**MLP 自己学到了"场景基本静态"**，
+但残余的这点屏蔽就足以造成明显损失。
+
+> 与上面「数据集动态性诊断」完全吻合：**静态人物场景不要开动态抑制类增强**。
+> `USE_NOISE_NEGATE` 默认 0，代码与文档保留，将来有真动态数据（街景、含行人）时再用。
+
+**修复了原模块的 7 个 bug**（单元测试全过，见 `.tmp_diag/test_nn.py`）：
+
+1. **MLP 在全分辨率跑**（致命）：原实现把 384 通道特征插值到 `(384,H,W)` 再跑 MLP，
+   1440×1920 下会产生 ~4GB 中间激活。改为在 DINO 特征图 `(F,F)` 上推理再上采样 mask
+   —— 顺带让监督信号（cosine 不相似度）与 MLP 输出分辨率对齐。
+2. **mask 未 detach**（致命）：3DGS 重建 loss 会顺着 mask 反传到 MLP，MLP 为最小化重建
+   loss 会学会"屏蔽所有高误差区域"，形成对抗性塌缩。已 detach，单元测试验证 MLP 参数无梯度泄漏。
+3. **masked L1 除以全像素数**：loss 被系统性缩小，与官方 `lambda_dssim` 配比、densify
+   梯度阈值语义脱节。改为除以静态像素数（全 1 mask 时与官方 L1 逐位相同）。
+4. **无动态比例兜底**：MLP 随机初始化输出饱和在 0.5，固定阈值 0.25 会让几乎全图判为
+   动态、loss 归零崩塌。改为 `thr = max(固定阈值, 分位数(1−NN_MAX_DYNAMIC_RATIO))`，
+   即使输出饱和也能保证 ≥50% 像素参与 loss（实测饱和时仍保持 66%）。
+5. **残差边界项方向写反**：原 `relu(mask−upper)+relu(lower−mask)` 在"确定静态"区
+   反而把 mask 推向 1（dynamic）。反证：旧实现给"正确标注"打 **1.0000** 分、
+   给"标注反了"打 **0.0000** 分。已按 mask 语义（1=dynamic）转换边界。
+6. **masked SSIM 先乘 mask**：屏蔽区两图同为 0 → SSIM≈1，虚低。反证：旧做法
+   **0.8756** vs 左半真实 SSIM **0.7513**。改为 ssim map × mask 加权平均。
+7. **接入点在 `no_grad` 块内**：官方 train.py 从 `with torch.no_grad():` 一直包到循环
+   末尾，MLP 的 `loss.backward()` 直接报
+   `element 0 of tensors does not require grad`。已用 `torch.enable_grad()` 包住。
+
+**用法（不推荐用于静态人物场景）：**
+```bash
+GPU=0 INPUT_DIR=... RESULTS_DIR=~/output/vggt_human_results_nn \
+  USE_NOISE_NEGATE=1 NN_MAX_DYNAMIC_RATIO=0.2 NN_WARMUP_EPOCHS=15 \
+  bash vggt_human/04_train_3dgs.sh
+```
+
 ## 全流程命令
 
 > 假设已完成「首次准备」，输入图像在 `D:\dataset\sample\image`。
