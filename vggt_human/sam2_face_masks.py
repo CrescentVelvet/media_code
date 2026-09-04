@@ -38,6 +38,10 @@ SAM2_CFG = os.environ.get("SAM2_CFG", "configs/sam2.1/sam2.1_hiera_l.yaml")
 SOFT_FEATHER = os.environ.get("SOFT_FEATHER", "1") == "1"
 ERODE_PX = int(os.environ.get("ERODE_PX", "2"))
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.5"))
+# MediaPipe 检不出人脸时, 用画面中心框作为 SAM2 box prompt 兜底。
+# 依据: render_closeup 的 look-at 保证人脸落在画面正中 (offset 0px),
+# 3DGS 近景渲染人脸过糊、MediaPipe 检不出是常态, 兜底才能拿到 mask。
+CENTER_BOX_FALLBACK = os.environ.get("CENTER_BOX_FALLBACK", "0") == "1"
 
 
 def create_feather_alpha(mask, padding_px=5):
@@ -145,6 +149,9 @@ def main():
 
         # Step 1: MediaPipe detection (box prompt source)
         boxes = detect_faces_mediapipe(img)
+        if not boxes and CENTER_BOX_FALLBACK:
+            # 中心框兜底: 近景相机 look-at 对准人脸, 人脸必在画面中央区域
+            boxes = [(int(0.25 * w), int(0.15 * h), int(0.75 * w), int(0.75 * h))]
         if not boxes:
             skipped += 1
             if (idx + 1) % 20 == 0 or idx == 0:

@@ -31,6 +31,9 @@ WEIGHT_PATH = os.environ.get("HYPIR_WEIGHT", "")
 INPUT_SOURCE_DIR = os.environ.get("INPUT_SOURCE_DIR", "")
 SOURCE_FACE_DIR = os.environ.get("SOURCE_FACE_DIR", "")
 FACE_PADDING = float(os.environ.get("FACE_PADDING", "0.2"))
+# MediaPipe 检不出人脸时, 用画面中心框兜底 (近景相机 look-at 保证人脸在画面中央)。
+# 3DGS 近景渲染的人脸过糊、MediaPipe 检不出是常态; 不开兜底 HYPIR 会整图透传。
+CENTER_BOX_FALLBACK = os.environ.get("CENTER_BOX_FALLBACK", "0") == "1"
 UPSCALE = int(os.environ.get("UPSCALE", "1"))
 PATCH_SIZE = int(os.environ.get("PATCH_SIZE", "512"))
 STRIDE = int(os.environ.get("STRIDE", "256"))
@@ -183,6 +186,10 @@ def main():
         # Actually MediaPipe's FaceDetection.process expects RGB.
         img_rgb_mp = img_np  # already RGB (PIL → numpy)
         boxes = detect_faces(detector, img_rgb_mp)
+
+        if not boxes and CENTER_BOX_FALLBACK:
+            # 中心框兜底: 近景相机 look-at 对准人脸, 人脸必在画面中央区域
+            boxes = [(int(0.25 * w), int(0.15 * h), int(0.75 * w), int(0.75 * h))]
 
         if not boxes:
             # No face → copy as-is
