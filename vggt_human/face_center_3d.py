@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""face_center_3d.py — Compute 3D face center from 3DGS point cloud + SAM2 masks.
+"""face_center_3d.py — Compute 3D face center from 3DGS point cloud + face masks.
 
 Strategy:
   1. Load 3DGS point cloud (PLY) — millions of 3D gaussians.
-  2. Load SAM2 face masks (79 frames, pixel-level).
-  3. For each 3D point, project to all 79 camera views using COLMAP poses.
-  4. A point is a "face point" if it falls inside the SAM2 mask in >= N frames
-     (multi-view consistency, default N=3).
+  2. Load face masks (SAM2 `<stem>.mask.png` 或 SAM3 多人 `<stem>.p{pid}.mask.png`).
+  3. For each 3D point, project to all camera views using COLMAP poses.
+  4. A point is a "face point" if it falls inside the mask in >= N frames
+     (multi-view consistency, default N=15).
   5. Face 3D center = centroid of all face points.
 
+Multi-person (SAM3 video backend 输出):
+  masks 目录含 `<stem>.p{pid}.mask.png` 时自动进入多人模式（或 --multi_person 强制）。
+  每个 pid 独立执行投影→命中→质心→sanity 流程, 输出 per-person 中心:
+    persons: {pid: {center, n_face_points, sanity_*, per_view_coverage}}
+  顶层 center 兼容旧消费者 = 面部点数最多那人的中心。
+
 Output: 06c_face_center.json with {center: [x,y,z], n_face_points, n_total_points,
-       per_view_coverage: {frame: coverage%}}
+       per_view_coverage: {frame: coverage%}} (single) / persons{...} (multi)
 
 Env vars:
   PLY_PATH     : 3DGS point cloud PLY
   SOURCE_DIR   : COLMAP source (sparse/0/ has cameras.txt, images.txt)
-  MASKS_DIR    : SAM2 face masks folder (has <stem>.mask.png)
+  MASKS_DIR    : face masks folder
   OUTPUT_JSON  : output JSON path
   MIN_HITS     : min frames a point must hit to count as face (default 15)
 
@@ -25,6 +31,7 @@ min_hits 的取舍:
   默认 15 (77 个 mask 视角中命中 >=15) 能压住这类噪声。
 """
 import os
+import re
 import sys
 import json
 import math
@@ -162,6 +169,25 @@ def load_masks(masks_dir, stems):
     return masks
 
 
+def load_masks_multi(masks_dir, stems):
+    """Load per-person masks `<stem>.p{pid}.mask.png`.
+
+    Returns {pid_int: {stem: bool array (H, W)}}. Only p-masks are read;
+    旧命名的 {stem}.mask.png 在多人模式下被忽略 (避免单/多混用错配).
+    """
+    stem_set = set(stems)
+    pat = re.compile(r"^(.+)\.p(\d+)\.mask\.png$")
+    persons = {}
+    for f in os.listdir(masks_dir):
+        m = pat.match(f)
+        if not m or m.group(1) not in stem_set:
+            continue
+        pid = int(m.group(2))
+        arr = np.array(Image.open(os.path.join(masks_dir, f)).convert("L"))
+        persons.setdefault(pid, {})[m.group(1)] = arr > 127
+    return persons
+
+
 def project_points(xyz, view):
     """Project 3D points (N,3) to 2D pixel coords. Returns (N,2) and validity mask."""
     q = view["qvec"]
@@ -186,41 +212,16 @@ def project_points(xyz, view):
     return uv, valid
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--ply", required=True)
-    ap.add_argument("--source_dir", required=True)
-    ap.add_argument("--masks_dir", required=True)
-    ap.add_argument("--output", required=True)
-    ap.add_argument("--min_hits", type=int, default=15)
-    ap.add_argument("--min_face_points", type=int, default=200,
-                    help="若 face points 少于此值则逐级放宽 min_hits (下限 5)")
-    args = ap.parse_args()
+def compute_face_center(xyz, views, masks, min_hits, min_face_points, label=""):
+    """Core per-person flow: project → hit counting → threshold → centroid → sanity.
 
-    print(f"🧑 face 3D center computation")
-    print(f"  📂 PLY: {args.ply}")
-    print(f"  📂 source: {args.source_dir}")
-    print(f"  📂 masks: {args.masks_dir}")
-    print(f"  📐 min_hits: {args.min_hits}")
-    print("")
+    Returns dict with center / spread / n_face_points / mh / per_view_coverage /
+    sanity results. 打印过程日志 (带 label 前缀便于多人区分).
+    """
+    tag = f"[p{label}] " if label != "" else ""
 
-    # 1. Load points
-    xyz = load_ply_points(args.ply)
-
-    # 2. Parse cameras
-    print("\n📷 parsing COLMAP cameras...")
-    views = parse_colmap_cameras(args.source_dir)
-
-    # 3. Load masks
-    print("\n🎭 loading SAM2 masks...")
-    masks = load_masks(args.masks_dir, [v["stem"] for v in views])
-    print(f"  {len(masks)} masks found (of {len(views)} views)")
-
-    if not masks:
-        sys.exit("no masks found")
-
-    # 4. Project + count hits
-    print(f"\n🎯 projecting {len(xyz)} points to {len(masks)} views...")
+    # 1. Project + count hits
+    print(f"\n{tag}🎯 projecting {len(xyz)} points to {len(masks)} views...")
     t0 = time.time()
     hit_counts = np.zeros(len(xyz), dtype=np.int32)
     per_view_cov = {}
@@ -230,13 +231,11 @@ def main():
             continue
         mask = masks[view["stem"]]
         uv, valid = project_points(xyz, view)
-        # Check bounds + mask
         in_bounds = (
             valid &
             (uv[:, 0] >= 0) & (uv[:, 0] < view["W"]) &
             (uv[:, 1] >= 0) & (uv[:, 1] < view["H"])
         )
-        # Sample mask at projected coords
         mask_hits = np.zeros(len(xyz), dtype=bool)
         valid_idx = np.where(in_bounds)[0]
         if len(valid_idx) > 0:
@@ -250,58 +249,54 @@ def main():
         per_view_cov[view["stem"]] = round(cov, 2)
         if (vi + 1) % 20 == 0 or vi == 0:
             n_hit = mask_hits.sum()
-            print(f"  [{vi+1}/{len(views)}] {view['stem']}: cov={cov:.1f}%, pts_in_mask={n_hit}")
+            print(f"{tag}  [{vi+1}/{len(views)}] {view['stem']}: cov={cov:.1f}%, pts_in_mask={n_hit}")
 
-    print(f"  projection done in {time.time()-t0:.1f}s")
+    print(f"{tag}  projection done in {time.time()-t0:.1f}s")
 
-    # 5. Face points = hit >= min_hits
-    #    先打阈值诊断表, 便于判断 min_hits 取多少合适
-    print("\n📊 hit-count 分布 (命中 >=N 个 mask 视角的点数):")
+    # 2. Threshold
+    print(f"\n{tag}📊 hit-count 分布 (命中 >=N 个 mask 视角的点数):")
     for th in (1, 3, 5, 10, 15, 20, 30, 40):
-        print(f"    hits>={th:2d}: {(hit_counts >= th).sum():>8d} pts")
+        print(f"{tag}    hits>={th:2d}: {(hit_counts >= th).sum():>8d} pts")
 
-    mh = args.min_hits
+    mh = min_hits
     face_pts_mask = hit_counts >= mh
     n_face = int(face_pts_mask.sum())
-    print(f"\n  face points (hits>={mh}): {n_face} / {len(xyz)} ({n_face/len(xyz)*100:.2f}%)")
+    print(f"\n{tag}  face points (hits>={mh}): {n_face} / {len(xyz)} ({n_face/len(xyz)*100:.2f}%)")
 
     # 逐级放宽 (下限 5)。刻意不退回 min_hits=1:
     # 命中 1~2 次的点绝大多数是背景, 退回 1 等于放弃了多视角一致性约束,
     # 会让质心重新飘到人脸后方的墙上。
     FLOOR = 5
-    while n_face < args.min_face_points and mh > FLOOR:
+    while n_face < min_face_points and mh > FLOOR:
         prev = mh
         mh = max(FLOOR, mh // 2)
         face_pts_mask = hit_counts >= mh
         n_face = int(face_pts_mask.sum())
-        print(f"  ⚠️  hits>={prev} 只有 {n_face} 点 (<{args.min_face_points}), "
+        print(f"{tag}  ⚠️  hits>={prev} 只有 {n_face} 点 (<{min_face_points}), "
               f"放宽到 >= {mh} → {n_face} 点")
 
     if n_face == 0:
-        sys.exit(f"no face points even with min_hits={mh} — 检查 MASKS_DIR 与 PLY 是否配套")
+        return None
 
-    if mh != args.min_hits:
-        print(f"  ⚠️ 最终 min_hits={mh} (请求值 {args.min_hits}), 中心可信度下降")
+    if mh != min_hits:
+        print(f"{tag}  ⚠️ 最终 min_hits={mh} (请求值 {min_hits}), 中心可信度下降")
 
-    # 6. Centroid = face 3D center
+    # 3. Centroid = face 3D center
     center = xyz[face_pts_mask].mean(axis=0)
     spread = xyz[face_pts_mask].std(axis=0)
-    print(f"\n  face 3D center: [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]")
-    print(f"  spread (std):   [{spread[0]:.4f}, {spread[1]:.4f}, {spread[2]:.4f}]")
+    print(f"\n{tag}  face 3D center: [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]")
+    print(f"{tag}  spread (std):   [{spread[0]:.4f}, {spread[1]:.4f}, {spread[2]:.4f}]")
 
     # 稳健性参考: 命中次数最高的 10% 点的质心。
-    # 若它与 center 差距很大, 说明 min_hits 仍不够, 中心还在被背景点拉偏。
     cnts = hit_counts[face_pts_mask]
     thr = float(np.percentile(cnts, 90)) if len(cnts) else 0.0
     top_mask = face_pts_mask & (hit_counts >= thr)
     center_top = xyz[top_mask].mean(axis=0) if top_mask.sum() else center.copy()
     d_top = float(np.linalg.norm(center_top - center))
-    print(f"  robust ref (top-10% 命中点质心): "
+    print(f"{tag}  robust ref (top-10% 命中点质心): "
           f"[{center_top[0]:.4f}, {center_top[1]:.4f}, {center_top[2]:.4f}]  偏差 {d_top:.4f}")
 
-    # 7. Sanity check: 候选中心回投到各 mask 视角, 自动选命中更好的那个。
-    #    深度模糊 (方案 A 未实现) 会让沿视线方向的背景点也累计命中,
-    #    完整质心可能仍偏; top-10% 命中点质心更接近真实人脸。
+    # 4. Sanity check: 候选中心回投到各 mask 视角, 自动选命中更好的那个。
     def sanity(F):
         c_xyz = np.asarray(F).reshape(1, 3)
         n_in, n_tot, offs = 0, 0, []
@@ -324,28 +319,26 @@ def main():
                 n_in += 1
         return n_in, n_tot, float(np.mean(offs)) if offs else 1e9
 
-    print("\n🔍 sanity check: 候选中心回投到 mask 视角...")
+    print(f"\n{tag}🔍 sanity check: 候选中心回投到 mask 视角...")
     n_in, n_tot, mean_off = sanity(center)
     pct = n_in / max(n_tot, 1) * 100
-    print(f"  完整质心   [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]: "
+    print(f"{tag}  完整质心   [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]: "
           f"{n_in}/{n_tot} ({pct:.0f}%), 平均像素距离 {mean_off:.0f}px")
     n_in_t, n_tot_t, mean_off_t = sanity(center_top)
     pct_t = n_in_t / max(n_tot_t, 1) * 100
-    print(f"  top10%质心 [{center_top[0]:.4f}, {center_top[1]:.4f}, {center_top[2]:.4f}]: "
+    print(f"{tag}  top10%质心 [{center_top[0]:.4f}, {center_top[1]:.4f}, {center_top[2]:.4f}]: "
           f"{n_in_t}/{n_tot_t} ({pct_t:.0f}%), 平均像素距离 {mean_off_t:.0f}px")
 
-    # 选命中率高的; 打平选像素距离近的
     use_top = (pct_t, -mean_off_t) > (pct, -mean_off)
     if use_top:
         center, pct, mean_off = center_top, pct_t, mean_off_t
-        print(f"  ✅ 选用 top10% 质心作为最终 face center")
+        print(f"{tag}  ✅ 选用 top10% 质心作为最终 face center")
     else:
-        print(f"  ✅ 选用完整质心作为最终 face center")
+        print(f"{tag}  ✅ 选用完整质心作为最终 face center")
     if pct < 30:
-        print(f"  ⚠️ 仅 {pct:.0f}% 视角命中 —— 中心仍偏, 建议实现深度过滤 (方案 A)")
+        print(f"{tag}  ⚠️ 仅 {pct:.0f}% 视角命中 —— 中心仍偏, 建议实现深度过滤 (方案 A)")
 
-    # 8. Save
-    result = {
+    return {
         "center": [float(center[0]), float(center[1]), float(center[2])],
         "center_full_centroid": [float(xyz[face_pts_mask].mean(axis=0)[0]),
                                   float(xyz[face_pts_mask].mean(axis=0)[1]),
@@ -356,15 +349,112 @@ def main():
         "n_face_points": int(n_face),
         "n_total_points": int(len(xyz)),
         "min_hits": int(mh),
-        "min_hits_requested": int(args.min_hits),
+        "min_hits_requested": int(min_hits),
+        "n_mask_views": len(masks),
         "sanity_center_in_mask_views": f"{n_in}/{n_tot}",
+        "sanity_center_pct": round(pct, 1),
         "sanity_mean_offset_px": round(mean_off, 1),
         "per_view_coverage": per_view_cov,
     }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ply", required=True)
+    ap.add_argument("--source_dir", required=True)
+    ap.add_argument("--masks_dir", required=True)
+    ap.add_argument("--output", required=True)
+    ap.add_argument("--min_hits", type=int, default=15)
+    ap.add_argument("--min_face_points", type=int, default=200,
+                    help="若 face points 少于此值则逐级放宽 min_hits (下限 5)")
+    ap.add_argument("--multi_person", action="store_true",
+                    help="强制多人模式 (默认自动检测: 有 <stem>.p{pid}.mask.png 即多人)")
+    args = ap.parse_args()
+
+    print(f"🧑 face 3D center computation")
+    print(f"  📂 PLY: {args.ply}")
+    print(f"  📂 source: {args.source_dir}")
+    print(f"  📂 masks: {args.masks_dir}")
+    print(f"  📐 min_hits: {args.min_hits}")
+    print("")
+
+    # 1. Load points
+    xyz = load_ply_points(args.ply)
+
+    # 2. Parse cameras
+    print("\n📷 parsing COLMAP cameras...")
+    views = parse_colmap_cameras(args.source_dir)
+    stems = [v["stem"] for v in views]
+
+    # 3. Load masks — 自动检测多人
+    multi = args.multi_person
+    persons_masks = {}
+    masks = {}
+    if not multi:
+        print("\n🎭 loading face masks...")
+        masks = load_masks(args.masks_dir, stems)
+        if not masks:
+            print("  无 {stem}.mask.png, 尝试多人 p-mask ...")
+            multi = True
+        else:
+            print(f"  {len(masks)} masks found (of {len(views)} views)")
+    if multi:
+        print("\n🎭 loading per-person face masks (multi-person mode)...")
+        persons_masks = load_masks_multi(args.masks_dir, stems)
+        if not persons_masks:
+            sys.exit("no masks found (既无 {stem}.mask.png 也无 {stem}.p{pid}.mask.png)")
+        pids = sorted(persons_masks)
+        print(f"  {len(pids)} person(s): p{pids[0]:02d}..p{pids[-1]:02d}, "
+              f"mask 帧数 {[len(persons_masks[p]) for p in pids]}")
+
+    if not multi:
+        if not masks:
+            sys.exit("no masks found")
+        result = compute_face_center(xyz, views, masks, args.min_hits, args.min_face_points)
+        if result is None:
+            sys.exit("no face points — 检查 MASKS_DIR 与 PLY 是否配套")
+        with open(args.output, "w") as f:
+            json.dump(result, f, indent=2)
+        print(f"\n💾 saved: {args.output}")
+        c = result["center"]
+        print(f"\n✅ face 3D center: [{c[0]:.4f}, {c[1]:.4f}, {c[2]:.4f}]")
+        return
+
+    # 4. Multi-person: 每个 pid 独立计算
+    persons_result = {}
+    for pid in sorted(persons_masks):
+        print(f"\n{'='*60}\n👤 person p{pid:02d}")
+        res = compute_face_center(xyz, views, persons_masks[pid],
+                                  args.min_hits, args.min_face_points,
+                                  label=f"{pid:02d}")
+        if res is None:
+            print(f"  ⚠️ p{pid:02d}: 无 face points, 跳过")
+            continue
+        persons_result[str(pid)] = res
+
+    if not persons_result:
+        sys.exit("multi-person 模式下没有任何 person 算出 face center")
+
+    # 主人物 = face points 最多者; 顶层字段兼容旧单人流消费者
+    primary_pid = max(persons_result, key=lambda k: persons_result[k]["n_face_points"])
+    primary = persons_result[primary_pid]
+    result = dict(primary)
+    result["multi_person"] = True
+    result["primary_person"] = primary_pid
+    result["n_persons"] = len(persons_result)
+    result["persons"] = persons_result
+
     with open(args.output, "w") as f:
         json.dump(result, f, indent=2)
     print(f"\n💾 saved: {args.output}")
-    print(f"\n✅ face 3D center: [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]")
+
+    print(f"\n✅ multi-person face centers ({len(persons_result)} 人):")
+    for pid in sorted(persons_result, key=lambda k: -persons_result[k]["n_face_points"]):
+        c = persons_result[pid]["center"]
+        mark = " ← primary" if pid == primary_pid else ""
+        print(f"  p{int(pid):02d}: [{c[0]:.4f}, {c[1]:.4f}, {c[2]:.4f}]  "
+              f"pts={persons_result[pid]['n_face_points']}  "
+              f"sanity={persons_result[pid]['sanity_center_in_mask_views']}{mark}")
 
 
 if __name__ == "__main__":
