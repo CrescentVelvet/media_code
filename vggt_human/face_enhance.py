@@ -53,6 +53,8 @@ MODEL_T = int(os.environ.get("MODEL_T", "200"))
 COEFF_T = int(os.environ.get("COEFF_T", "200"))
 # 优化点 2: 整图增强 (配合 render_closeup CLOSEUP_SIZE=512)。
 WHOLE_IMAGE = os.environ.get("WHOLE_IMAGE", "0") == "1"
+# 优化点 3: sidecar _debug/ 标注副本 (增强结果上画参数, 不污染主输出)。
+DEBUG_ANNOTATE = os.environ.get("DEBUG_ANNOTATE", "1") == "1"
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -113,6 +115,24 @@ def enlarge_bbox(bbox, padding, img_w, img_h):
     nx2 = min(int(cx + nw / 2), img_w)
     ny2 = min(int(cy + nh / 2), img_h)
     return nx1, ny1, nx2, ny2
+
+
+def draw_annotations(pil_img, lines):
+    """在图像副本左上角画标注条 (黑描边 + 黄字, 半透明底), 返回新图。"""
+    import cv2
+    arr = cv2.cvtColor(np.array(pil_img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    strip_h = 14 + 17 * len(lines)
+    overlay = arr.copy()
+    cv2.rectangle(overlay, (0, 0), (370, strip_h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.45, arr, 0.55, 0, arr)
+    y = 20
+    for line in lines:
+        cv2.putText(arr, line, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(arr, line, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (60, 220, 255), 1, cv2.LINE_AA)
+        y += 17
+    return Image.fromarray(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +213,7 @@ def main():
 
         if WHOLE_IMAGE:
             # 整图单次前向: 无检测、无裁剪、无融合 (优化点 2)
+            t_img = time.time()
             tensor = to_tensor(img_pil).unsqueeze(0)
             pad_w = (8 - w % 8) % 8
             pad_h = (8 - h % 8) % 8
@@ -218,6 +239,18 @@ def main():
             if result.size != (w, h):
                 result = result.resize((w, h), Image.LANCZOS)
             result.save(os.path.join(output_images_dir, name))
+            # 优化点 3: sidecar _debug/ 标注副本
+            if DEBUG_ANNOTATE:
+                debug_dir = os.path.join(SOURCE_FACE_DIR, "_debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                dt = time.time() - t_img
+                lines = [
+                    f"{name} | WHOLE_IMAGE enhance",
+                    f"HYPIR sd2 t={MODEL_T} coeff={COEFF_T} up={UPSCALE}",
+                    f"size={w}x{h} patch=full(no tiling) {dt:.1f}s",
+                ]
+                draw_annotations(result, lines).save(
+                    os.path.join(debug_dir, name))
             total_faces += 1
             print(f"  [{i}/{len(images)}] {name} — whole-image enhanced")
             continue
