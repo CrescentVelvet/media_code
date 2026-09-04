@@ -529,6 +529,23 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
   纤维状条纹伪影增多，此类场景用较少续训步数（50k~60k）折中
 - 若要超越 GT 收敛的人脸细节，masked-L1 机制无效，需换机制（对抗损失等），未验证
 
+### 06e：增强近景整视角注入（2026-09-04，有效，与 masked-L1 机制相反）
+
+把 06c 的 512 增强近景作为**完整训练视角**（真实相机位姿 + COLMAP 注入）喂回续训，
+与 masked-L1（增强图仅作人脸区 GT）机制不同，**实测有效**（ms 数据集，4 人 × 18 近景）：
+
+- 归因对照（同 20k 步 @ lr_scale=0.2）：
+  - 06f 纯续训无注入：近景 LPIPS 持平（0.3048→0.3049 等）、锐度 +3~6%（噪声级）
+  - **06e 注入**：近景 LPIPS 全降（p00 0.305→0.260、p03 0.202→0.137），
+    锐度 +28%~+324%；训练视角人脸区 Laplacian +45% 且 LPIPS vs 原图不升（无退化）
+- 结论：masked-L1 无效 ≠ 增强图无用；**整视角注入（整图参与 loss）才是正确用法**
+- 链路：`inject_closeup_cameras.py`（pycolmap 4.2 `add_camera_with_trivial_rig` +
+  `add_image_with_trivial_frame`，pose json R/T 即 COLMAP w2c）→ 场景 06e_source_closeup
+  （222 views）→ 06d 配方续训
+- 坑：start_ply 的 exposure.json 只有原图条目，注入图名在 Scene.save()/testing 会
+  KeyError —— trainer 已补恒等 exposure fallback（30k exposure 本就收敛为恒等阵）
+- p03（此前疑 p00 重复轨迹）实为真实第 4 人（红衣），近景提升最大，无需排除
+
 ### 06d 脚本注意
 
 - `train_face_finetune.py` 的 `FaceData` 只扫 `face_images_dir` **直接子文件**，
