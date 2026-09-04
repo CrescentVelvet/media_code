@@ -446,6 +446,8 @@ pip install --force-reinstall --no-deps "setuptools<70"
 - **默认只写标题行，不写正文**；确有必要时正文最多 1-2 行
 - 简洁平实，不要写论文（参考 git log --oneline 的风格）
 - 一个逻辑改动一个 commit，不要混合多个不相关改动
+- **多行 message 用 `git commit -F -` 接 heredoc**：`-m "标题\n正文"` 里的 `\n`
+  不会展开，会原样存成字面量 `\n`
 
 ## 9. 路径规范
 
@@ -480,3 +482,33 @@ README 命令示例用**相对路径**（`../../model/...`、`../Reconstruction/
 - **WSL 与服务器脚本共用**：01-08 的 .sh 和 .py 不区分平台，靠 `_env.sh` + `proxy.env` 覆盖路径。只有 setup 脚本分 `00_setup_env.sh`（服务器）和 `00a_setup_env.sh`（WSL）
 - **WSL 路径覆盖写 proxy.env**：`00a_setup_env.sh` 自动生成 `proxy.env`（含 `VGGT_DIR=~/repos/...` 等路径覆盖 + `HF_ENDPOINT` 镜像），脚本 01-08 通过 `_env.sh` source proxy.env 自动继承，不需改脚本
 - **`_env.sh` 加 conda fallback**：conda 不在 PATH 时自动找 `~/miniconda3`。服务器上 conda 已在 PATH，fallback 不触发，行为不变
+
+## 11. git 远端与破坏性操作纪律
+
+### 远端：只允许 pull / fetch，禁止 push
+
+- AI **不得**执行 `git push`（含 `--force`）、删远端分支、改远端 tag
+- 只允许 `git fetch` / `git pull` / `git ls-remote` 等只读操作
+- **push 由用户手动执行**
+
+**理由**：push 是唯一能改动远端状态的 git 操作。让远端始终停在"用户手动确认过的
+干净快照"，本地出事时能整库拉回。2026-09-04 本机 `.git/objects/pack` 被中断的
+gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了最后 2 条未推的提交。
+
+**前提（需用户配合）**：这条纪律的恢复能力 = 最后一次 push 的新鲜度。
+本地未推的提交一旦对象库损毁就永久丢失。**建议在跑完一个可验证的阶段后及时 push**，
+不要攒几天。
+
+### 本地：禁止会被中断撕裂仓库的写操作
+
+- **不要在同一条命令里串多个 git 写操作**，尤其是 `git stash` / `git stash pop` /
+  `git commit --amend` / `git reset`。Bash 工具可能被 SIGTERM 打断，
+  断在半途会撕裂 `.git/refs/` 或对象库
+- **不要顺手用 `git commit --amend`**：确需改上一条 commit message 时，
+  先 `git log --oneline -1` 确认 HEAD 是哪条，再单条执行
+- **不要执行** `git gc` / `git prune` / `git repack` / `git clean -fd` /
+  `git reset --hard`
+- git 写操作一律**单条执行**，并加
+  `-c gc.auto=0 -c maintenance.auto=false`
+  （`git commit` 会自动触发 gc，此时被中断即损坏对象库）
+- 动 `.git/` 之前先 `cp -a .git <仓库外的备份路径>`
