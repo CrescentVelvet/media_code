@@ -159,6 +159,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
     # 🧑 ply 续训：载入 30k 高斯 + exposure.json（use_train_test_exp=True 才会读）
     if start_ply:
         gaussians.load_ply(start_ply, use_train_test_exp=True)
+        # 🧑 注入相机（如 06e 增强近景）不在原场景 exposure.json 里；30k exposure
+        #   已收敛为恒等阵，缺失条目直接补恒等 3x4，否则 Scene.save() 的 exposure
+        #   导出与 use_trained_exp 渲染对新增图名会 KeyError（06e 实测踩坑）。
+        if gaussians.pretrained_exposures is not None:
+            _eye = torch.eye(3, 4, device="cuda")
+            _missing = [c.image_name for c in scene.getTrainCameras()
+                        if c.image_name not in gaussians.pretrained_exposures]
+            for _n in _missing:
+                gaussians.pretrained_exposures[_n] = _eye.clone()
+            if _missing:
+                print(f"🧑 exposure: filled {len(_missing)} missing entries "
+                      f"with identity (injected views)")
         if start_iter is None:
             stem = os.path.basename(os.path.dirname(start_ply))   # iteration_N
             start_iter = int(stem.split("_")[-1])
