@@ -72,6 +72,19 @@ FACE_SPREAD_K = float(os.environ.get("FACE_SPREAD_K", "2.5"))
 # 渲染图/alpha 的标注副本 + annotations.json (与控制台日志同量级的信息)。
 DEBUG_ANNOTATE = os.environ.get("DEBUG_ANNOTATE", "1") == "1"
 
+# 优化点 5 (grill-me 决策 E): SH 颜色 hack 几何人脸 mask。
+# face_center 半径 r_face 内的 gaussians 染白 (SH DC=+1.772), 其余染黑 (-1.772),
+# f_rest 清零, 用 3DGS 光栅化器正常渲染 → 亮度图 = 该人的几何覆盖软 mask。
+# 纯内存 PLY 操作、零 CUDA 改动; 模糊近景 SAM2/MediaPipe 0 检出时的替代方案。
+# 输出 06c_closeup_masks_geo{tag}/{stem}.mask.png + .alpha.png, 与 SAM2 命名一致可直接换用。
+GEO_MASK = os.environ.get("GEO_MASK", "1") == "1"
+# 人脸球域形状: ellipsoid (默认, 各轴独立 K×spread, 侧向紧、仅深度模糊轴放宽)
+#             | sphere (K×mean(spread) 等向, 会被人脸点簇的深度模糊 z 轴撑大)
+GEO_SHAPE = os.environ.get("GEO_SHAPE", "ellipsoid").lower()
+_SH_C0 = 0.28209479177387814
+_DC_WHITE = 0.5 / _SH_C0   # SH DC → RGB(1,1,1)
+_DC_BLACK = -0.5 / _SH_C0  # SH DC → RGB(0,0,0)
+
 
 def draw_annotations(pil_img, lines):
     """在图像副本左上角画标注条 (黑描边 + 黄字, 半透明底), 返回新图。"""
@@ -323,8 +336,12 @@ def apply_pitch(view, face_center, pitch_deg):
     return R_new, T_new, C_new
 
 
-def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
-    """3DGS render closeup views. closeup_views: list of {R, T, W, H, fx, fy, name}."""
+def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=None,
+                 r_face=0.0, spread=None):
+    """3DGS render closeup views. closeup_views: list of {R, T, W, H, fx, fy, name}.
+
+    GEO_MASK=1 且 r_face>0 时, 每个视角额外渲染一遍「人脸球域白 / 其余黑」的
+    SH hack pass, 亮度图即几何人脸软 mask (方案 E), 存 geo_dir。"""
     import torch
     sys.path.insert(0, GS_DIR)
     from scene import GaussianModel
@@ -360,6 +377,39 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
     if DEBUG_ANNOTATE and debug_dir:
         Path(debug_dir).mkdir(parents=True, exist_ok=True)
 
+    # 优化点 5: 几何 mask 准备 (SH 颜色 hack, 见文件头说明)
+    geo = GEO_MASK and r_face > 0 and face_center is not None
+    geo_dir = ""
+    if GEO_MASK and r_face <= 0:
+        print("  ⚠️ GEO_MASK 开但 r_face<=0 (JSON 无 spread?), 跳过几何 mask")
+    if geo:
+        geo_dir = os.path.join(
+            os.path.dirname(out_dir), "06c_closeup_masks_geo" + os.path.basename(out_dir).replace("06c_closeup_renders", ""))
+        Path(geo_dir).mkdir(parents=True, exist_ok=True)
+        xyz = gaussians.get_xyz
+        fc_t = torch.as_tensor(np.asarray(face_center, dtype=np.float32), device=DEVICE)
+        diff = xyz - fc_t
+        if GEO_SHAPE == "ellipsoid" and spread is not None:
+            # 各向异性椭球: 每轴 K×spread_axis。深度模糊只撑 z 轴,
+            # 侧向 (真实人脸尺寸) 保持紧 —— 等向球会连躯干一起罩住。
+            s = np.maximum(np.asarray(spread, dtype=np.float32), 1e-4)
+            inv = 1.0 / (torch.as_tensor(s, device=DEVICE) * FACE_SPREAD_K)
+            face_idx = ((diff * inv) ** 2).sum(dim=1) < 1.0
+            shape_desc = (f"ellipsoid K×spread={np.round(s * FACE_SPREAD_K, 4).tolist()}")
+        else:
+            face_idx = torch.norm(diff, dim=1) < r_face
+            shape_desc = f"sphere r={r_face:.4f}"
+        n_face_gs = int(face_idx.sum())
+        print(f"  🎨 GEO_MASK (方案E/{GEO_SHAPE}): {shape_desc} → "
+              f"{n_face_gs}/{len(face_idx)} gaussians 染白")
+        if n_face_gs < 100:
+            print("  ⚠️ 球域内 gaussians 过少, 几何 mask 可能不完整")
+        _dc_saved = gaussians._features_dc.detach().clone()
+        _rest_saved = gaussians._features_rest.detach().clone()
+        _dc_hack = torch.full_like(_dc_saved, _DC_BLACK)
+        _dc_hack[face_idx, 0, :] = _DC_WHITE
+        _rest_zero = torch.zeros_like(_rest_saved)
+
     poses = []
     for i, cv in enumerate(closeup_views):
         R = cv["R"]; T = cv["T"]; W = cv["W"]; H = cv["H"]
@@ -379,6 +429,23 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
         with torch.no_grad():
             pkg_b = render(cam, gaussians, pipe, bg_black)
             pkg_w = render(cam, gaussians, pipe, bg_white)
+            # 优化点 5: 染白人脸球域/染黑其余 → 渲染 → 亮度图 = 几何人脸软 mask
+            geo_cov = -1.0
+            if geo:
+                gaussians._features_dc.data = _dc_hack
+                gaussians._features_rest.data = _rest_zero
+                pkg_g = render(cam, gaussians, pipe, bg_black)
+                gaussians._features_dc.data = _dc_saved
+                gaussians._features_rest.data = _rest_saved
+                soft = pkg_g["render"].clamp(0, 1).mean(0)  # (H,W)
+                soft_np = soft.cpu().numpy()
+                a8 = (soft_np * 255).astype(np.uint8)
+                stem = os.path.splitext(cv["name"])[0]
+                Image.fromarray(a8).save(os.path.join(geo_dir, f"{stem}.alpha.png"))
+                Image.fromarray(((soft_np > 0.5) * 255).astype(np.uint8)).save(
+                    os.path.join(geo_dir, f"{stem}.mask.png"))
+                geo_cov = float((soft_np > 0.5).mean() * 100)
+            cv["geo_coverage"] = geo_cov
 
         rgb = pkg_b["render"].clamp(0, 1)
         white = pkg_w["render"].clamp(0, 1)
@@ -391,7 +458,8 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
 
         avg_a = float(alpha.mean())
         print(f"  [{i+1}/{len(closeup_views)}] {cv['name']} alpha={avg_a:.3f} "
-              f"{'⚠️' if avg_a < 0.3 else '✅'}")
+              f"{'⚠️' if avg_a < 0.3 else '✅'}"
+              + (f" geo_cov={cv['geo_coverage']:.1f}%" if geo else ""))
 
         # 优化点 3: sidecar _debug/ 标注副本 (渲染图 + alpha 色化图)
         if DEBUG_ANNOTATE and debug_dir:
@@ -406,6 +474,8 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
                 + (f" (iso CLOSEUP_SIZE={CLOSEUP_SIZE})" if CLOSEUP_SIZE > 0 else ""),
                 f"alpha_mean={avg_a:.3f}",
             ]
+            if cv.get("geo_coverage", -1) >= 0:
+                lines.append(f"geo_mask_cov={cv['geo_coverage']:.1f}% (方案E SH hack)")
             rgb_np = (rgb.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
             draw_annotations(Image.fromarray(rgb_np), lines).save(
                 os.path.join(debug_dir, cv["name"]))
@@ -425,6 +495,7 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
             est_coverage=cv.get("est_cov", 0),
             face_offset_px=cv.get("face_offset_px", -1.0),
             dist_to_face=cv.get("dist_to_face", -1.0),
+            geo_coverage=cv.get("geo_coverage", -1.0),
         ))
 
     del gaussians
@@ -432,11 +503,12 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
     return poses
 
 
-def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0):
+def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, spread=None):
     """单人流: 选基视角 → 推进近景 → pitch 外插 → sanity → 3DGS 渲染 → poses。
 
     tag: 输出目录后缀 (单人 "" / 多人 "_p00"); prefix: 日志前缀。
     r_face: 人脸 3D 半径估计 (FACE_SPREAD_K × mean(spread)), CLOSEUP_SIZE 模式必需。
+    spread: 人脸点簇三轴 std, GEO_SHAPE=ellipsoid 的几何 mask 选择用。
     """
     # 1. Select base views (azimuth binning)
     print(f"\n{prefix}🎯 selecting {N_BINS} base views by azimuth binning...")
@@ -520,7 +592,8 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0):
     renders_dir = os.path.join(RESULTS_DIR, f"06c_closeup_renders{tag}")
     alpha_dir = os.path.join(RESULTS_DIR, f"06c_closeup_alpha{tag}")
     debug_dir = os.path.join(RESULTS_DIR, f"06c_closeup_debug{tag}")
-    poses = render_views(closeup_views, renders_dir, alpha_dir, debug_dir)
+    poses = render_views(closeup_views, renders_dir, alpha_dir, debug_dir,
+                         face_center=face_center, r_face=r_face, spread=spread)
 
     # 5. Save poses (debug 目录同步一份 annotations.json, 与图像标注同源)
     poses_path = os.path.join(RESULTS_DIR, f"06c_closeup_poses{tag}.json")
@@ -579,8 +652,9 @@ def main():
             pinfo = fc["persons"][str(pid)]
             center = np.array(pinfo["center"])
             r_face = r_face_from_spread(pinfo["spread"]) if "spread" in pinfo else 0.0
-            run_pipeline(views, center, cov_multi[pid],
-                         tag=f"_p{pid:02d}", prefix=f"[p{pid:02d}] ", r_face=r_face)
+            run_pipeline(views, center, cov_multi[pid], tag=f"_p{pid:02d}",
+                         prefix=f"[p{pid:02d}] ", r_face=r_face,
+                         spread=pinfo.get("spread"))
     else:
         face_center = np.array(fc["center"])
         print(f"  face center: {face_center}")
@@ -588,7 +662,7 @@ def main():
         coverage = load_sam2_coverage(MASKS_DIR, stems)
         print(f"  SAM2 coverage for {len(coverage)} views")
         r_face = r_face_from_spread(fc["spread"]) if "spread" in fc else 0.0
-        run_pipeline(views, face_center, coverage, r_face=r_face)
+        run_pipeline(views, face_center, coverage, r_face=r_face, spread=fc.get("spread"))
 
 
 if __name__ == "__main__":
