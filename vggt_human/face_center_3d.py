@@ -212,19 +212,35 @@ def project_points(xyz, view):
     return uv, valid
 
 
-def compute_face_center(xyz, views, masks, min_hits, min_face_points, label=""):
+def compute_face_center(xyz, views, masks, min_hits, min_face_points, label="",
+                        depth_filter=True, depth_tol=0.5):
     """Core per-person flow: project → hit counting → threshold → centroid → sanity.
 
+    depth_filter (方案 A): 两遍法。
+      第一遍按 2D mask 命中, 同时对每个 mask 视角用「mask 内命中点的距离中位数」
+      估计该视角的人脸距离 d̂_v;
+      第二遍只保留距离在 (1±depth_tol)·d̂_v 带内的命中 —— 杀掉沿视线方向
+      落在人脸后方 (墙/身体) 的背景点, 它们 2D 投影同样在 mask 里。
     Returns dict with center / spread / n_face_points / mh / per_view_coverage /
     sanity results. 打印过程日志 (带 label 前缀便于多人区分).
     """
     tag = f"[p{label}] " if label != "" else ""
 
-    # 1. Project + count hits
+    def cam_center(view):
+        w, x, y, z = view["qvec"]
+        R = np.array([
+            [1 - 2*(y*y + z*z), 2*(x*y - w*z), 2*(x*z + w*y)],
+            [2*(x*y + w*z), 1 - 2*(x*x + z*z), 2*(y*z - w*x)],
+            [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+        ])
+        return -R.T @ view["tvec"]
+
+    # 1. Pass 1: 2D mask 命中 + 每视角人脸距离估计
     print(f"\n{tag}🎯 projecting {len(xyz)} points to {len(masks)} views...")
     t0 = time.time()
     hit_counts = np.zeros(len(xyz), dtype=np.int32)
     per_view_cov = {}
+    dhat = {}  # stem -> 该视角人脸距离估计 (mask 内命中点距离中位数)
 
     for vi, view in enumerate(views):
         if view["stem"] not in masks:
@@ -245,6 +261,10 @@ def compute_face_center(xyz, views, masks, min_hits, min_face_points, label=""):
             py = np.clip(py, 0, mask.shape[0] - 1)
             mask_hits[valid_idx] = mask[py, px]
         hit_counts += mask_hits.astype(np.int32)
+        if depth_filter and mask_hits.any():
+            C = cam_center(view)
+            d = np.linalg.norm(xyz[mask_hits] - C, axis=1)
+            dhat[view["stem"]] = float(np.median(d))
         cov = mask.sum() / mask.size * 100
         per_view_cov[view["stem"]] = round(cov, 2)
         if (vi + 1) % 20 == 0 or vi == 0:
@@ -252,6 +272,41 @@ def compute_face_center(xyz, views, masks, min_hits, min_face_points, label=""):
             print(f"{tag}  [{vi+1}/{len(views)}] {view['stem']}: cov={cov:.1f}%, pts_in_mask={n_hit}")
 
     print(f"{tag}  projection done in {time.time()-t0:.1f}s")
+
+    # 1b. Pass 2 (方案 A 深度过滤): 距离带内的 mask 命中才算数
+    if depth_filter and dhat:
+        n_raw = int((hit_counts >= min_hits).sum())
+        depth_hits = np.zeros(len(xyz), dtype=np.int32)
+        n_band_total = 0
+        for view in views:
+            stem = view["stem"]
+            if stem not in masks or stem not in dhat:
+                continue
+            mask = masks[stem]
+            uv, valid = project_points(xyz, view)
+            in_bounds = (
+                valid &
+                (uv[:, 0] >= 0) & (uv[:, 0] < view["W"]) &
+                (uv[:, 1] >= 0) & (uv[:, 1] < view["H"])
+            )
+            valid_idx = np.where(in_bounds)[0]
+            mask_hits = np.zeros(len(xyz), dtype=bool)
+            if len(valid_idx) > 0:
+                px = np.clip(uv[valid_idx, 0].astype(int), 0, mask.shape[1] - 1)
+                py = np.clip(uv[valid_idx, 1].astype(int), 0, mask.shape[0] - 1)
+                mask_hits[valid_idx] = mask[py, px]
+            if not mask_hits.any():
+                continue
+            C = cam_center(view)
+            dist = np.linalg.norm(xyz - C, axis=1)
+            lo, hi = (1 - depth_tol) * dhat[stem], (1 + depth_tol) * dhat[stem]
+            in_band = mask_hits & (dist > lo) & (dist < hi)
+            depth_hits += in_band.astype(np.int32)
+            n_band_total += int(in_band.sum())
+        print(f"{tag}🧭 方案A 深度过滤 (±{depth_tol*100:.0f}% 距离带): "
+              f"hits>={min_hits} 候选 {n_raw} → {int((depth_hits >= min_hits).sum())} 点; "
+              f"带内命中总数 {n_band_total}")
+        hit_counts = depth_hits
 
     # 2. Threshold
     print(f"\n{tag}📊 hit-count 分布 (命中 >=N 个 mask 视角的点数):")
@@ -351,6 +406,8 @@ def compute_face_center(xyz, views, masks, min_hits, min_face_points, label=""):
         "min_hits": int(mh),
         "min_hits_requested": int(min_hits),
         "n_mask_views": len(masks),
+        "depth_filter": bool(depth_filter),
+        "depth_tol": float(depth_tol),
         "sanity_center_in_mask_views": f"{n_in}/{n_tot}",
         "sanity_center_pct": round(pct, 1),
         "sanity_mean_offset_px": round(mean_off, 1),
@@ -369,6 +426,10 @@ def main():
                     help="若 face points 少于此值则逐级放宽 min_hits (下限 5)")
     ap.add_argument("--multi_person", action="store_true",
                     help="强制多人模式 (默认自动检测: 有 <stem>.p{pid}.mask.png 即多人)")
+    ap.add_argument("--no_depth_filter", action="store_true",
+                    help="关闭方案 A 深度过滤 (默认开)")
+    ap.add_argument("--depth_tol", type=float, default=0.5,
+                    help="方案 A 距离带容差 (默认 0.5 = ±50%%)")
     args = ap.parse_args()
 
     print(f"🧑 face 3D center computation")
@@ -415,7 +476,9 @@ def main():
     if not multi:
         if not masks:
             sys.exit("no masks found")
-        result = compute_face_center(xyz, views, masks, args.min_hits, args.min_face_points)
+        result = compute_face_center(xyz, views, masks, args.min_hits, args.min_face_points,
+                                     depth_filter=not args.no_depth_filter,
+                                     depth_tol=args.depth_tol)
         if result is None:
             sys.exit("no face points — 检查 MASKS_DIR 与 PLY 是否配套")
         with open(args.output, "w") as f:
@@ -431,7 +494,9 @@ def main():
         print(f"\n{'='*60}\n👤 person p{pid:02d}")
         res = compute_face_center(xyz, views, persons_masks[pid],
                                   args.min_hits, args.min_face_points,
-                                  label=f"{pid:02d}")
+                                  label=f"{pid:02d}",
+                                  depth_filter=not args.no_depth_filter,
+                                  depth_tol=args.depth_tol)
         if res is None:
             print(f"  ⚠️ p{pid:02d}: 无 face points, 跳过")
             continue
