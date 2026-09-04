@@ -17,11 +17,17 @@ Env vars:
   SOURCE_DIR   : COLMAP source (sparse/0/ has cameras.txt, images.txt)
   MASKS_DIR    : SAM2 face masks folder (has <stem>.mask.png)
   OUTPUT_JSON  : output JSON path
-  MIN_HITS     : min frames a point must hit to count as face (default 3)
+  MIN_HITS     : min frames a point must hit to count as face (default 15)
+
+min_hits 的取舍:
+  太低(<=3)会把「人脸后方的背景点」也算进来 —— 背景点从不同视角投影同样
+  能落进人脸的 2D 区域, 于是质心被拉向人脸后方的墙/物体。
+  默认 15 (77 个 mask 视角中命中 >=15) 能压住这类噪声。
 """
 import os
 import sys
 import json
+import math
 import time
 import argparse
 from pathlib import Path
@@ -186,7 +192,9 @@ def main():
     ap.add_argument("--source_dir", required=True)
     ap.add_argument("--masks_dir", required=True)
     ap.add_argument("--output", required=True)
-    ap.add_argument("--min_hits", type=int, default=3)
+    ap.add_argument("--min_hits", type=int, default=15)
+    ap.add_argument("--min_face_points", type=int, default=200,
+                    help="若 face points 少于此值则逐级放宽 min_hits (下限 5)")
     args = ap.parse_args()
 
     print(f"🧑 face 3D center computation")
@@ -247,18 +255,33 @@ def main():
     print(f"  projection done in {time.time()-t0:.1f}s")
 
     # 5. Face points = hit >= min_hits
-    face_pts_mask = hit_counts >= args.min_hits
-    n_face = face_pts_mask.sum()
-    print(f"\n  face points (hits>={args.min_hits}): {n_face} / {len(xyz)} ({n_face/len(xyz)*100:.2f}%)")
+    #    先打阈值诊断表, 便于判断 min_hits 取多少合适
+    print("\n📊 hit-count 分布 (命中 >=N 个 mask 视角的点数):")
+    for th in (1, 3, 5, 10, 15, 20, 30, 40):
+        print(f"    hits>={th:2d}: {(hit_counts >= th).sum():>8d} pts")
+
+    mh = args.min_hits
+    face_pts_mask = hit_counts >= mh
+    n_face = int(face_pts_mask.sum())
+    print(f"\n  face points (hits>={mh}): {n_face} / {len(xyz)} ({n_face/len(xyz)*100:.2f}%)")
+
+    # 逐级放宽 (下限 5)。刻意不退回 min_hits=1:
+    # 命中 1~2 次的点绝大多数是背景, 退回 1 等于放弃了多视角一致性约束,
+    # 会让质心重新飘到人脸后方的墙上。
+    FLOOR = 5
+    while n_face < args.min_face_points and mh > FLOOR:
+        prev = mh
+        mh = max(FLOOR, mh // 2)
+        face_pts_mask = hit_counts >= mh
+        n_face = int(face_pts_mask.sum())
+        print(f"  ⚠️  hits>={prev} 只有 {n_face} 点 (<{args.min_face_points}), "
+              f"放宽到 >= {mh} → {n_face} 点")
 
     if n_face == 0:
-        print("  ⚠️ no face points found, trying min_hits=1")
-        face_pts_mask = hit_counts >= 1
-        n_face = face_pts_mask.sum()
-        print(f"  face points (hits>=1): {n_face}")
+        sys.exit(f"no face points even with min_hits={mh} — 检查 MASKS_DIR 与 PLY 是否配套")
 
-    if n_face == 0:
-        sys.exit("no face points even with min_hits=1")
+    if mh != args.min_hits:
+        print(f"  ⚠️ 最终 min_hits={mh} (请求值 {args.min_hits}), 中心可信度下降")
 
     # 6. Centroid = face 3D center
     center = xyz[face_pts_mask].mean(axis=0)
@@ -266,13 +289,76 @@ def main():
     print(f"\n  face 3D center: [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]")
     print(f"  spread (std):   [{spread[0]:.4f}, {spread[1]:.4f}, {spread[2]:.4f}]")
 
-    # 7. Save
+    # 稳健性参考: 命中次数最高的 10% 点的质心。
+    # 若它与 center 差距很大, 说明 min_hits 仍不够, 中心还在被背景点拉偏。
+    cnts = hit_counts[face_pts_mask]
+    thr = float(np.percentile(cnts, 90)) if len(cnts) else 0.0
+    top_mask = face_pts_mask & (hit_counts >= thr)
+    center_top = xyz[top_mask].mean(axis=0) if top_mask.sum() else center.copy()
+    d_top = float(np.linalg.norm(center_top - center))
+    print(f"  robust ref (top-10% 命中点质心): "
+          f"[{center_top[0]:.4f}, {center_top[1]:.4f}, {center_top[2]:.4f}]  偏差 {d_top:.4f}")
+
+    # 7. Sanity check: 候选中心回投到各 mask 视角, 自动选命中更好的那个。
+    #    深度模糊 (方案 A 未实现) 会让沿视线方向的背景点也累计命中,
+    #    完整质心可能仍偏; top-10% 命中点质心更接近真实人脸。
+    def sanity(F):
+        c_xyz = np.asarray(F).reshape(1, 3)
+        n_in, n_tot, offs = 0, 0, []
+        for view in views:
+            if view["stem"] not in masks:
+                continue
+            n_tot += 1
+            uv, valid = project_points(c_xyz, view)
+            if not valid[0]:
+                continue
+            u, v = float(uv[0, 0]), float(uv[0, 1])
+            if not (0 <= u < view["W"] and 0 <= v < view["H"]):
+                continue
+            m = masks[view["stem"]]
+            ys, xs = np.nonzero(m)
+            if len(xs) == 0:
+                continue
+            offs.append(math.hypot(u - xs.mean(), v - ys.mean()))
+            if m[int(v), int(u)]:
+                n_in += 1
+        return n_in, n_tot, float(np.mean(offs)) if offs else 1e9
+
+    print("\n🔍 sanity check: 候选中心回投到 mask 视角...")
+    n_in, n_tot, mean_off = sanity(center)
+    pct = n_in / max(n_tot, 1) * 100
+    print(f"  完整质心   [{center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}]: "
+          f"{n_in}/{n_tot} ({pct:.0f}%), 平均像素距离 {mean_off:.0f}px")
+    n_in_t, n_tot_t, mean_off_t = sanity(center_top)
+    pct_t = n_in_t / max(n_tot_t, 1) * 100
+    print(f"  top10%质心 [{center_top[0]:.4f}, {center_top[1]:.4f}, {center_top[2]:.4f}]: "
+          f"{n_in_t}/{n_tot_t} ({pct_t:.0f}%), 平均像素距离 {mean_off_t:.0f}px")
+
+    # 选命中率高的; 打平选像素距离近的
+    use_top = (pct_t, -mean_off_t) > (pct, -mean_off)
+    if use_top:
+        center, pct, mean_off = center_top, pct_t, mean_off_t
+        print(f"  ✅ 选用 top10% 质心作为最终 face center")
+    else:
+        print(f"  ✅ 选用完整质心作为最终 face center")
+    if pct < 30:
+        print(f"  ⚠️ 仅 {pct:.0f}% 视角命中 —— 中心仍偏, 建议实现深度过滤 (方案 A)")
+
+    # 8. Save
     result = {
         "center": [float(center[0]), float(center[1]), float(center[2])],
+        "center_full_centroid": [float(xyz[face_pts_mask].mean(axis=0)[0]),
+                                  float(xyz[face_pts_mask].mean(axis=0)[1]),
+                                  float(xyz[face_pts_mask].mean(axis=0)[2])],
         "spread": [float(spread[0]), float(spread[1]), float(spread[2])],
+        "center_top10pct": [float(center_top[0]), float(center_top[1]), float(center_top[2])],
+        "center_source": "top10pct" if use_top else "full_centroid",
         "n_face_points": int(n_face),
         "n_total_points": int(len(xyz)),
-        "min_hits": args.min_hits,
+        "min_hits": int(mh),
+        "min_hits_requested": int(args.min_hits),
+        "sanity_center_in_mask_views": f"{n_in}/{n_tot}",
+        "sanity_mean_offset_px": round(mean_off, 1),
         "per_view_coverage": per_view_cov,
     }
     with open(args.output, "w") as f:
