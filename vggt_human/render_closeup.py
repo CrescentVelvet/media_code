@@ -28,6 +28,9 @@ Env vars:
   TARGET_COV    : target SAM2 coverage % to stop (default 40)
   MIN_DIST_RATIO: min distance ratio (default 0.3)
   PITCH_DEG     : pitch extrapolation degrees (default 10)
+  CLOSEUP_SIZE  : 方形近景分辨率 (如 512; 0=默认用 COLMAP 相机 W/H)
+  FACE_FILL     : CLOSEUP_SIZE 模式下人脸半径占半边长比例 (default 0.8)
+  FACE_SPREAD_K : 人脸半径 = K × mean(spread) (default 2.5)
   ITERATION     : 3DGS iteration to load (default 30000)
   GS_DIR        : gaussian-splatting repo path
   DEVICE        : cuda
@@ -56,6 +59,14 @@ PITCH_DEG = float(os.environ.get("PITCH_DEG", "10"))
 ITERATION = int(os.environ.get("ITERATION", "30000"))
 GS_DIR = os.environ.get("GS_DIR", os.path.expanduser("~/repos/gaussian-splatting"))
 DEVICE = os.environ.get("DEVICE", "cuda")
+
+# 优化点 2 (grill-me A2): 近景渲染固定方形分辨率 (如 512)。
+# 等距 fx=fy 从人脸 3D 点簇 spread 推导: 人脸半径 r=K×mean(spread),
+# 期望人脸占半边长的 FACE_FILL → fx = FACE_FILL * (S/2) * d / r (d=物距, 逐视角)。
+# 人脸像素尺寸跨视角恒定, 整张图即人脸特写 → 下游 WHOLE_IMAGE 整图增强。
+CLOSEUP_SIZE = int(os.environ.get("CLOSEUP_SIZE", "0"))   # 0 = 用 COLMAP 相机 W/H (旧行为)
+FACE_FILL = float(os.environ.get("FACE_FILL", "0.8"))
+FACE_SPREAD_K = float(os.environ.get("FACE_SPREAD_K", "2.5"))
 
 
 def quat_to_rotmat(qw, qx, qy, qz):
@@ -376,10 +387,11 @@ def render_views(closeup_views, out_dir, alpha_dir):
     return poses
 
 
-def run_pipeline(views, face_center, coverage, tag="", prefix=""):
+def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0):
     """单人流: 选基视角 → 推进近景 → pitch 外插 → sanity → 3DGS 渲染 → poses。
 
     tag: 输出目录后缀 (单人 "" / 多人 "_p00"); prefix: 日志前缀。
+    r_face: 人脸 3D 半径估计 (FACE_SPREAD_K × mean(spread)), CLOSEUP_SIZE 模式必需。
     """
     # 1. Select base views (azimuth binning)
     print(f"\n{prefix}🎯 selecting {N_BINS} base views by azimuth binning...")
@@ -414,6 +426,20 @@ def run_pipeline(views, face_center, coverage, tag="", prefix=""):
         closeup_views.append(vm)
 
     print(f"{prefix}  {len(closeup_views)} closeup views generated")
+
+    # 2b. CLOSEUP_SIZE 模式: 覆写为方形分辨率 + 等距焦距 (人脸占 FACE_FILL 半边长)
+    if CLOSEUP_SIZE > 0:
+        if r_face <= 0:
+            sys.exit(f"{prefix}CLOSEUP_SIZE={CLOSEUP_SIZE} 需要 FACE_CENTER JSON 的 spread "
+                     f"(r_face<=0; face_center_3d 输出含 spread 字段)")
+        print(f"{prefix}📐 CLOSEUP_SIZE={CLOSEUP_SIZE}: r_face={r_face:.4f}, fill={FACE_FILL}")
+        for cv in closeup_views:
+            d = float(np.linalg.norm(face_center - cv["C"]))
+            f = FACE_FILL * (CLOSEUP_SIZE / 2) * d / r_face
+            cv["W"] = cv["H"] = CLOSEUP_SIZE
+            cv["cx"] = cv["cy"] = CLOSEUP_SIZE / 2
+            cv["fx"] = cv["fy"] = f
+            cv["iso_focal"] = round(f, 1)
 
     # 3. Sanity check: face_center 反投回每个近景视角
     print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
@@ -459,6 +485,11 @@ def run_pipeline(views, face_center, coverage, tag="", prefix=""):
     print(f"{prefix}✅ done: {len(poses)} closeup views rendered")
 
 
+def r_face_from_spread(spread):
+    """人脸 3D 半径估计 = FACE_SPREAD_K × mean(spread_xyz)。"""
+    return FACE_SPREAD_K * float(np.mean(spread))
+
+
 def main():
     print("🧑 [render_closeup] face closeup + pitch extrapolation")
     print(f"  📂 3DGS: {GAUSSIAN_DIR} (iter={ITERATION})")
@@ -494,16 +525,19 @@ def main():
                 print(f"\n⚠️ p{pid:02d}: MASKS_DIR 里没有 p{pid:02d} 的 mask, 跳过")
                 continue
             print(f"\n{'='*60}\n👤 person p{pid:02d}")
-            center = np.array(fc["persons"][str(pid)]["center"])
+            pinfo = fc["persons"][str(pid)]
+            center = np.array(pinfo["center"])
+            r_face = r_face_from_spread(pinfo["spread"]) if "spread" in pinfo else 0.0
             run_pipeline(views, center, cov_multi[pid],
-                         tag=f"_p{pid:02d}", prefix=f"[p{pid:02d}] ")
+                         tag=f"_p{pid:02d}", prefix=f"[p{pid:02d}] ", r_face=r_face)
     else:
         face_center = np.array(fc["center"])
         print(f"  face center: {face_center}")
         print(f"\n🎭 loading SAM2 coverage...")
         coverage = load_sam2_coverage(MASKS_DIR, stems)
         print(f"  SAM2 coverage for {len(coverage)} views")
-        run_pipeline(views, face_center, coverage)
+        r_face = r_face_from_spread(fc["spread"]) if "spread" in fc else 0.0
+        run_pipeline(views, face_center, coverage, r_face=r_face)
 
 
 if __name__ == "__main__":
