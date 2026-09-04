@@ -68,6 +68,29 @@ CLOSEUP_SIZE = int(os.environ.get("CLOSEUP_SIZE", "0"))   # 0 = 用 COLMAP 相�
 FACE_FILL = float(os.environ.get("FACE_FILL", "0.8"))
 FACE_SPREAD_K = float(os.environ.get("FACE_SPREAD_K", "2.5"))
 
+# 优化点 3 (grill-me 决策 C): 中间结果带标注 — sidecar _debug/ 目录, 不污染主输出。
+# 渲染图/alpha 的标注副本 + annotations.json (与控制台日志同量级的信息)。
+DEBUG_ANNOTATE = os.environ.get("DEBUG_ANNOTATE", "1") == "1"
+
+
+def draw_annotations(pil_img, lines):
+    """在图像副本左上角画标注条 (黑描边 + 黄字, 半透明底), 返回新图。"""
+    import cv2
+    arr = cv2.cvtColor(np.array(pil_img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    # 半透明深色底条
+    strip_h = 14 + 17 * len(lines)
+    overlay = arr.copy()
+    cv2.rectangle(overlay, (0, 0), (370, strip_h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.45, arr, 0.55, 0, arr)
+    y = 20
+    for line in lines:
+        cv2.putText(arr, line, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(arr, line, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
+                    (60, 220, 255), 1, cv2.LINE_AA)
+        y += 17
+    return Image.fromarray(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
+
 
 def quat_to_rotmat(qw, qx, qy, qz):
     """Quaternion to 3x3 rotation matrix (COLMAP convention: world->camera)."""
@@ -300,7 +323,7 @@ def apply_pitch(view, face_center, pitch_deg):
     return R_new, T_new, C_new
 
 
-def render_views(closeup_views, out_dir, alpha_dir):
+def render_views(closeup_views, out_dir, alpha_dir, debug_dir=""):
     """3DGS render closeup views. closeup_views: list of {R, T, W, H, fx, fy, name}."""
     import torch
     sys.path.insert(0, GS_DIR)
@@ -334,6 +357,8 @@ def render_views(closeup_views, out_dir, alpha_dir):
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     Path(alpha_dir).mkdir(parents=True, exist_ok=True)
+    if DEBUG_ANNOTATE and debug_dir:
+        Path(debug_dir).mkdir(parents=True, exist_ok=True)
 
     poses = []
     for i, cv in enumerate(closeup_views):
@@ -367,6 +392,26 @@ def render_views(closeup_views, out_dir, alpha_dir):
         avg_a = float(alpha.mean())
         print(f"  [{i+1}/{len(closeup_views)}] {cv['name']} alpha={avg_a:.3f} "
               f"{'⚠️' if avg_a < 0.3 else '✅'}")
+
+        # 优化点 3: sidecar _debug/ 标注副本 (渲染图 + alpha 色化图)
+        if DEBUG_ANNOTATE and debug_dir:
+            base_stem = cv.get("base_stem", "")
+            lines = [
+                f"{cv['name']} | {os.path.basename(debug_dir)}",
+                f"base={base_stem} pitch={cv.get('pitch', 0):+.0f}deg",
+                f"est_cov={cv.get('est_cov', 0):.1f}% "
+                f"dist={cv.get('dist_to_face', -1):.3f} "
+                f"offset={cv.get('face_offset_px', -1):.1f}px",
+                f"size={W}x{H} f={fx:.0f}"
+                + (f" (iso CLOSEUP_SIZE={CLOSEUP_SIZE})" if CLOSEUP_SIZE > 0 else ""),
+                f"alpha_mean={avg_a:.3f}",
+            ]
+            rgb_np = (rgb.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            draw_annotations(Image.fromarray(rgb_np), lines).save(
+                os.path.join(debug_dir, cv["name"]))
+            alpha_rgb = np.stack([alpha[0].cpu().numpy() * 255] * 3, axis=-1).astype(np.uint8)
+            draw_annotations(Image.fromarray(alpha_rgb), lines).save(
+                os.path.join(debug_dir, cv["name"].replace(".png", ".alpha.png")))
 
         poses.append(dict(
             name=cv["name"],
@@ -474,12 +519,18 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0):
     print(f"\n{prefix}🖼️ rendering closeup views...")
     renders_dir = os.path.join(RESULTS_DIR, f"06c_closeup_renders{tag}")
     alpha_dir = os.path.join(RESULTS_DIR, f"06c_closeup_alpha{tag}")
-    poses = render_views(closeup_views, renders_dir, alpha_dir)
+    debug_dir = os.path.join(RESULTS_DIR, f"06c_closeup_debug{tag}")
+    poses = render_views(closeup_views, renders_dir, alpha_dir, debug_dir)
 
-    # 5. Save poses
+    # 5. Save poses (debug 目录同步一份 annotations.json, 与图像标注同源)
     poses_path = os.path.join(RESULTS_DIR, f"06c_closeup_poses{tag}.json")
     with open(poses_path, "w") as f:
         json.dump(poses, f, indent=2)
+    if DEBUG_ANNOTATE and debug_dir:
+        with open(os.path.join(debug_dir, "annotations.json"), "w") as f:
+            json.dump({"results_dir": RESULTS_DIR, "tag": tag,
+                       "closeup_size": CLOSEUP_SIZE, "r_face": r_face,
+                       "views": poses}, f, indent=2, ensure_ascii=False)
     print(f"\n{prefix}💾 poses: {poses_path}")
     print(f"{prefix}🖼️ renders: {renders_dir}")
     print(f"{prefix}✅ done: {len(poses)} closeup views rendered")
