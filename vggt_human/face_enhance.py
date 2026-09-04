@@ -55,6 +55,15 @@ COEFF_T = int(os.environ.get("COEFF_T", "200"))
 WHOLE_IMAGE = os.environ.get("WHOLE_IMAGE", "0") == "1"
 # 优化点 3: sidecar _debug/ 标注副本 (增强结果上画参数, 不污染主输出)。
 DEBUG_ANNOTATE = os.environ.get("DEBUG_ANNOTATE", "1") == "1"
+# 优化点 4: 融合模式。
+#   feather      = 旧的单次二次羽化融合 (默认, 兼容旧流程)
+#   border_alpha = 两段式: ① border mask 融合增强结果 (crop 边缘 band 内衰减为 0,
+#                  压住增强结果的边缘伪影); ② 3DGS 渲染 alpha 前景加权
+#                  final = fused*alpha + orig*(1-alpha), 人脸边缘增强范围更精确。
+#                  需要 ALPHA_DIR (与输入图同名的 3DGS alpha 渲染, 如 06c_closeup_alpha)。
+FUSION_MODE = os.environ.get("FUSION_MODE", "feather").lower()
+ALPHA_DIR = os.environ.get("ALPHA_DIR", "")
+BORDER_MARGIN = float(os.environ.get("BORDER_MARGIN", "0.08"))  # 边缘 band 占 crop 短边比例
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -71,6 +80,26 @@ def create_feather_mask(h, w):
     r = np.sqrt(xx ** 2 + yy ** 2)
     r_max = max(min(cx, cy), 1.0)
     return np.clip(1.0 - (r / r_max) ** 2, 0.0, 1.0)
+
+
+def create_border_mask(crop_h, crop_w, margin_frac):
+    """优化点 4 ①: border mask — crop 内部为 1, 边缘 band 内平滑衰减为 0。
+
+    与二次羽化的区别: 中心区域恒为 1 (羽化在中心就已衰减), 增强强度不被
+    距离稀释; 只在边缘 band (margin_frac × 短边) 处过渡, 压住增强伪影。
+    """
+    band = max(int(min(crop_h, crop_w) * margin_frac), 2)
+    band = min(band, (crop_h - 1) // 2, (crop_w - 1) // 2)  # 极小 crop 保护
+    m = np.zeros((crop_h, crop_w), dtype=np.float32)
+    m[band:crop_h - band, band:crop_w - band] = 1.0
+    try:
+        import cv2
+        k = 2 * band + 1
+        m = cv2.GaussianBlur(m, (k, k), 0)
+    except ImportError:
+        from scipy.ndimage import gaussian_filter
+        m = gaussian_filter(m, sigma=band / 2.0)
+    return np.clip(m, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +230,9 @@ def main():
     if not images:
         sys.exit(f"❌ no images in {input_images_dir}")
 
-    print(f"🖼️ [3/3] enhancing faces in {len(images)} images...")
+    print(f"🖼️ [3/3] enhancing faces in {len(images)} images..."
+          + (f" (FUSION_MODE={FUSION_MODE}, ALPHA_DIR={ALPHA_DIR})"
+             if FUSION_MODE != "feather" else ""))
     to_tensor = transforms.ToTensor()
 
     total_faces = 0
@@ -315,12 +346,29 @@ def main():
             if result.size != (crop_w, crop_h):
                 result = result.resize((crop_w, crop_h), Image.LANCZOS)
             result_np = np.array(result).astype(np.float32)
-
-            # Gradient blend: feathered mask
-            mask = create_feather_mask(crop_h, crop_w)
-            mask_3d = mask[..., np.newaxis]  # (H, W, 1)
             original_crop = img_np[y1:y2, x1:x2].astype(np.float32)
-            blended = original_crop * (1 - mask_3d) + result_np * mask_3d
+
+            if FUSION_MODE == "border_alpha" and ALPHA_DIR:
+                # 优化点 4: 两段式融合
+                # ① border mask 融合增强结果
+                border = create_border_mask(crop_h, crop_w, BORDER_MARGIN)[..., None]
+                fused = original_crop * (1 - border) + result_np * border
+                # ② 3DGS alpha 前景加权: final = fused*alpha + orig*(1-alpha)
+                alpha_path = os.path.join(ALPHA_DIR, name)
+                if os.path.isfile(alpha_path):
+                    a_full = Image.open(alpha_path).convert("L")
+                    if a_full.size != (w, h):
+                        a_full = a_full.resize((w, h), Image.LANCZOS)
+                    a = np.asarray(a_full, dtype=np.float32)[y1:y2, x1:x2] / 255.0
+                    blended = fused * a[..., None] + original_crop * (1 - a[..., None])
+                else:
+                    # 该视角无 alpha → 退化为仅 border 融合
+                    blended = fused
+            else:
+                # 旧路径: 单次二次羽化融合
+                mask = create_feather_mask(crop_h, crop_w)
+                mask_3d = mask[..., np.newaxis]  # (H, W, 1)
+                blended = original_crop * (1 - mask_3d) + result_np * mask_3d
             enhanced[y1:y2, x1:x2] = blended.astype(np.uint8)
             face_count += 1
 
