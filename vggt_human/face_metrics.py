@@ -18,9 +18,13 @@
 
 命名约定: 三个目录中同一 stem 的文件视为同一相机。mask 用 .alpha.png（软权重，
 与 loss mask 同源）；无人脸帧跳过。输出 JSON + 控制台表格。
+
+多人 (SAM3 p-mask): 若 {stem}.alpha.png 不存在, 自动找 {stem}.p*.alpha.png
+并取逐像素最大值 (并集) —— 人脸区 = 任意人的脸, 指标语义与单人一致。
 """
 import os
 import sys
+import glob
 import json
 import argparse
 
@@ -99,6 +103,27 @@ def face_crop_stats(img, alpha, min_frac=0.001):
             "frac": float((a > 0.1).mean())}
 
 
+def load_face_alpha(masks_dir, stem, w, h):
+    """Load soft alpha for a stem: single {stem}.alpha.png, or union of
+    multi-person {stem}.p{pid}.alpha.png (pixelwise max). None if absent."""
+    single = os.path.join(masks_dir, f"{stem}.alpha.png")
+    if os.path.isfile(single):
+        parts = [single]
+    else:
+        parts = sorted(glob.glob(os.path.join(masks_dir, f"{stem}.p*.alpha.png")))
+        if not parts:
+            return None
+    alphas = []
+    for p in parts:
+        a = Image.open(p).convert("L")
+        if a.size != (w, h):
+            a = a.resize((w, h), Image.LANCZOS)
+        alphas.append(np.asarray(a, dtype=np.float32))
+    if len(alphas) == 1:
+        return alphas[0]
+    return np.maximum.reduce(alphas)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render_a", required=True, help="baseline renders dir")
@@ -120,15 +145,11 @@ def main():
     lpips_fn = load_lpips()
     rows = []
     for stem in common:
-        mask_path = os.path.join(args.masks_dir, f"{stem}.alpha.png")
-        if not os.path.isfile(mask_path):
-            continue
-        alpha = np.asarray(Image.open(mask_path).convert("L"), dtype=np.float32)
         img_r = imread_rgb(os.path.join(args.ref_dir, R[stem]))
         h, w = img_r.shape[:2]
-        if alpha.shape != (h, w):
-            alpha = np.asarray(Image.open(mask_path).convert("L").resize((w, h), Image.LANCZOS),
-                               dtype=np.float32)
+        alpha = load_face_alpha(args.masks_dir, stem, w, h)
+        if alpha is None:
+            continue
         ia = imread_rgb(os.path.join(args.render_a, A[stem]))
         ib = imread_rgb(os.path.join(args.render_b, B[stem]))
         for x in (ia, ib):
