@@ -512,3 +512,26 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
   `-c gc.auto=0 -c maintenance.auto=false`
   （`git commit` 会自动触发 gc，此时被中断即损坏对象库）
 - 动 `.git/` 之前先 `cp -a .git <仓库外的备份路径>`
+
+## 12. 人脸 finetune 消融结论（2026-09-04，3090 实测）
+
+对照实验（同等训练量 20k 步 @ lr_scale=0.2，唯一差异 face_weight 0 vs 1.0）证明：
+**人脸监督（masked-L1 → HYPIR 增强图）对人脸区锐度无可测量贡献**（+4.04% vs +3.98%，
+逐帧差在噪声内）。此前 v1~v6 的全部人脸区提升来自"30k 基线欠收敛 + 更高 lr 继续训练"。
+
+- **推荐配方**：`06d_continue_train.sh`（ITERATION=30000, EXTRA_ITERS=20000,
+  LR_SCALE=0.2, FACE_WEIGHT=0）。训练视角人脸区 Laplacian +4~7%，全图 PSNR
+  27.32→27.44+，LPIPS 同步下降，无过平滑代价
+- **权重已饱和**：face_weight 1.0→2.0 结果逐像素持平（瓶颈是 lr_scale 不是权重）
+- **lr_scale 是瓶颈**：0.1→0.2 把增益从 +2.0% 解锁到 +2.7%/10k 步
+- **增益曲线**：~+1.3%/万步递减到 ~+0.8%/万步（80k 处未完全收敛）
+- **新视角注意**：常规（人物居中）新视角明显更清晰且无伪影；极端离轴暗部视角
+  纤维状条纹伪影增多，此类场景用较少续训步数（50k~60k）折中
+- 若要超越 GT 收敛的人脸细节，masked-L1 机制无效，需换机制（对抗损失等），未验证
+
+### 06d 脚本注意
+
+- `train_face_finetune.py` 的 `FaceData` 只扫 `face_images_dir` **直接子文件**，
+  目录参数必须指到图片平铺层（如 `06c_merged_face_images/images`，不是其父目录）
+- `render_novel.py` 只读 txt 格式 COLMAP 模型；BA 场景（03b）sparse/0 只有 bin，
+  已加 pycolmap 自动补 txt 的 fallback
