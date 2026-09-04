@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """face_enhance.py — MediaPipe face detection + HYPIR enhancement + gradient blending.
 
+Two modes:
+  默认 (WHOLE_IMAGE=0): 检测人脸 bbox → 裁剪 → HYPIR → 羽化融合回原图。
+  WHOLE_IMAGE=1 (优化点 2): 整张图就是人脸特写 (CLOSEUP_SIZE=512 的近景渲染),
+    跳过检测/裁剪/融合, 整图单次前向进 HYPIR (无 tiling)。
+    需要配 CENTER_BOX 无关 — 无任何检测。
+
 For each image in the input directory:
-  1. MediaPipe BlazeFace detects face bounding boxes.
+  1. MediaPipe BlazeFace detects face bounding boxes. (WHOLE_IMAGE 模式跳过)
   2. Each bbox is enlarged by FACE_PADDING (default 0.2 = 20%).
   3. The crop is fed to the HYPIR model (SD2Enhancer with LoRA checkpoint)
      for face restoration/beautification (upscale=1, no super-resolution).
@@ -14,7 +20,7 @@ Uses the vggt_human conda env (has diffusers/transformers/peft for HYPIR + media
 
 Env vars (set by 01_face_enhance.sh or 06_face_enhance.sh):
   HYPIR_DIR, HYPIR_BASE_MODEL, HYPIR_WEIGHT, INPUT_SOURCE_DIR, SOURCE_FACE_DIR,
-  FACE_PADDING, UPSCALE, PATCH_SIZE, STRIDE, DEVICE
+  FACE_PADDING, UPSCALE, PATCH_SIZE, STRIDE, DEVICE, WHOLE_IMAGE
 """
 import os
 import sys
@@ -45,6 +51,8 @@ LORA_MODULES = os.environ.get(
 ).split(",")
 MODEL_T = int(os.environ.get("MODEL_T", "200"))
 COEFF_T = int(os.environ.get("COEFF_T", "200"))
+# 优化点 2: 整图增强 (配合 render_closeup CLOSEUP_SIZE=512)。
+WHOLE_IMAGE = os.environ.get("WHOLE_IMAGE", "0") == "1"
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -126,10 +134,14 @@ def main():
 
     t0 = time.time()
 
-    # ── 1. Load MediaPipe face detector ────────────────────────────────────
-    print("🔍 [1/3] loading MediaPipe face detector...")
-    detector = load_face_detector()
-    print("  ✅ MediaPipe loaded")
+    # ── 1. Load MediaPipe face detector (WHOLE_IMAGE 模式跳过) ─────────────
+    detector = None
+    if not WHOLE_IMAGE:
+        print("🔍 [1/3] loading MediaPipe face detector...")
+        detector = load_face_detector()
+        print("  ✅ MediaPipe loaded")
+    else:
+        print("🔍 [1/3] WHOLE_IMAGE=1 → 跳过 MediaPipe (整图即人脸特写)")
 
     # ── 2. Load HYPIR model ──────────────────────────────────────────────────
     print("🏋️ [2/3] loading HYPIR model (SD2Enhancer + LoRA)...")
@@ -178,6 +190,37 @@ def main():
         img_pil = Image.open(img_path).convert("RGB")
         img_np = np.array(img_pil)
         h, w = img_np.shape[:2]
+
+        if WHOLE_IMAGE:
+            # 整图单次前向: 无检测、无裁剪、无融合 (优化点 2)
+            tensor = to_tensor(img_pil).unsqueeze(0)
+            pad_w = (8 - w % 8) % 8
+            pad_h = (8 - h % 8) % 8
+            if pad_w > 0 or pad_h > 0:
+                import torch.nn.functional as F
+                tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode='reflect')
+            try:
+                result = model.enhance(
+                    lq=tensor,
+                    prompt="",
+                    scale_by="factor",
+                    upscale=UPSCALE,
+                    patch_size=max(tensor.shape[-1], tensor.shape[-2]),  # 单次前向, 无 tiling
+                    stride=max(tensor.shape[-1], tensor.shape[-2]),
+                    return_type="pil",
+                )[0]
+            except Exception as e:
+                print(f"  [{i}/{len(images)}] ⚠️ HYPIR failed (whole image): {e}", file=sys.stderr)
+                continue
+            if pad_w > 0 or pad_h > 0:
+                rw, rh = result.size
+                result = result.crop((0, 0, rw - pad_w, rh - pad_h))
+            if result.size != (w, h):
+                result = result.resize((w, h), Image.LANCZOS)
+            result.save(os.path.join(output_images_dir, name))
+            total_faces += 1
+            print(f"  [{i}/{len(images)}] {name} — whole-image enhanced")
+            continue
 
         # Detect faces
         import cv2
