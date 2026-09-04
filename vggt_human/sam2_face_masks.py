@@ -15,6 +15,11 @@ Strategy:
      Same naming as face_masks.py for drop-in replacement.
 
 Env vars:
+  MASK_BACKEND : sam2 (default) | sam3
+                 sam3 → delegate to sam3_face_masks_worker.py running in the
+                 `sam3` conda env (subprocess, see SAM3_PYTHON). sam3 detects
+                 multi-person via text prompt and (in video mode) keeps a
+                 consistent obj_id per person across frames.
   IMAGES_DIR   : input images folder
   OUTPUT_DIR    : output masks folder
   SAM2_CKPT     : SAM2.1 checkpoint path
@@ -22,16 +27,25 @@ Env vars:
   SOFT_FEATHER  : 1 = apply feather to alpha (default 1)
   ERODE_PX      : erosion pixels for binary mask (default 2)
   MIN_SCORE     : minimum SAM2 mask score to accept (default 0.5)
+  --- sam3 backend only ---
+  SAM3_PYTHON   : sam3 env python (default ~/miniconda3/envs/sam3/bin/python)
+  SAM3_CKPT     : sam3.pt path (default /mnt/d/wheel/vggt_human_ms/sam3/sam3.pt)
+  SAM3_BPE      : BPE vocab path (default ~/repos/sam3/sam3/assets/...)
+  SAM3_PROMPT   : text prompt (default "face")
+  MASK_MODE     : image | video (default image; video = cross-frame obj_id)
 """
 import os
 import sys
 import time
+import json
 import argparse
 
 import numpy as np
 from PIL import Image
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
+
+MASK_BACKEND = os.environ.get("MASK_BACKEND", "sam2").lower()
 
 SAM2_CKPT = os.environ.get("SAM2_CKPT", "/mnt/d/wheel/vggt_human_ms/sam2/sam2.1_hiera_large.pt")
 SAM2_CFG = os.environ.get("SAM2_CFG", "configs/sam2.1/sam2.1_hiera_l.yaml")
@@ -102,11 +116,44 @@ def detect_faces_mediapipe(img_rgb):
     return boxes
 
 
+def dispatch_sam3(args):
+    """Delegate to sam3_face_masks_worker.py in the `sam3` conda env.
+
+    Different conda env → different python interpreter → subprocess dispatch.
+    Env vars (SAM3_CKPT / SAM3_BPE / SAM3_PROMPT / MASK_MODE / MIN_SCORE /
+    SOFT_FEATHER / ERODE_PX) pass through unchanged.
+    """
+    import subprocess
+
+    worker = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "sam3_face_masks_worker.py"
+    )
+    py = os.environ.get(
+        "SAM3_PYTHON", os.path.expanduser("~/miniconda3/envs/sam3/bin/python")
+    )
+    if not os.path.exists(py):
+        sys.exit(f"MASK_BACKEND=sam3 但找不到 sam3 env python: {py}\n"
+                 f"用 SAM3_PYTHON 环境变量指定 sam3 环境的解释器路径")
+    cmd = [py, worker, "--images_dir", args.images_dir, "--output_dir", args.output_dir]
+    print(f"🔀 MASK_BACKEND=sam3 → dispatching to sam3 env")
+    print(f"  {py} {worker}")
+    print(f"  MASK_MODE={os.environ.get('MASK_MODE', 'image')}, "
+          f"prompt='{os.environ.get('SAM3_PROMPT', 'face')}'")
+    sys.stdout.flush()
+    rc = subprocess.call(cmd, env=os.environ.copy())
+    sys.exit(rc)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="SAM2 pixel-level face segmentation.")
+    ap = argparse.ArgumentParser(description="SAM2/SAM3 pixel-level face segmentation.")
     ap.add_argument("--images_dir", required=True)
     ap.add_argument("--output_dir", required=True)
     args = ap.parse_args()
+
+    if MASK_BACKEND == "sam3":
+        dispatch_sam3(args)
+    elif MASK_BACKEND != "sam2":
+        sys.exit(f"unknown MASK_BACKEND={MASK_BACKEND} (expect sam2|sam3)")
 
     print(f"🧑 SAM2 face segmentation")
     print(f"  📂 images: {args.images_dir}")
