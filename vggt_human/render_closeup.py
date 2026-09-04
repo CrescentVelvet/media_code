@@ -12,16 +12,18 @@ Strategy (from grill-me design):
   6. 3DGS render all 20 extrapolated views → save RGB + alpha + poses.
 
 Output:
-  06c_closeup_renders/closeup_0001.png ... closeup_0020.png
-  06c_closeup_alpha/closeup_0001.png ...
-  06c_closeup_poses.json  (camera params for HYPIR enhance + finetune)
+  单人: 06c_closeup_renders/closeup_0001.png ... + 06c_closeup_poses.json
+  多人 (FACE_CENTER JSON 含 persons, 由 face_center_3d --multi 生成):
+       每人独立跑完整流程, 输出 06c_closeup_renders_p{pid:02d}/ ...
+       PERSONS=p00,p02 可只跑指定人 (默认全部)
 
 Env vars:
   GAUSSIAN_DIR  : 3DGS model dir (has point_cloud/iteration_*/point_cloud.ply)
   SOURCE_DIR    : COLMAP source (sparse/0/)
   RESULTS_DIR   : output root
-  FACE_CENTER   : JSON with face 3D center (from face_center_3d.py)
-  MASKS_DIR     : SAM2 face masks folder
+  FACE_CENTER   : JSON with face 3D center (face_center_3d.py; 多人 JSON 含 persons)
+  MASKS_DIR     : face masks folder (单人 {stem}.mask.png / 多人 {stem}.p{pid}.mask.png)
+  PERSONS       : 多人模式下要跑的 pid 逗号列表 (默认全部)
   N_BINS        : azimuth bins (default 10)
   TARGET_COV    : target SAM2 coverage % to stop (default 40)
   MIN_DIST_RATIO: min distance ratio (default 0.3)
@@ -31,6 +33,7 @@ Env vars:
   DEVICE        : cuda
 """
 import os
+import re
 import sys
 import json
 import math
@@ -173,6 +176,22 @@ def load_sam2_coverage(masks_dir, stems):
         if os.path.exists(p):
             m = np.array(Image.open(p).convert("L"))
             cov[stem] = m.sum() / m.size * 100 / 255  # fraction * 100
+    return cov
+
+
+def load_coverage_multi(masks_dir, stems):
+    """Load per-person coverage from {stem}.p{pid}.mask.png.
+
+    Returns {pid_int: {stem: coverage%}}."""
+    stem_set = set(stems)
+    pat = re.compile(r"^(.+)\.p(\d+)\.mask\.png$")
+    cov = {}
+    for f in os.listdir(masks_dir):
+        m = pat.match(f)
+        if not m or m.group(1) not in stem_set:
+            continue
+        arr = np.array(Image.open(os.path.join(masks_dir, f)).convert("L"))
+        cov.setdefault(int(m.group(2)), {})[m.group(1)] = arr.sum() / arr.size * 100 / 255
     return cov
 
 
@@ -357,34 +376,17 @@ def render_views(closeup_views, out_dir, alpha_dir):
     return poses
 
 
-def main():
-    print("🧑 [render_closeup] face closeup + pitch extrapolation")
-    print(f"  📂 3DGS: {GAUSSIAN_DIR} (iter={ITERATION})")
-    print(f"  📂 source: {SOURCE_DIR}")
-    print(f"  📂 masks: {MASKS_DIR}")
-    print(f"  📐 bins={N_BINS}, target_cov={TARGET_COV}%, min_dist={MIN_DIST_RATIO}, pitch=±{PITCH_DEG}°")
-    print("")
+def run_pipeline(views, face_center, coverage, tag="", prefix=""):
+    """单人流: 选基视角 → 推进近景 → pitch 外插 → sanity → 3DGS 渲染 → poses。
 
-    # 1. Load face center
-    with open(FACE_CENTER_JSON) as f:
-        fc = json.load(f)
-    face_center = np.array(fc["center"])
-    print(f"  face center: {face_center}")
-
-    # 2. Parse COLMAP cameras
-    print("\n📷 parsing COLMAP cameras...")
-    views = parse_colmap(SOURCE_DIR)
-
-    # 3. Load SAM2 coverage
-    coverage = load_sam2_coverage(MASKS_DIR, [v["stem"] for v in views])
-    print(f"  SAM2 coverage for {len(coverage)} views")
-
-    # 4. Select base views (azimuth binning)
-    print(f"\n🎯 selecting {N_BINS} base views by azimuth binning...")
+    tag: 输出目录后缀 (单人 "" / 多人 "_p00"); prefix: 日志前缀。
+    """
+    # 1. Select base views (azimuth binning)
+    print(f"\n{prefix}🎯 selecting {N_BINS} base views by azimuth binning...")
     base_views = select_base_views(views, coverage, N_BINS)
 
-    # 5. For each base view: closeup + pitch extrapolation
-    print(f"\n🔭 generating closeup + pitch views...")
+    # 2. For each base view: closeup + pitch extrapolation
+    print(f"\n{prefix}🔭 generating closeup + pitch views...")
     closeup_views = []
     for bv in base_views:
         # Closeup: move toward face center
@@ -411,17 +413,16 @@ def main():
         vm["name"] = f"closeup_{len(closeup_views)+1:04d}.png"
         closeup_views.append(vm)
 
-    print(f"  {len(closeup_views)} closeup views generated")
+    print(f"{prefix}  {len(closeup_views)} closeup views generated")
 
-    # 5b. Sanity check: 把 face_center 反投回每个近景视角, 验证是否对准
-    #     look-at 做对了的话, F 应当正好投在 (cx, cy), 偏移 ~0px。
-    print(f"\n🔍 sanity check: face_center 反投到近景视角...")
+    # 3. Sanity check: face_center 反投回每个近景视角
+    print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
     n_bad = 0
     for cv in closeup_views:
         Pc = cv["R"] @ face_center + cv["T"]
         dist = float(np.linalg.norm(face_center - cv["C"]))
         if Pc[2] <= 0:
-            print(f"  ❌ {cv['name']}: F 在相机背后 (z={Pc[2]:.3f})")
+            print(f"{prefix}  ❌ {cv['name']}: F 在相机背后 (z={Pc[2]:.3f})")
             cv["face_offset_px"] = -1.0
             n_bad += 1
             continue
@@ -435,28 +436,74 @@ def main():
             n_bad += 1
         cv["face_offset_px"] = round(float(off_px), 1)
         cv["dist_to_face"] = dist
-        # 半 FOV: 人脸中心必须在视锥内才算有效外插
         half_fov = math.degrees(math.atan(min(cv["W"], cv["H"]) / (2 * min(cv["fx"], cv["fy"]))))
-        print(f"  {flag} {cv['name']}: F→({u:6.0f},{v:6.0f}) 偏离中心 {off_px:5.1f}px "
+        print(f"{prefix}  {flag} {cv['name']}: F→({u:6.0f},{v:6.0f}) 偏离中心 {off_px:5.1f}px "
               f"({off_pct:4.1f}%) 物距 {dist:.3f} 半FOV {half_fov:.0f}°")
     if n_bad:
-        print(f"  ⚠️ {n_bad}/{len(closeup_views)} 个视角未对准人脸")
+        print(f"{prefix}  ⚠️ {n_bad}/{len(closeup_views)} 个视角未对准人脸")
     else:
-        print(f"  ✅ 全部 {len(closeup_views)} 个视角都对准人脸 (偏移 <5%)")
+        print(f"{prefix}  ✅ 全部 {len(closeup_views)} 个视角都对准人脸 (偏移 <5%)")
 
-    # 6. 3DGS render
-    print(f"\n🖼️ rendering closeup views...")
-    renders_dir = os.path.join(RESULTS_DIR, "06c_closeup_renders")
-    alpha_dir = os.path.join(RESULTS_DIR, "06c_closeup_alpha")
+    # 4. 3DGS render
+    print(f"\n{prefix}🖼️ rendering closeup views...")
+    renders_dir = os.path.join(RESULTS_DIR, f"06c_closeup_renders{tag}")
+    alpha_dir = os.path.join(RESULTS_DIR, f"06c_closeup_alpha{tag}")
     poses = render_views(closeup_views, renders_dir, alpha_dir)
 
-    # 7. Save poses
-    poses_path = os.path.join(RESULTS_DIR, "06c_closeup_poses.json")
+    # 5. Save poses
+    poses_path = os.path.join(RESULTS_DIR, f"06c_closeup_poses{tag}.json")
     with open(poses_path, "w") as f:
         json.dump(poses, f, indent=2)
-    print(f"\n💾 poses: {poses_path}")
-    print(f"🖼️ renders: {renders_dir}")
-    print(f"✅ done: {len(poses)} closeup views rendered")
+    print(f"\n{prefix}💾 poses: {poses_path}")
+    print(f"{prefix}🖼️ renders: {renders_dir}")
+    print(f"{prefix}✅ done: {len(poses)} closeup views rendered")
+
+
+def main():
+    print("🧑 [render_closeup] face closeup + pitch extrapolation")
+    print(f"  📂 3DGS: {GAUSSIAN_DIR} (iter={ITERATION})")
+    print(f"  📂 source: {SOURCE_DIR}")
+    print(f"  📂 masks: {MASKS_DIR}")
+    print(f"  📐 bins={N_BINS}, target_cov={TARGET_COV}%, min_dist={MIN_DIST_RATIO}, pitch=±{PITCH_DEG}°")
+    print("")
+
+    # 1. Load face center JSON
+    with open(FACE_CENTER_JSON) as f:
+        fc = json.load(f)
+
+    # 2. Parse COLMAP cameras (一次, 多人共用)
+    print("\n📷 parsing COLMAP cameras...")
+    views = parse_colmap(SOURCE_DIR)
+    stems = [v["stem"] for v in views]
+
+    # 3. 多人 / 单人分派
+    if "persons" in fc:
+        pids_avail = sorted(int(k) for k in fc["persons"])
+        sel = [s.strip() for s in os.environ.get("PERSONS", "").split(",") if s.strip()]
+        if sel:
+            pids = [int(s.replace("p", "")) for s in sel]
+            missing = [p for p in pids if p not in pids_avail]
+            if missing:
+                sys.exit(f"PERSONS 里的 {missing} 不在 FACE_CENTER JSON persons 里 ({pids_avail})")
+        else:
+            pids = pids_avail
+        print(f"\n👥 multi-person mode: {len(pids)} person(s) to run: {[f'p{p:02d}' for p in pids]}")
+        cov_multi = load_coverage_multi(MASKS_DIR, stems)
+        for pid in pids:
+            if pid not in cov_multi:
+                print(f"\n⚠️ p{pid:02d}: MASKS_DIR 里没有 p{pid:02d} 的 mask, 跳过")
+                continue
+            print(f"\n{'='*60}\n👤 person p{pid:02d}")
+            center = np.array(fc["persons"][str(pid)]["center"])
+            run_pipeline(views, center, cov_multi[pid],
+                         tag=f"_p{pid:02d}", prefix=f"[p{pid:02d}] ")
+    else:
+        face_center = np.array(fc["center"])
+        print(f"  face center: {face_center}")
+        print(f"\n🎭 loading SAM2 coverage...")
+        coverage = load_sam2_coverage(MASKS_DIR, stems)
+        print(f"  SAM2 coverage for {len(coverage)} views")
+        run_pipeline(views, face_center, coverage)
 
 
 if __name__ == "__main__":
