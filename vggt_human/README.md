@@ -681,6 +681,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 | `06_` | `06_face_enhance.sh` | `06_source_aug_face/` |
 | `06b_` | `06b_face_finetune.sh` | `06b_source_face/`、`06b_face_masks/`、`06b_model_3dgs_face/` |
 | `06c_` | `06c_closeup_finetune.sh` | `06c_sam2_face_masks/`、`06c_face_center.json`、`06c_closeup_*`、`06c_merged_*`、`06c_model_3dgs_closeup/` |
+| `06d_` | `06d_continue_train.sh` | `06d_model_3dgs_continue/` |
 | `07_` | `07_train_denoise.sh` | `07_model_3dgs_denoise/` |
 
 > 脚本内部已按此命名设好默认值，直接用环境变量覆盖即可（`RESULTS_DIR` / `SOURCE_DIR` / `GAUSSIAN_DIR` …）。改前缀只影响默认值，不影响已有产物。
