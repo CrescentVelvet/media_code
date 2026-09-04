@@ -545,6 +545,11 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
 - 坑：start_ply 的 exposure.json 只有原图条目，注入图名在 Scene.save()/testing 会
   KeyError —— trainer 已补恒等 exposure fallback（30k exposure 本就收敛为恒等阵）
 - p03（此前疑 p00 重复轨迹）实为真实第 4 人（红衣），近景提升最大，无需排除
+- **round2 迭代注入（06g）**：06e@50k 重渲近景→再增强→再注入（同 04b 起点干净归因），
+  统一 round2 GT 评估：06g vs 06e 近景 LPIPS 再降 10~23%、锐度再涨 +22~71%、
+  PSNR +1.2~1.5dB；训练视角人脸区 Laplacian 11.4→13.3，LPIPS vs 原图持平（无幻觉回声）。
+  **两轮未饱和，增益递减**（round1 训练视角 +45% vs round2 +17%）；第三轮预期收益有限，
+  按需取舍。脚本 `06e_closeup_inject.sh`（注入+续训一条龙）
 
 ### 06d 脚本注意
 
