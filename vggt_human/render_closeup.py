@@ -64,6 +64,45 @@ def quat_to_rotmat(qw, qx, qy, qz):
     ])
 
 
+def look_at_rotmat(C, target, up):
+    """COLMAP 约定下的 look-at 旋转矩阵 (world -> camera)。
+
+    COLMAP 相机系: +X 右、+Y 下、+Z 前(朝场景), 为右手系,
+    故 R 的三行依次是 [right; down; forward], 且 right × down = forward。
+
+    up 传基视图自身的 up (即 -R[1,:]), 以沿用原有 roll, 不引入额外倾斜。
+    """
+    forward = np.asarray(target, dtype=np.float64) - np.asarray(C, dtype=np.float64)
+    nf = np.linalg.norm(forward)
+    if nf < 1e-9:
+        raise ValueError("look_at: 相机位置与目标重合")
+    forward = forward / nf
+
+    up = np.asarray(up, dtype=np.float64)
+    right = np.cross(forward, up)
+    nr = np.linalg.norm(right)
+    if nr < 1e-6:
+        # forward 与 up 共线 (相机正对天顶/地底), 换一个参考轴
+        alt = np.array([0.0, 0.0, 1.0])
+        if abs(float(np.dot(forward, alt))) > 0.99:
+            alt = np.array([1.0, 0.0, 0.0])
+        right = np.cross(forward, alt)
+        nr = np.linalg.norm(right)
+    right = right / nr
+    down = np.cross(forward, right)
+    R = np.stack([right, down, forward], axis=0)
+    return R
+
+
+def rotate_around_axis(v, axis, theta_deg):
+    """Rodrigues 旋转: 向量 v 绕轴 axis 旋转 theta_deg 度 (右手定则)。"""
+    k = np.asarray(axis, dtype=np.float64)
+    k = k / (np.linalg.norm(k) + 1e-12)
+    th = math.radians(theta_deg)
+    c, s = math.cos(th), math.sin(th)
+    return v * c + np.cross(k, v) * s + k * float(np.dot(k, v)) * (1.0 - c)
+
+
 def parse_colmap(source_dir):
     """Parse COLMAP cameras.txt + images.txt → list of view dicts.
 
@@ -176,80 +215,58 @@ def select_base_views(views, coverage, n_bins):
 
 
 def compute_closeup_pose(view, face_center, target_cov, masks_dir, min_ratio):
-    """Move camera along optical axis toward face center until coverage >= target.
+    """沿 C→F 直线推进相机, 直到估计覆盖率 >= target。
 
-    Returns new (R, T, C) — rotation unchanged, only position moves.
+    返回 (R, T, C, est_cov)。
+
+    关键修正 (Fix C):
+      推进后用 look-at 重算 R, 让相机严格瞄准 face_center。
+      原实现直接沿用基视图的 R —— 基视图若本身没对准人脸, 推得越近偏得越多。
     """
-    # Optical axis direction (camera forward in world) = -R[2,:] (third row of R, negated)
-    # Camera looks along -Z in camera frame, so forward in world = R^T @ [0,0,-1] = -R[2,:]
-    forward = -view["R"][2, :]  # (3,)
-    forward = forward / (np.linalg.norm(forward) + 1e-8)
-
     orig_C = view["C"].copy()
     orig_dist = np.linalg.norm(face_center - orig_C)
-    min_dist = orig_dist * min_ratio
 
-    # Binary search for target coverage
-    # Start from original, move toward face_center
-    # Coverage increases as we get closer
-    best_C = orig_C.copy()
-    best_cov = view.get("coverage", 0)
-
-    # Step toward face center
+    # 沿 C→F 直线推进 (与视线无关, 保证人脸始终在光轴方向上)
     direction = (face_center - orig_C)
     direction = direction / (np.linalg.norm(direction) + 1e-8)
 
-    # Try distances from orig_dist down to min_dist
+    best_C = orig_C.copy()
+    best_cov = view.get("coverage", 0)
+
+    # 覆盖率近似: 面积 ~ 1/距离^2
     for ratio in np.arange(0.95, min_ratio - 0.05, -0.05):
         new_dist = orig_dist * ratio
-        new_C = face_center - direction * new_dist
-        # New T: T = -R @ C
-        new_T = -view["R"] @ new_C
-
-        # Estimate coverage: linear approximation
-        # (actual rendering needed for precise coverage, but we can approximate
-        #  by scaling: coverage ~ (orig_dist/new_dist)^2 * orig_cov, capped at 100)
-        est_cov = min(view.get("coverage", 0) * (orig_dist / new_dist) ** 2, 100)
-
-        if est_cov >= target_cov:
-            best_C = new_C
-            best_T = new_T
-            best_cov = est_cov
+        best_C = face_center - direction * new_dist
+        best_cov = min(view.get("coverage", 0) * (orig_dist / new_dist) ** 2, 100)
+        if best_cov >= target_cov:
             break
-        best_C = new_C
-        best_T = new_T
-        best_cov = est_cov
 
-    new_T = -view["R"] @ best_C
-    return view["R"], new_T, best_C, best_cov
+    # Fix C: look-at 重算朝向, up 沿用基视图以保持 roll
+    up = -view["R"][1, :]
+    R_new = look_at_rotmat(best_C, face_center, up)
+    T_new = -R_new @ best_C
+    return R_new, T_new, best_C, best_cov
 
 
 def apply_pitch(view, face_center, pitch_deg):
-    """Rotate camera around face center by pitch angle (X-axis rotation).
+    """绕「过人脸中心、平行于相机右向」的轴公转 pitch 度, 再 look-at 人脸。
 
-    Returns new (R, T, C).
+    修正 (Fix C):
+      原实现 R_new = Rx @ R —— 绕世界 X 轴、且是相机系后乘;
+      而 C 是绕世界轴旋转的。位置转了、朝向没跟着转, 两者不同步,
+      实测 pitch 仅 10° 却造成 25° 的视线偏差, 超过半 FOV(27°), 人脸被甩出画面。
+
+      现改为: 只用 Rodrigues 绕相机自身右向轴公转「位置」,
+      再用 look-at 重算「朝向」, 保证无论怎么转, 人脸永远在画面中心。
     """
-    theta = math.radians(pitch_deg)
-    # Rotation around X-axis (pitch)
-    Rx = np.array([
-        [1, 0, 0],
-        [0, math.cos(theta), -math.sin(theta)],
-        [0, math.sin(theta), math.cos(theta)],
-    ])
-
     R = view["R"]
     C = view["C"]
+    right_axis = R[0, :]   # 相机右向 (世界系) —— 公转轴
+    up = -R[1, :]          # 相机上向 (世界系) —— 保持 roll
 
-    # Rotate camera position around face center
-    # C_new = face_center + Rx @ (C - face_center)
-    C_new = face_center + Rx @ (C - face_center)
-
-    # Rotate camera orientation: R_new = Rx @ R
-    R_new = Rx @ R
-
-    # New T = -R_new @ C_new
+    C_new = face_center + rotate_around_axis(C - face_center, right_axis, pitch_deg)
+    R_new = look_at_rotmat(C_new, face_center, up)
     T_new = -R_new @ C_new
-
     return R_new, T_new, C_new
 
 
@@ -296,7 +313,10 @@ def render_views(closeup_views, out_dir, alpha_dir):
         FoVy = 2 * math.atan(H / (2 * fy))
 
         dummy = Image.fromarray(np.zeros((H, W, 3), dtype=np.uint8))
-        cam = Camera(resolution=(W, H), colmap_id=0, R=R, T=T,
+        # 注意: gaussian-splatting 的 getWorld2View2 内部会 R.transpose(),
+        # Camera 期望 camera-to-world 的 R (见 dataset_readers.py:85 的 qvec2rotmat(...).T)。
+        # 我们存的 R 是 COLMAP 约定 world-to-camera, 传 R.T。
+        cam = Camera(resolution=(W, H), colmap_id=0, R=R.T, T=T,
                      FoVx=FoVx, FoVy=FoVy, depth_params=None,
                      image=dummy, invdepthmap=None,
                      image_name=cv["name"], uid=i, data_device=DEVICE)
@@ -328,6 +348,8 @@ def render_views(closeup_views, out_dir, alpha_dir):
             base_view=cv.get("base_stem", ""),
             pitch=cv.get("pitch", 0),
             est_coverage=cv.get("est_cov", 0),
+            face_offset_px=cv.get("face_offset_px", -1.0),
+            dist_to_face=cv.get("dist_to_face", -1.0),
         ))
 
     del gaussians
@@ -390,6 +412,37 @@ def main():
         closeup_views.append(vm)
 
     print(f"  {len(closeup_views)} closeup views generated")
+
+    # 5b. Sanity check: 把 face_center 反投回每个近景视角, 验证是否对准
+    #     look-at 做对了的话, F 应当正好投在 (cx, cy), 偏移 ~0px。
+    print(f"\n🔍 sanity check: face_center 反投到近景视角...")
+    n_bad = 0
+    for cv in closeup_views:
+        Pc = cv["R"] @ face_center + cv["T"]
+        dist = float(np.linalg.norm(face_center - cv["C"]))
+        if Pc[2] <= 0:
+            print(f"  ❌ {cv['name']}: F 在相机背后 (z={Pc[2]:.3f})")
+            cv["face_offset_px"] = -1.0
+            n_bad += 1
+            continue
+        u = cv["fx"] * Pc[0] / Pc[2] + cv["cx"]
+        v = cv["fy"] * Pc[1] / Pc[2] + cv["cy"]
+        off_px = math.hypot(u - cv["cx"], v - cv["cy"])
+        off_pct = off_px / min(cv["W"], cv["H"]) * 100
+        in_frame = (0 <= u < cv["W"]) and (0 <= v < cv["H"])
+        flag = "✅" if off_pct < 5 else ("⚠️" if in_frame else "❌")
+        if flag != "✅":
+            n_bad += 1
+        cv["face_offset_px"] = round(float(off_px), 1)
+        cv["dist_to_face"] = dist
+        # 半 FOV: 人脸中心必须在视锥内才算有效外插
+        half_fov = math.degrees(math.atan(min(cv["W"], cv["H"]) / (2 * min(cv["fx"], cv["fy"]))))
+        print(f"  {flag} {cv['name']}: F→({u:6.0f},{v:6.0f}) 偏离中心 {off_px:5.1f}px "
+              f"({off_pct:4.1f}%) 物距 {dist:.3f} 半FOV {half_fov:.0f}°")
+    if n_bad:
+        print(f"  ⚠️ {n_bad}/{len(closeup_views)} 个视角未对准人脸")
+    else:
+        print(f"  ✅ 全部 {len(closeup_views)} 个视角都对准人脸 (偏移 <5%)")
 
     # 6. 3DGS render
     print(f"\n🖼️ rendering closeup views...")

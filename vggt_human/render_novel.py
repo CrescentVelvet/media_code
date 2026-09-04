@@ -244,7 +244,9 @@ def render_novel_views(novel_views):
         FoVy = 2 * math.atan(H / (2 * fy))
 
         dummy = PILImage.fromarray(np.zeros((H, W, 3), dtype=np.uint8))
-        cam = Camera(resolution=(W, H), colmap_id=0, R=R, T=T, FoVx=FoVx, FoVy=FoVy,
+        # gaussian-splatting 的 getWorld2View2 内部会 R.transpose(),
+        # Camera 期望 camera-to-world 的 R; 我们的 R 是 world-to-camera, 传 R.T。
+        cam = Camera(resolution=(W, H), colmap_id=0, R=R.T, T=T, FoVx=FoVx, FoVy=FoVy,
                      depth_params=None, image=dummy, invdepthmap=None,
                      image_name=nv["name"], uid=i,
                      data_device=DEVICE)
