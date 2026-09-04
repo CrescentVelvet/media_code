@@ -387,25 +387,30 @@ def main():
     stems = [v["stem"] for v in views]
 
     # 3. Load masks — 自动检测多人
+    #    注意: SAM3 video 后端会给单实例帧额外写旧命名 {stem}.mask.png (兼容单人流),
+    #    所以判定顺序必须是「有 p-mask → 多人」优先, 不能只看旧命名是否存在。
     multi = args.multi_person
     persons_masks = {}
     masks = {}
     if not multi:
         print("\n🎭 loading face masks...")
-        masks = load_masks(args.masks_dir, stems)
-        if not masks:
-            print("  无 {stem}.mask.png, 尝试多人 p-mask ...")
+        persons_masks = load_masks_multi(args.masks_dir, stems)
+        if persons_masks:
             multi = True
-        else:
-            print(f"  {len(masks)} masks found (of {len(views)} views)")
+            print(f"  检测到 {{stem}}.p{{pid}}.mask.png → 多人模式")
+    if not multi:
+        masks = load_masks(args.masks_dir, stems)
     if multi:
         print("\n🎭 loading per-person face masks (multi-person mode)...")
-        persons_masks = load_masks_multi(args.masks_dir, stems)
+        if not persons_masks:
+            persons_masks = load_masks_multi(args.masks_dir, stems)
         if not persons_masks:
             sys.exit("no masks found (既无 {stem}.mask.png 也无 {stem}.p{pid}.mask.png)")
         pids = sorted(persons_masks)
         print(f"  {len(pids)} person(s): p{pids[0]:02d}..p{pids[-1]:02d}, "
               f"mask 帧数 {[len(persons_masks[p]) for p in pids]}")
+    else:
+        print(f"  {len(masks)} masks found (of {len(views)} views)")
 
     if not multi:
         if not masks:
