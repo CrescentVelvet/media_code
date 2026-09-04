@@ -27,6 +27,7 @@
 #   ITERATION=30000              # 3DGS 迭代
 #   FINETUNE_ITERATIONS=35000    # finetune 终点
 #   FACE_WEIGHT=0.5              # 人脸监督权重
+#   MASK_SOURCE=sam2|geo         # 近景 mask 来源 (geo=方案E 几何 mask)
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +37,16 @@ source "$SCRIPT_DIR/_env.sh"
 RESULTS_DIR="${RESULTS_DIR:-$RESULTS_ROOT}"
 GAUSSIAN_DIR="${GAUSSIAN_DIR:-$RESULTS_DIR/04b_model_3dgs_ba}"
 SOURCE_DIR="${SOURCE_DIR:-$RESULTS_DIR/03b_source_ba}"
-MASKS_DIR="${MASKS_DIR:-$RESULTS_DIR/06c_sam2_face_masks}"
+# 近景 mask 来源: sam2 (默认, 旧路径) | geo (方案E SH hack 几何 mask, 模糊近景首选 ——
+# 实测 SAM2 中心兜底在模糊近景上会乱检; geo mask 跟随 3D 人的真实位置)
+MASK_SOURCE="${MASK_SOURCE:-sam2}"
+if [ "$MASK_SOURCE" = "geo" ]; then
+    MASKS_DIR="${MASKS_DIR:-$RESULTS_DIR/06c_sam2_face_masks}"          # 训练视角 mask 仍用 SAM2
+    CLOSEUP_MASKS="${CLOSEUP_MASKS:-$RESULTS_DIR/06c_closeup_masks_geo}"  # 近景换几何 mask
+else
+    MASKS_DIR="${MASKS_DIR:-$RESULTS_DIR/06c_sam2_face_masks}"
+    CLOSEUP_MASKS="${CLOSEUP_MASKS:-$RESULTS_DIR/06c_closeup_masks}"
+fi
 FACE_CENTER="${FACE_CENTER:-$RESULTS_DIR/06c_face_center.json}"
 CLOSEUP_RENDERS="${CLOSEUP_RENDERS:-$RESULTS_DIR/06c_closeup_renders}"
 CLOSEUP_ALPHA="${CLOSEUP_ALPHA:-$RESULTS_DIR/06c_closeup_alpha}"
