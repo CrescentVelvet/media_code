@@ -290,6 +290,13 @@ def main():
     cameras_path = os.path.join(sparse_dir, "cameras.txt")
     images_path = os.path.join(sparse_dir, "images.txt")
 
+    # BA 场景 (如 03b_source_ba) 的 sparse/0 常只有 bin 模型; 用 pycolmap 补出 txt
+    if not (os.path.isfile(cameras_path) and os.path.isfile(images_path)):
+        import pycolmap  # noqa: E402
+        rec = pycolmap.Reconstruction(sparse_dir)
+        rec.write_text(sparse_dir)
+        print(f"🔁 sparse model was bin-only, wrote txt via pycolmap: {sparse_dir}")
+
     if not os.path.isfile(cameras_path) or not os.path.isfile(images_path):
         sys.exit(f"❌ COLMAP scene not found at {sparse_dir}")
 
