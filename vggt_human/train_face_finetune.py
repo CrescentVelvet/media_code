@@ -33,7 +33,13 @@ import sys
 #      M 为人脸 loss mask（face_masks.py 生成，= HYPIR 实际改动区域阈值化+腐蚀），
 #      w=--face_weight：1.0 → 增强图独占人脸监督（complement），
 #                       0.5 → 双监督各半（dual，默认 A/B 档）。
-#      SSIM 项保持官方形式（对原图、全图），起稳定作用；锐化由 L1 人脸项驱动。
+#      SSIM 目标与 L1 对齐（--face_ssim_mode=composite，默认）：人脸区内比对
+#      同一张 composite 目标 orig + M·w·(enh - orig)，非人脸区仍是原图，故
+#      与官方完全等价的退化关系成立。
+#      历史 bug：SSIM 曾固定对原图全画幅算。人脸区内 L1 推向增强图、SSIM 却只认
+#      原图，两者更新方向近乎正交（合成测试：L1 cos=0.81、SSIM旧 cos=0.18），
+#      λ_dssim=0.2 把总方向从 0.81 稀释到 0.57 —— masked-L1 的效果被 SSIM 吃掉。
+#      改后 SSIM cos=0.94、总方向 0.95。=off 可复现旧行为（仅供 A/B，勿用于生产）。
 #      无人脸 mask 的帧（46/125）退化为纯官方 loss。
 #   5. 起始迭代取自 ply 路径中的 iteration_N（--start_iter 可覆盖），保证
 #      xyz scheduler 处于收敛后的 lr_final 段、保存编号接续 30k。
@@ -138,7 +144,7 @@ class FaceData:
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
              start_ply, start_iter, lr_scale,
-             face_images_dir, face_masks_dir, face_weight, face_soft):
+             face_images_dir, face_masks_dir, face_weight, face_soft, face_ssim_mode):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
@@ -192,6 +198,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                          if os.path.isfile(os.path.join(face_masks_dir, f"{s}.alpha.png"))])
     print(f"🧑 face supervision: {n_face_frames}/{len(scene.getTrainCameras())} frames masked, "
           f"weight={face_weight} ({'soft alpha' if face_soft else 'binary+eroded'}), "
+          f"ssim_target={face_ssim_mode}, "
           f"enhanced={face_images_dir or '(none)'}")
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -257,26 +264,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             image *= alpha_mask
 
         # Loss
-        # 🧑 人脸互补双监督：L1 项逐像素双目标（见文件头注释），SSIM 保持官方
+        # 🧑 人脸互补双监督：L1 逐像素双目标（见文件头注释），
+        #    SSIM 对同一张 composite 目标计算，避免人脸区内梯度方向相反
         gt_image = viewpoint_cam.original_image.cuda()
         err_orig = torch.abs(image - gt_image)
         face_payload = face_data.get(viewpoint_cam)
         face_loss_val = 0.0
+        gt_for_ssim = gt_image            # 默认官方：SSIM 对原图
         if face_payload is not None:
             m = face_payload["mask"].cuda()
             if not face_soft:
                 m = (m > 0.5).float()
-            err_face = torch.abs(image - face_payload["enh"].cuda())
+            enh = face_payload["enh"].cuda()
+            err_face = torch.abs(image - enh)
             face_term = (face_weight * err_face + (1.0 - face_weight) * err_orig) * m
             Ll1 = ((1.0 - m) * err_orig + face_term).mean()
             with torch.no_grad():
                 face_loss_val = face_term.sum().item() / max(m.sum().item(), 1.0)
+            if face_ssim_mode == "composite":
+                # 与 L1 同目标：人脸区内按 w 混入增强图，区外保持原图
+                gt_for_ssim = gt_image + m * face_weight * (enh - gt_image)
         else:
             Ll1 = err_orig.mean()
         if FUSED_SSIM_AVAILABLE:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            ssim_value = fused_ssim(image.unsqueeze(0), gt_for_ssim.unsqueeze(0))
         else:
-            ssim_value = ssim(image, gt_image)
+            ssim_value = ssim(image, gt_for_ssim)
 
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
@@ -434,6 +447,10 @@ if __name__ == "__main__":
                         help="enhanced-image weight inside face mask (1.0=complement, 0.5=dual)")
     parser.add_argument("--face_soft", action="store_true",
                         help="use feather alpha as soft weights instead of binary mask")
+    parser.add_argument("--face_ssim_mode", type=str, default="composite",
+                        choices=["composite", "off"],
+                        help="SSIM target: composite=align with L1 face target (fixed), "
+                             "off=legacy full-frame vs original (gradient conflict, A/B only)")
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
@@ -453,7 +470,8 @@ if __name__ == "__main__":
              args.test_iterations, args.save_iterations, args.checkpoint_iterations,
              args.start_checkpoint, args.debug_from,
              args.start_ply, args.start_iter, args.lr_scale,
-             args.face_images_dir, args.face_masks_dir, args.face_weight, args.face_soft)
+             args.face_images_dir, args.face_masks_dir, args.face_weight, args.face_soft,
+             args.face_ssim_mode)
 
     # All done
     print("\nTraining complete.")
