@@ -442,7 +442,12 @@ pip install --force-reinstall --no-deps "setuptools<70"
 ## 8. commit 规范
 
 - 中文 commit message
-- 格式：`<算法名>：简短描述`（如 `wan22_rotate：NUM_FRAMES 默认 121 -> 81`）
+- 格式：`<项目名>: <简短描述>`（英文冒号 + 空格，如 `vggt_human: 06e 近景注入+续训脚本正式化`）
+  - **项目名前缀必填**（2026-09-05 用户明确要求）：本仓是多项目仓（`vggt_human/`、
+    `minimax_h3/`、`deformable_gaussians/`…），不加前缀在 `git log` 里分不清归属。
+    一次 commit 只改一个项目时前缀就是该项目目录名；跨项目混改按主改动项目定名，
+    并在描述里点出其它项目
+  - 描述内可按模块细化：`vggt_human: 06e/注入 — start_ply 补 exposure fallback`
 - **默认只写标题行，不写正文**；确有必要时正文最多 1-2 行
 - 简洁平实，不要写论文（参考 git log --oneline 的风格）
 - 一个逻辑改动一个 commit，不要混合多个不相关改动
