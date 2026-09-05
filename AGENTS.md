@@ -556,6 +556,62 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
   **两轮未饱和，增益递减**（round1 训练视角 +45% vs round2 +17%）；第三轮预期收益有限，
   按需取舍。脚本 `06e_closeup_inject.sh`（注入+续训一条龙）
 
+### SSIM 与人脸 L1 目标不一致（2026-09-05，已修）
+
+`train_face_finetune.py` 的 masked-L1 路径里，L1 在人脸区内推向 HYPIR 增强图，
+SSIM 项却一直全画幅对着原图算 —— 两项在人脸区内的更新方向近乎**正交**。
+合成测试（模糊渲染 / 原图 / 增强图，人脸区中央 mask）测「更新方向」与
+「补细节方向」的余弦：
+
+| 项 | 余弦 |
+|---|---|
+| L1 人脸项 | +0.81 |
+| SSIM 旧（对原图） | +0.18 |
+| SSIM 新（composite） | +0.94 |
+| 总 loss 旧 → 新 | +0.57 → +0.95 |
+
+即 λ_dssim=0.2 的 SSIM 项把总方向从 0.81 **稀释**到 0.57（不是反向，是正交稀释），
+masked-L1 的效果被吃掉一大半。修法：人脸区内把 SSIM 的比对目标也换成与 L1 同一张
+composite（`gt + M·w·(enh − gt)`），区外仍是原图 → 无 mask 的帧与官方完全等价。
+新增 `--face_ssim_mode composite|off`（默认 composite；off 仅供 A/B 复现旧行为）。
+
+注意：这条路径目前不是主力（主力配方 FACE_WEIGHT=0 + 整视角注入），故 06e/06g
+结论不受影响。修完后 masked-L1 能否起死回生**未重测**。
+
+### HYPIR 推理提速（2026-09-05，3090 / 512² 实测）
+
+优化点 1 的 TorchScript 被否决后定的替代路线，三项均已落地在 `face_enhance.py`
+（`SPEED_MERGE_LORA` / `SPEED_CACHE_TEXT` / `SPEED_COMPILE`，前两项默认开）：
+
+| 配置（累积） | ms/张 | vs base | 增量 |
+|---|---|---|---|
+| base | 170 | 1.00x | — |
+| +cache_text | 161 | 1.05x | 1.05x |
+| +merge_lora | 139 | 1.22x | 1.16x |
+| +compile | 130 | 1.31x | 1.09x |
+
+- **merge_lora**（默认开）：SD2.1 UNet 共 257 层 LoRA。peft 走的是
+  `inject_adapter_in_model`（非 LoraModel 包装），没有 `merge_and_unload()`，
+  需逐层调 `LoraLayer.merge()`。peft 的 forward 有 `elif self.merged: 走 base_layer`
+  分支，**不会重复叠加 delta**，安全。数值漂移 0.35/255（≈0.14%），可忽略
+- **cache_text**（默认开）：`BaseEnhancer.enhance()` 每图都重跑 tokenizer +
+  text_encoder，而本流程 prompt 恒为 "" → monkey patch `prepare_inputs` 缓存
+  `self.inputs`。text_encoder 确定性且不消耗 RNG → 输出逐位不变
+- **compile**：**默认 auto（按批量门控，回本线 2400 张）**。增量只有 142→130ms
+  （~12ms/张），一次性编译 ~28s → 约 2300 张才回本，小批量编译是净亏
+  - **必踩的坑**：diffusers 的 `Attention.forward` 里有
+    `inspect.signature(self.processor.__call__)`，dynamo 对每个 attention block
+    的 processor 对象 id 加 guard，UNet 十几个 block 各要一份编译；默认
+    `cache_size_limit=8` 撑爆后 dynamo 放弃编译、退回 eager 并保留 dynamo 开销，
+    **实测 175ms 变成 1687ms（慢 10 倍）**。必须在 compile 前把
+    `torch._dynamo.config.cache_size_limit` 抬到 64（已写进 `compile_unet()`）
+  - `mode=default` 不如 `reduce-overhead`（编译 39s vs 28s，稳态 132 vs 129ms）
+- **A/B 对比的坑**：`vae.encode().latent_dist.sample()` 每次前向都从固定 seed 的
+  随机流取新样本 → 输出对「第几次调用」敏感，相邻两次前向差 mean|Δ|≈0.011。
+  对比提速前后**必须对齐调用序号**（跑两次完整脚本比同名图片），否则量到假差异；
+  同序号下逐位可复现（两次独立运行 mean|Δ| = 0.000/255）
+- benchmark：`.tmp_diag/bench_hypir_speed.py`（`--only_compile` 只看编译收益与回本张数）
+
 ### 06d 脚本注意
 
 - `train_face_finetune.py` 的 `FaceData` 只扫 `face_images_dir` **直接子文件**，
