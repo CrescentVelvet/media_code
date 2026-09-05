@@ -117,21 +117,16 @@ def quat_to_rotmat(qw, qx, qy, qz):
 def look_at_rotmat(C, target, up):
     """COLMAP 约定下的 look-at 旋转矩阵 (world -> camera)。
 
-    COLMAP 相机系: +X 右、+Y 下、+Z 后(背离场景/朝相机背后), 为右手系,
-    故 R 的三行依次是 [right; down; back], 且 right × down = back。
-    forward (朝场景) = -back = -R[2,:]。
+    COLMAP 相机系: +X 右、+Y 下、+Z 前(朝场景), 为右手系,
+    故 R 的三行依次是 [right; down; forward], 且 right × down = forward。
 
     up 传基视图自身的 up (即 -R[1,:]), 以沿用原有 roll, 不引入额外倾斜。
-
-    历史 bug: 旧实现把 forward 放 R[2,:] 且 down=cross(forward,right),
-    导致 R[2,:]=forward (+Z 朝场景) 与 COLMAP -Z 朝场景 相反,
-    3DGS 按 -Z 解释 → 相机朝向反 180° → 渲染到背后的东西。
     """
     forward = np.asarray(target, dtype=np.float64) - np.asarray(C, dtype=np.float64)
     nf = np.linalg.norm(forward)
     if nf < 1e-9:
         raise ValueError("look_at: 相机位置与目标重合")
-    forward = forward / nf   # 朝场景
+    forward = forward / nf
 
     up = np.asarray(up, dtype=np.float64)
     right = np.cross(forward, up)
@@ -144,11 +139,8 @@ def look_at_rotmat(C, target, up):
         right = np.cross(forward, alt)
         nr = np.linalg.norm(right)
     right = right / nr
-    # COLMAP +Y 下: down = forward × right 的反 = right × forward
-    # (right × forward 指向相机下方, 与 +Y down 一致)
-    down = np.cross(right, forward)
-    back = -forward   # COLMAP +Z 朝相机背后
-    R = np.stack([right, down, back], axis=0)
+    down = np.cross(forward, right)
+    R = np.stack([right, down, forward], axis=0)
     return R
 
 
@@ -567,21 +559,18 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
             cv["iso_focal"] = round(f, 1)
 
     # 3. Sanity check: face_center 反投回每个近景视角
-    #    COLMAP 约定: 相机看 -Z, 前方 Pc[2] < 0, 深度 = -Pc[2]。
-    #    (旧代码误用 +Z forward, 判 Pc[2]>0, 永远报"在背后"或投影错位。)
     print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
     n_bad = 0
     for cv in closeup_views:
         Pc = cv["R"] @ face_center + cv["T"]
         dist = float(np.linalg.norm(face_center - cv["C"]))
-        depth = -Pc[2]   # COLMAP 深度 = -z
-        if depth <= 0:
-            print(f"{prefix}  ❌ {cv['name']}: F 在相机背后 (z={Pc[2]:.3f}, depth={depth:.3f})")
+        if Pc[2] <= 0:
+            print(f"{prefix}  ❌ {cv['name']}: F 在相机背后 (z={Pc[2]:.3f})")
             cv["face_offset_px"] = -1.0
             n_bad += 1
             continue
-        u = cv["fx"] * Pc[0] / depth + cv["cx"]
-        v = cv["fy"] * Pc[1] / depth + cv["cy"]
+        u = cv["fx"] * Pc[0] / Pc[2] + cv["cx"]
+        v = cv["fy"] * Pc[1] / Pc[2] + cv["cy"]
         off_px = math.hypot(u - cv["cx"], v - cv["cy"])
         off_pct = off_px / min(cv["W"], cv["H"]) * 100
         in_frame = (0 <= u < cv["W"]) and (0 <= v < cv["H"])
@@ -592,7 +581,7 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
         cv["dist_to_face"] = dist
         half_fov = math.degrees(math.atan(min(cv["W"], cv["H"]) / (2 * min(cv["fx"], cv["fy"]))))
         print(f"{prefix}  {flag} {cv['name']}: F→({u:6.0f},{v:6.0f}) 偏离中心 {off_px:5.1f}px "
-              f"({off_pct:4.1f}%) 物距 {dist:.3f} 深度 {depth:.3f} 半FOV {half_fov:.0f}°")
+              f"({off_pct:4.1f}%) 物距 {dist:.3f} 半FOV {half_fov:.0f}°")
     if n_bad:
         print(f"{prefix}  ⚠️ {n_bad}/{len(closeup_views)} 个视角未对准人脸")
     else:
