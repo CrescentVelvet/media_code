@@ -166,6 +166,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
     # 🧑 ply 续训：载入 30k 高斯 + exposure.json（use_train_test_exp=True 才会读）
     if start_ply:
         gaussians.load_ply(start_ply, use_train_test_exp=True)
+        # 🧑 densify 开启时需重建 max_radii2D（load_ply 不调用 densification_postfix，
+        #    max_radii2D 仍是 torch.empty(0)，densify 块 max_radii2D[visibility_filter]
+        #    会 index out of bounds 崩溃）
+        if densify_until > 0:
+            n = gaussians.get_xyz.shape[0]
+            gaussians.max_radii2D = torch.zeros((n,), device="cuda")
+            print(f"🧑 densify ON: rebuilt max_radii2D (size={n}) for resumed gaussians")
         # 🧑 注入相机（如 06e 增强近景）不在原场景 exposure.json 里；30k exposure
         #   已收敛为恒等阵，缺失条目直接补恒等 3x4，否则 Scene.save() 的 exposure
         #   导出与 use_trained_exp 渲染对新增图名会 KeyError（06e 实测踩坑）。
@@ -333,8 +340,24 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
-            # 🧑 Densification 冻结：官方块由 densify_until_iter=0 短路，整段省略
-            # （原块逻辑保留在官方 train.py，此处直接跳过）
+            # 🧑 Densification：由 opt.densify_until_iter 控制
+            #   densify_until=0（默认）→ 条件 iteration < 0 恒假，整段短路（冻结续训）
+            #   densify_until=50000   → 30k→50k 期间正常触发克隆/分裂/不透明度重置
+            #   ⚠️ 续训从 30k 恢复，densify_from_iter 默认 500，已过，触发条件由
+            #      densification_interval(100) 和 densify_grad_threshold(0.0002) 决定
+            if iteration < opt.densify_until_iter:
+                gaussians.max_radii2D[visibility_filter] = torch.max(
+                    gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+
+                if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005,
+                                                scene.cameras_extent, size_threshold, radii)
+
+                if iteration % opt.opacity_reset_interval == 0 or \
+                   (dataset.white_background and iteration == opt.densify_from_iter):
+                    gaussians.reset_opacity()
 
             # Optimizer step
             if iteration < opt.iterations:
