@@ -15,6 +15,7 @@
 #   EXTRA_ITERS=20000            # 续训步数 (终点 = ITERATION + EXTRA_ITERS)
 #   LR_SCALE=0.2                 # 学习率缩放 (0.1 收敛偏慢, 0.2 实测最优)
 #   FACE_WEIGHT=0                # 人脸监督权重 (0=关; 实验证明无贡献, 保留开关)
+#   DENSIFY_UNTIL=0              # densify_until_iter (0=冻结续训, 15000=开启加密, 消融用)
 #   GAUSSIAN_CONTINUE_DIR=       # 输出模型 (默认 06d_model_3dgs_continue)
 set -o pipefail
 
@@ -29,6 +30,7 @@ ITERATION="${ITERATION:-30000}"
 EXTRA_ITERS="${EXTRA_ITERS:-20000}"
 LR_SCALE="${LR_SCALE:-0.2}"
 FACE_WEIGHT="${FACE_WEIGHT:-0}"
+DENSIFY_UNTIL="${DENSIFY_UNTIL:-0}"
 GAUSSIAN_CONTINUE_DIR="${GAUSSIAN_CONTINUE_DIR:-$RESULTS_DIR/06d_model_3dgs_continue}"
 FINETUNE_ITERATIONS=$((ITERATION + EXTRA_ITERS))
 
@@ -49,6 +51,7 @@ TRAIN_FLAGS=(
     --start_ply "$START_PLY"
     --lr_scale "$LR_SCALE"
     --face_weight "$FACE_WEIGHT"
+    --densify_until "$DENSIFY_UNTIL"
     --port 0
     --disable_viewer
     --test_iterations "$FINETUNE_ITERATIONS"

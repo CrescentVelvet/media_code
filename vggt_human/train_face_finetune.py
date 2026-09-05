@@ -144,12 +144,13 @@ class FaceData:
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
              start_ply, start_iter, lr_scale,
-             face_images_dir, face_masks_dir, face_weight, face_soft, face_ssim_mode):
+             face_images_dir, face_masks_dir, face_weight, face_soft, face_ssim_mode,
+             densify_until=0):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
-    # 🧑 densification 冻结（克隆/分裂/不透明度重置全关，官方分支按此值短路）
-    opt.densify_until_iter = 0
+    # 🧑 densification 控制：默认 0=冻结（续训配方）；可设 15000 开启（消融实验）
+    opt.densify_until_iter = densify_until
     # 🧑 LR ×0.1：先缩放 opt（xyz scheduler 与 training_setup 共用），静态参数组
     #    由 training_setup 直接拿到缩放值；checkpoint 路径下 restore 之后还需再缩
     #    一次（load_state_dict 用 30k 保存值覆盖）。
@@ -181,7 +182,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             stem = os.path.basename(os.path.dirname(start_ply))   # iteration_N
             start_iter = int(stem.split("_")[-1])
         first_iter = start_iter
-        print(f"🧑 resumed gaussians from {start_ply} (first_iter={first_iter}, lr×{lr_scale}, densify OFF)")
+        _densify_status = "OFF" if densify_until == 0 else f"until={densify_until}"
+        print(f"🧑 resumed gaussians from {start_ply} (first_iter={first_iter}, lr×{lr_scale}, densify {_densify_status})")
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -439,6 +441,9 @@ if __name__ == "__main__":
                         help="first iteration (default: parsed from start_ply path)")
     parser.add_argument("--lr_scale", type=float, default=0.1,
                         help="multiply all base learning rates (design: LR 1/10)")
+    parser.add_argument("--densify_until", type=int, default=0,
+                        help="densify_until_iter (0=frozen, 15000=official default; "
+                             "resume 时若 start_iter 已过此值则仍不触发)")
     parser.add_argument("--face_images_dir", type=str, default="",
                         help="HYPIR-enhanced images dir (face_enhance.py output)")
     parser.add_argument("--face_masks_dir", type=str, default="",
@@ -471,7 +476,7 @@ if __name__ == "__main__":
              args.start_checkpoint, args.debug_from,
              args.start_ply, args.start_iter, args.lr_scale,
              args.face_images_dir, args.face_masks_dir, args.face_weight, args.face_soft,
-             args.face_ssim_mode)
+             args.face_ssim_mode, args.densify_until)
 
     # All done
     print("\nTraining complete.")
