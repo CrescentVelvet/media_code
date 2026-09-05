@@ -9,6 +9,11 @@ Env vars:
   POSES_ROOT    : 含 06c_closeup_poses_p*.json 的目录
   OUT_DIR       : 输出目录
   GS_DIR        : gaussian-splatting repo
+
+⚠️ 路径规范 (见 README_wsl.md):
+  - GAUSSIAN_DIR / POSES_ROOT 可以在 /mnt/d (读已有产物)
+  - OUT_DIR 应该写到 ~/output/ (Linux fs), 跑完用 08 搬到 D 盘
+  - 不要把渲染输出直接写到 /mnt/d (drvfs 慢, 且违反规范)
 """
 import os, sys, json, math, glob
 import numpy as np

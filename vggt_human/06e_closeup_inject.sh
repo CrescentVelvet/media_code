@@ -17,7 +17,7 @@
 #   LR_SCALE=0.2                 # 学习率缩放
 #   CLOSEUP_ROOT=                # 近景数据根 (默认 $RESULTS_DIR/06c_512_enhanced)
 #   PERSONS=                     # 可选 pid 过滤, 如 p00,p01,p02 (默认全部)
-#   06E_SOURCE_DIR=              # 注入场景输出 (默认 $RESULTS_DIR/06e_source_closeup)
+#   SCENE_OUT=                   # 注入场景输出 (默认 $RESULTS_DIR/06e_source_closeup)
 #   GAUSSIAN_CONTINUE_DIR=       # 输出模型 (默认 $RESULTS_DIR/06e_model_3dgs_closeup)
 set -o pipefail
 
@@ -33,7 +33,7 @@ EXTRA_ITERS="${EXTRA_ITERS:-20000}"
 LR_SCALE="${LR_SCALE:-0.2}"
 CLOSEUP_ROOT="${CLOSEUP_ROOT:-$RESULTS_DIR/06c_512_enhanced}"
 PERSONS="${PERSONS:-}"
-SCENE_OUT="${06E_SOURCE_DIR:-$RESULTS_DIR/06e_source_closeup}"
+SCENE_OUT="${SCENE_OUT:-$RESULTS_DIR/06e_source_closeup}"
 GAUSSIAN_CONTINUE_DIR="${GAUSSIAN_CONTINUE_DIR:-$RESULTS_DIR/06e_model_3dgs_closeup}"
 
 START_PLY="$GAUSSIAN_DIR/point_cloud/iteration_$ITERATION/point_cloud.ply"
