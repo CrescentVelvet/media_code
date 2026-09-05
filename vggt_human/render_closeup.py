@@ -25,7 +25,9 @@ Env vars:
   MASKS_DIR     : face masks folder (单人 {stem}.mask.png / 多人 {stem}.p{pid}.mask.png)
   PERSONS       : 多人模式下要跑的 pid 逗号列表 (默认全部)
   N_BINS        : azimuth bins (default 10)
-  TARGET_COV    : target SAM2 coverage % to stop (default 40)
+  TARGET_COV    : (已废弃) 旧开环覆盖率估算的推进阈值, 现仅保留兼容;
+                  覆盖率改由渲染期 alpha 软均值闭环测量 (alpha_coverage)
+  MIN_DIST_RATIO: 推进终点 = 基视图物距 × 该比例 (线性插值, default 0.3)
   MIN_DIST_RATIO: min distance ratio (default 0.3)
   PITCH_DEG     : pitch extrapolation degrees (default 10)
   CLOSEUP_SIZE  : 方形近景分辨率 (如 512; 0=默认用 COLMAP 相机 W/H)
@@ -61,10 +63,13 @@ GS_DIR = os.environ.get("GS_DIR", os.path.expanduser("~/repos/gaussian-splatting
 DEVICE = os.environ.get("DEVICE", "cuda")
 
 # 优化点 2 (grill-me A2): 近景渲染固定方形分辨率 (如 512)。
-# 等距 fx=fy 从人脸 3D 点簇 spread 推导: 人脸半径 r=K×mean(spread),
-# 期望人脸占半边长的 FACE_FILL → fx = FACE_FILL * (S/2) * d / r (d=物距, 逐视角)。
-# 人脸像素尺寸跨视角恒定, 整张图即人脸特写 → 下游 WHOLE_IMAGE 整图增强。
+# 焦距模式 CLOSEUP_FOCAL:
+#   ref_fov   (默认, 用户方案) 取参考相机 min(fov_x, fov_y) 映射到 S×S —— 更窄轴 FOV
+#             拉满变焦。fx 与物距 d 解耦 → 推近真正增大人脸占比 (旧模式 d 被约掉, 推近无效)
+#   face_fill (旧) fx = FACE_FILL * (S/2) * d / r, 随 d 联动 → 脸投影半径恒 FACE_FILL*(S/2),
+#             推近/拉远均不改变构图, 只改变 FOV (18°~100°), 已证伪弃用
 CLOSEUP_SIZE = int(os.environ.get("CLOSEUP_SIZE", "0"))   # 0 = 用 COLMAP 相机 W/H (旧行为)
+CLOSEUP_FOCAL = os.environ.get("CLOSEUP_FOCAL", "ref_fov")
 FACE_FILL = float(os.environ.get("FACE_FILL", "0.8"))
 FACE_SPREAD_K = float(os.environ.get("FACE_SPREAD_K", "2.5"))
 
@@ -280,38 +285,29 @@ def select_base_views(views, coverage, n_bins):
     return selected
 
 
-def compute_closeup_pose(view, face_center, target_cov, masks_dir, min_ratio):
-    """沿 C→F 直线推进相机, 直到估计覆盖率 >= target。
+def compute_closeup_pose(view, face_center, min_ratio):
+    """沿 C→F 直线线性插值推进相机到 orig_dist × min_ratio 处。
 
-    返回 (R, T, C, est_cov)。
+    返回 (R, T, C, est_cov)。est_cov 恒 -1: 旧的 base_cov×(d0/d)² 开环估算已证伪
+    (base_cov=0 恒 0, 阈值不可达全触底), 覆盖率改由渲染期 alpha 软均值闭环测量
+    (见 render_views 的 alpha_coverage)。
 
-    关键修正 (Fix C):
-      推进后用 look-at 重算 R, 让相机严格瞄准 face_center。
-      原实现直接沿用基视图的 R —— 基视图若本身没对准人脸, 推得越近偏得越多。
+    Fix C 保留: 推进后 look-at 重算 R, 相机严格瞄准 face_center。
     """
     orig_C = view["C"].copy()
     orig_dist = np.linalg.norm(face_center - orig_C)
 
-    # 沿 C→F 直线推进 (与视线无关, 保证人脸始终在光轴方向上)
+    # 沿 C→F 直线线性插值 (与视线无关, 保证人脸始终在光轴方向上)
     direction = (face_center - orig_C)
     direction = direction / (np.linalg.norm(direction) + 1e-8)
-
-    best_C = orig_C.copy()
-    best_cov = view.get("coverage", 0)
-
-    # 覆盖率近似: 面积 ~ 1/距离^2
-    for ratio in np.arange(0.95, min_ratio - 0.05, -0.05):
-        new_dist = orig_dist * ratio
-        best_C = face_center - direction * new_dist
-        best_cov = min(view.get("coverage", 0) * (orig_dist / new_dist) ** 2, 100)
-        if best_cov >= target_cov:
-            break
+    new_dist = orig_dist * min_ratio
+    best_C = face_center - direction * new_dist
 
     # Fix C: look-at 重算朝向, up 沿用基视图以保持 roll
     up = -view["R"][1, :]
     R_new = look_at_rotmat(best_C, face_center, up)
     T_new = -R_new @ best_C
-    return R_new, T_new, best_C, best_cov
+    return R_new, T_new, best_C, -1.0
 
 
 def apply_pitch(view, face_center, pitch_deg):
@@ -441,9 +437,12 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
                 soft_np = soft.cpu().numpy()
                 a8 = (soft_np * 255).astype(np.uint8)
                 stem = os.path.splitext(cv["name"])[0]
+                # .alpha.png = 软 alpha 图 (0-255), 直接可作 loss 人脸区域加权 mask
                 Image.fromarray(a8).save(os.path.join(geo_dir, f"{stem}.alpha.png"))
                 Image.fromarray(((soft_np > 0.5) * 255).astype(np.uint8)).save(
                     os.path.join(geo_dir, f"{stem}.mask.png"))
+                # alpha_coverage = 软均值 (用户定义的闭环覆盖率, 无二值化无阈值)
+                cv["alpha_coverage"] = float(soft_np.mean() * 100)
                 geo_cov = float((soft_np > 0.5).mean() * 100)
             cv["geo_coverage"] = geo_cov
 
@@ -459,7 +458,8 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
         avg_a = float(alpha.mean())
         print(f"  [{i+1}/{len(closeup_views)}] {cv['name']} alpha={avg_a:.3f} "
               f"{'⚠️' if avg_a < 0.3 else '✅'}"
-              + (f" geo_cov={cv['geo_coverage']:.1f}%" if geo else ""))
+              + (f" geo_cov={cv['geo_coverage']:.1f}%" if geo else "")
+              + (f" alpha_cov={cv['alpha_coverage']:.2f}%" if geo else ""))
 
         # 优化点 3: sidecar _debug/ 标注副本 (渲染图 + alpha 色化图)
         if DEBUG_ANNOTATE and debug_dir:
@@ -476,6 +476,8 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
             ]
             if cv.get("geo_coverage", -1) >= 0:
                 lines.append(f"geo_mask_cov={cv['geo_coverage']:.1f}% (方案E SH hack)")
+            if cv.get("alpha_coverage", -1) >= 0:
+                lines.append(f"alpha_cov={cv['alpha_coverage']:.2f}% (软均值)")
             rgb_np = (rgb.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
             draw_annotations(Image.fromarray(rgb_np), lines).save(
                 os.path.join(debug_dir, cv["name"]))
@@ -496,6 +498,7 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
             face_offset_px=cv.get("face_offset_px", -1.0),
             dist_to_face=cv.get("dist_to_face", -1.0),
             geo_coverage=cv.get("geo_coverage", -1.0),
+            alpha_coverage=cv.get("alpha_coverage", -1.0),
         ))
 
     del gaussians
@@ -518,8 +521,8 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
     print(f"\n{prefix}🔭 generating closeup + pitch views...")
     closeup_views = []
     for bv in base_views:
-        # Closeup: move toward face center
-        R, T, C, cov = compute_closeup_pose(bv, face_center, TARGET_COV, MASKS_DIR, MIN_DIST_RATIO)
+        # Closeup: 沿 C→F 线性插值推进到 MIN_DIST_RATIO
+        R, T, C, cov = compute_closeup_pose(bv, face_center, MIN_DIST_RATIO)
         closeup = dict(bv)
         closeup["R"] = R; closeup["T"] = T; closeup["C"] = C
         closeup["est_cov"] = cov
@@ -544,19 +547,36 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
 
     print(f"{prefix}  {len(closeup_views)} closeup views generated")
 
-    # 2b. CLOSEUP_SIZE 模式: 覆写为方形分辨率 + 等距焦距 (人脸占 FACE_FILL 半边长)
+    # 2b. CLOSEUP_SIZE 模式: 覆写为方形分辨率 + 等距焦距
     if CLOSEUP_SIZE > 0:
-        if r_face <= 0:
-            sys.exit(f"{prefix}CLOSEUP_SIZE={CLOSEUP_SIZE} 需要 FACE_CENTER JSON 的 spread "
-                     f"(r_face<=0; face_center_3d 输出含 spread 字段)")
-        print(f"{prefix}📐 CLOSEUP_SIZE={CLOSEUP_SIZE}: r_face={r_face:.4f}, fill={FACE_FILL}")
-        for cv in closeup_views:
-            d = float(np.linalg.norm(face_center - cv["C"]))
-            f = FACE_FILL * (CLOSEUP_SIZE / 2) * d / r_face
-            cv["W"] = cv["H"] = CLOSEUP_SIZE
-            cv["cx"] = cv["cy"] = CLOSEUP_SIZE / 2
-            cv["fx"] = cv["fy"] = f
-            cv["iso_focal"] = round(f, 1)
+        if CLOSEUP_FOCAL == "ref_fov":
+            # 用户方案: 参考相机 min(fov_x, fov_y) 映射到 S×S。fx 与 d 解耦,
+            # 推近真正增大人脸占比; 用更窄轴 FOV 拉满变焦, 不引入额外畸变。
+            # 注意: 此刻 cv 的 W/H/fx/fy 还是基视图原始值 (覆写前先算)。
+            for cv in closeup_views:
+                fov_x = 2 * math.atan(cv["W"] / (2 * cv["fx"]))
+                fov_y = 2 * math.atan(cv["H"] / (2 * cv["fy"]))
+                f = (CLOSEUP_SIZE / 2) / math.tan(min(fov_x, fov_y) / 2)
+                cv["W"] = cv["H"] = CLOSEUP_SIZE
+                cv["cx"] = cv["cy"] = CLOSEUP_SIZE / 2
+                cv["fx"] = cv["fy"] = f
+                cv["iso_focal"] = round(f, 1)
+            print(f"{prefix}📐 CLOSEUP_SIZE={CLOSEUP_SIZE} (ref_fov 解耦): "
+                  f"f ∈ [{min(cv['iso_focal'] for cv in closeup_views)}, "
+                  f"{max(cv['iso_focal'] for cv in closeup_views)}] px (随基视图 FOV 变化)")
+        else:
+            # 旧 face_fill 模式: fx 随 d 联动, 脸投影半径恒 FACE_FILL*(S/2) (推近无效)
+            if r_face <= 0:
+                sys.exit(f"{prefix}CLOSEUP_FOCAL=face_fill 需要 FACE_CENTER JSON 的 spread "
+                         f"(r_face<=0; face_center_3d 输出含 spread 字段)")
+            print(f"{prefix}📐 CLOSEUP_SIZE={CLOSEUP_SIZE}: r_face={r_face:.4f}, fill={FACE_FILL} (face_fill 联动模式)")
+            for cv in closeup_views:
+                d = float(np.linalg.norm(face_center - cv["C"]))
+                f = FACE_FILL * (CLOSEUP_SIZE / 2) * d / r_face
+                cv["W"] = cv["H"] = CLOSEUP_SIZE
+                cv["cx"] = cv["cy"] = CLOSEUP_SIZE / 2
+                cv["fx"] = cv["fy"] = f
+                cv["iso_focal"] = round(f, 1)
 
     # 3. Sanity check: face_center 反投回每个近景视角
     print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
