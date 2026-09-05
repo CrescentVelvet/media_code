@@ -21,6 +21,8 @@ Uses the vggt_human conda env (has diffusers/transformers/peft for HYPIR + media
 Env vars (set by 01_face_enhance.sh or 06_face_enhance.sh):
   HYPIR_DIR, HYPIR_BASE_MODEL, HYPIR_WEIGHT, INPUT_SOURCE_DIR, SOURCE_FACE_DIR,
   FACE_PADDING, UPSCALE, PATCH_SIZE, STRIDE, DEVICE, WHOLE_IMAGE
+  SPEED_MERGE_LORA, SPEED_CACHE_TEXT, SPEED_COMPILE, SPEED_COMPILE_MODE,
+  SPEED_COMPILE_VAE, SPEED_COMPILE_FORCE
 """
 import os
 import sys
@@ -64,6 +66,21 @@ DEBUG_ANNOTATE = os.environ.get("DEBUG_ANNOTATE", "1") == "1"
 FUSION_MODE = os.environ.get("FUSION_MODE", "feather").lower()
 ALPHA_DIR = os.environ.get("ALPHA_DIR", "")
 BORDER_MARGIN = float(os.environ.get("BORDER_MARGIN", "0.08"))  # 边缘 band 占 crop 短边比例
+# 优化点 1 的替代提速路线（TorchScript 经 grill-me 否决后定的三项）：
+#   SPEED_MERGE_LORA  LoRA 合并进 base 权重 → 去掉每层额外两路小矩阵乘
+#   SPEED_CACHE_TEXT  prompt 恒定（本流程恒为 ""）→ text_encoder 只跑一次
+#   SPEED_COMPILE     torch.compile UNet（需输入形状恒定，见 main() 门控）
+# 三项互不依赖，可单独关掉做 A/B；任一项失败都降级回原路径并告警，不影响正确性。
+SPEED_MERGE_LORA = os.environ.get("SPEED_MERGE_LORA", "1") == "1"
+SPEED_CACHE_TEXT = os.environ.get("SPEED_CACHE_TEXT", "1") == "1"
+# compile 默认 auto：在 merge_lora + cache_text 已生效的基础上，compile 的增量只有
+# 142→130ms（省 ~12ms/张），一次性编译却要 ~28s → 约 2300 张才回本（3090 / 512²/
+# vggt_human env 实测）。小批量编译是净亏，故按图片数自动决定；=1 强制、=0 关闭。
+SPEED_COMPILE = os.environ.get("SPEED_COMPILE", "auto").lower()
+SPEED_COMPILE_MIN_IMAGES = int(os.environ.get("SPEED_COMPILE_MIN_IMAGES", "2400"))
+SPEED_COMPILE_MODE = os.environ.get("SPEED_COMPILE_MODE", "reduce-overhead")
+SPEED_COMPILE_VAE = os.environ.get("SPEED_COMPILE_VAE", "0") == "1"
+SPEED_COMPILE_FORCE = os.environ.get("SPEED_COMPILE_FORCE", "0") == "1"
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -165,6 +182,99 @@ def draw_annotations(pil_img, lines):
 
 
 # ---------------------------------------------------------------------------
+# 推理提速三项（merge LoRA / text embed 缓存 / torch.compile）
+# ---------------------------------------------------------------------------
+def merge_lora(model):
+    """把 LoRA 合并进 UNet 的 base 权重。
+
+    SD2Enhancer 用 diffusers 的 add_adapter（底层 peft.inject_adapter_in_model）
+    注入 LoRA，所以没有 LoraModel 的 merge_and_unload()，需要逐层调用
+    peft LoraLayer.merge()：delta = (B @ A) * scaling 累加进 base_layer.weight。
+    合并后推理不再走 lora_A/lora_B 两路额外矩阵乘（r=256、SD2.1 UNet 共 257 层，
+    这部分开销可观）。实测 161→139ms/张（1.16x，0 预热成本）。
+
+    数值：peft 的 merge 把 delta 累加进 base weight，bf16 累加引入误差。对齐调用
+    序号对比（见下方 cache_text_embed 关于随机流的说明），merge 前后输出
+    mean|Δ| = 0.35/255（≈0.14%），可忽略。
+    """
+    n = 0
+    for m in model.G.modules():
+        if not hasattr(m, "lora_A"):
+            continue
+        try:
+            if bool(getattr(m, "merged", False)):   # peft 里 merged 是已合并 adapter 列表
+                continue
+            m.merge()
+            n += 1
+        except Exception as e:
+            print(f"  ⚠️ merge LoRA 失败于 {type(m).__name__}: {e}", file=sys.stderr)
+    return n
+
+
+def cache_text_embed(model):
+    """缓存空 prompt 的 text embed。
+
+    BaseEnhancer.enhance() 每张图都调 prepare_inputs() → tokenizer + CLIP
+    text_encoder 前向。本流程 prompt 恒为 ""，embed 恒定，只需算一次。
+    实测 170→161ms/张（1.05x，0 预热成本）。数值上完全等价：text_encoder 前向
+    是确定性的、也不消耗 RNG，缓存只是跳过重复计算，输出逐位不变。
+    实现为 monkey patch：命中缓存时直接把 self.inputs 指回上次的结果
+    （下游 forward_generator 只读不写）。
+
+    ⚠️ 做 A/B 正确性对比时的坑：HYPIR 的 vae.encode().latent_dist.sample() 每次
+    前向都从同一个（set_seed 固定的）随机流取新样本，所以输出对「第几次调用」
+    敏感 —— 相邻两次前向就有 mean|Δ|≈0.011（0-1 尺度）的差异，但这不是任何改动
+    造成的。对比提速前后必须对齐调用序号（例如跑两次完整脚本比同名图片），
+    否则会量到 0.01 量级的假差异。固定 seed 下同一调用序号是逐位可复现的
+    （实测两次独立运行 mean|Δ|=0.000/255）。
+    """
+    orig = model.prepare_inputs
+    cache = {}
+
+    def wrapped(batch_size, prompt):
+        key = (batch_size, prompt)
+        if key in cache:
+            model.inputs = cache[key]
+            return
+        orig(batch_size, prompt)
+        cache[key] = model.inputs
+
+    model.prepare_inputs = wrapped
+    return cache
+
+
+def compile_unet(model, mode, compile_vae=False):
+    """torch.compile UNet（单步扩散的主要开销）。
+
+    两个必须踩过的坑（3090 / 512×512 / vggt_human env 实测）：
+    1. diffusers 的 Attention.forward 里有 inspect.signature(self.processor.__call__)，
+       dynamo 会对每个 attention block 的 processor 对象 id 加 guard，UNet 十几个
+       block 各要一份编译。默认 cache_size_limit=8 撑爆后 dynamo 放弃编译、退回
+       eager 并保留 dynamo 开销 → 实测 175ms 反而变成 1687ms（慢 10 倍）。
+       抬到 64 之后 3 次 warmup 内收敛，稳态 129ms 且不再重编译。
+    2. 形状必须恒定，否则按新形状反复重编译；reduce-overhead 还会抓 CUDA graph，
+       遇到未捕获的新形状可能直接报错。故由调用方按输入尺寸做门控。
+    """
+    import torch
+    try:
+        torch._dynamo.config.cache_size_limit = 64
+        torch._dynamo.config.accumulated_cache_size_limit = 128
+    except Exception as e:
+        print(f"  ⚠️ 设置 dynamo cache_size_limit 失败: {e}", file=sys.stderr)
+    n = 1
+    model.G = torch.compile(model.G, mode=mode)
+    if compile_vae:
+        # VAE decode 在 512 下也是可观开销。风险：decode 返回的是
+        # DecoderOutput，dynamo 拆包失败时会抛异常 → 捕获后静默跳过。
+        try:
+            model.vae.decode = torch.compile(model.vae.decode, mode=mode)
+            n += 1
+        except Exception as e:
+            print(f"  ⚠️ VAE compile 失败，跳过: {e}", file=sys.stderr)
+    return n
+
+
+# ---------------------------------------------------------------------------
 # Main.
 # ---------------------------------------------------------------------------
 def main():
@@ -212,7 +322,7 @@ def main():
     model.init_models()
     print(f"  ✅ HYPIR loaded (weight={WEIGHT_PATH})")
 
-    # ── 3. Process images ────────────────────────────────────────────────────
+    # ── 2b. 推理提速三项（任一项失败都降级回原路径，不影响正确性） ──────────
     # Input can be: COLMAP scene (images/ subdir), test_task folder (image/ subdir),
     # or a plain image folder (images directly in INPUT_SOURCE_DIR).
     input_images_dir = os.path.join(INPUT_SOURCE_DIR, "images")
@@ -230,6 +340,34 @@ def main():
     if not images:
         sys.exit(f"❌ no images in {input_images_dir}")
 
+    if SPEED_MERGE_LORA:
+        n = merge_lora(model)
+        print(f"  ⚡ merge LoRA: {n} 层已合并进 base 权重")
+    if SPEED_CACHE_TEXT:
+        cache_text_embed(model)
+        print("  ⚡ text embed 缓存已启用（prompt 恒定，text_encoder 只跑一次）")
+    if SPEED_COMPILE == "1":
+        do_compile = True
+    elif SPEED_COMPILE in ("0", "false", "off", "no"):
+        do_compile = False
+    else:  # auto：按批量大小与回本线比较（一次性编译 ~30s，每张省 ~41ms）
+        do_compile = len(images) >= SPEED_COMPILE_MIN_IMAGES
+        if not do_compile:
+            print(f"  ℹ️ compile=auto：{len(images)} 张 < 回本线 {SPEED_COMPILE_MIN_IMAGES} 张"
+                  f"（一次性编译 ~28s，每张仅省 ~12ms）→ 本次不编译")
+    if do_compile:
+        sizes = {Image.open(os.path.join(input_images_dir, f)).size for f in images}
+        if len(sizes) == 1 and (WHOLE_IMAGE or SPEED_COMPILE_FORCE):
+            n = compile_unet(model, SPEED_COMPILE_MODE, SPEED_COMPILE_VAE)
+            print(f"  ⚡ torch.compile({SPEED_COMPILE_MODE}) 已启用: "
+                  f"{'UNet+VAE' if n > 1 else 'UNet'}（首图含 ~30s 编译开销，后续摊销）")
+        else:
+            reason = (f"{len(sizes)} 种输入尺寸" if len(sizes) > 1
+                      else "非 WHOLE_IMAGE 模式，crop/tile 尺寸不恒定")
+            print(f"  ⚠️ 跳过 compile：{reason}（形状不恒定会反复重编译，"
+                  f"SPEED_COMPILE_FORCE=1 可强制）")
+
+    # ── 3. Process images ────────────────────────────────────────────────────
     print(f"🖼️ [3/3] enhancing faces in {len(images)} images..."
           + (f" (FUSION_MODE={FUSION_MODE}, ALPHA_DIR={ALPHA_DIR})"
              if FUSION_MODE != "feather" else ""))
