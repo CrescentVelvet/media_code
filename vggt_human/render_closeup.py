@@ -55,8 +55,14 @@ RESULTS_DIR = os.environ.get("RESULTS_DIR", "")
 FACE_CENTER_JSON = os.environ.get("FACE_CENTER", "")
 MASKS_DIR = os.environ.get("MASKS_DIR", "")
 N_BINS = int(os.environ.get("N_BINS", "10"))
-TARGET_COV = float(os.environ.get("TARGET_COV", "40"))
+TARGET_COV = float(os.environ.get("TARGET_COV", "40"))   # 闭环推近目标: alpha 软均值覆盖率 %
 MIN_DIST_RATIO = float(os.environ.get("MIN_DIST_RATIO", "0.3"))
+# 闭环推近 (用户方案): 从输入视角出发, 反复「测 alpha 覆盖率 → 解析跳步 d·√(cov/target)」推近,
+#   直到达标或触及安全下限。覆盖率 ∝ 1/d² 故一步接近, MAX_PUSH_ITERS 只是补偿遮挡/透视偏差。
+CLOSED_LOOP = os.environ.get("CLOSED_LOOP", "1") not in ("0", "false", "no")
+MAX_PUSH_ITERS = int(os.environ.get("MAX_PUSH_ITERS", "3"))
+MIN_DIST_ABS = float(os.environ.get("MIN_DIST_ABS", "0.15"))   # 安全物距下限 (米), 防相机插进头里
+ALPHA_PROBE = int(os.environ.get("ALPHA_PROBE", "128"))        # 覆盖率探测渲染分辨率 (尺度无关, 小图足够)
 PITCH_DEG = float(os.environ.get("PITCH_DEG", "10"))
 ITERATION = int(os.environ.get("ITERATION", "30000"))
 GS_DIR = os.environ.get("GS_DIR", os.path.expanduser("~/repos/gaussian-splatting"))
@@ -286,22 +292,22 @@ def select_base_views(views, coverage, n_bins):
 
 
 def compute_closeup_pose(view, face_center, min_ratio):
-    """沿 C→F 直线线性插值推进相机到 orig_dist × min_ratio 处。
+    """沿 C→F 直线推进相机 (闭环模式下不动, 交给 closed_loop_pushin 决定终点)。
 
     返回 (R, T, C, est_cov)。est_cov 恒 -1: 旧的 base_cov×(d0/d)² 开环估算已证伪
     (base_cov=0 恒 0, 阈值不可达全触底), 覆盖率改由渲染期 alpha 软均值闭环测量
-    (见 render_views 的 alpha_coverage)。
+    (见 render_views 的 alpha_coverage / closed_loop_pushin 的探测)。
 
     Fix C 保留: 推进后 look-at 重算 R, 相机严格瞄准 face_center。
     """
     orig_C = view["C"].copy()
     orig_dist = np.linalg.norm(face_center - orig_C)
 
-    # 沿 C→F 直线线性插值 (与视线无关, 保证人脸始终在光轴方向上)
+    # 闭环模式: 起点 = 输入视角本身 (用户「从输入视角采样」语义), 推进量由探测决定
+    ratio = 1.0 if CLOSED_LOOP else min_ratio
     direction = (face_center - orig_C)
     direction = direction / (np.linalg.norm(direction) + 1e-8)
-    new_dist = orig_dist * min_ratio
-    best_C = face_center - direction * new_dist
+    best_C = face_center - direction * (orig_dist * ratio)
 
     # Fix C: look-at 重算朝向, up 沿用基视图以保持 roll
     up = -view["R"][1, :]
@@ -506,6 +512,150 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
     return poses
 
 
+def load_gaussians():
+    """加载 3DGS 模型 (闭环探测复用, 避免每次探测重新 load PLY)。"""
+    from scene import GaussianModel
+    from argparse import Namespace
+    import torch
+
+    ply_path = os.path.join(GAUSSIAN_DIR, "point_cloud", f"iteration_{ITERATION}", "point_cloud.ply")
+    if not os.path.isfile(ply_path):
+        sys.exit(f"PLY not found: {ply_path}")
+    sh_degree = 3
+    cfg_path = os.path.join(GAUSSIAN_DIR, "cfg_args")
+    if os.path.isfile(cfg_path):
+        with open(cfg_path) as f:
+            m = re.search(r"sh_degree\s*=\s*(\d+)", f.read())
+            if m:
+                sh_degree = int(m.group(1))
+    print(f"  loading 3DGS: {ply_path} (sh={sh_degree})")
+    gaussians = GaussianModel(sh_degree)
+    gaussians.load_ply(ply_path)
+    gaussians.active_sh_degree = sh_degree
+    pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False,
+                     antialiasing=False, debug=False)
+    bg_black = torch.zeros(3, device=DEVICE)
+    bg_white = torch.ones(3, device=DEVICE)
+    return gaussians, pipe, bg_black, bg_white
+
+
+def select_face_gaussians(gaussians, face_center, r_face, spread):
+    """选出「人脸/头部」高斯子集 (染白用)。
+
+    当前用椭球 K×spread 近似 (脸部点簇), 3DMM 头/身/景拆分后应换成真·人头分组。
+    """
+    import torch
+    xyz = gaussians.get_xyz
+    fc_t = torch.as_tensor(np.asarray(face_center, dtype=np.float32), device=DEVICE)
+    diff = xyz - fc_t
+    if GEO_SHAPE == "ellipsoid" and spread is not None:
+        s = np.maximum(np.asarray(spread, dtype=np.float32), 1e-4)
+        inv = 1.0 / (torch.as_tensor(s, device=DEVICE) * FACE_SPREAD_K)
+        face_idx = ((diff * inv) ** 2).sum(dim=1) < 1.0
+        desc = f"ellipsoid K×spread={np.round(s * FACE_SPREAD_K, 4).tolist()}"
+    else:
+        face_idx = torch.norm(diff, dim=1) < r_face
+        desc = f"sphere r={r_face:.4f}"
+    return face_idx, desc
+
+
+def make_camera(cv, uid=0, size=None):
+    """view dict → Camera。size 覆写分辨率但保持 FOV 不变 (光栅器焦距随宽度缩放,
+    故覆盖率等比例不变 → 探测可用小图)。"""
+    from scene.cameras import Camera
+    W, H, fx, fy = cv["W"], cv["H"], cv["fx"], cv["fy"]
+    FoVx = 2 * math.atan(W / (2 * fx))
+    FoVy = 2 * math.atan(H / (2 * fy))
+    rw, rh = (size, size) if size else (W, H)
+    dummy = Image.fromarray(np.zeros((rh, rw, 3), dtype=np.uint8))
+    # gaussian-splatting 的 Camera 期望 camera-to-world 的 R (见 dataset_readers.py qvec2rotmat(...).T)
+    return Camera(resolution=(rw, rh), colmap_id=0, R=cv["R"].T, T=cv["T"],
+                  FoVx=FoVx, FoVy=FoVy, depth_params=None, image=dummy,
+                  invdepthmap=None, image_name=cv["name"], uid=uid, data_device=DEVICE)
+
+
+def set_camera_distance(cv, face_center, new_dist):
+    """沿 C→F 直线把相机移到距 face_center new_dist 处, look-at 重算 R/T。"""
+    direction = (cv["C"] - face_center)
+    direction = direction / (np.linalg.norm(direction) + 1e-8)
+    C_new = face_center + direction * new_dist
+    up = -cv["R"][1, :]
+    R_new = look_at_rotmat(C_new, face_center, up)
+    cv["C"] = C_new
+    cv["R"] = R_new
+    cv["T"] = -R_new @ C_new
+
+
+def closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=""):
+    """闭环推近: 反复「探测 alpha 覆盖率 → 解析跳步 d·√(cov/target)」直到达标或触及下限。
+
+    覆盖率 ∝ 1/d² (立体角), 故一次测量即可解析出达标距离; 迭代只为补偿遮挡/透视/画幅溢出。
+    完全不可见 (cov≈0, 如相机在后脑方向) 时退化为几何试探 ×0.7/次, 便于暴露错误样例。
+    """
+    if not CLOSED_LOOP:
+        return
+    if not (GEO_MASK and r_face > 0 and face_center is not None):
+        print(f"{prefix}⚠️ CLOSED_LOOP 需要 GEO_MASK=1 且 r_face>0, 退回固定比例推进")
+        return
+
+    sys.path.insert(0, GS_DIR)   # gaussian_renderer / scene 来自 GS_DIR
+    import torch
+    from gaussian_renderer import render
+    gaussians, pipe, bg_black, _ = load_gaussians()
+    face_idx, desc = select_face_gaussians(gaussians, face_center, r_face, spread)
+    n_face_gs = int(face_idx.sum())
+    print(f"\n{prefix}🔁 closed-loop push-in: target={TARGET_COV}% "
+          f"probe={ALPHA_PROBE}px, iters<={MAX_PUSH_ITERS}, d_min={MIN_DIST_ABS}m")
+    print(f"{prefix}   head gs: {desc} → {n_face_gs} gaussians")
+
+    # 染白头部高斯 / 染黑其余 → 渲染亮度 = 头部累积 alpha (软)
+    dc_saved = gaussians._features_dc.detach().clone()
+    rest_saved = gaussians._features_rest.detach().clone()
+    dc_hack = torch.full_like(dc_saved, _DC_BLACK)
+    dc_hack[face_idx, 0, :] = _DC_WHITE
+    gaussians._features_dc.data = dc_hack
+    gaussians._features_rest.data = torch.zeros_like(rest_saved)
+
+    def probe(cv, uid):
+        cam = make_camera(cv, uid=uid, size=ALPHA_PROBE)
+        with torch.no_grad():
+            soft = render(cam, gaussians, pipe, bg_black)["render"].clamp(0, 1).mean(0)
+        return float(soft.mean() * 100)
+
+    print(f"{prefix}  {'view':<16}{'d0':>7}{'cov0':>8} | {'d_final':>8}{'cov':>7}{'iters':>6}  状态")
+    for i, cv in enumerate(closeup_views):
+        d0 = float(np.linalg.norm(face_center - cv["C"]))
+        d_min = max(MIN_DIST_RATIO * d0, MIN_DIST_ABS)
+        cov = probe(cv, i)
+        cov0 = cov
+        iters = 0
+        while cov < TARGET_COV and iters < MAX_PUSH_ITERS:
+            d = float(np.linalg.norm(face_center - cv["C"]))
+            if d <= d_min + 1e-6:
+                break
+            # 解析跳步: cov ∝ 1/d² → d·√(cov/target); cov≈0 时几何试探
+            d_new = max(d * math.sqrt(cov / TARGET_COV), d_min) if cov > 1e-6 \
+                else max(d * 0.7, d_min)
+            if d_new >= d - 1e-4:
+                break
+            set_camera_distance(cv, face_center, d_new)
+            cov = probe(cv, i)
+            iters += 1
+        d_final = float(np.linalg.norm(face_center - cv["C"]))
+        cv["alpha_cov_probe"] = cov
+        cv["push_iters"] = iters
+        # 容差: 迭代上限退出时 cov 可能是 11.995 这类「显示 12.00 但 < target」的值
+        reached = cov >= TARGET_COV - 0.05
+        cv["closed_loop_target_reached"] = bool(reached)
+        state = "✅达标" if reached else ("⚠️触及下限" if d_final <= d_min + 1e-3 else "⚠️未达标")
+        print(f"{prefix}  {cv['name']:<16}{d0:7.3f}{cov0:8.2f} | {d_final:8.3f}{cov:7.2f}{iters:6d}  {state}")
+
+    gaussians._features_dc.data = dc_saved
+    gaussians._features_rest.data = rest_saved
+    del gaussians
+    torch.cuda.empty_cache()
+
+
 def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, spread=None):
     """单人流: 选基视角 → 推进近景 → pitch 外插 → sanity → 3DGS 渲染 → poses。
 
@@ -577,6 +727,9 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
                 cv["cx"] = cv["cy"] = CLOSEUP_SIZE / 2
                 cv["fx"] = cv["fy"] = f
                 cv["iso_focal"] = round(f, 1)
+
+    # 2c. 闭环推近: 用渲染 alpha 覆盖率驱动, 决定每个视角的最终物距
+    closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=prefix)
 
     # 3. Sanity check: face_center 反投回每个近景视角
     print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
