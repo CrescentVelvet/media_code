@@ -30,15 +30,19 @@ GPU=0 HQ_DIR=../HYPIR/dataset/guojia_datas_20260708 OUTPUT_DIR=../HYPIR/experime
 GPU=0 SKIP_PARQUET=1 SAVE_COMPARE=1 INPUT_DIR=../HYPIR/input/test_faces_hq OUTPUT_DIR=../../output/hypir_test_results/美颜退化数据预览 bash hypir/03d_build_beauty_dataset.sh
 # ♻️03d) 构建全量数据集（多卡）
 GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
-# 03d) C 二次美颜数据集(BEAUTY_PASSES=2 一次产出 A/B/C 三套 parquet, A/B 不变) — 实验设计见 EXPERIMENTS.md
+# ♻️03d) C 二次美颜数据集(BEAUTY_PASSES=2 一次产出 A/B/C 三套 parquet, A/B 不变) — 实验设计见 EXPERIMENTS.md
 GPU=0,1,2 NPROC=3 BEAUTY_PASSES=2 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03d_build_beauty_dataset.sh
-# 03e) D 去红润美颜数据集(独立跑 RetouchFormer + wavelet 融合; DECOLOR_MODE=high_freq_dc 去红, 与 03d 并列不依赖)
+# ♻️03e) D 去红润美颜数据集(RetouchFormer + wavelet 融合; DECOLOR_MODE=high_freq_dc 去红, 与 03d 并列不依赖)
 GPU=0,1,2 NPROC=3 INPUT_DIR=../HYPIR/dataset/guojia_datas_20260708 bash hypir/03e_decolor_beauty_dataset.sh
 
-# 04b) A/B/C/D 依次训练(各自 OUTPUT_DIR 分开; 实验设计见 EXPERIMENTS.md)：
+# ── A/B/C/D 依次训练(各自 OUTPUT_DIR 分开; 实验设计见 EXPERIMENTS.md)：
+# 🚀04b) A 基线(只高斯模糊，预期会长痘变丑)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest.parquet OUTPUT_DIR=../HYPIR/experiments/rest bash hypir/04b_train_paired.sh
+# 🚀04b) B 复原+美颜(LQ 同样模糊、HQ 换美颜版 1pass，预期修掉长痘、又不毁脸)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty.parquet OUTPUT_DIR=../HYPIR/experiments/beauty bash hypir/04b_train_paired.sh
+# 🚀04b) C 二次美颜(LQ 同样模糊、HQ 换迭代美颜版 N pass，预期美颜最强、但可能过磨失结构)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_guojia_datas_20260708/rest_beauty_strong.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_strong bash hypir/04b_train_paired.sh
+# 🚀04b) D 去红润美颜(LQ 同样模糊、HQ 换去红润美颜版 wavelet 融合，预期红润减弱、磨皮保留)：
 GPU=0,1,2 N_TRAIN_GPU=3 BG=0 PARQUET_PATH=../HYPIR/dataset/beauty_decolor_guojia_datas_20260708/rest_beauty_decolor.parquet OUTPUT_DIR=../HYPIR/experiments/beauty_decolor bash hypir/04b_train_paired.sh
 
 # ── 推理(02/06) ──
