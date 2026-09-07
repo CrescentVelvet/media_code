@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 proxy.env
+vlm_bridge/vlm.env
 
 # MediaPipe BlazeFace face detector models (auto-downloaded by face_crop/crop_faces.py)
 face_crop/models/*.tflite

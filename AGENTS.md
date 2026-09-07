@@ -618,3 +618,38 @@ composite（`gt + M·w·(enh − gt)`），区外仍是原图 → 无 mask 的�
   目录参数必须指到图片平铺层（如 `06c_merged_face_images/images`，不是其父目录）
 - `render_novel.py` 只读 txt 格式 COLMAP 模型；BA 场景（03b）sparse/0 只有 bin，
   已加 pycolmap 自动补 txt 的 fallback
+
+## 13. 图像识别桥接（vlm_bridge，主模型无视觉时自动调用）
+
+**背景**：本仓的编码主力模型 GLM-5.3 `supportsImages: false`——它**看不见图**。
+遇到任何"需要看图"的任务（检查渲染结果质量、读截图里的报错文字、对比两帧
+差异、确认 mask 是否干净），不要让用户自己看或猜，**直接 Bash 调
+`vlm_bridge/ask_vlm.py`**：图片 base64 发给 Qwen3.8-Max（火山网关 OpenAI 兼容
+接口，key/URL 见 `~/.workbuddy/models.json`，已配在 gitignored 的
+`vlm_bridge/vlm.env`），答案以纯文本回到 stdout。**无需用户切换模型。**
+
+**触发时机**（主动，不等用户提）：
+- 用户消息里带图片路径 / 截图，且任务依赖图片内容
+- 排查"渲染/生成结果不对"类问题，需要目视检查产物帧
+- 对比 A/B 实验（两张图）的可见差异
+- 读图中的文字（报错弹窗、日志截图、论文图表数值）
+
+**调用写法**（cwd 必须是仓根，脚本按相对路径读 `vlm_bridge/vlm.env`）：
+```bash
+# 单图 + 具体问题（stdout 是答案，stderr 是进度行）
+python vlm_bridge/ask_vlm.py <图片路径> "人脸区域是否模糊？有无伪影？"
+# 双图对比（最多 4 张）
+python vlm_bridge/ask_vlm.py <图1> <图2> "这两张图在清晰度/颜色上有何差异？"
+# 问题含引号/换行时走 stdin
+echo '逐字给出图中报错文字' | python vlm_bridge/ask_vlm.py <截图>
+```
+
+**提问纪律**：问题必须**具体、可验证**——不问"这图怎么样"，要问"人脸边缘
+有无锯齿？背景有没有漂浮伪影？"。脚本会自动附加"要具体、不确定就说"的
+guidance；`--raw` 可关。VLM 的回答是**参考证据**而非真理，关键结论（尤其
+数值）提示用户自行核对。
+
+**故障处理**：401/403 → 从 `~/.workbuddy/models.json` 同步最新 key 到
+`vlm.env`；连不上 → 在 `vlm.env` 设 `VLM_HTTP_PROXY`；主模型挂 → 脚本自动用
+`VLM_FALLBACK_MODEL`（doubao-seed-2.1-pro）重试一次。首次使用先跑
+`bash vlm_bridge/00_check_env.sh` 自检。详见 `vlm_bridge/README.md`。
