@@ -11,6 +11,8 @@
 
 import os
 import sys
+import json
+from pathlib import Path
 
 # train_face_finetune.py 位于 vggt_human/，但 import 依赖官方仓 gaussian-splatting
 # 根目录下的模块（utils/、gaussian_renderer/、scene/）。Python 只把脚本所在目录
@@ -141,11 +143,100 @@ class FaceData:
         return payload
 
 
+def _quat_from_matrix(M):
+    """旋转矩阵 → 四元数 (w,x,y,z)，使用标准 Shepperd 方法。"""
+    tr = M[0, 0] + M[1, 1] + M[2, 2]
+    if tr > 0:
+        s = np.sqrt(tr + 1.0) * 2
+        w = 0.25 * s
+        x = (M[2, 1] - M[1, 2]) / s
+        y = (M[0, 2] - M[2, 0]) / s
+        z = (M[1, 0] - M[0, 1]) / s
+    elif M[0, 0] > M[1, 1] and M[0, 0] > M[2, 2]:
+        s = np.sqrt(1.0 + M[0, 0] - M[1, 1] - M[2, 2]) * 2
+        w = (M[2, 1] - M[1, 2]) / s
+        x = 0.25 * s
+        y = (M[0, 1] + M[1, 0]) / s
+        z = (M[0, 2] + M[2, 0]) / s
+    elif M[1, 1] > M[2, 2]:
+        s = np.sqrt(1.0 + M[1, 1] - M[0, 0] - M[2, 2]) * 2
+        w = (M[0, 2] - M[2, 0]) / s
+        x = (M[0, 1] + M[1, 0]) / s
+        y = 0.25 * s
+        z = (M[1, 2] + M[2, 1]) / s
+    else:
+        s = np.sqrt(1.0 + M[2, 2] - M[0, 0] - M[1, 1]) * 2
+        w = (M[1, 0] - M[0, 1]) / s
+        x = (M[0, 2] + M[2, 0]) / s
+        y = (M[1, 2] + M[2, 1]) / s
+        z = 0.25 * s
+    return np.array([w, x, y, z], dtype=np.float64)
+
+
+def _quat_mul(qa, qb):
+    """四元数乘法 qa * qb（Hamilton 约定），输入 (N,4) 顺序 (w,x,y,z)。"""
+    aw, ax, ay, az = qa.unbind(-1)
+    bw, bx, by, bz = qb.unbind(-1)
+    return torch.stack([
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ], dim=-1)
+
+
+# ---------------------------------------------------------------------------
+# 🧩 三模型区域监督 mask：head / body / scene 的惰性加载缓存（CPU float32）
+#    每个模型只在自己的区域被监督 —— 三个模型才真正独立，而不是退化成一个
+#    大模型（否则 densify/prune 会把分组混掉，拆分的意义就没了）。
+# ---------------------------------------------------------------------------
+class RegionMaskData:
+    def __init__(self, masks_dir, kind, pid):
+        self.masks_dir = masks_dir
+        self.kind = kind            # head | body | scene
+        self.pid = pid              # "00"；scene 时忽略
+        self.cache = {}
+        self.available = set()
+        if masks_dir and os.path.isdir(masks_dir):
+            suffix = self._suffix()
+            for f in os.listdir(masks_dir):
+                if f.endswith(suffix):
+                    self.available.add(f[: -len(suffix)])
+
+    def _suffix(self):
+        return ".scene.png" if self.kind == "scene" else f".p{self.pid}.{self.kind}.png"
+
+    def has(self, cam):
+        """该帧是否有本模型的区域（无则训练时跳过该帧）。"""
+        return os.path.splitext(cam.image_name)[0] in self.available
+
+    def get(self, cam):
+        """→ (1,H,W) float mask on CPU；该帧无区域则返回 None。"""
+        name = os.path.splitext(cam.image_name)[0]
+        if name not in self.available:
+            return None
+        if name in self.cache:
+            return self.cache[name]
+        path = os.path.join(self.masks_dir, name + self._suffix())
+        try:
+            h, w = cam.original_image.shape[1], cam.original_image.shape[2]
+            m = Image.open(path).convert("L")
+            if m.size != (w, h):
+                m = m.resize((w, h), Image.BILINEAR)
+            mt = torch.from_numpy(np.asarray(m, dtype=np.float32) / 255.0).unsqueeze(0)
+        except Exception as e:
+            print(f"⚠️ region mask load failed for {name}: {e}", file=sys.stderr)
+            mt = None
+        self.cache[name] = mt
+        return mt
+
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
              start_ply, start_iter, lr_scale,
              face_images_dir, face_masks_dir, face_weight, face_soft, face_ssim_mode,
-             densify_until=0):
+             densify_until=0,
+             region_masks_dir="", model_kind="", pid=""):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
@@ -187,7 +278,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                       f"with identity (injected views)")
         if start_iter is None:
             stem = os.path.basename(os.path.dirname(start_ply))   # iteration_N
-            start_iter = int(stem.split("_")[-1])
+            try:
+                start_iter = int(stem.split("_")[-1])
+            except (ValueError, IndexError):
+                # 非 iteration 目录（如 03i 用的 head_gs_p00.ply 在 03e_head_3dmm/）
+                # → 默认从 0 开始（xyz scheduler 走完整 warmup 段）
+                start_iter = 0
         first_iter = start_iter
         _densify_status = "OFF" if densify_until == 0 else f"until={densify_until}"
         print(f"🧑 resumed gaussians from {start_ply} (first_iter={first_iter}, lr×{lr_scale}, densify {_densify_status})")
@@ -209,6 +305,43 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
           f"weight={face_weight} ({'soft alpha' if face_soft else 'binary+eroded'}), "
           f"ssim_target={face_ssim_mode}, "
           f"enhanced={face_images_dir or '(none)'}")
+
+    # 🧩 三模型区域监督：每个模型只在自己区域被监督，densify 也只在该区域
+    region_data = None
+    if region_masks_dir and model_kind:
+        region_data = RegionMaskData(region_masks_dir, model_kind, pid)
+        n_all = len(scene.getTrainCameras())
+        n_ok = sum(1 for c in scene.getTrainCameras() if region_data.has(c))
+        print(f"🧩 region supervision: {model_kind}/p{pid} | {n_ok}/{n_all} frames have region mask")
+        if n_ok == 0:
+            sys.exit(f"❌ 没有 {model_kind} 区域 mask 帧 (region_masks_dir={region_masks_dir})")
+
+    # 🧩 head 可微 warp：head_gs 是参考帧位姿，每帧头在动——不 warp 高斯会收敛到
+    # 平均位置导致模糊。按 fit_head_3dmm 拟合的 per_frame R_f/t_f 逐帧 warp
+    # canonical 高斯（刚性 Axyz+b + 四元数乘法），梯度流回 _xyz/_rotation，loss
+    # 只优化 canonical 形状。warp 不更新位姿（来自拟合结果）。
+    head_warp = None
+    if model_kind == "head" and pid:
+        _warp_json = os.environ.get("HEAD_WARP_JSON", "")
+        if _warp_json and os.path.isfile(_warp_json):
+            _fit = json.loads(Path(_warp_json).read_text())
+            _fr = _fit.get("persons", {}).get(pid)
+            if _fr:
+                R_ref = np.asarray(_fr["R_ref"], dtype=np.float64)
+                t_ref = np.asarray(_fr["t_ref"], dtype=np.float64)
+                head_warp = {}
+                for _stem, _pf in _fr["per_frame"].items():
+                    R_f = np.asarray(_pf["R"], dtype=np.float64).reshape(3, 3)
+                    t_f = np.asarray(_pf["t"], dtype=np.float64).reshape(3)
+                    A = R_f @ R_ref.T
+                    b = t_f - A @ t_ref
+                    _q = _quat_from_matrix(A)
+                    head_warp[_stem] = (torch.tensor(A, dtype=torch.float32, device="cuda"),
+                                         torch.tensor(b, dtype=torch.float32, device="cuda"),
+                                         torch.tensor(_q, dtype=torch.float32, device="cuda"))
+                print(f"🧩 head warp: {len(head_warp)} 帧 from {Path(_warp_json).name}")
+        if head_warp is None:
+            print("⚠️ head 未设 HEAD_WARP_JSON 或无 per_frame —— 静态训练（边缘可能模糊）")
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -255,6 +388,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
+            # 🧩 region 模式只从有 mask 的帧采样（head 44/150 帧，避免空转迭代）
+            if region_data is not None:
+                _keep = [(c, i) for c, i in zip(viewpoint_stack, viewpoint_indices)
+                         if region_data.has(c)]
+                viewpoint_stack = [c for c, _ in _keep]
+                viewpoint_indices = [i for _, i in _keep]
+                if not viewpoint_stack:
+                    sys.exit("❌ region 模式：没有任何训练帧有 region mask")
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
@@ -265,22 +406,69 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+        # 🧩 head 可微 warp（渲染前临时替换、渲染后恢复）：
+        #   xyz' = A @ xyz + b，四元数 q' = q_A ⊗ q（Hamilton）。梯度经计算图
+        #   流回 canonical _xyz/_rotation，loss 只优化 canonical 形状。
+        #   scale/opacity/SH 不动（刚性 warp 不改它们）。
+        _warp_applied = None
+        if head_warp is not None:
+            _stem = os.path.splitext(viewpoint_cam.image_name)[0]
+            _warp_applied = head_warp.get(_stem)
+            if _warp_applied is not None:
+                A_t, b_t, qA_t = _warp_applied
+                _orig_xyz = gaussians._xyz
+                _orig_rot = gaussians._rotation
+                gaussians._xyz = _orig_xyz @ A_t.T + b_t
+                gaussians._rotation = _quat_mul(qA_t.expand_as(_orig_rot), _orig_rot)
+
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+
+        # 🧩 渲染完立即恢复 canonical 参数（后续 densify/prune/保存都作用于原参数；
+        #   梯度已在计算图里，backward 时正确流回）
+        if _warp_applied is not None:
+            gaussians._xyz = _orig_xyz
+            gaussians._rotation = _orig_rot
 
         if viewpoint_cam.alpha_mask is not None:
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
 
         # Loss
-        # 🧑 人脸互补双监督：L1 逐像素双目标（见文件头注释），
-        #    SSIM 对同一张 composite 目标计算，避免人脸区内梯度方向相反
+        # 🧩 三模型区域监督：区域外用 gt 填充，loss/梯度均为 0；区域内的 L1/SSIM
+        #  按 mask 面积归一化以避免区域外稀释量级。SSIM 窗口里区域外 filled=gt
+        #  → 贡献近似满分 (1-ssim_full) ≈ (m_area)·(1-ssim_region)，故除以
+        #  area_ratio 补偿。region_data 优先于 face_data（区域监督更严格）。
+        #  region 模式时该帧无 mask → continue 重新采样（不污染 densify 也不
+        #  浪费 iteration 算无监督 loss）。
         gt_image = viewpoint_cam.original_image.cuda()
         err_orig = torch.abs(image - gt_image)
-        face_payload = face_data.get(viewpoint_cam)
+        region_payload = region_data.get(viewpoint_cam) if region_data is not None else None
+        if region_data is not None and region_payload is None:
+            iter_end.record()
+            with torch.no_grad():
+                if iteration % 10 == 0:
+                    progress_bar.update(10)
+                if iteration == opt.iterations:
+                    progress_bar.close()
+            continue
+        face_payload = face_data.get(viewpoint_cam) if region_payload is None else None
         face_loss_val = 0.0
-        gt_for_ssim = gt_image            # 默认官方：SSIM 对原图
-        if face_payload is not None:
+        gt_for_ssim = gt_image
+        if region_payload is not None:
+            m = region_payload.cuda()
+            area = (m.sum() * 3 + 1e-6)
+            area_ratio = max(float(m.mean()), 1e-3)
+            image_for_loss = image * m + gt_image.detach() * (1.0 - m)
+            err_r = torch.abs(image_for_loss - gt_image)
+            Ll1 = (err_r * m).sum() / area
+            if FUSED_SSIM_AVAILABLE:
+                ssim_value = fused_ssim(image_for_loss.unsqueeze(0), gt_image.unsqueeze(0))
+            else:
+                ssim_value = ssim(image_for_loss, gt_image)
+            ssim_reg = (1.0 - ssim_value) / area_ratio
+            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_reg
+        elif face_payload is not None:
             m = face_payload["mask"].cuda()
             if not face_soft:
                 m = (m > 0.5).float()
@@ -291,16 +479,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             with torch.no_grad():
                 face_loss_val = face_term.sum().item() / max(m.sum().item(), 1.0)
             if face_ssim_mode == "composite":
-                # 与 L1 同目标：人脸区内按 w 混入增强图，区外保持原图
                 gt_for_ssim = gt_image + m * face_weight * (enh - gt_image)
+            if FUSED_SSIM_AVAILABLE:
+                ssim_value = fused_ssim(image.unsqueeze(0), gt_for_ssim.unsqueeze(0))
+            else:
+                ssim_value = ssim(image, gt_for_ssim)
+            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
         else:
             Ll1 = err_orig.mean()
-        if FUSED_SSIM_AVAILABLE:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_for_ssim.unsqueeze(0))
-        else:
-            ssim_value = ssim(image, gt_for_ssim)
-
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+            if FUSED_SSIM_AVAILABLE:
+                ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            else:
+                ssim_value = ssim(image, gt_image)
+            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
         # Depth regularization
         Ll1depth_pure = 0.0
@@ -335,7 +526,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp, head_warp), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -402,6 +593,7 @@ def prepare_output_and_logger(args):
     return tb_writer
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, train_test_exp):
+    head_warp = renderArgs[6] if len(renderArgs) > 6 else None
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -418,7 +610,16 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
+                    # 🧩 评估渲染同样应用 head warp（否则 PSNR 因位姿不匹配失真）
+                    _w = head_warp.get(os.path.splitext(viewpoint.image_name)[0]) if head_warp is not None else None
+                    if _w is not None:
+                        _ox, _orr = scene.gaussians._xyz, scene.gaussians._rotation
+                        scene.gaussians._xyz = _ox @ _w[0].T + _w[1]
+                        scene.gaussians._rotation = _quat_mul(_w[2].expand_as(_orr), _orr)
+                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs[:6])["render"], 0.0, 1.0)
+                    if _w is not None:
+                        scene.gaussians._xyz = _ox
+                        scene.gaussians._rotation = _orr
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if train_test_exp:
                         image = image[..., image.shape[-1] // 2:]
@@ -479,6 +680,15 @@ if __name__ == "__main__":
                         choices=["composite", "off"],
                         help="SSIM target: composite=align with L1 face target (fixed), "
                              "off=legacy full-frame vs original (gradient conflict, A/B only)")
+    # 🧩 三模型区域监督（03i）
+    parser.add_argument("--region_masks_dir", type=str, default="",
+                        help="三模型区域 mask 目录（03i_region_masks）。"
+                             "非空时启用区域监督模式（face 监督失效）")
+    parser.add_argument("--model_kind", type=str, default="",
+                        choices=["", "head", "body", "scene"],
+                        help="本次训练的模型种类（与 region_masks_dir 配合）")
+    parser.add_argument("--pid", type=str, default="",
+                        help="head/body 时的 pid (00/01/02)；scene 时忽略")
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
@@ -499,7 +709,8 @@ if __name__ == "__main__":
              args.start_checkpoint, args.debug_from,
              args.start_ply, args.start_iter, args.lr_scale,
              args.face_images_dir, args.face_masks_dir, args.face_weight, args.face_soft,
-             args.face_ssim_mode, args.densify_until)
+             args.face_ssim_mode, args.densify_until,
+             args.region_masks_dir, args.model_kind, args.pid)
 
     # All done
     print("\nTraining complete.")
