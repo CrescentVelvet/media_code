@@ -193,10 +193,52 @@ def fit_person(pid, frames, projs, tmpl, min_frames, use_beta, verbose=True):
 
     S = build_sparsity(F, n_beta)
     t0t = time.time()
-    res = least_squares(
-        resid, x0, jac_sparsity=S, loss="soft_l1", f_scale=5.0,
-        x_scale="jac", max_nfev=200, verbose=0,
-    )
+
+    # scale 有界: 防止尺度-深度歧义在噪声 landmark 下 runaway（±20%）
+    s_lo, s_hi = np.log(s0) - 0.20, np.log(s0) + 0.20
+
+    def run_ls(x0_, stems_, Ps_, obs_):
+        resid_ = make_residual(
+            tmpl["id_mean"], basis, tmpl["lm468_idx"], tmpl["lm468_bary"],
+            obs_, Ps_, n_beta, use_beta,
+        )
+        S_ = build_sparsity(len(stems_), n_beta)
+        lb_ = np.full(len(x0_), -np.inf)
+        ub_ = np.full(len(x0_), np.inf)
+        lb_[0], ub_[0] = s_lo, s_hi
+        return least_squares(
+            resid_, x0_, jac_sparsity=S_, loss="soft_l1", f_scale=5.0,
+            bounds=(lb_, ub_), x_scale="jac", max_nfev=200, verbose=0,
+        )
+
+    res = run_ls(x0, stems, Ps, obs)
+
+    # ── 第二遍：逐帧离群剔除（整段检测跑偏的帧会拖歪全局尺度/位姿）────────
+    n_res_frame = N_LM * 2
+    f_rms = np.sqrt((res.fun.reshape(-1, N_LM, 2) ** 2).sum(-1).mean(-1))
+    thr = max(3.0, 3.0 * float(np.median(f_rms)))
+    keep = f_rms <= thr
+    dropped = [stems[i] for i in range(F) if not keep[i]]
+    if dropped and keep.sum() >= min_frames:
+        if verbose:
+            log(f"     剔除 {len(dropped)} 帧 (frame_rms>{thr:.1f}px, "
+                f"最差 {f_rms.max():.0f}px)，重拟合 {int(keep.sum())} 帧")
+        x0_k = [res.x[0]]
+        if use_beta:
+            x0_k.extend(res.x[1 : 1 + n_beta])
+        for i in range(F):
+            if keep[i]:
+                b = 1 + n_beta + 6 * i
+                x0_k.extend(res.x[b : b + 6])
+        keep_idx = [i for i in range(F) if keep[i]]
+        stems_k = [stems[i] for i in keep_idx]
+        Ps_k = Ps[keep_idx]
+        obs_k = obs[keep_idx]
+        res = run_ls(np.asarray(x0_k), stems_k, Ps_k, obs_k)
+        stems, Ps, obs, F = stems_k, Ps_k, obs_k, len(stems_k)
+    elif dropped:
+        log(f"     ⚠️ 检出 {len(dropped)} 帧离群但剔除后不足 min_frames，保留")
+
     err = float(np.sqrt(np.mean(res.fun ** 2)))
     if verbose:
         log(f"     优化后 RMS: {err:.2f} px  ({time.time()-t0t:.0f}s, {res.nfev} nfev)")
@@ -237,6 +279,7 @@ def fit_person(pid, frames, projs, tmpl, min_frames, use_beta, verbose=True):
 
     return {
         "pid": pid,
+        "frames_dropped": dropped,
         "n_frames": F,
         "scale": s,
         "beta": beta,
