@@ -15,7 +15,11 @@ from scipy.spatial.transform import Rotation as _Rot
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
 RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
-ITERS = os.environ.get("ITERS", "4000")
+ITERS = os.environ.get("ITERS", "4000")                      # 默认（兼容旧用法）
+HEAD_ITERS = os.environ.get("HEAD_ITERS", ITERS)             # head 各自 iteration
+BODY_ITERS = os.environ.get("BODY_ITERS", ITERS)             # body 各自 iteration
+SCENE_ITERS = os.environ.get("SCENE_ITERS", ITERS)           # scene iteration
+WITH_BASELINE = os.environ.get("BASELINE", "0") == "1"       # 同帧加载 04b 基线对比
 N_VIS = int(os.environ.get("N_VIS", "6"))
 OUT_DIR = f"{RESULTS}/03i_composite_vis"
 
@@ -70,22 +74,33 @@ def main():
                      antialiasing=False, debug=False)
     bg = torch.zeros(3, device="cuda")
 
-    # 加载 7 个模型
+    # 加载 7 个模型（head/body/scene 可各自指定 iteration）
+    # BODY_ITERS_P00/P01/P02 可单独覆盖对应人（默认 fallback BODY_ITERS）
     models = {}
-    g_scene = MiniGS(load_gs(f"{RESULTS}/03i_scene/point_cloud/iteration_{ITERS}/point_cloud.ply"))
+    g_scene = MiniGS(load_gs(f"{RESULTS}/03i_scene/point_cloud/iteration_{SCENE_ITERS}/point_cloud.ply"))
     models["scene"] = g_scene
     heads = {}
+    body_iters_desc = []
     for pid in PIDS:
-        heads[pid] = MiniGS(load_gs(f"{RESULTS}/03i_head_p{pid}/point_cloud/iteration_{ITERS}/point_cloud.ply"))
-        models[f"body{pid}"] = MiniGS(load_gs(f"{RESULTS}/03i_body_p{pid}/point_cloud/iteration_{ITERS}/point_cloud.ply"))
-    print("models loaded:", len(models) + len(heads))
+        _bi = os.environ.get(f"BODY_ITERS_P{pid}", BODY_ITERS)
+        body_iters_desc.append(f"p{pid}={_bi}")
+        heads[pid] = MiniGS(load_gs(f"{RESULTS}/03i_head_p{pid}/point_cloud/iteration_{HEAD_ITERS}/point_cloud.ply"))
+        models[f"body{pid}"] = MiniGS(load_gs(f"{RESULTS}/03i_body_p{pid}/point_cloud/iteration_{_bi}/point_cloud.ply"))
+    print(f"models loaded: {len(models)+len(heads)}  (head={HEAD_ITERS} body[{','.join(body_iters_desc)}] scene={SCENE_ITERS})")
+
+    g_base = None
+    if WITH_BASELINE:
+        _p = f"{RESULTS}/04b_model_3dgs_ba/point_cloud/iteration_30000/point_cloud.ply"
+        if os.path.isfile(_p):
+            g_base = MiniGS(load_gs(_p))
+            print(f"baseline loaded: 04b iter30000 ({len(g_base._xyz)} gaussians)")
 
     stems_all = sorted(views.keys())
     step = max(1, len(stems_all) // N_VIS)
     picked = stems_all[::step][:N_VIS]
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    psnrs_full, psnrs_head = [], []
+    psnrs_full, psnrs_head, psnrs_body, psnrs_base = [], [], [], []
     rows = []
     for stem in picked:
         v = views[stem]
@@ -132,6 +147,27 @@ def main():
         p_full = float(-10 * np.log10(mse.item() + 1e-8))
         psnrs_full.append(p_full)
 
+        # body 区域内 PSNR（p00 为主，三人 body mask 并集）
+        best_body_psnr = None
+        for pid in PIDS:
+            mpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.body.png"
+            if not os.path.isfile(mpath): continue
+            m = np.asarray(Image.open(mpath).convert("L"), dtype=np.float32) / 255.0
+            if m.max() < 0.1: continue
+            m_t = torch.tensor(m, device="cuda")[None]
+            mse_b = (((comp - gt_t) ** 2) * m_t).sum() / (m_t.sum() * 3 + 1e-8)
+            p_b = float(-10 * np.log10(mse_b.item() + 1e-8))
+            best_body_psnr = p_b if best_body_psnr is None else max(best_body_psnr, p_b)
+        if best_body_psnr is not None:
+            psnrs_body.append(best_body_psnr)
+
+        # 04b 基线同帧全帧 PSNR
+        if g_base is not None:
+            with torch.no_grad():
+                base_img = render(cam, g_base, pipe, bg)["render"].clamp(0, 1)
+            mse_b = ((base_img - gt_t) ** 2).mean()
+            psnrs_base.append(float(-10 * np.log10(mse_b.item() + 1e-8)))
+
         # head 区域内 PSNR（任一 head mask）
         best_head_psnr = None
         for pid in PIDS:
@@ -154,7 +190,12 @@ def main():
     psnrs_head = np.array(psnrs_head)
     print(f"\n=== 三模型合成渲染（{len(rows)} 帧）===")
     print(f"  全帧 PSNR : med={np.median(psnrs_full):.2f}  mean={psnrs_full.mean():.2f}  min={psnrs_full.min():.2f}")
+    if len(psnrs_body):
+        print(f"  body 区 PSNR: med={np.median(psnrs_body):.2f}  mean={np.array(psnrs_body).mean():.2f}")
     print(f"  head 区 PSNR: med={np.median(psnrs_head):.2f}  mean={psnrs_head.mean():.2f}" if len(psnrs_head) else "  head 区: n/a")
+    if psnrs_base:
+        pb = np.array(psnrs_base)
+        print(f"  04b 基线同帧: med={np.median(pb):.2f}  mean={pb.mean():.2f}  (Δ={psnrs_full.mean()-pb.mean():+.2f} dB)")
 
     if rows:
         th = min(r.shape[0] for _, r, _ in rows)

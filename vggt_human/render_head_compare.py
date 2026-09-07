@@ -58,7 +58,7 @@ class MiniGS:
             self._features_dc = d["dc"].cuda()
         else:
             c = torch.full_like(d["dc"], recolor)   # 染白 +1.772 / 染黑 -1.772
-            self._features_dc = c
+            self._features_dc = c.cuda()
         self._features_rest = torch.zeros(len(self._xyz), 15, 3, device="cuda")
         self.max_radii2D = torch.empty(0)
         self.active_sh_degree = 0
