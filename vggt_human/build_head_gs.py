@@ -310,6 +310,10 @@ def visualize(ply_path, fit, views, out_dir, pid, vis_frames):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     overlays, renders = [], []
+    R_ref = np.asarray(fit["R_ref"])
+    t_ref = np.asarray(fit["t_ref"])
+    xyz0 = g.get_xyz.detach().clone()
+    rot0 = g.get_rotation.detach().clone()
     for stem in picked:
         v = views[stem]
         img_path = find_image(stem)
@@ -319,6 +323,31 @@ def visualize(ply_path, fit, views, out_dir, pid, vis_frames):
         FoVy = 2 * math.atan(v["H"] / (2 * v["fy"]))
         R = qvec2rotmat(v["qvec"])
         T = np.asarray(v["tvec"])
+        # 逐帧刚性重摆: head_gs 建在中位姿态, 按该帧拟合位姿变换过去。
+        # 不重摆的话, 头动得多的帧(如 p02)会表现为"模型头偏离真人"的假阳性。
+        pf_pose = fit["per_frame"].get(stem)
+        if pf_pose is not None:
+            from scipy.spatial.transform import Rotation as _Rot
+            R_f = np.asarray(pf_pose["R"], dtype=np.float64)
+            t_f = np.asarray(pf_pose["t"], dtype=np.float64)
+            A = R_f @ R_ref.T
+            b = t_f - A @ t_ref
+            xyz_np = xyz0.cpu().numpy()
+            rot_np = rot0.cpu().numpy()  # (N,4) w,x,y,z
+            xyz_new = (A @ xyz_np.T).T + b
+            qA = _Rot.from_matrix(A)
+            q_old = _Rot.from_quat(rot_np[:, [1, 2, 3, 0]])
+            q_new = (qA * q_old).as_quat()  # x,y,z,w
+            rot_new = np.stack(
+                [q_new[:, 3], q_new[:, 0], q_new[:, 1], q_new[:, 2]], axis=1
+            )
+            g.get_xyz.data = torch.tensor(xyz_new, dtype=xyz0.dtype,
+                                          device=xyz0.device)
+            g.get_rotation.data = torch.tensor(rot_new, dtype=rot0.dtype,
+                                               device=rot0.device)
+        else:
+            g.get_xyz.data = xyz0.clone()
+            g.get_rotation.data = rot0.clone()
         cam = Camera(resolution=(v["W"], v["H"]), colmap_id=0, R=R.T, T=T,
                      FoVx=FoVx, FoVy=FoVy, depth_params=None,
                      image=Image.fromarray(
