@@ -50,19 +50,27 @@ def make_camera(v, W, H):
 
 def render_rgb_alpha(g, cam, pipe, bg):
     """渲染两次：正常 RGB + 染白 alpha。
-    ⚠️ 不能用 rgb.mean(0) 当 alpha——黑头发/深色衣服 RGB≈0 但 alpha=1，
-    会严重低估。染白（_features_dc=1.7724539, opacity raw=10）后 RGB=alpha。
+
+    ⚠️ alpha pass 只染白（SH_DC=1.7724539 → color=1），**保留原 opacity**：
+    渲染值 = Σ α_i T_i = 该层真实累积 alpha，与 RGB pass 一致，合成才是
+    数学正确的 over 操作。若强制 opacity=10（几何覆盖），densify 后大量
+    半透明高斯被夸大成不透明 → body 层过度遮挡 scene 层，全帧 PSNR 反降
+    （实测 30k body vs 4k body：12.02→11.04dB）。
+    FORCE_OPACITY=1 可切回旧模式（仅对照用）。
     """
+    force = os.environ.get("FORCE_OPACITY", "0") == "1"
     with torch.no_grad():
         rgb = render(cam, g, pipe, bg)["render"].clamp(0, 1)
-        # 染白渲染取 alpha
         dc0 = g._features_dc.clone()
-        op0 = g._opacity.clone()
         g._features_dc = torch.full_like(dc0, 1.7724539)
-        g._opacity = torch.full_like(op0, 10.0)
+        op0 = None
+        if force:
+            op0 = g._opacity.clone()
+            g._opacity = torch.full_like(op0, 10.0)
         a = render(cam, g, pipe, bg)["render"].clamp(0, 1).mean(0, keepdim=True)
         g._features_dc = dc0
-        g._opacity = op0
+        if force:
+            g._opacity = op0
     return rgb, a
 
 
