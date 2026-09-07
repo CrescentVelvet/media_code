@@ -23,6 +23,8 @@
 #   ITERATIONS      训练轮数（默认 1000=验证；生产用 30000）
 #   LR_SCALE        起始 LR 缩放（head 1.0, body/scene 0.1）
 #   DENSIFY_UNTIL   densify 终止 iter（默认 0=冻结）
+#   START_PLY       覆盖默认初始化 ply（checkpoint 续训用）
+#   START_ITER      续训起始 iter（train_face_finetune 从目录名解析）
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,20 +42,20 @@ ITERATIONS="${ITERATIONS:-1000}"
 LR_SCALE="${LR_SCALE:-1.0}"
 DENSIFY_UNTIL="${DENSIFY_UNTIL:-0}"
 
-# 选 start_ply
+# 选 start_ply（START_PLY 环境变量可覆盖，用于从 checkpoint 续训）
 case "$MODEL_KIND" in
     head)
-        START_PLY="$HEAD_GS_DIR/head_gs_p${PID}.ply"
+        START_PLY="${START_PLY:-$HEAD_GS_DIR/head_gs_p${PID}.ply}"
         [ ! -f "$START_PLY" ] && { echo "❌ 缺 $START_PLY"; exit 1; }
         OUT_DIR="$RESULTS_DIR/03i_${MODEL_KIND}_p${PID}"
         ;;
     body)
-        START_PLY="$BODY_GS_DIR/body_gs_p${PID}.ply"
+        START_PLY="${START_PLY:-$BODY_GS_DIR/body_gs_p${PID}.ply}"
         [ ! -f "$START_PLY" ] && { echo "❌ 缺 $START_PLY"; exit 1; }
         OUT_DIR="$RESULTS_DIR/03i_${MODEL_KIND}_p${PID}"
         ;;
     scene)
-        START_PLY="$BODY_GS_DIR/scene_gs.ply"
+        START_PLY="${START_PLY:-$BODY_GS_DIR/scene_gs.ply}"
         [ ! -f "$START_PLY" ] && { echo "❌ 缺 $START_PLY"; exit 1; }
         OUT_DIR="$RESULTS_DIR/03i_scene"
         PID=""  # scene 不需要
