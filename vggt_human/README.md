@@ -687,6 +687,7 @@ GPU=0 bash vggt_human/06_face_enhance.sh
 > 脚本内部已按此命名设好默认值，直接用环境变量覆盖即可（`RESULTS_DIR` / `SOURCE_DIR` / `GAUSSIAN_DIR` …）。改前缀只影响默认值，不影响已有产物。
 
 ## Notes
+- **实验结论/消融数据/踩坑归档**：见 [`EXPERIMENTS.md`](EXPERIMENTS.md)（人脸 finetune 消融、06e/06g 近景注入、SSIM composite 修正、HYPIR 推理提速等）。
 - Pipeline: VGGT-Omega（前馈位姿+深度）→ COLMAP（格式转换）→ 3DGS（优化训练）。前馈给初始化，优化给质量。
 - **去噪增强（04，可选）**：3DGS 在稀疏视角区域有伪影 → 渲染新视角 → 去噪（DiffBIR/SwinIR 可切换）→ AdaIN 颜色校正 → 虚拟相机加入训练。`DENOISER=none` 关闭去噪。加新去噪模型：在 `denoisers.py` 写一个函数 + 注册到 `DENOISERS` 字典。
 - **人脸增强（05，可选）**：MediaPipe 检测人脸 → HYPIR 美颜增强 → 二次衰减渐变 mask 无缝融合回原图。`HYPIR_WEIGHT` 指向 beauty_ppr50k 训练的 LoRA checkpoint。
