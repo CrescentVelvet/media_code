@@ -56,12 +56,14 @@ FACE_CENTER_JSON = os.environ.get("FACE_CENTER", "")
 MASKS_DIR = os.environ.get("MASKS_DIR", "")
 N_BINS = int(os.environ.get("N_BINS", "10"))
 TARGET_COV = float(os.environ.get("TARGET_COV", "40"))   # 闭环推近目标: alpha 软均值覆盖率 %
-MIN_DIST_RATIO = float(os.environ.get("MIN_DIST_RATIO", "0.3"))
+MIN_DIST_RATIO = float(os.environ.get("MIN_DIST_RATIO", "0.15"))
 # 闭环推近 (用户方案): 从输入视角出发, 反复「测 alpha 覆盖率 → 解析跳步 d·√(cov/target)」推近,
 #   直到达标或触及安全下限。覆盖率 ∝ 1/d² 故一步接近, MAX_PUSH_ITERS 只是补偿遮挡/透视偏差。
 CLOSED_LOOP = os.environ.get("CLOSED_LOOP", "1") not in ("0", "false", "no")
 MAX_PUSH_ITERS = int(os.environ.get("MAX_PUSH_ITERS", "3"))
-MIN_DIST_ABS = float(os.environ.get("MIN_DIST_ABS", "0.15"))   # 安全物距下限 (米), 防相机插进头里
+MIN_DIST_ABS = float(os.environ.get("MIN_DIST_ABS", "0.10"))   # 安全物距下限 (米)。
+# 0.10 = 3DMM 头半径 0.04 + 6cm 表面距离 (near 0.2→0.01 修复后可行;
+# 旧 0.15 是椭球代理时代的安全值, 会让 40% 目标在侧脸视角不可达)
 ALPHA_PROBE = int(os.environ.get("ALPHA_PROBE", "128"))        # 覆盖率探测渲染分辨率 (尺度无关, 小图足够)
 PITCH_DEG = float(os.environ.get("PITCH_DEG", "10"))
 ITERATION = int(os.environ.get("ITERATION", "30000"))
@@ -78,6 +80,14 @@ CLOSEUP_SIZE = int(os.environ.get("CLOSEUP_SIZE", "0"))   # 0 = 用 COLMAP 相�
 CLOSEUP_FOCAL = os.environ.get("CLOSEUP_FOCAL", "ref_fov")
 FACE_FILL = float(os.environ.get("FACE_FILL", "0.8"))
 FACE_SPREAD_K = float(os.environ.get("FACE_SPREAD_K", "2.5"))
+
+# 3DMM 头/身/景拆分 (03d~03g): head_gs 替代椭球代理做覆盖率/人脸 mask。
+#   HEAD_GS       = auto (默认, 有 head_gs_p<pid>.ply 就用) | ply | 0/none (退回椭球)
+#   HEAD_GS_DIR   = head_gs 所在目录 (默认 $RESULTS_DIR/03e_head_3dmm)
+# head_gs 是 3DMM 头网格稠密化来的完整人头 (含后脑), 尺寸真实 (~10.5cm 半径),
+# 覆盖率上限不再受「椭球 K×spread 太扁 + 相机插进高斯簇」限制。
+HEAD_GS = os.environ.get("HEAD_GS", "auto").lower()
+HEAD_GS_DIR = os.environ.get("HEAD_GS_DIR", "")
 
 # 优化点 3 (grill-me 决策 C): 中间结果带标注 — sidecar _debug/ 目录, 不污染主输出。
 # 渲染图/alpha 的标注副本 + annotations.json (与控制台日志同量级的信息)。
@@ -339,11 +349,12 @@ def apply_pitch(view, face_center, pitch_deg):
 
 
 def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=None,
-                 r_face=0.0, spread=None):
+                 r_face=0.0, spread=None, head_gs_ply=""):
     """3DGS render closeup views. closeup_views: list of {R, T, W, H, fx, fy, name}.
 
     GEO_MASK=1 且 r_face>0 时, 每个视角额外渲染一遍「人脸球域白 / 其余黑」的
-    SH hack pass, 亮度图即几何人脸软 mask (方案 E), 存 geo_dir。"""
+    SH hack pass, 亮度图即几何人脸软 mask (方案 E), 存 geo_dir。
+    head_gs_ply 非空时改用 3DMM 头高斯渲染该 mask (完整头, 不再是椭球近似)。"""
     import torch
     sys.path.insert(0, GS_DIR)
     from scene import GaussianModel
@@ -384,10 +395,16 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
     geo_dir = ""
     if GEO_MASK and r_face <= 0:
         print("  ⚠️ GEO_MASK 开但 r_face<=0 (JSON 无 spread?), 跳过几何 mask")
+    head_model = None
+    if geo and head_gs_ply:
+        head_model = load_head_gs(head_gs_ply)
+        print(f"  🎨 GEO_MASK (head_gs 3DMM): {int(head_model.get_xyz.shape[0])} gaussians "
+              f"({os.path.basename(head_gs_ply)})")
     if geo:
         geo_dir = os.path.join(
             os.path.dirname(out_dir), "06c_closeup_masks_geo" + os.path.basename(out_dir).replace("06c_closeup_renders", ""))
         Path(geo_dir).mkdir(parents=True, exist_ok=True)
+    if geo and head_model is None:
         xyz = gaussians.get_xyz
         fc_t = torch.as_tensor(np.asarray(face_center, dtype=np.float32), device=DEVICE)
         diff = xyz - fc_t
@@ -431,14 +448,17 @@ def render_views(closeup_views, out_dir, alpha_dir, debug_dir="", face_center=No
         with torch.no_grad():
             pkg_b = render(cam, gaussians, pipe, bg_black)
             pkg_w = render(cam, gaussians, pipe, bg_white)
-            # 优化点 5: 染白人脸球域/染黑其余 → 渲染 → 亮度图 = 几何人脸软 mask
+            # 优化点 5: 人脸区域白/其余黑 → 渲染 → 亮度图 = 几何人脸软 mask
             geo_cov = -1.0
             if geo:
-                gaussians._features_dc.data = _dc_hack
-                gaussians._features_rest.data = _rest_zero
-                pkg_g = render(cam, gaussians, pipe, bg_black)
-                gaussians._features_dc.data = _dc_saved
-                gaussians._features_rest.data = _rest_saved
+                if head_model is not None:
+                    pkg_g = render(cam, head_model, pipe, bg_black)
+                else:
+                    gaussians._features_dc.data = _dc_hack
+                    gaussians._features_rest.data = _rest_zero
+                    pkg_g = render(cam, gaussians, pipe, bg_black)
+                    gaussians._features_dc.data = _dc_saved
+                    gaussians._features_rest.data = _rest_saved
                 soft = pkg_g["render"].clamp(0, 1).mean(0)  # (H,W)
                 soft_np = soft.cpu().numpy()
                 a8 = (soft_np * 255).astype(np.uint8)
@@ -539,6 +559,34 @@ def load_gaussians():
     return gaussians, pipe, bg_black, bg_white
 
 
+def head_gs_path_for(pid):
+    """返回该人的 head_gs.ply 路径 (不存在则 "")。HEAD_GS=auto/ply 生效。"""
+    if HEAD_GS in ("0", "none", "off", "false"):
+        return ""
+    d = HEAD_GS_DIR or os.path.join(RESULTS_DIR, "03e_head_3dmm")
+    p = os.path.join(d, f"head_gs_p{pid:02d}.ply")
+    return p if os.path.isfile(p) else ""
+
+
+def load_head_gs(ply_path):
+    """加载 head_gs 并把颜色/不透明度改成「纯白不透明」——渲染亮度 = 累积 alpha。
+
+    覆盖率/mask 只需要几何覆盖, 故 opacity 拉满 (sigmoid(10)≈1), 避免
+    构建时的 0.9 给覆盖率造成 10% 的系统性低估。
+    """
+    import torch
+    sys.path.insert(0, GS_DIR)   # scene 来自 GS_DIR
+    from scene import GaussianModel
+
+    g = GaussianModel(3)
+    g.load_ply(ply_path)
+    with torch.no_grad():
+        g._features_dc.data = torch.full_like(g._features_dc, _DC_WHITE)
+        g._features_rest.data = torch.zeros_like(g._features_rest)
+        g._opacity.data = torch.full_like(g._opacity, 10.0)
+    return g
+
+
 def select_face_gaussians(gaussians, face_center, r_face, spread):
     """选出「人脸/头部」高斯子集 (染白用)。
 
@@ -586,40 +634,62 @@ def set_camera_distance(cv, face_center, new_dist):
     cv["T"] = -R_new @ C_new
 
 
-def closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=""):
+def closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix="",
+                       head_gs_ply=""):
     """闭环推近: 反复「探测 alpha 覆盖率 → 解析跳步 d·√(cov/target)」直到达标或触及下限。
 
     覆盖率 ∝ 1/d² (立体角), 故一次测量即可解析出达标距离; 迭代只为补偿遮挡/透视/画幅溢出。
     完全不可见 (cov≈0, 如相机在后脑方向) 时退化为几何试探 ×0.7/次, 便于暴露错误样例。
+
+    head_gs_ply 非空时, 覆盖率用 3DMM 头高斯 (head_gs) 的 alpha 渲染测量;
+    否则退回旧的「场景高斯椭球选择 + 染白染黑」方案。
     """
     if not CLOSED_LOOP:
         return
-    if not (GEO_MASK and r_face > 0 and face_center is not None):
+    use_head = bool(head_gs_ply)
+    if not use_head and not (GEO_MASK and r_face > 0 and face_center is not None):
         print(f"{prefix}⚠️ CLOSED_LOOP 需要 GEO_MASK=1 且 r_face>0, 退回固定比例推进")
         return
 
     sys.path.insert(0, GS_DIR)   # gaussian_renderer / scene 来自 GS_DIR
     import torch
     from gaussian_renderer import render
-    gaussians, pipe, bg_black, _ = load_gaussians()
-    face_idx, desc = select_face_gaussians(gaussians, face_center, r_face, spread)
-    n_face_gs = int(face_idx.sum())
-    print(f"\n{prefix}🔁 closed-loop push-in: target={TARGET_COV}% "
-          f"probe={ALPHA_PROBE}px, iters<={MAX_PUSH_ITERS}, d_min={MIN_DIST_ABS}m")
-    print(f"{prefix}   head gs: {desc} → {n_face_gs} gaussians")
 
-    # 染白头部高斯 / 染黑其余 → 渲染亮度 = 头部累积 alpha (软)
-    dc_saved = gaussians._features_dc.detach().clone()
-    rest_saved = gaussians._features_rest.detach().clone()
-    dc_hack = torch.full_like(dc_saved, _DC_BLACK)
-    dc_hack[face_idx, 0, :] = _DC_WHITE
-    gaussians._features_dc.data = dc_hack
-    gaussians._features_rest.data = torch.zeros_like(rest_saved)
+    if use_head:
+        head_model = load_head_gs(head_gs_ply)
+        n_head = int(head_model.get_xyz.shape[0])
+        gaussians = None
+        face_idx = None
+        desc = f"head_gs 3DMM ({n_head} gaussians)"
+        from argparse import Namespace
+        pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False,
+                         antialiasing=False, debug=False)
+        bg_black = torch.zeros(3, device=DEVICE)
+        print(f"\n{prefix}🔁 closed-loop push-in: target={TARGET_COV}% "
+              f"probe={ALPHA_PROBE}px, iters<={MAX_PUSH_ITERS}, d_min={MIN_DIST_ABS}m")
+        print(f"{prefix}   head gs: {desc}")
+    else:
+        head_model = None
+        gaussians, pipe, bg_black, _ = load_gaussians()
+        face_idx, desc = select_face_gaussians(gaussians, face_center, r_face, spread)
+        n_face_gs = int(face_idx.sum())
+        print(f"\n{prefix}🔁 closed-loop push-in: target={TARGET_COV}% "
+              f"probe={ALPHA_PROBE}px, iters<={MAX_PUSH_ITERS}, d_min={MIN_DIST_ABS}m")
+        print(f"{prefix}   head gs: {desc} → {n_face_gs} gaussians")
+
+        # 染白头部高斯 / 染黑其余 → 渲染亮度 = 头部累积 alpha (软)
+        dc_saved = gaussians._features_dc.detach().clone()
+        rest_saved = gaussians._features_rest.detach().clone()
+        dc_hack = torch.full_like(dc_saved, _DC_BLACK)
+        dc_hack[face_idx, 0, :] = _DC_WHITE
+        gaussians._features_dc.data = dc_hack
+        gaussians._features_rest.data = torch.zeros_like(rest_saved)
 
     def probe(cv, uid):
         cam = make_camera(cv, uid=uid, size=ALPHA_PROBE)
+        model = head_model if use_head else gaussians
         with torch.no_grad():
-            soft = render(cam, gaussians, pipe, bg_black)["render"].clamp(0, 1).mean(0)
+            soft = render(cam, model, pipe, bg_black)["render"].clamp(0, 1).mean(0)
         return float(soft.mean() * 100)
 
     print(f"{prefix}  {'view':<16}{'d0':>7}{'cov0':>8} | {'d_final':>8}{'cov':>7}{'iters':>6}  状态")
@@ -645,18 +715,22 @@ def closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=""):
         cv["alpha_cov_probe"] = cov
         cv["push_iters"] = iters
         # 容差: 迭代上限退出时 cov 可能是 11.995 这类「显示 12.00 但 < target」的值
-        reached = cov >= TARGET_COV - 0.05
+        reached = cov >= TARGET_COV - 0.5
         cv["closed_loop_target_reached"] = bool(reached)
         state = "✅达标" if reached else ("⚠️触及下限" if d_final <= d_min + 1e-3 else "⚠️未达标")
         print(f"{prefix}  {cv['name']:<16}{d0:7.3f}{cov0:8.2f} | {d_final:8.3f}{cov:7.2f}{iters:6d}  {state}")
 
-    gaussians._features_dc.data = dc_saved
-    gaussians._features_rest.data = rest_saved
+    if use_head:
+        del head_model
+    else:
+        gaussians._features_dc.data = dc_saved
+        gaussians._features_rest.data = rest_saved
     del gaussians
     torch.cuda.empty_cache()
 
 
-def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, spread=None):
+def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0,
+                 spread=None, head_gs_ply=""):
     """单人流: 选基视角 → 推进近景 → pitch 外插 → sanity → 3DGS 渲染 → poses。
 
     tag: 输出目录后缀 (单人 "" / 多人 "_p00"); prefix: 日志前缀。
@@ -729,7 +803,8 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
                 cv["iso_focal"] = round(f, 1)
 
     # 2c. 闭环推近: 用渲染 alpha 覆盖率驱动, 决定每个视角的最终物距
-    closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=prefix)
+    closed_loop_pushin(closeup_views, face_center, r_face, spread, prefix=prefix,
+                       head_gs_ply=head_gs_ply)
 
     # 3. Sanity check: face_center 反投回每个近景视角
     print(f"\n{prefix}🔍 sanity check: face_center 反投到近景视角...")
@@ -766,7 +841,8 @@ def run_pipeline(views, face_center, coverage, tag="", prefix="", r_face=0.0, sp
     alpha_dir = os.path.join(RESULTS_DIR, f"06c_closeup_alpha{tag}")
     debug_dir = os.path.join(RESULTS_DIR, f"06c_closeup_debug{tag}")
     poses = render_views(closeup_views, renders_dir, alpha_dir, debug_dir,
-                         face_center=face_center, r_face=r_face, spread=spread)
+                         face_center=face_center, r_face=r_face, spread=spread,
+                         head_gs_ply=head_gs_ply)
 
     # 5. Save poses (debug 目录同步一份 annotations.json, 与图像标注同源)
     poses_path = os.path.join(RESULTS_DIR, f"06c_closeup_poses{tag}.json")
@@ -804,6 +880,15 @@ def main():
     views = parse_colmap(SOURCE_DIR)
     stems = [v["stem"] for v in views]
 
+    # 2.5 head_gs (3DMM 头/身/景拆分 03g): 存在时覆盖率/mask 改用真头模型,
+    #     face_center 也改用 head_fit 的头中心 (与 head_gs 几何自洽)
+    head_fit = None
+    _hdir = HEAD_GS_DIR or os.path.join(RESULTS_DIR, "03e_head_3dmm")
+    _hf_path = os.path.join(_hdir, "head_fit.json")
+    if os.path.isfile(_hf_path):
+        with open(_hf_path) as f:
+            head_fit = json.load(f)
+
     # 3. 多人 / 单人分派
     if "persons" in fc:
         pids_avail = sorted(int(k) for k in fc["persons"])
@@ -825,9 +910,18 @@ def main():
             pinfo = fc["persons"][str(pid)]
             center = np.array(pinfo["center"])
             r_face = r_face_from_spread(pinfo["spread"]) if "spread" in pinfo else 0.0
+            head_ply = head_gs_path_for(pid)
+            if head_ply and head_fit and f"{pid:02d}" in head_fit.get("persons", {}):
+                hinfo = head_fit["persons"][f"{pid:02d}"]
+                center = np.array(hinfo["head_center"])
+                r_face = float(hinfo.get("head_radius_p90", r_face))
+                print(f"  🗿 head_gs: {os.path.basename(head_ply)} → "
+                      f"face_center/r 改用 3DMM head_fit (r={r_face:.4f})")
+            elif HEAD_GS not in ("0", "none", "off", "false") and not head_ply:
+                print(f"  ⚠️ head_gs 未找到 ({_hdir}/head_gs_p{pid:02d}.ply), 退回椭球代理")
             run_pipeline(views, center, cov_multi[pid], tag=f"_p{pid:02d}",
                          prefix=f"[p{pid:02d}] ", r_face=r_face,
-                         spread=pinfo.get("spread"))
+                         spread=pinfo.get("spread"), head_gs_ply=head_ply)
     else:
         face_center = np.array(fc["center"])
         print(f"  face center: {face_center}")
