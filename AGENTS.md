@@ -23,7 +23,8 @@
 │       ├── run_all.sh                # 一键全流程
 │       ├── README.md                 # 算法级 README（服务器）
 │       ├── README_wsl.md             # WSL 复现指南（与 README.md 并列，不删旧的）
-│       └── EXPERIMENTS.md            # （可选）实验结论/消融数据/踩坑归档，按日期倒序追加
+│       ├── EXPERIMENTS.md            # （可选）实验结论/消融数据/踩坑归档，按日期倒序追加
+│       └── NOTES.md                  # （可选）原理详解/机制说明/排错手册（README 保持精简）
 ├── <official-repo>/                  # 官方代码（自动 clone，sibling of media_code）
 │   ├── 服务器: $REPO_DIR/../<repo>   # 与 media_code 同级
 │   └── WSL: ~/repos/<repo>           # Linux fs（编译快，proxy.env 覆盖路径）
@@ -254,19 +255,34 @@ $MODEL_DIR/
 
 以下为详细参考。
 
-## Pipeline（流程详解）
-\```
-输入 -> [01] 步骤 -> [02] 步骤 -> 输出
-\```
-
 ## Config (env vars)
 | var | default | note |
 |---|---|---|
 | ... | ... | ... |
 
-## 可能遇到的问题
-1. ...
-2. ...
+## 目录布局
+\```
+<code-dir>/
+├── media_code/<algo>/
+├── <official-repo>/
+└── <algo>_results/
+\```
+```
+
+### 三文档分工（README / NOTES / EXPERIMENTS）
+
+**README 只保留项目运行必须查看的内容**：常用命令、首次准备、Config 速查、目录布局、简短 Notes。原理详解、排错手册、实验设计**不要写进 README**——篇幅膨胀后运行信息会被淹没。
+
+| 文档 | 定位 | 内容 |
+|---|---|---|
+| `README.md`（+`README_wsl.md`） | 运行手册 | 常用命令、首次准备、Config 表、目录布局、关键警告（暖启动勿改等） |
+| `NOTES.md`（可选） | 原理与排错 | 流程原理详解、官方代码机制、选型对比、「可能遇到的问题」全量排错手册 |
+| `EXPERIMENTS.md`（可选） | 实验归档 | 实验设计（A/B/C/D、扫参）、消融数据、实测结论、修复 bug 记录，按日期倒序追加 |
+
+- 原则：**README 精简，细节下沉**。迁出时在 README 原位留一行链接指引（如「排错见 NOTES.md」）。
+- README 内嵌的 Pipeline 详解逐步骤机制说明 → NOTES.md；实验相关内容 → EXPERIMENTS.md。
+- `EXPERIMENTS.md` 已有归档：`vggt_human`（位姿 A/B、人脸 finetune 消融、WSL 基线验证、HYPIR 提速）、`hypir`（美颜 A/B/C/D、04d 扫参、去红润诊断）。
+- `NOTES.md` 已有归档：`vggt_human`（选型对比、Pipeline 详解、服务器+WSL 排错）、`hypir`（推理/退化/暖启动机制、13 条排错）。
 
 ## 目录布局
 \```
@@ -519,13 +535,17 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
   （`git commit` 会自动触发 gc，此时被中断即损坏对象库）
 - 动 `.git/` 之前先 `cp -a .git <仓库外的备份路径>`
 
-## 12. 项目实验结论归档（不放本文件）
+## 12. 项目文档分工（细节不放本文件，不放 README）
 
-各算法的实验结论 / 消融数据 / 踩坑细节归档到**该算法目录下的
-`EXPERIMENTS.md`**（按日期倒序追加），不写入本文件——本文件只记录
-全仓统一遵守的规范与纪律。已有归档：`vggt_human/EXPERIMENTS.md`
-（人脸 finetune 消融、06e/06g 近景注入、SSIM composite 修正、
-HYPIR 推理提速等）。
+本文件只记录全仓统一规范与纪律；各算法目录下的项目细节按内容类型分流（详见第 5 节「三文档分工」）：
+
+- **实验结论 / 消融数据 / 踩坑记录** → `<algo>/EXPERIMENTS.md`（按日期倒序追加）
+- **原理详解 / 机制说明 / 排错手册** → `<algo>/NOTES.md`
+- **README.md** 只保留运行必须内容（命令 / 首次准备 / Config / 目录布局），细节迁出时留一行链接指引
+
+已有归档：`vggt_human/EXPERIMENTS.md`（位姿 A/B、人脸 finetune 消融、WSL 基线验证、
+HYPIR 提速）、`hypir/EXPERIMENTS.md`（美颜 A/B/C/D、04d 扫参、去红润诊断）；
+`vggt_human/NOTES.md`、`hypir/NOTES.md`（机制详解 + 排错手册）。
 
 ## 13. 图像识别桥接（vlm_bridge，主模型无视觉时自动调用）
 
