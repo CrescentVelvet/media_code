@@ -295,6 +295,33 @@ def fit_person(pid, frames, projs, tmpl, min_frames, use_beta, verbose=True):
     }, None
 
 
+def detect_pose_outliers(r, thr_deg=60.0):
+    """检测 fit_person 结果中的「姿态翻转」outlier 帧。
+
+    least_squares 在某些帧（尤其是头动得多的视频如 p02）会陷入局部翻转：
+    468 landmark 投影残差看似正常（因为旋转翻 180° 也能贴合一部分点），
+    但 R_f 与「中位 R_ref」的旋转差会非常大（>60°）。这类帧会污染后续
+    head_gs 逐帧重摆可视化（表现为"模型头在前/位置不对"）。
+
+    返回: set[stem]  需要剔除的帧 stem。
+    """
+    pf = r["per_frame"]
+    Rs = [np.asarray(v["R"]).reshape(3, 3) for v in pf.values()]
+    if len(Rs) < 3:
+        return set()
+    R_med = Rotation.from_matrix(np.stack(Rs)).mean().as_matrix()
+    drop = set()
+    for stem, v in pf.items():
+        R = np.asarray(v["R"]).reshape(3, 3)
+        ang = (
+            np.linalg.norm(Rotation.from_matrix(R @ R_med.T).as_rotvec())
+            * 180.0 / np.pi
+        )
+        if ang > thr_deg:
+            drop.add(stem)
+    return drop
+
+
 def main():
     model_dir = os.environ.get("MODEL_3DMM_DIR", "")
     results_dir = os.environ.get("RESULTS_DIR", "")
@@ -348,9 +375,30 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     for pid in sorted(person_obs):
         log(f"  🔧 拟合 pid={pid} ({len(person_obs[pid])} 帧)…")
-        r, err = fit_person(pid, person_obs[pid], projs, tmpl, min_frames, bool(use_beta))
+        frames_pid = person_obs[pid]
+        r, err = fit_person(pid, frames_pid, projs, tmpl, min_frames, bool(use_beta))
         if r is None:
             log(f"     ⚠️ 跳过: {err}")
+            continue
+        # ── 姿态 outlier 迭代：剔除 least_squares 陷入「翻转」局部最优的帧 ──
+        # RMS 剔除只能抓「投影残差大」的帧；翻转解的 468 投影可能残差正常，
+        # 但 R_f 与中位 R_ref 偏差 >> 60°（人不可能在普通视频里转 60°+）。
+        # 剔除后重新三角化做初值，再跑 LS。最多 2 轮（p02 经验 1 轮够）。
+        outlier_thr = float(os.environ.get("OUTLIER_R_DEG", "60"))
+        for _round in range(2):
+            drop = detect_pose_outliers(r, thr_deg=outlier_thr)
+            if not drop or len(frames_pid) - len(drop) < min_frames:
+                break
+            log(
+                f"     姿态 outlier 剔除 {len(drop)} 帧 (R_f 偏离>{outlier_thr:.0f}°), "
+                f"用 {len(frames_pid)-len(drop)} 帧重拟合"
+            )
+            frames_pid = [(s, a) for (s, a) in frames_pid if s not in drop]
+            r, err = fit_person(pid, frames_pid, projs, tmpl, min_frames, bool(use_beta))
+            if r is None:
+                log(f"     ⚠️ 重拟合失败: {err}")
+                break
+        if r is None:
             continue
         out["persons"][pid] = r
         # 世界坐标头网格单独存 npz（不进 json）
