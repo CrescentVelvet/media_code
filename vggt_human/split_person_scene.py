@@ -40,8 +40,13 @@ HEAD_MESH_DIR = os.environ.get("HEAD_MESH_DIR", f"{RESULTS_DIR}/03e_head_3dmm")
 OUT_DIR = os.environ.get("SPLIT_OUT_DIR", f"{RESULTS_DIR}/03h_person_scene_split")
 
 FRAME_STRIDE = int(os.environ.get("FRAME_STRIDE", "3"))       # 每 3 帧取 1 帧投票
-MIN_VOTES = int(os.environ.get("MIN_VOTES", "4"))             # 最少票数
-VOTE_RATIO = float(os.environ.get("VOTE_RATIO", "0.6"))       # 票数/总票数 下限
+MIN_VOTES = int(os.environ.get("MIN_VOTES", "5"))             # 最少票数
+VOTE_RATIO = float(os.environ.get("VOTE_RATIO", "0.3"))       # 票数/可见帧数 下限
+# 注: VOTE_RATIO 分母是「可见帧数」而非「命中 mask 的票数」——
+# 人后的桌面/背景点也会投进 mask（深度门限拦不完全），分母用命中数会把
+# 只在某一人 mask 里偶尔出现的背景点比例抬到 ~1（09-07 用户看到桌面被
+# 红绿点覆盖的根因）。分母用可见帧数后，人体点 ratio~0.4-0.8、
+# 背景泄漏点 ~0.1-0.2，0.3 可干净分开。
 DEPTH_GATE = float(os.environ.get("DEPTH_GATE", "0.5"))       # |z_pt-z_head| < GATE·z_head
 HEAD_BBOX_MARGIN = float(os.environ.get("HEAD_BBOX_MARGIN", "0.15"))  # 头包围盒外扩 15%
 NEAR = float(os.environ.get("NEAR", "0.01"))
@@ -185,6 +190,14 @@ def main():
             mk = om[stem]
             inside = vis & mk[vv.astype(np.int32).clip(0, H - 1),
                               u.astype(np.int32).clip(0, W - 1)]
+            # 跨 mask 排除: 该点同时落在其他人的 mask 里 → 本帧不投票。
+            # 否则站在人后的人(如 p02)其 mask 会把前排人的头发/肩点抢过去。
+            for oid2, om2 in person_masks.items():
+                if oid2 == oid or stem not in om2:
+                    continue
+                m2 = om2[stem]
+                inside &= ~m2[vv.astype(np.int32).clip(0, H - 1),
+                              u.astype(np.int32).clip(0, W - 1)]
             if not inside.any():
                 continue
             # 深度门限: 该帧人头深度
@@ -196,14 +209,14 @@ def main():
         if (si + 1) % 10 == 0:
             log(f"   投票 {si + 1}/{len(stems)} 帧")
 
-    # 归属判定
+    # 归属判定: 分母用「可见帧数」(total), 不是「命中 mask 票数」——
+    # 背景点(桌面)只会偶尔落进某个 mask, 用命中数做分母会把比例抬到 ~1
     log("🧮 归属判定 ...")
     stack = np.stack([votes[p] for p in PIDS], axis=0)          # (P, N)
     best_p = stack.argmax(axis=0)
     best_v = stack.max(axis=0)
-    sum_v = stack.sum(axis=0)
     person_of = np.full(N, -1, dtype=np.int64)
-    ok = (best_v >= MIN_VOTES) & (best_v / np.maximum(sum_v, 1) >= VOTE_RATIO)
+    ok = (best_v >= MIN_VOTES) & (best_v / np.maximum(total, 1) >= VOTE_RATIO)
     person_of[ok] = best_p[ok]
 
     # 头包围盒内的点丢弃 (head_gs 替代)
