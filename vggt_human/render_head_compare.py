@@ -44,11 +44,26 @@ def load_gs(path):
     dc = np.stack([v["f_dc_0"], v["f_dc_1"], v["f_dc_2"]], 1).astype(np.float32)
     op = v["opacity"].astype(np.float32)[:, None]
     sc = np.stack([v["scale_0"], v["scale_1"], v["scale_2"]], 1).astype(np.float32)
-    return dict(xyz=torch.tensor(xyz), rot=torch.tensor(rot), dc=torch.tensor(dc),
-                op=torch.tensor(op), sc=torch.tensor(sc))
+    d = dict(xyz=torch.tensor(xyz), rot=torch.tensor(rot), dc=torch.tensor(dc),
+             op=torch.tensor(op), sc=torch.tensor(sc))
+    # 高阶 SH：PLY 存储顺序 R0-14, G0-14, B0-14 → [N,3,15] → [N,15,3]（GS layout）
+    names = [p.name for p in v.properties]
+    rest_names = [n for n in names if n.startswith("f_rest_")]
+    if rest_names:
+        rest_names = sorted(rest_names, key=lambda n: int(n.split("_")[-1]))
+        fr = np.stack([v[n] for n in rest_names], 1).astype(np.float32)
+        d["fr"] = torch.tensor(fr.reshape(-1, 3, 15).transpose(0, 2, 1).copy())
+    else:
+        d["fr"] = None
+    return d
 
 class MiniGS:
-    """只包装渲染需要的属性。⚠️ PLY 存 raw 值：scale 要 exp、opacity 要 sigmoid。"""
+    """只包装渲染需要的属性。⚠️ PLY 存 raw 值：scale 要 exp、opacity 要 sigmoid。
+
+    f_rest 存在时加载并 active_sh_degree=SH_DEGREE（默认 3）；
+    recolor 模式（染白/染黑测 alpha）强制 rest=0 + degree=0，
+    保证渲染值 = 纯 DC 色 · 累积 alpha。
+    """
     def __init__(self, d, recolor=None):
         self._xyz = d["xyz"].cuda()
         self._rotation = d["rot"].cuda()
@@ -59,9 +74,13 @@ class MiniGS:
         else:
             c = torch.full_like(d["dc"], recolor)   # 染白 +1.772 / 染黑 -1.772
             self._features_dc = c.cuda()
-        self._features_rest = torch.zeros(len(self._xyz), 15, 3, device="cuda")
+        if recolor is None and d.get("fr") is not None:
+            self._features_rest = d["fr"].cuda()               # [N,15,3]
+            self.active_sh_degree = int(os.environ.get("SH_DEGREE", "3"))
+        else:
+            self._features_rest = torch.zeros(len(self._xyz), 15, 3, device="cuda")
+            self.active_sh_degree = 0
         self.max_radii2D = torch.empty(0)
-        self.active_sh_degree = 0
         self.pretrained_exposures = None
 
     @property
