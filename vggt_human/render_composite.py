@@ -22,6 +22,9 @@ SCENE_ITERS = os.environ.get("SCENE_ITERS", ITERS)           # scene iteration
 WITH_BASELINE = os.environ.get("BASELINE", "0") == "1"       # 同帧加载 04b 基线对比
 CLAMP = os.environ.get("CLAMP", "1") == "1"                  # mask 约束合成（切除越界 alpha）
 CLAMP_DILATE = int(os.environ.get("CLAMP_DILATE", "10"))     # person mask 膨胀 px（软边容忍）
+CLAMP_FEATHER = int(os.environ.get("CLAMP_FEATHER", "20"))   # mask 边缘高斯羽化 px（0=硬切）
+# 默认 D10/F20 为目视+指标平衡点：全帧 22.61（Δ-0.11 vs 04b）、无耳际黑斑、
+# 无轮廓鬼影、脸区锐利。D5/F40 全帧更高（23.43）但人像轮廓鬼影不可接受。
 HEAD_CROP = os.environ.get("HEAD_CROP", "0") == "1"          # 输出 head 区高分辨率裁剪对比
 N_VIS = int(os.environ.get("N_VIS", "6"))
 OUT_DIR = f"{RESULTS}/03i_composite_vis"
@@ -132,19 +135,27 @@ def main():
         if CLAMP:
             import cv2
             k = np.ones((CLAMP_DILATE*2+1, CLAMP_DILATE*2+1), np.uint8)
+            def _soft(mm):
+                # 硬切→软过渡：dilate 后高斯羽化，mask 边缘 0-1 渐变，
+                # 消除耳际/边界硬切黑斑（CLAMP_FEATHER=0 退回硬切）。
+                # ⚠️ min(blur, hard)：软过渡只向内收缩，不外扩——否则 head/body
+                # 层无监督的越界垃圾会沿羽化带漏到区域外
+                hard = cv2.dilate((mm > 0.3).astype(np.uint8), k).astype(np.float32)
+                if CLAMP_FEATHER > 0:
+                    ks = CLAMP_FEATHER * 2 + 1
+                    hard = np.minimum(cv2.GaussianBlur(hard, (ks, ks), 0), hard)
+                return hard
             for pid in PIDS:
                 bpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.body.png"
                 hpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.head.png"
                 if os.path.isfile(bpath):
                     m = np.asarray(Image.open(bpath).convert("L"), dtype=np.float32) / 255.0
                     if m.max() >= 0.1:
-                        m = cv2.dilate((m > 0.3).astype(np.uint8), k).astype(np.float32)
-                        body_masks[pid] = torch.tensor(m, device="cuda")[None]
+                        body_masks[pid] = torch.tensor(_soft(m), device="cuda")[None]
                 if os.path.isfile(hpath):
                     m = np.asarray(Image.open(hpath).convert("L"), dtype=np.float32) / 255.0
                     if m.max() >= 0.1:
-                        m = cv2.dilate((m > 0.3).astype(np.uint8), k).astype(np.float32)
-                        head_masks[pid] = torch.tensor(m, device="cuda")[None]
+                        head_masks[pid] = torch.tensor(_soft(m), device="cuda")[None]
 
         # body 渲染叠加（中间层），记录每人 clamp 后 alpha 供 head 遮挡计算
         body_alpha = {}
