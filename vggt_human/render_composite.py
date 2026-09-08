@@ -22,6 +22,7 @@ SCENE_ITERS = os.environ.get("SCENE_ITERS", ITERS)           # scene iteration
 WITH_BASELINE = os.environ.get("BASELINE", "0") == "1"       # 同帧加载 04b 基线对比
 CLAMP = os.environ.get("CLAMP", "1") == "1"                  # mask 约束合成（切除越界 alpha）
 CLAMP_DILATE = int(os.environ.get("CLAMP_DILATE", "10"))     # person mask 膨胀 px（软边容忍）
+HEAD_CROP = os.environ.get("HEAD_CROP", "0") == "1"          # 输出 head 区高分辨率裁剪对比
 N_VIS = int(os.environ.get("N_VIS", "6"))
 OUT_DIR = f"{RESULTS}/03i_composite_vis"
 
@@ -125,8 +126,8 @@ def main():
         comp = c_scene.clone()
         acc_a = torch.zeros(1, H, W, device="cuda")
 
-        # mask 约束：按各自区域 mask 分别约束（body 层不能盖 head 区域，
-        # 否则 body 越界高斯会衰减 head 层的有效 alpha——head 区被遮挡）
+        # mask 约束：body 层 alpha 限制在自己 body mask（膨胀）内，切除越界高斯
+        # （body 30k densify 后高斯漂移出界，不切会污染 scene 区，实测 +6dB 收益）
         body_masks, head_masks = {}, {}
         if CLAMP:
             import cv2
@@ -145,15 +146,21 @@ def main():
                         m = cv2.dilate((m > 0.3).astype(np.uint8), k).astype(np.float32)
                         head_masks[pid] = torch.tensor(m, device="cuda")[None]
 
-        # body 渲染叠加（中间层）
+        # body 渲染叠加（中间层），记录每人 clamp 后 alpha 供 head 遮挡计算
+        body_alpha = {}
         for pid in PIDS:
             cb, ab = render_rgb_alpha(models[f"body{pid}"], cam, pipe, bg)
             if CLAMP and pid in body_masks:
                 ab = ab * body_masks[pid]          # 切除 body mask 外越界 alpha
+            body_alpha[pid] = ab
             comp = comp * (1 - ab * (1 - acc_a)) + cb * (ab * (1 - acc_a))
             acc_a = torch.clamp(acc_a + ab * (1 - acc_a), 0, 1)
 
         # head 渲染叠加（最上层，逐帧 warp）
+        # ⚠️ over 算子方向：head 是顶层，其 alpha 不能被【自己 body】的累积 alpha
+        # 衰减（自己身体永远在自己头后面）。旧式 a_h=ah*(1-acc_a) 把 acc_a(含自身
+        # body, 实测 head 区内 0.84) 乘进去 → head 实际贡献仅 0.16 → 脸区露 body
+        # 垃圾（斑点噪声）。正确：只被【其他人 body】衰减（跨人前置遮挡近似）。
         for pid in PIDS:
             fr = fit["persons"].get(pid)
             if fr is None: continue
@@ -171,9 +178,14 @@ def main():
             restore_gs(g, x0, r0)
             if CLAMP and pid in head_masks:
                 ah = ah * head_masks[pid]          # head 层只约束到自己 head 区域
-            a_h = ah * (1 - acc_a)
+            # 其他人 body 的累积 alpha（跨人遮挡近似；不含自身 body）
+            trans_other = torch.ones(1, H, W, device="cuda")
+            for j in PIDS:
+                if j != pid and j in body_alpha:
+                    trans_other = trans_other * (1 - body_alpha[j])
+            a_h = ah * trans_other                 # 只被其他人 body 遮挡衰减
             comp = comp * (1 - a_h) + ch * a_h
-            acc_a = torch.clamp(acc_a + a_h, 0, 1)
+            acc_a = torch.clamp(acc_a + a_h * (1 - acc_a), 0, 1)
 
         # 全帧 PSNR
         gt_t = torch.tensor(gt, device="cuda").permute(2, 0, 1)
@@ -217,6 +229,34 @@ def main():
             psnrs_head.append(best_head_psnr)
 
         comp_np = comp.permute(1, 2, 0).cpu().numpy()
+
+        # head 区高分辨率裁剪对比（GT | composite | 04b）+ Laplacian 锐度
+        if HEAD_CROP:
+            import cv2
+            base_np = base_img.permute(1, 2, 0).cpu().numpy() if g_base is not None else None
+            for pid in PIDS:
+                mpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.head.png"
+                if not os.path.isfile(mpath): continue
+                m = np.asarray(Image.open(mpath).convert("L"), dtype=np.float32) / 255.0
+                if m.max() < 0.1: continue
+                ys, xs = np.where(m > 0.5)
+                if len(ys) == 0: continue
+                pad = 40
+                y0, y1 = max(0, ys.min() - pad), min(H, ys.max() + pad)
+                x0, x1 = max(0, xs.min() - pad), min(W, xs.max() + pad)
+                tiles = [gt[y0:y1, x0:x1], comp_np[y0:y1, x0:x1]]
+                names = ["GT", "comp"]
+                if base_np is not None:
+                    tiles.append(base_np[y0:y1, x0:x1]); names.append("04b")
+                def sharp(c):
+                    g8 = (cv2.cvtColor((np.clip(c, 0, 1) * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY))
+                    return cv2.Laplacian(g8, cv2.CV_64F).var()
+                sh = [sharp(t) for t in tiles]
+                rowimg = np.concatenate(tiles, axis=1)
+                Image.fromarray((np.clip(rowimg, 0, 1) * 255).astype(np.uint8)).save(
+                    f"{OUT_DIR}/headcrop_{stem}_p{pid}.png")
+                print(f"  ✂️ headcrop p{pid} {stem}: " + "  ".join(f"{n} sharp={s:.0f}" for n, s in zip(names, sh)))
+
         side = np.concatenate([gt, comp_np], axis=1)
         rows.append((stem, side, p_full))
 
