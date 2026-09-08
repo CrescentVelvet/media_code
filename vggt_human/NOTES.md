@@ -2,6 +2,8 @@
 
 > 本文件从 README.md 迁入：选型对比、流程原理详解、各步骤机制、常见报错修法。
 > 运行命令与参数速查看 [README.md](README.md)；实验设计与结果看 [EXPERIMENTS.md](EXPERIMENTS.md)。
+> **人脸链路 v2（FLAME + 表情驱动 + 重心绑定）的设计方案与决策记录看
+> [DESIGN_face_pipeline.md](DESIGN_face_pipeline.md)**（2026-09-08 评审产出，尚未实现）。
 
 ## 为什么用 VGGT-Omega + 原版 3DGS
 
