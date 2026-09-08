@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# 03j_final_composite.sh — 三模型最终合成评估（head 10k + body/scene 30k）
+# 03j_final_composite.sh — 三模型最终合成评估（head 10k + body 30k + scene 4k）
 #
-# 前置：body×3 + scene 30k（train_full_bodies_scene.sh）、head×3 10k
-#       （train_heads_refine.sh）全部完成
+# 前置：body×3 30k（train_full_bodies_scene.sh）、head×3 10k（train_heads_refine.sh）
+# scene 用 4k：实测 30k 过密（96万→211万高斯）区域分反降（23.12→22.48），
+# 合成全帧 med 21.56 < 4k 的 21.85 → 回退 4k（2026-09-08 验证）
 # 输出：合成 mosaic + 全帧/body区/head区 PSNR + 04b 基线同帧对比
 set -eo pipefail
 cd /mnt/c/code/media_code/vggt_human
@@ -20,8 +21,8 @@ for pid in 00 01 02; do
         fi
     done
 done
-if [ ! -f "$RESULTS_DIR/03i_scene/point_cloud/iteration_30000/point_cloud.ply" ]; then
-    echo "❌ 缺 scene 30k"
+if [ ! -f "$RESULTS_DIR/03i_scene/point_cloud/iteration_4000/point_cloud.ply" ]; then
+    echo "❌ 缺 scene 4k"
     MISSING=1
 fi
 if [ "$MISSING" = "1" ]; then
@@ -30,13 +31,13 @@ if [ "$MISSING" = "1" ]; then
 fi
 
 echo "=================================================================="
-echo "三模型最终合成（head 10k + body 30k + scene 30k）vs 04b 基线"
+echo "三模型最终合成（head 10k + body 30k + scene 4k）vs 04b 基线"
 echo "=================================================================="
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate vggt_human
 
 OMP_NUM_THREADS=8 RESULTS_DIR=$RESULTS_DIR \
-HEAD_ITERS=10000 BODY_ITERS=30000 SCENE_ITERS=30000 \
+HEAD_ITERS=10000 BODY_ITERS=30000 SCENE_ITERS=4000 \
 N_VIS=8 BASELINE=1 python render_composite.py 2>&1 | tail -25
 
 echo ""
@@ -51,7 +52,7 @@ for pid in 00 01 02; do
     python eval_region_psnr.py 2>&1 | grep -E '=== |med=' | tr '\n' ' '
     echo ""
 done
-OMP_NUM_THREADS=8 RESULTS_DIR=$RESULTS_DIR KIND=scene ITERS=30000 N_VIS=8 \
+OMP_NUM_THREADS=8 RESULTS_DIR=$RESULTS_DIR KIND=scene ITERS=4000 N_VIS=8 \
 python eval_region_psnr.py 2>&1 | grep -E '=== |med=' | tr '\n' ' '
 echo ""
 echo ""
