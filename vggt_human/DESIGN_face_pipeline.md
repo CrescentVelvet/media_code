@@ -274,15 +274,36 @@ self.local_exp.data.copy_(rep_exp.unsqueeze(0).expand(N, -1))
 冲突，纯增益。而「前处理增强原训练帧」是拿一个新的外观去**覆盖一个已存在的一致观测**。
 这是两件事。
 
-### 定稿方案：2 + 1 组合
+### 定稿：三个入口全部启用（不是二选一）
 
-1. **主线**：原图训几何 → 增强图 fine-tune 外观（**冻结几何**）
-   ——冲突最小，几何不再被增强图拉扯，外观单独吸收高频细节
-2. **补高频**：沿用 06e，增强图配新注入近景相机（`inject_closeup_cameras.py`）
+#### 入口 1 — 前处理增强（训练前，全帧替换 GT 人脸区域）
 
-**不采用**：全帧增强替换 GT（跨视角一致性完全押在 HYPIR，闪烁风险最高）。
+- 时机：`_face_preprocess()`，训练开始前
+- 函数：`face_enhance_hy_with_sam_multi(is_post_enhance=False)`
+- 覆盖：**所有检测到人脸的帧**（全帧，非子集）
+- 流程（`face_enhance.py:63-104`）：`src = tgt = 原图` → 裁人脸 box → 512² 增强 →
+  `fused = crop_enh·mask + crop_out·(1−mask)`（中心=增强，边缘=原图，**54px 渐变边框**）
+  → `cam.reset_image(enh_image)` 永久替换 GT
 
-> 未验证项：是否已实测过「全帧增强替换 GT」？若实测无闪烁，则可直接走这条路（最省事）。
+#### 入口 2 — 后处理增强（epoch 48，伪 GT / 自蒸馏）
+
+- 函数：`face_enhance_hy_with_sam_multi(is_post_enhance=True)`；前置 `fix_and_sync_exp()`
+- **关键区别**：`src_image = render(cam, gaussians)` —— 裁剪的是**当前模型渲染图**，不是原图
+- 人脸中心 = 增强渲染图，边缘 = 当前 GT → `cam.reset_image()`
+- 目的：自蒸馏。告诉模型「你渲染的样子增强后长这样」。
+  原始 GT 人脸可能模糊/低质量；渲染图是 3D 模型多视角聚合的结果，**天然多视角一致**
+  （这一点正好规避了入口 1 的跨视角不一致问题）
+
+#### 入口 3 — 新注相机（epoch 48，增强渲染图作额外训练数据）
+
+- 函数：`get_novel_views_portrait()` + `enhance_novel_cameras()`
+- 采样 20 个输入相机 → 沿「相机→人脸中心」推进直到 avatar mask 覆盖率 ≥ 40%
+  → 绕人脸中心 ±5° pitch → 每相机 2 个新视角
+- 整图增强（`enhance_512`，不需要 SAM 检测框）→ `cam.reset_image()` → 追加 `novel_cameras`
+- 后续 epoch 由 `set_train_cameras()` 自动追加（`pipeline.py:248-249`）
+- **loss 权重 0.5**（`pipeline.py:356-357`，L1 与 SSIM 同乘）
+
+> ⚠️ 数字待核对：「入口 3」写 20 相机 × 2 = **40 张**；「触发时机」一节写 **160 张**。
 
 ### 跨帧一致性：seed 改进（定稿）
 
@@ -298,14 +319,58 @@ self.local_exp.data.copy_(rep_exp.unsqueeze(0).expand(N, -1))
 
 ---
 
-## 9. 未决项 / 下一步
+## 9. 头 / 身切分与接缝
+
+### 现状（`__gaussian_init_human_body`, pipeline.py:1294-1331）
+
+```python
+avatar_points = gaussians_avatar.compute_neutral_global().detach()   # FLAME mesh 顶点
+max_dist = (avatar_points.max - avatar_points.amin)².sum() * 0.1     # 对角线² × 10%
+knn_dists = knn_points(body_points, avatar_points, K=1).dists        # body 点 → 最近 face 顶点
+body_mask = knn_dists > max_dist                                     # 只保留离 face 远的
+body_points = body_points[body_mask]
+```
+
+策略：**暴力删近邻点，不补缝**。
+
+- face mesh 覆盖：脸 + 脖子（FLAME 含 neck 顶点；自研 20971 顶点覆盖到脖子下方）
+- body 点云覆盖：躯干、四肢、头发等（离 face 远的所有点）
+- **gap**：脖子到肩膀的过渡区——离 face mesh 太近被删除，又不在 face mesh 覆盖范围内
+
+gap **无人显式覆盖**，当前靠三个隐式机制兜底（均不可靠，大角度转头时易暴露）：
+
+1. 高斯 alpha blending 重叠（要求两侧高斯 scale 足够大）
+2. densification 往 gap 生长新高斯
+3. `max_dist` 阈值不够大时，部分脖子/肩膀点被保留
+
+## 10. 训练期触发时机
+
+| 项 | 值 |
+|---|---|
+| `epochs` | 60 |
+| `face_enhance_epoch` | 48（= epochs − 12）|
+| `portrait_novel_epoch` | 48（与后处理同 epoch）|
+| 触发方式 | **单次**（`==` 不是 `>=`）|
+
+epoch 48 末尾顺序（`pipeline.py:595-600`）：
+
+1. `face_enhance_post()` → `fix_and_sync_exp()` + 增强渲染图替换 GT 人脸区
+2. `portrait_novel_enhance()` → 生成 novel view → 增强 → 追加训练列表
+
+epoch 49~60：`set_train_cameras()` 自动追加 `novel_cameras`；GT 与 novel 集合**都不再变**。
+
+**为什么是 48**：留 12 个 epoch 在增强 GT 上收敛；前 48 epoch 让几何与外观基本成型。
+太早（如 20）渲染质量差，伪 GT 引入伪影；太晚（如 58）只剩 2 epoch 来不及收敛。
+
+## 11. 未决项 / 下一步
 
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | **分支 E**：头/身切分与跨模型接缝 | FLAME 顶点含脖子但不含肩；身体点云减掉头部附近点后，**脖子到肩是否留空隙** |
-| 2 | **分支 F**：训练期触发增强 | `full_train` 特定 epoch 触发的时机、频率、HYPIR 全量成本 |
-| 3 | 新仓 vs 继续 vggt_human | 未定 |
-| 4 | `λ_id` / `λ_exp` 取值 | 4.3 的 L1 正则权重 |
-| 5 | exp 时间平滑 | 视频帧间连续，当前 loss 只有 L1 幅度正则，无帧间平滑 |
-| 6 | 4.3 收敛性 | 变量 = 7 + 300 + F×(6+100)，Adam 300 iter 是否足够 |
-| 7 | 增强区 mask 的 3D 一致性 | 现为逐帧 2D bbox crop + feather；同一 3D 点在不同帧可能落在增强区内/外 |
+| 1 | **换 FLAME 会让 KNN 切分行为翻转** | 顶点密度 20971→5023（1/4），body→最近顶点距离变大 → 保留的点增多 → 问题从「gap 空洞」变「head/body 重叠 → 重影」。`max_dist` 未归一化顶点密度 |
+| 2 | **自蒸馏后人脸区失去真实锚定** | epoch 48 后人脸 box 内 GT 与 novel GT 都是「增强渲染图」，后 12 epoch 无真实观测，偏差会被固化且无回滚 |
+| 3 | novel view 张数 | 入口 3 写 40 张，触发时机节写 160 张，需核对 |
+| 4 | 新仓 vs 继续 vggt_human | 未定 |
+| 5 | `λ_id` / `λ_exp` 取值 | 4.3 的 L1 正则权重 |
+| 6 | exp 时间平滑 | 视频帧间连续，当前 loss 只有 L1 幅度正则，无帧间平滑 |
+| 7 | 4.3 收敛性 | 变量 = 7 + 300 + F×(6+100)，Adam 300 iter 是否足够 |
+| 8 | 增强区 mask 的 3D 一致性 | 现为逐帧 2D bbox crop + feather；同一 3D 点在不同帧可能落在增强区内/外 |
