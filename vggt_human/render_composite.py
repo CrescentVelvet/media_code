@@ -20,6 +20,8 @@ HEAD_ITERS = os.environ.get("HEAD_ITERS", ITERS)             # head 各自 itera
 BODY_ITERS = os.environ.get("BODY_ITERS", ITERS)             # body 各自 iteration
 SCENE_ITERS = os.environ.get("SCENE_ITERS", ITERS)           # scene iteration
 WITH_BASELINE = os.environ.get("BASELINE", "0") == "1"       # 同帧加载 04b 基线对比
+CLAMP = os.environ.get("CLAMP", "1") == "1"                  # mask 约束合成（切除越界 alpha）
+CLAMP_DILATE = int(os.environ.get("CLAMP_DILATE", "10"))     # person mask 膨胀 px（软边容忍）
 N_VIS = int(os.environ.get("N_VIS", "6"))
 OUT_DIR = f"{RESULTS}/03i_composite_vis"
 
@@ -123,9 +125,31 @@ def main():
         comp = c_scene.clone()
         acc_a = torch.zeros(1, H, W, device="cuda")
 
+        # mask 约束：按各自区域 mask 分别约束（body 层不能盖 head 区域，
+        # 否则 body 越界高斯会衰减 head 层的有效 alpha——head 区被遮挡）
+        body_masks, head_masks = {}, {}
+        if CLAMP:
+            import cv2
+            k = np.ones((CLAMP_DILATE*2+1, CLAMP_DILATE*2+1), np.uint8)
+            for pid in PIDS:
+                bpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.body.png"
+                hpath = f"{RESULTS}/03i_region_masks/{stem}.p{pid}.head.png"
+                if os.path.isfile(bpath):
+                    m = np.asarray(Image.open(bpath).convert("L"), dtype=np.float32) / 255.0
+                    if m.max() >= 0.1:
+                        m = cv2.dilate((m > 0.3).astype(np.uint8), k).astype(np.float32)
+                        body_masks[pid] = torch.tensor(m, device="cuda")[None]
+                if os.path.isfile(hpath):
+                    m = np.asarray(Image.open(hpath).convert("L"), dtype=np.float32) / 255.0
+                    if m.max() >= 0.1:
+                        m = cv2.dilate((m > 0.3).astype(np.uint8), k).astype(np.float32)
+                        head_masks[pid] = torch.tensor(m, device="cuda")[None]
+
         # body 渲染叠加（中间层）
         for pid in PIDS:
             cb, ab = render_rgb_alpha(models[f"body{pid}"], cam, pipe, bg)
+            if CLAMP and pid in body_masks:
+                ab = ab * body_masks[pid]          # 切除 body mask 外越界 alpha
             comp = comp * (1 - ab * (1 - acc_a)) + cb * (ab * (1 - acc_a))
             acc_a = torch.clamp(acc_a + ab * (1 - acc_a), 0, 1)
 
@@ -145,6 +169,8 @@ def main():
             x0, r0 = warp_gs(g, A, b)
             ch, ah = render_rgb_alpha(g, cam, pipe, bg)
             restore_gs(g, x0, r0)
+            if CLAMP and pid in head_masks:
+                ah = ah * head_masks[pid]          # head 层只约束到自己 head 区域
             a_h = ah * (1 - acc_a)
             comp = comp * (1 - a_h) + ch * a_h
             acc_a = torch.clamp(acc_a + a_h, 0, 1)
