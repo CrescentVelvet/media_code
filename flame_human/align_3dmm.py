@@ -96,7 +96,8 @@ class FlameLM:
         #（FLAME_MODEL 是 pkl 文件路径，取父目录；布局由 01_download_models.sh 搭建）
         self.flame = smplx.create(
             model_path=os.path.dirname(model_path), model_type="flame",
-            num_expression_coeffs=N_EXPR, use_face_contour=False).to(device)
+            num_betas=N_SHAPE, num_expression_coeffs=N_EXPR,
+            use_face_contour=False).to(device)
         for p in self.flame.parameters():
             p.requires_grad_(False)
         z = np.load(emb_path)
@@ -129,7 +130,12 @@ class FlameLM:
         """id (300,), exp (F,100) → (F,468,3)。"""
         f = local_exp.shape[0]
         betas = id_coeff.unsqueeze(0).expand(f, -1)
-        out = self.flame(betas=betas, expression=local_exp)
+        # pose 参数必须显式给 f 帧：模块默认是 (1,3)，与 betas 的 f 帧不匹配
+        # （lbs 里 view(batch_size,...) 会炸）。零位姿 → 旋转恒等，只走 blendshape。
+        z3 = torch.zeros(f, 3, dtype=local_exp.dtype, device=local_exp.device)
+        out = self.flame(betas=betas, expression=local_exp,
+                         global_orient=z3, neck_pose=z3, jaw_pose=z3,
+                         leye_pose=z3, reye_pose=z3)
         v = out.vertices
         return (v[:, self.lm_verts] * self.lm_bary[:, :, None]).sum(2)
 
@@ -161,6 +167,7 @@ def init_from_pnp(items, views, device):
     """
     stems = [it["stem"] for it in items]
     A, b = [], []
+    Rs, ts_sfm = [], []
     for s in stems:
         v = views[s]
         Rs.append(v["R"])
@@ -225,18 +232,21 @@ def run_stage(flame, pack, n_iter, lr, lr_global_scale, optimize, lam_id=0.0,
     if optimize.get("local"):
         lq = lq.detach().clone().requires_grad_(True)
         lt = lt.detach().clone().requires_grad_(True)
-        params += [lq, lt]
+        params.append({"params": [lq, lt]})
     if optimize.get("global"):
         log_s = log_s.detach().clone().requires_grad_(True)
         gq = gq.detach().clone().requires_grad_(True)
         gt = gt.detach().clone().requires_grad_(True)
-        params += [{"params": [log_s, gq, gt], "lr": lr * lr_global_scale}]
+        # global（尺度/全局旋转平移）走降速 lr：初值来自 PnP/中位已较准，
+        # 大步长会把多视角一致的位姿拉偏。Adam param-group 写法：顶层列表
+        # 的第一个元素必须也是 dict，否则整个列表被当成裸 tensor 列表。
+        params.append({"params": [log_s, gq, gt], "lr": lr * lr_global_scale})
     if optimize.get("id"):
         idc = idc.detach().clone().requires_grad_(True)
-        params.append(idc)
+        params.append({"params": [idc]})
     if optimize.get("exp"):
         exp = exp.detach().clone().requires_grad_(True)
-        params.append(exp)
+        params.append({"params": [exp]})
 
     opt = torch.optim.Adam(params, lr=lr)
     sch = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=0.95)
@@ -253,8 +263,8 @@ def run_stage(flame, pack, n_iter, lr, lr_global_scale, optimize, lam_id=0.0,
             loss = loss + lam_exp * exp.abs().mean()
         if anchor_w and optimize.get("local"):
             Rl = quat_to_mat(lq)
-            a_loc = torch.bmm(Rl, flame.anchor.expand(Rl.shape[0], 3, 1)) \
-                .squeeze(-1) + lt
+            a = flame.anchor.reshape(3, 1).expand(Rl.shape[0], 3, 1)
+            a_loc = torch.bmm(Rl, a).squeeze(-1) + lt
             loss = loss + anchor_w * ((a_loc - flame.anchor) ** 2).sum(-1).mean()
         loss.backward()
         opt.step()
