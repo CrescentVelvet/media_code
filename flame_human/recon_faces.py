@@ -270,6 +270,7 @@ def main():
                         # （与其 datasets 里的 Normalize(0.5, 0.5) 一致）
                         t = (torch.from_numpy(crop_d).permute(2, 0, 1)
                              .float().unsqueeze(0) / 255.0) * 2.0 - 1.0
+                        t = t.to(getattr(deca, "device", "cpu"))
                         with torch.no_grad():
                             code = deca.encode(t)
                         sh = np.asarray(code["shape"].detach().cpu()).ravel()
