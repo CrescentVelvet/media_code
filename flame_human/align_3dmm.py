@@ -92,8 +92,10 @@ class FlameLM:
 
     def __init__(self, model_path, emb_path, device):
         import smplx
+        # smplx 约定：model_path 传目录，内部拼 <dir>/flame/FLAME_NEUTRAL.pkl
+        #（FLAME_MODEL 是 pkl 文件路径，取父目录；布局由 01_download_models.sh 搭建）
         self.flame = smplx.create(
-            model_path=model_path, model_type="flame",
+            model_path=os.path.dirname(model_path), model_type="flame",
             num_expression_coeffs=N_EXPR, use_face_contour=False).to(device)
         for p in self.flame.parameters():
             p.requires_grad_(False)

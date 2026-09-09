@@ -118,7 +118,13 @@ def init_deca():
         sys.path.insert(0, deca_dir)
         from decalib.deca import DECA
         from decalib.utils.config import cfg as deca_cfg
-        deca_cfg.model.FLAME_MODEL_DIR = os.environ.get("FLAME_MODEL", "")
+        # DECA config 真实属性是小写 flame_model_path（decalib/utils/config.py:27），
+        # 指向 generic_model.pkl 文件路径。FLAME_MODEL 语义一致，直接传。
+        flame_model = os.environ.get("FLAME_MODEL", "")
+        if flame_model:
+            deca_cfg.model.flame_model_path = flame_model
+        # 只要 shape/expr/pose 初值，不需要纹理（省 1.2GB albedo 加载）
+        deca_cfg.model.use_tex = False
         m = DECA(config=deca_cfg, device="cuda" if _has_cuda() else "cpu")
         m.eval()
         log("  ✅ DECA 加载成功")

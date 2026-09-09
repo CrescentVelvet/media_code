@@ -42,15 +42,82 @@ else
     echo "     → 与 vggt_human 共用，先跑 vggt_human/00a_setup_env.sh"
 fi
 
+# ── 3b. canonical_face_model.obj（01b 要用；新版 mediapipe wheel 不内置）────
+CANON_OBJ="$MODEL_DIR/mediapipe_aux/canonical_face_model.obj"
+if [ ! -s "$CANON_OBJ" ]; then
+    mkdir -p "$MODEL_DIR/mediapipe_aux"
+    # 找 mediapipe 包内副本；没有则从官方仓镜像下载
+    IN_PKG="$(python - <<'PY' 2>/dev/null
+try:
+    import mediapipe as mp, pathlib
+    hits = sorted(pathlib.Path(mp.__file__).parent.rglob("canonical_face_model.obj"))
+    print(hits[0] if hits else "")
+except Exception:
+    print("")
+PY
+)"
+    if [ -n "$IN_PKG" ]; then
+        cp "$IN_PKG" "$CANON_OBJ"
+        echo "  ✅ canonical_face_model.obj（mediapipe 包内副本）"
+    else
+        curl -sL -m 60 -o "$CANON_OBJ" \
+            "https://ghfast.top/https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj" \
+        || curl -sL -m 60 -o "$CANON_OBJ" \
+            "https://gh-proxy.com/https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj" \
+        || true
+        if [ -s "$CANON_OBJ" ] && head -1 "$CANON_OBJ" | grep -q "^v "; then
+            echo "  ✅ canonical_face_model.obj（镜像下载）"
+        else
+            rm -f "$CANON_OBJ"
+            echo "  ⚠️  canonical_face_model.obj 下载失败（01b 前需手动放置）"
+            echo "     → 放到 $CANON_OBJ"
+        fi
+    fi
+else
+    echo "  ✅ canonical_face_model.obj"
+fi
+
 if [ "$missing" -ne 0 ]; then
     echo ""
     echo "❌ 有必需权重缺失，补齐后重跑本脚本。清单见 download_urls.md"
     exit 1
 fi
 
-# ── 4. 校验 FLAME 能被 smplx 加载 ───────────────────────────────────────────
+# ── 4. 搭建 smplx 约定布局 + 校验 FLAME 能被 smplx 加载 ─────────────────────
+# smplx.create() 传目录时拼 <dir>/flame/FLAME_NEUTRAL.pkl，且 FLAME 构造函数
+# 无条件读同目录 flame_static_embedding.pkl（68 点静态嵌入，FLAME 官网单独
+# 分发、不在 model.pkl 里）。布局：
+#   $FLAME2020/flame/FLAME_NEUTRAL.pkl        → 符号链接 ../generic_model.pkl
+#   $FLAME2020/flame/flame_static_embedding.pkl → 从 DECA 仓 landmark_embedding.npy 转换
+# 幂等：链接与转换产物存在则跳过。
 echo ""
-echo "🔍 校验 FLAME 可加载："
+echo "🔍 搭建 smplx 布局 + 校验 FLAME 可加载："
+FLAME_DIR="$(dirname "$FLAME_MODEL")"
+FLAME_SMPLX_SUB="$FLAME_DIR/flame"
+mkdir -p "$FLAME_SMPLX_SUB"
+
+if [ ! -e "$FLAME_SMPLX_SUB/FLAME_NEUTRAL.pkl" ]; then
+    ln -s ../generic_model.pkl "$FLAME_SMPLX_SUB/FLAME_NEUTRAL.pkl" \
+        || { echo "❌ 无法创建 FLAME_NEUTRAL.pkl 链接"; exit 1; }
+    echo "  🔗 已建链接 flame/FLAME_NEUTRAL.pkl -> ../generic_model.pkl"
+fi
+
+if [ ! -s "$FLAME_SMPLX_SUB/flame_static_embedding.pkl" ] \
+    || head -c4 "$FLAME_SMPLX_SUB/flame_static_embedding.pkl" | grep -q "404"; then
+    if [ -f "$DECA_DIR/data/landmark_embedding.npy" ]; then
+        python "$SCRIPT_DIR/convert_deca_lmk_to_smplx.py" \
+            --src "$DECA_DIR/data/landmark_embedding.npy" \
+            --dst "$FLAME_SMPLX_SUB/flame_static_embedding.pkl" \
+            || { echo "❌ flame_static_embedding 转换失败"; exit 1; }
+    else
+        echo "  ❌ 缺 flame_static_embedding.pkl 且无 DECA 仓可转换"
+        echo "     → 需 FLAME 官网 landmark embeddings 包，或先装好 DECA 仓"
+        exit 1
+    fi
+else
+    echo "  ⏭️  flame_static_embedding.pkl 已存在"
+fi
+
 FLAME_MODEL="$FLAME_MODEL" python - <<'PY'
 import os, sys
 import numpy as np
@@ -61,11 +128,11 @@ except ImportError:
     sys.exit(1)
 p = os.environ["FLAME_MODEL"]
 try:
-    # FLAME 走 SMPL-X loader；num_expression_coeffs=100 是 FLAME 2020 的 expr 维度
-    m = smplx.create(model_path=p, model_type="flame",
+    # smplx 约定：传目录，内部拼 flame/FLAME_NEUTRAL.pkl
+    m = smplx.create(model_path=os.path.dirname(p), model_type="flame",
                      num_expression_coeffs=100, use_face_contour=False)
     v = m().vertices.detach().cpu().numpy().squeeze()
-    print(f"  ✅ 加载成功: {v.shape[0]} 顶点, expr 维度 {m.num_expression_coeffs}")
+    print(f"  ✅ smplx 加载成功: {v.shape[0]} 顶点, expr 维度 {m.num_expression_coeffs}")
 except Exception as e:
     print(f"  ❌ 加载失败: {type(e).__name__}: {e}")
     print("     → 确认下载的是 FLAME 2020 的 generic_model.pkl（含 expression）")

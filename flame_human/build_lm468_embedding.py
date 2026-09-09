@@ -36,31 +36,33 @@ def log(m):
 
 
 def find_canonical_face_model():
-    """MediaPipe 包自带的 canonical_face_model.obj（468 顶点 + 三角面）。"""
+    """MediaPipe canonical_face_model.obj（468 顶点 + 三角面）。
+
+    新版 mediapipe wheel 不再内置该文件（2026-09-09 踩坑），优先级：
+    env CANONICAL_FACE_MODEL → mediapipe 包内 → $MODEL_DIR/mediapipe_aux/（01 脚本
+    从官方仓镜像下载的副本）→ 报错。
+    """
     env = os.environ.get("CANONICAL_FACE_MODEL", "")
     if env and Path(env).exists():
         return env
+    cands = []
     try:
         import mediapipe as mp
         root = Path(mp.__file__).parent
-    except ImportError:
-        root = None
-    cands = []
-    if root is not None:
         cands.append(root / "modules/face_geometry/data/canonical_face_model.obj")
-    cands += [
-        Path("/usr/local/lib/python3.10/dist-packages/mediapipe"
-             "/modules/face_geometry/data/canonical_face_model.obj"),
-    ]
-    # 兜底：全盘找一次（conda env 里路径不固定）
-    if root is not None:
-        hits = sorted(root.rglob("canonical_face_model.obj"))
-        cands += hits
+        cands += sorted(root.rglob("canonical_face_model.obj"))
+    except ImportError:
+        pass
+    model_dir = os.environ.get("MODEL_DIR", "")
+    if model_dir:
+        cands.append(Path(model_dir) / "mediapipe_aux" / "canonical_face_model.obj")
     for c in cands:
         if c.exists():
             return str(c)
-    sys.exit("❌ 找不到 canonical_face_model.obj，用 CANONICAL_FACE_MODEL= 指定；"
-             "该文件随 mediapipe 包自带（pip install mediapipe）")
+    sys.exit("❌ 找不到 canonical_face_model.obj：新版 mediapipe wheel 不内置，"
+             "下载到 $MODEL_DIR/mediapipe_aux/ 或用 CANONICAL_FACE_MODEL= 指定"
+             "（来源 google-ai-edge/mediapipe 仓 "
+             "mediapipe/modules/face_geometry/data/canonical_face_model.obj）")
 
 
 def load_obj(path):
@@ -193,7 +195,9 @@ def main():
 
     # ── FLAME mean face ──────────────────────────────────────────────────
     import smplx
-    flame = smplx.create(model_path=flame_model, model_type="flame",
+    # smplx 约定：model_path 传目录（拼 <dir>/flame/FLAME_NEUTRAL.pkl）
+    flame = smplx.create(model_path=str(Path(flame_model).parent),
+                         model_type="flame",
                          num_expression_coeffs=100, use_face_contour=False)
     verts = flame().vertices.detach().cpu().numpy().squeeze().astype(np.float64)
     faces = np.asarray(flame.faces, dtype=np.int64)

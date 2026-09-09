@@ -338,7 +338,8 @@ def main():
     log(f"  🔁 epochs={epochs}, 增强触发 epoch={enh_epoch}")
 
     import smplx
-    flame = smplx.create(model_path=os.environ["FLAME_MODEL"],
+    # smplx 约定：model_path 传目录（拼 <dir>/flame/FLAME_NEUTRAL.pkl）
+    flame = smplx.create(model_path=os.path.dirname(os.environ["FLAME_MODEL"]),
                          model_type="flame",
                          num_expression_coeffs=N_EXPR,
                          use_face_contour=False).to(dev)
