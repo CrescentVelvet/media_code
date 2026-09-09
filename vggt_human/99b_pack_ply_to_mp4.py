@@ -603,11 +603,16 @@ def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
     if img_dir is None:
         # COLMAP 模式的帧常常是 novel 视角渲染帧，缺帧是「待补」而非出错：
         # 三件套 json 已经生成好了，补完帧直接重跑即可
-        if mode == MODE_COLMAP:
+        if cfg["image_dir"]:
+            print(f"⏸️ IMAGE_DIR={cfg['image_dir']} 在所有基点下都未命中"
+                  f"（三件套 json 已生成，可直接复用）")
+        elif mode == MODE_COLMAP:
             print(f"⏸️ 没有帧目录（候选: {IMAGE_DIR_CANDIDATES}）。novel 视角渲染帧需先渲染，"
                   f"或用 IMAGE_DIR=/path/to/frames 指定（三件套 json 已生成，可直接复用）")
+        else:
+            print(f"❌ 找不到图片目录（候选: {IMAGE_DIR_CANDIDATES}）")
+        if mode == MODE_COLMAP:
             return "pending"
-        print(f"❌ 找不到图片目录（候选: {IMAGE_DIR_CANDIDATES}）")
         return "failed"
 
     seq = detect_image_sequence(img_dir)
