@@ -71,11 +71,20 @@ fi
 unset _cuda_lib
 
 # --- 官方代码 ---
-# DECA：提供 shape/expr/pose 初值（只取初值，不取 landmark，见 NOTES）
-DECA_DIR="${DECA_DIR:-$REPO_DIR/../DECA}"
+# DECA：提供 shape/expr/pose 初值（只取初值，不取 landmark，见 NOTES）。
+# WSL 优先放 Linux fs（~/repos/DECA，编译/IO 快；drvfs 上 clone 慢）。
+if [ -d "$HOME/repos/DECA" ] 2>/dev/null; then
+    DECA_DIR="${DECA_DIR:-$HOME/repos/DECA}"
+else
+    DECA_DIR="${DECA_DIR:-$REPO_DIR/../DECA}"
+fi
 DECA_REPO="${DECA_REPO:-https://github.com/yfeng95/DECA.git}"
 # 原版 3DGS（rasterization / simple_knn 子模块复用；训练循环自己写，因为要带 local_exp）
-GS_DIR="${GS_DIR:-$REPO_DIR/../gaussian-splatting}"
+if [ -d "$HOME/repos/gaussian-splatting" ] 2>/dev/null; then
+    GS_DIR="${GS_DIR:-$HOME/repos/gaussian-splatting}"
+else
+    GS_DIR="${GS_DIR:-$REPO_DIR/../gaussian-splatting}"
+fi
 GS_REPO="${GS_REPO:-https://github.com/graphdeco-inria/gaussian-splatting.git}"
 
 # --- 权重 ---
