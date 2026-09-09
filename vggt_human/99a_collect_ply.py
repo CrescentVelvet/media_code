@@ -7,7 +7,7 @@
 
 典型场景：重建流水线跑完后，每个 task 产出各自的 point_cloud_final.ply，
 散落在 <batch_dir>/<task_id>/point_cloud_final.ply。本脚本把它们归集到
-<output_root>/<batch_name>/<task_id>.ply，方便统一查看/上传。
+<RESULTS_ROOT>/<批次名>/ply/<task_id>.ply，方便统一查看/上传。
 
 用法:
     python vggt_human/99a_collect_ply.py
@@ -94,11 +94,10 @@ def main():
         "../../code/Reconstruction/output/"
         "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"
     )
-    # 输出：会自动新建。批次名与源同名，放在统一的 recon_human_results 下
-    DST_ROOT = Path(
-        "../../output/recon_human_results/"
-        "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"
-    )
+    # 输出：会自动新建。批次名与源同名，ply 落 ply/ 子目录（99b 的 mp4 落 mp4/，
+    # 同一批次目录下按产物类型分开，便于区分）
+    RESULTS_ROOT = Path("../../output/recon_human_results")
+    DST_ROOT = RESULTS_ROOT / SRC_ROOT.resolve().name / "ply"
     # 要收集的 ply 文件名（流水线产物固定名）
     PLY_NAME = "point_cloud_final.ply"
     # ===========================

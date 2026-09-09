@@ -29,8 +29,8 @@ Env vars（不设则用下方 main() 里的默认值）:
     TOOL_DIR    UWA 工具链根目录（含 encode.py / muxer.py / build/gltf_packer）
     SRC_ROOT    批次根目录（其下每个子目录是一个 task）
     RESULTS_ROOT    统一结果根（默认 ../../output/recon_human_results）
-    OUT_DIR     输出目录，默认 <RESULTS_ROOT>/<批次名>（批次名与源目录同名，
-                和 99a 收集的 ply 落在同一批次目录下；显式给 OUT_DIR 则完全覆盖）
+    OUT_DIR     输出目录，默认 <RESULTS_ROOT>/<批次名>/mp4（批次名与源目录同名，
+                99a 的 ply 落在同批次 ply/ 子目录；显式给 OUT_DIR 则完全覆盖）
     ONLY        逗号分隔的 task 白名单
     MODE        auto（默认）/ uwa / colmap，强制指定模式
     INSIDEOUT=1 室内朝外视角（人像默认 0），影响 view_limits / init_camera 的角度映射
@@ -796,10 +796,11 @@ def main():
     # 统一结果根：与 99a_collect_ply.py 同源，便于 ply 和 mp4 一起找
     RESULTS_ROOT = Path(os.environ.get(
         "RESULTS_ROOT", "../../output/recon_human_results"))
-    # 输出目录：默认 <RESULTS_ROOT>/<批次名>（与源目录同名）。
+    # 输出目录：默认 <RESULTS_ROOT>/<批次名>/mp4（与源目录同名）。
+    # ply 收集在同级 ply/ 子目录（99a 产出），同批次目录下按产物类型分开。
     # 中间产物在 <OUT_DIR>/mp4_work/<task>/，最终 mp4 为 <OUT_DIR>/<task>.mp4
     OUT_DIR = Path(os.environ.get(
-        "OUT_DIR", str(RESULTS_ROOT / SRC_ROOT.resolve().name)))
+        "OUT_DIR", str(RESULTS_ROOT / SRC_ROOT.resolve().name / "mp4")))
     # 帧序列目录。留空则自动探测 task 下的 image/ images/ input/ frames/；
     # 填了就对所有 task 生效（UWA / COLMAP 都会用它，不再走自动探测）。
     # 相对路径的基点依次试 task 目录 → 批次根 → 结果根 → cwd，命中即停并打印。
