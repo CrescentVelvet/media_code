@@ -116,11 +116,13 @@ class AvatarModel:
         self._rotation = torch.nn.Parameter(
             torch.tensor(arr([f"rot_{i}" for i in range(4)]),
                          dtype=torch.float32, device=device))
+        # SH 布局 (N, K, 3)：本仓 GS 分支的 rasterizer 约定（官方同款，
+        # cat dim=1）。f_dc 从 PLY 读出 (N,3) 需 unsqueeze(1) 成 (N,1,3)。
         self._features_dc = torch.nn.Parameter(
             torch.tensor(arr([f"f_dc_{i}" for i in range(3)]),
-                         dtype=torch.float32, device=device).unsqueeze(-1))
+                         dtype=torch.float32, device=device).unsqueeze(1))
         self._features_rest = torch.nn.Parameter(torch.zeros(
-            len(self._opacity), 3, (max_sh + 1) ** 2 - 1,
+            len(self._opacity), (max_sh + 1) ** 2 - 1, 3,
             dtype=torch.float32, device=device))
         self.max_sh = max_sh
         self.active_sh = 0
@@ -145,13 +147,28 @@ class AvatarModel:
 
     @property
     def get_features(self):
-        return torch.cat([self._features_dc, self._features_rest], dim=2) \
-            if self.active_sh > 0 else self._features_dc
+        # 官方布局 (N, K, 3)：DC 与 rest 沿 K 维 cat；rasterizer 传全量、
+        # 用 active_sh_degree 控制激活阶数（不能只传 DC，backward 会炸）。
+        return torch.cat([self._features_dc, self._features_rest], dim=1)
+
+    @property
+    def get_features_dc(self):
+        return self._features_dc
+
+    @property
+    def get_features_rest(self):
+        return self._features_rest
 
     @property
     def get_covariance(self):
         return 1.0
 
+    @property
+    def active_sh_degree(self):
+        # 官方 gaussian_renderer.render 读 pc.active_sh_degree
+        return self.active_sh
+
+    @property
     def get_xyz(self):
         return self.deform(self._frame)
 
@@ -176,89 +193,82 @@ class AvatarModel:
         p_world = (Rg @ p_local.T).T + self.global_t
         return p_world * torch.exp(self.log_s)
 
-    # ── densify（关键：继承绑定）────────────────────────────────────
+    # ── densify（关键：继承绑定 + 紧凑数组同步）────────────────────
     @torch.no_grad()
     def densify(self, grad_thresh, min_opacity, extent, scale_factor=0.2):
-        n0 = len(self._opacity)
+        """prune + clone/split。三条不变式（deform/build_params 依赖）：
+          1. 全量参数与 tri/is_free 长度恒等于 N；
+          2. _free_can 是紧凑数组：行数恒等于 is_free.sum()；
+          3. 新点继承父点 tri/bary（split 加扰动）/is_free/free_can。
+        """
         grads = self.grad_accum / self.denom.clamp(min=1)
         grads[~torch.isfinite(grads)] = 0.0
-        big = (grads > grad_thresh) & (self.get_scaling.max(1).values >
-                                       scale_factor * extent)
+        smax = self.get_scaling.max(1).values
         op = self.get_opacity.squeeze(-1)
         prune = op < min_opacity
-        clone_idx = torch.where(big & (self.get_scaling.max(1).values <=
-                                       scale_factor * extent))[0]
-        split_idx = torch.where(big & (self.get_scaling.max(1).values >
-                                       scale_factor * extent))[0]
-
+        clone_idx = torch.where((grads > grad_thresh) &
+                                (smax <= scale_factor * extent))[0]
+        split_idx = torch.where((grads > grad_thresh) &
+                                (smax > scale_factor * extent))[0]
+        clone_idx = clone_idx[~prune[clone_idx]]   # 被 prune 的父点不再生长
+        split_idx = split_idx[~prune[split_idx]]
         keep = ~prune
-        new_bary, new_free_can = [], []
-        idx_map = torch.arange(n0, device=self.device)[keep]
 
-        def grow(idx, perturb):
-            """返回新增点的 (bary_raw, free_can)。"""
-            b = self._bary_raw[idx].clone()
-            if perturb:
-                b = b + torch.randn_like(b) * 0.15
-            fc = None
-            if self._free_can.shape[0] > 0:
-                sel = self.is_free[idx]
-                fc = self._free_can[
-                    torch.cumsum(self.is_free, 0)[idx] - 1].clone()
-                fc[~sel] = 0.0
-            return b, fc
+        # 新点（**原数组**坐标系下的父点索引）与来源标记（split 加扰动）
+        new_src = torch.cat([clone_idx, split_idx], 0)
+        is_split = torch.zeros(len(new_src), dtype=torch.bool,
+                               device=self.device)
+        is_split[len(clone_idx):] = True
 
-        for idx, perturb in ((clone_idx, False), (split_idx, True)):
-            idx = idx[keep[idx]]
-            if len(idx) == 0:
-                continue
-            b, fc = grow(idx, perturb)
-            new_bary.append(b)
-            if fc is not None:
-                new_free_can.append(fc)
-
-        if not new_bary:
-            self._prune_only(keep, idx_map)
-            return int(keep.sum()), 0
-
-        nb = torch.cat(new_bary, 0)
-        nfc = (torch.cat(new_free_can, 0) if new_free_can else
-               torch.zeros(0, 3, device=self.device))
-
-        def cat_param(p, extra):
+        def rebuild(p, extra):
+            """prune 保留行 + 追加**新点**行（旧 bug：追加 keep 全量克隆）。"""
+            if extra is None or len(extra) == 0:
+                return torch.nn.Parameter(p[keep].clone())
             return torch.nn.Parameter(torch.cat([p[keep], extra], 0))
 
-        self._bary_raw = cat_param(self._bary_raw, nb)
-        self._opacity = cat_param(self._opacity, self._opacity[keep].clone())
-        self._scaling = cat_param(self._scaling,
-                                  self._scaling[keep].clone() - np.log(1.6))
-        self._rotation = cat_param(self._rotation, self._rotation[keep].clone())
-        self._features_dc = cat_param(self._features_dc,
-                                      self._features_dc[keep].clone())
-        self._features_rest = cat_param(self._features_rest,
-                                        self._features_rest[keep].clone())
-        if self._free_can.shape[0] > 0 and nfc.shape[0] > 0:
-            self._free_can = torch.nn.Parameter(
-                torch.cat([self._free_can, nfc], 0))
-        self.is_free = torch.cat([self.is_free[keep], self.is_free[keep].clone()])
-        self.tri = torch.cat([self.tri[keep], self.tri[keep].clone()])
-        self.grad_accum = torch.zeros(len(self._opacity), device=self.device)
-        self.denom = torch.zeros(len(self._opacity), device=self.device)
-        return int(keep.sum()), len(nb)
+        # 全量属性：新点继承父点（split 的 scale 缩小 1.6，bary 加扰动）
+        bary_new = self._bary_raw[new_src].clone()
+        if is_split.any():
+            bary_new[is_split] = bary_new[is_split] + \
+                torch.randn_like(bary_new[is_split]) * 0.15
+        self._bary_raw = rebuild(self._bary_raw, bary_new)
+        self._opacity = rebuild(self._opacity,
+                                self._opacity[new_src].clone())
+        self._scaling = rebuild(
+            self._scaling, self._scaling[new_src].clone() - np.log(1.6))
+        self._rotation = rebuild(self._rotation,
+                                 self._rotation[new_src].clone())
+        self._features_dc = rebuild(
+            self._features_dc, self._features_dc[new_src].clone())
+        self._features_rest = rebuild(
+            self._features_rest, self._features_rest[new_src].clone())
 
-    @torch.no_grad()
-    def _prune_only(self, keep, idx_map):
-        self._bary_raw = torch.nn.Parameter(self._bary_raw[keep].clone())
-        self._opacity = torch.nn.Parameter(self._opacity[keep].clone())
-        self._scaling = torch.nn.Parameter(self._scaling[keep].clone())
-        self._rotation = torch.nn.Parameter(self._rotation[keep].clone())
-        self._features_dc = torch.nn.Parameter(self._features_dc[keep].clone())
-        self._features_rest = torch.nn.Parameter(
-            self._features_rest[keep].clone())
-        self.is_free = self.is_free[keep].clone()
-        self.tri = self.tri[keep].clone()
+        # 绑定表：只追加新点行
+        self.tri = torch.cat([self.tri[keep], self.tri[new_src].clone()])
+        old_is_free = self.is_free
+        self.is_free = torch.cat([old_is_free[keep],
+                                  old_is_free[new_src].clone()])
+
+        # _free_can（紧凑数组，只含自由点）：prune 同步 + 追加新自由点。
+        # 旧 bug：prune 不同步、nfc 按全量语义追加 → 行数 ≠ is_free.sum()，
+        # deform() 里 p_can[is_free] += _free_can 形状不匹配直接崩。
+        if self._free_can.shape[0] > 0:
+            cum = torch.cumsum(old_is_free, 0) - 1  # 点→紧凑行号
+            # prune 同步：保留的自由点在紧凑数组中的行号
+            fc = self._free_can[cum[keep & old_is_free]].clone()
+            if len(new_src):
+                nf = old_is_free[new_src]               # 新点中的自由点
+                fc_new = self._free_can[cum[new_src]].clone()
+                if is_split.any():
+                    fc_new[is_split] = fc_new[is_split] + \
+                        torch.randn_like(fc_new[is_split]) * 0.02
+                if nf.any():
+                    fc = torch.cat([fc, fc_new[nf]], 0)  # 只追加自由点行
+            self._free_can = torch.nn.Parameter(fc)
+
         self.grad_accum = torch.zeros(len(self._opacity), device=self.device)
         self.denom = torch.zeros(len(self._opacity), device=self.device)
+        return int(keep.sum()), int(len(new_src))
 
     @torch.no_grad()
     def fix_and_sync_exp(self):
@@ -300,7 +310,8 @@ def main():
     ply_path = Path(os.environ.get(
         "AVATAR_PLY", f"{results_dir}/06_avatar_gs/avatar_p00.ply"))
     bind_path = Path(os.environ.get(
-        "BIND_NPZ", str(ply_path).replace(".ply", "_bind.npz")))
+        "BIND_NPZ", "").strip() or
+        str(ply_path).replace(".ply", "_bind.npz"))
     align_json = Path(os.environ.get(
         "ALIGN_JSON", f"{results_dir}/05_align/head_align.json"))
     out_dir = Path(os.environ.get("OUT_DIR", f"{results_dir}/08_train"))
@@ -318,13 +329,13 @@ def main():
     sh_every = int(os.environ.get("SH_EVERY", "10"))
     seed = int(os.environ.get("SEED", "0"))
 
-    if not bind_path.exists():
+    if not (bind_path.is_file()):
         # init_avatar_gs.py 存的是 avatar_bind_p{pid}.npz，PLY 是 avatar_p{pid}.ply
         alt = ply_path.parent / f"avatar_bind_p{pid}.npz"
-        if alt.exists():
+        if alt.is_file():
             bind_path = alt
         else:
-            sys.exit(f"❌ 缺少绑定文件: {bind_path}")
+            sys.exit(f"❌ 缺少绑定文件: {bind_path} / {alt}")
     if not align_json.exists():
         sys.exit(f"❌ 缺少阶段四输出: {align_json}")
 
@@ -355,20 +366,43 @@ def main():
     n_frames = len(ap["local_q"])
     log(f"  🔢 {len(model._opacity):,} 高斯, {n_frames} 帧")
 
-    params = [
-        {"params": [model._bary_raw], "lr": lr * 0.1},
-        {"params": [model._opacity], "lr": lr},
-        {"params": [model._scaling], "lr": lr},
-        {"params": [model._rotation], "lr": lr},
-        {"params": [model._features_dc], "lr": lr},
-        {"params": [model._features_rest], "lr": lr * 0.05},
-        {"params": [model.id_coeff], "lr": lr * 0.1},
-        {"params": [model.local_q, model.local_t], "lr": lr * 0.1},
-        {"params": [model.global_q, model.global_t, model.log_s], "lr": lr * 0.1},
-        {"params": [model.exp], "lr": lr_exp},
-    ]
-    if int(model.is_free.sum()) > 0:
-        params.append({"params": [model._free_can], "lr": lr * 0.1})
+    # ── 几何冻结（FREEZE_GEOM=1，默认）───────────────────────────────
+    # SRT/id/exp 由阶段四 landmark 对齐给出（RMS 26.5px），渲染 loss 对
+    # 它们的梯度是「背景残差主导的噪声」——两轮 verify 实测：整图 loss 把
+    # lm-RMS 推到 >500px；person-mask loss 也推到 83px。冻结后几何恒定，
+    # 训练只精修外观（opacity/scale/rot/SH/bary）。需要联合优化时显式
+    # FREEZE_GEOM=0，且必须配 PERSON_MASKS_DIR。
+    freeze_geom = os.environ.get("FREEZE_GEOM", "1") == "1"
+    if freeze_geom:
+        for p in (model.id_coeff, model.local_q, model.local_t,
+                  model.global_q, model.global_t, model.log_s, model.exp):
+            p.requires_grad_(False)
+        log("  🔒 几何冻结: SRT/id/exp 不训练（05 对齐保真）")
+
+    def build_params():
+        """参数组列表。densify 会替换 Parameter 对象，每次重建 optimizer
+        都必须重新从 model 取**当前**引用。"""
+        ps = [
+            {"params": [model._bary_raw], "lr": lr * 0.1},
+            {"params": [model._opacity], "lr": lr},
+            {"params": [model._scaling], "lr": lr},
+            {"params": [model._rotation], "lr": lr},
+            {"params": [model._features_dc], "lr": lr},
+            {"params": [model._features_rest], "lr": lr * 0.05},
+        ]
+        if not freeze_geom:
+            ps += [
+                {"params": [model.id_coeff], "lr": lr * 0.1},
+                {"params": [model.local_q, model.local_t], "lr": lr * 0.1},
+                {"params": [model.global_q, model.global_t, model.log_s],
+                 "lr": lr * 0.1},
+                {"params": [model.exp], "lr": lr_exp},
+            ]
+        if int(model.is_free.sum()) > 0:
+            ps.append({"params": [model._free_can], "lr": lr * 0.1})
+        return ps
+
+    params = build_params()
     opt = torch.optim.Adam(params, lr=lr)
 
     sys.path.insert(0, os.environ.get("GS_DIR", ""))
@@ -381,12 +415,47 @@ def main():
                  f"）: {type(e).__name__}: {e}\n"
                  f"   → 先跑 bash 00a_setup_env.sh 装子模块")
     # render() 只用到 pipe 的这几个字段，不用引 argparse
+    # antialiasing：本仓 GS 分支的 rasterizer 需要（原版没有）
     from types import SimpleNamespace
     pipe = SimpleNamespace(compute_cov3D_python=False,
-                           convert_SHs_python=False, debug=False)
+                           convert_SHs_python=False, debug=False,
+                           antialiasing=False)
 
     views = read_cameras(os.environ.get("SOURCE_DIR", ""))
     log(f"  📷 {len(views)} views")
+
+    # ── person mask loss 监督 ────────────────────────────────────────
+    # avatar 只有头（画面 ~5%），整图 loss 会被 95% 的背景差主导——
+    # 实测把 SRT/几何推飞（渲染框 6 倍于脸框，见 08 首轮 verify）。
+    # 修法（与 vggt_human train_face_finetune 的 region 监督一致）：
+    # 区域外用 GT 填充（render*m + gt*(1-m)），loss 只由人像区驱动。
+    masks_dir = os.environ.get("PERSON_MASKS_DIR", "")
+    mask_soft = os.environ.get("MASK_SOFT", "1") == "1"
+    n_mask = 0
+    mask_cache = {}
+    if masks_dir and os.path.isdir(masks_dir):
+        from PIL import Image
+        pid2 = pid.zfill(2)          # mask 文件名是 p00 两位格式
+        for v in views:
+            s = v["stem"]
+            suf = "alpha" if mask_soft else "mask"
+            mp = Path(masks_dir) / f"{s}.p{pid2}.{suf}.png"
+            if not mp.exists():
+                # alpha 不存在再试二值 mask
+                mp = Path(masks_dir) / f"{s}.p{pid2}.mask.png"
+            if not mp.exists():
+                continue
+            m = Image.open(mp).convert("L")
+            if m.size != (v["W"], v["H"]):
+                m = m.resize((v["W"], v["H"]), Image.LANCZOS)
+            t = torch.from_numpy(
+                np.asarray(m, dtype=np.float32) / 255.0).unsqueeze(0)
+            mask_cache[s] = t
+            n_mask += 1
+    log(f"  🎭 person mask: {n_mask}/{len(views)} 帧 "
+        f"({'soft alpha' if mask_soft else 'binary'}, dir={masks_dir or '无'})")
+    if n_mask == 0:
+        log("  ⚠️ 无 person mask —— loss 将退化为整图（首轮 verify 已证明会推飞几何）")
 
     # 相机：只保留有该人观测的帧（阶段四的 frames 列表）
     stems = ap["frames"]
@@ -416,30 +485,46 @@ def main():
             if not img_path.exists():
                 continue
             from PIL import Image
-            gt = torch.tensor(np.asarray(Image.open(img_path).convert("RGB")),
-                              dtype=torch.float32, device=dev) / 255.0
+            gt_pil = Image.open(img_path).convert("RGB").resize((v["W"], v["H"]))
+            gt = torch.tensor(np.asarray(gt_pil), dtype=torch.float32,
+                              device=dev) / 255.0
             gt = gt.permute(2, 0, 1)
-            cam_args = dict(
-                colmap_id=0, R=v["R"].T, T=v["T"],
-                FoVx=2 * np.arctan(v["W"] / (2 * v["fx"])),
-                FoVy=2 * np.arctan(v["H"] / (2 * v["fy"])),
-                image=gt, gt_alpha_mask=None, image_name=stem, uid=ci)
-            try:
-                cam = GSCamera(data_device=dev, **cam_args)  # 新版
-            except TypeError:
-                cam = GSCamera(**cam_args)                    # 旧版
+            # 本仓 gaussian-splatting 是带 depth 正则的分支（cameras.py 带
+            # resolution/depth_params/invdepthmap 参数，无 gt_alpha_mask），
+            # 与 vggt_human 的用法一致。
+            cam = GSCamera(resolution=(v["W"], v["H"]), colmap_id=0,
+                           R=v["R"].T, T=v["T"],
+                           FoVx=2 * np.arctan(v["W"] / (2 * v["fx"])),
+                           FoVy=2 * np.arctan(v["H"] / (2 * v["fy"])),
+                           depth_params=None, invdepthmap=None,
+                           image=gt_pil, image_name=stem, uid=ci,
+                           data_device=dev)
             pkg = render(cam, model, pipe, bg, 1.0)
-            loss = (1 - lam_dssim) * l1_loss(pkg["render"], gt) + \
-                lam_dssim * (1.0 - ssim(pkg["render"], gt))
+            # 🎭 person mask 监督：区域外用 GT 填充 → loss/梯度只来自人像区。
+            # （avatar 只有头，整图 loss 会被背景差主导，实测推飞 SRT/几何）
+            m = mask_cache.get(stem)
+            if m is not None:
+                m_d = m.to(dev)
+                area = m_d.sum() * 3 + 1e-6
+                img_m = pkg["render"] * m_d + gt.detach() * (1.0 - m_d)
+                Ll1 = (torch.abs(img_m - gt) * m_d).sum() / area
+                # SSIM 用填充图（区域外=gt → SSIM 贡献≈满分，不产生驱动）
+                loss = (1 - lam_dssim) * Ll1 + \
+                    lam_dssim * (1.0 - ssim(img_m, gt))
+            else:
+                loss = (1 - lam_dssim) * l1_loss(pkg["render"], gt) + \
+                    lam_dssim * (1.0 - ssim(pkg["render"], gt))
             loss.backward()
             opt.step()
             opt.zero_grad(set_to_none=True)
             running += float(loss.item())
             #  densify 用的梯度统计（官方同款：可见点的屏幕空间梯度范数）
+            # 注意：本仓 GS 分支的 visibility_filter 是「可见点索引」
+            # ((radii>0).nonzero()，返回 tensor[Nv])，不是布尔掩码。
             vp = pkg.get("viewspace_points", None)
             vf = pkg.get("visibility_filter", None)
             if (vp is not None and vp.grad is not None and vf is not None
-                    and len(vf) == model.grad_accum.shape[0]):
+                    and len(vf) > 0 and len(vf) <= model.grad_accum.shape[0]):
                 with torch.no_grad():
                     g = torch.norm(vp.grad[vf, :2], dim=-1)
                     model.grad_accum[vf] += g
@@ -454,13 +539,22 @@ def main():
             kept, added = model.densify(grad_thresh, min_opacity, extent)
             log(f"     🌱 densify: 保留 {kept:,} 新增 {added:,} "
                 f"→ {len(model._opacity):,}")
+            # ⚠️ densify 重建了 Parameter 对象（cat 出新张量），optimizer
+            # 仍持有旧引用 → step 全在更新死张量（loss 冻结不动的根因）。
+            # 重建 optimizer（Adam 状态清零，官方 densify 后同样重置）。
+            opt = torch.optim.Adam(build_params(), lr=lr)
+            log("     🔄 optimizer 已重建（densify 换参后重挂）")
 
         # ── epoch 48：fix_exp + checkpoint + 增强 + 指标 + 可回滚 ──────
         if epoch == enh_epoch:
             ckpt = out_dir / f"ckpt_epoch{epoch}_pre_enhance.pth"
             model.save(ckpt)
-            rep = model.fix_and_sync_exp()
-            log(f"     🔒 fix_and_sync_exp: 统一到代表帧 #{rep}，SRT 未动")
+            if freeze_geom:
+                log("     🔒 exp 已冻结（FREEZE_GEOM），跳过 fix_and_sync_exp")
+                rep = -1
+            else:
+                rep = model.fix_and_sync_exp()
+                log(f"     🔒 fix_and_sync_exp: 统一到代表帧 #{rep}，SRT 未动")
             log(f"     💾 checkpoint: {ckpt.name}（指标变差可退回）")
             # 增强后的指标对比在 09_enhance_post 里做；这里只留钩子
             (out_dir / f"ENHANCE_TRIGGER_epoch{epoch}.json").write_text(
