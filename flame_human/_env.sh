@@ -88,7 +88,10 @@ fi
 GS_REPO="${GS_REPO:-https://github.com/graphdeco-inria/gaussian-splatting.git}"
 
 # --- 权重 ---
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/flame_human}"
+# proxy.env（若存在）提供 FLAME_HUMAN_MODEL_DIR / FLAME_HUMAN_RESULTS_DIR；
+# 通用名 MODEL_DIR/RESULTS_DIR 一律不读 —— 仓根 proxy.env 的通用名归
+# vggt_human 等其它项目用，读了会被污染（2026-09-09 改，见 proxy.env 头注释）。
+MODEL_DIR="${FLAME_HUMAN_MODEL_DIR:-$REPO_DIR/../../model/flame_human}"
 WEIGHTS_ROOT="${WEIGHTS_ROOT:-$REPO_DIR/../../model}"
 
 # FLAME 2020（需官网注册下载，见 download_urls.md）
@@ -112,7 +115,7 @@ SOURCE_DIR="${SOURCE_DIR:-$UPSTREAM_DIR/03_source}"
 # SegTrack/SAM3 的 person mask（阶段二做 face↔body 关联）
 PERSON_MASKS_DIR="${PERSON_MASKS_DIR:-$UPSTREAM_DIR/03_sam3_person_masks}"
 # 本链路输出
-RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../flame_human_results}"
+RESULTS_DIR="${FLAME_HUMAN_RESULTS_DIR:-$REPO_DIR/../flame_human_results}"
 
 export REPO_DIR DECA_DIR DECA_REPO DECA_CKPT GS_DIR GS_REPO \
        MODEL_DIR WEIGHTS_ROOT FLAME_MODEL FLAME_LM468_EMBEDDING \

@@ -78,12 +78,14 @@ GS_DIR="${GS_DIR:-$REPO_DIR/../gaussian-splatting}"
 GS_REPO="${GS_REPO:-https://github.com/graphdeco-inria/gaussian-splatting.git}"
 
 # Shared weight root (code-dir's parent, same as other algos).
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}"
+# WSL: proxy.env 写的是 VGGT_HUMAN_MODEL_DIR（项目专属名，避免污染其它项目）。
+MODEL_DIR="${MODEL_DIR:-${VGGT_HUMAN_MODEL_DIR:-$REPO_DIR/../../model/VGGT-Omega}}"
 # Separate weights root for denoiser models (DiffBIR / SwinIR, not VGGT-Omega).
 WEIGHTS_ROOT="${WEIGHTS_ROOT:-$REPO_DIR/../../model}"
 
 # Output (siblings of media_code, per AGENTS.md convention).
-RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../vggt_human_results}"
+# WSL: proxy.env 写的是 VGGT_HUMAN_RESULTS_DIR（项目专属名，避免污染其它项目）。
+RESULTS_DIR="${RESULTS_DIR:-${VGGT_HUMAN_RESULTS_DIR:-$REPO_DIR/../vggt_human_results}}"
 
 # DiffBIR (denoising, step 04; optional — only when DENOISER=diffbir).
 DIFFBIR_DIR="${DIFFBIR_DIR:-$REPO_DIR/../DiffBIR}"

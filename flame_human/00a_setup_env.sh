@@ -59,9 +59,10 @@ python -c "import pytorch3d" 2>/dev/null \
     || {
         echo "📦 installing pytorch3d (可能较久) ..."
         # 先用 fbaipublicfiles 的预编译 wheel，失败再退回源码编译
+        # wheel 命名规则 py310_cu118_pyt2120 = py3.10 + cu118 + torch 2.1.2
         pip install --no-index --no-cache-dir pytorch3d \
-            -f "https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu118_pyt1120/download.html" \
-            || pip install "git+https://github.com/facebookresearch/pytorch3d.git" \
+            -f "https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu118_pyt2120/download.html" \
+            || pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git" \
             || echo "  ⚠️ pytorch3d install failed — 阶段七需退回纯 torch 实现" >&2
     }
 
@@ -82,11 +83,13 @@ clone_repo "$DECA_DIR" "$DECA_REPO" "DECA"
 clone_repo "$GS_DIR" "$GS_REPO" "gaussian-splatting"
 
 # ── 6. 3DGS 子模块（diff-gaussian-rasterization / simple-knn）───────────────
+# --no-build-isolation：setup.py 里 import torch 拿头文件路径，isolation 环境
+# 没装 torch 必挂。MAX_JOBS 限 8 防 56GB RAM 编 OOM。
 if [ -d "$GS_DIR" ]; then
     echo "📦 installing 3DGS submodules ..."
-    ( cd "$GS_DIR" && pip install -q submodules/diff-gaussian-rasterization ) \
+    ( cd "$GS_DIR" && MAX_JOBS=8 pip install -q --no-build-isolation submodules/diff-gaussian-rasterization ) \
         || echo "  ⚠️ diff-gaussian-rasterization failed" >&2
-    ( cd "$GS_DIR" && pip install -q submodules/simple-knn ) \
+    ( cd "$GS_DIR" && MAX_JOBS=8 pip install -q --no-build-isolation submodules/simple-knn ) \
         || echo "  ⚠️ simple-knn failed" >&2
 fi
 

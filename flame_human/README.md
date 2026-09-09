@@ -34,16 +34,22 @@ cp proxy.env.example proxy.env      # 确认 http_proxy / https_proxy 已取消�
 
 # WSL 本机
 bash flame_human/00a_setup_env.sh
+bash flame_human/00b_fix_env.sh     # 修 00a 遗留（numpy 降级 / csn 混装 / DECA 归位）
 # 服务器
 bash flame_human/00_setup_env.sh
 
 bash flame_human/01_download_models.sh   # FLAME2020.pkl / DECA 权重 / lm468 嵌入
 ```
 
+> WSL 路径策略：仓库/权重放 Linux fs（`~/repos`），权重根默认走 proxy.env 的
+> `FLAME_HUMAN_MODEL_DIR=/mnt/d/wheel/flame_human_ms`，输出走
+> `FLAME_HUMAN_RESULTS_DIR=$HOME/output/flame_human_results`（Linux fs，跑完 09 搬回 D 盘）。
+> 通用名 `MODEL_DIR`/`RESULTS_DIR` 已被 vggt_human 占用，flame_human 一律不读。
+
 权重目录布局：
 
 ```
-$MODEL_DIR/                       # 默认 ../../model/flame_human
+$MODEL_DIR/                       # WSL 默认 /mnt/d/wheel/flame_human_ms
 ├── FLAME2020/generic_model.pkl   # 官网注册下载，见 download_urls.md
 ├── flame_lm468_embedding.npz     # MediaPipe 468 → FLAME 顶点重心嵌入（必须）
 └── deca_model.tar                # DECA 预训练权重
@@ -77,8 +83,8 @@ GPU=0 SOURCE_DIR=../vggt_human_results/03_source \
 | `UPSTREAM_DIR` | `../vggt_human_results` | 上游 SfM 与 mask 的根 |
 | `SOURCE_DIR` | `$UPSTREAM_DIR/03_source` | COLMAP 场景（images + sparse）|
 | `PERSON_MASKS_DIR` | `$UPSTREAM_DIR/03_sam3_person_masks` | SegTrack/SAM3 person mask；没有上游产物时先跑 01c（默认输出 `$RESULTS_DIR/01c_sam3_person_masks`）|
-| `RESULTS_DIR` | `../flame_human_results` | 本链路输出 |
-| `MODEL_DIR` | `../../model/flame_human` | 权重根 |
+| `RESULTS_DIR` | `FLAME_HUMAN_RESULTS_DIR` 或 `../flame_human_results` | 本链路输出（WSL 见 proxy.env）|
+| `MODEL_DIR` | `FLAME_HUMAN_MODEL_DIR` 或 `../../model/flame_human` | 权重根（WSL 见 proxy.env）|
 | `FLAME_MODEL` | `$MODEL_DIR/FLAME2020/generic_model.pkl` | FLAME 2020 |
 | `FLAME_LM468_EMBEDDING` | `$MODEL_DIR/flame_lm468_embedding.npz` | 468 点重心嵌入，缺了跑不了阶段四 |
 | `DECA_CKPT` | `$MODEL_DIR/deca_model.tar` | DECA 权重 |

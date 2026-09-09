@@ -64,12 +64,13 @@ if [ "$n_masks" -ge "$n_imgs" ] && [ "$n_masks" -gt 0 ]; then
     exit 0
 fi
 
-# 注意：worker 由 vggt_human 的派发脚本启动，但实际跑在 sam3 env。
-# 派发脚本本身只做 subprocess 转发，对当前 env 无依赖，用当前 python 即可。
-MASK_BACKEND=sam3 MASK_MODE="$MASK_MODE" \
-SAM3_PYTHON="$SAM3_PYTHON" SAM3_CKPT="$SAM3_CKPT" SAM3_BPE="$SAM3_BPE" \
-SAM3_PROMPT="$SAM3_PROMPT" MIN_SCORE="$MIN_SCORE" \
-python "$VGGT_HUMAN_DIR/sam2_face_masks.py" \
+# 直接用 sam3 env 的 python 跑 worker（不经 vggt_human 的派发脚本——
+# 那层派发自身 import numpy，要求当前 env 也有依赖；直接跑省一层）。
+# worker 会从同目录 import sam2_face_masks 的纯常量与工具函数（无重依赖）。
+SAM3_PYTHON="$SAM3_PYTHON" \
+SAM3_CKPT="$SAM3_CKPT" SAM3_BPE="$SAM3_BPE" \
+SAM3_PROMPT="$SAM3_PROMPT" MASK_MODE="$MASK_MODE" MIN_SCORE="$MIN_SCORE" \
+"$SAM3_PYTHON" "$VGGT_HUMAN_DIR/sam3_face_masks_worker.py" \
     --images_dir "$IMAGES_DIR" \
     --output_dir "$OUT_DIR"
 if [ $? -ne 0 ]; then

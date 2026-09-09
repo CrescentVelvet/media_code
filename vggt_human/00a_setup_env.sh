@@ -75,12 +75,13 @@ if [ ! -f "$PROXY_ENV" ]; then
 export HF_ENDPOINT="https://hf-mirror.com"
 
 # Repos on Linux fs (compilation); Models on D:\wheel (read once, no copy needed).
-export VGGT_DIR="$HOME/repos/vggt-omega"
-export GS_DIR="$HOME/repos/gaussian-splatting"
-export HYPIR_DIR="$HOME/repos/HYPIR"
-export MODEL_DIR="/mnt/d/wheel/vggt_human_ms/VGGT-Omega"
+# ⚠️ 项目专属命名规范（2026-09-09）：本文件只写 vggt_human 的专属变量
+#    （VGGT_HUMAN_*）；通用名 MODEL_DIR/RESULTS_DIR 不再写 proxy.env ——
+#    它会污染 flame_human 等其它项目的 ${VAR:-default} 默认值。
+export VGGT_HUMAN_MODEL_DIR="/mnt/d/wheel/vggt_human_ms/VGGT-Omega"
+export VGGT_HUMAN_RESULTS_DIR="${VGGT_HUMAN_RESULTS_DIR:-$HOME/output/vggt_human_results}"
+# 共享权重根（DiffBIR/SwinIR/sam2/HYPIR 多项目共用，保持通用名）
 export WEIGHTS_ROOT="/mnt/d/wheel/vggt_human_ms"
-export RESULTS_DIR="${RESULTS_DIR:-$HOME/output/vggt_human_results}"
 export DIFFBIR_DIR="$HOME/repos/DiffBIR"
 export SWINIR_DIR="$HOME/repos/SwinIR"
 # 动态掩码模型（D 盘直接读）
