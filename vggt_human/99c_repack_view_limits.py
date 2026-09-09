@@ -240,3 +240,95 @@ def crop_init_camera(init_json: list, vl_new: dict, radius: float) -> list | Non
     new_cam["position"] = loc_by_pitch_yaw(new_pitch, new_yaw, new_r)
     new_cam["rotation"] = rebuild_rotation(new_cam["position"])
     return [new_cam]
+
+
+# --------------------------------------------------------------------------
+# 单 task 重封装
+# --------------------------------------------------------------------------
+def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
+               env: dict) -> str:
+    """复用 99b 中间产物重打一个 task，返回 "ok" / "failed"。"""
+    print(f"\n================ {task_dir.name} ================")
+
+    # --- 1. 99b 中间产物 ---
+    bin_file = find_bin(work_task)
+    video_file = work_task / "output.mp4"
+    if bin_file is None:
+        print(f"❌ {work_task} 下没有 GSCompressed_B*.bin，先跑 99b（KEEP_WORK 默认保留）")
+        return "failed"
+    if not video_file.is_file():
+        print(f"❌ 缺 {video_file}，先跑 99b（KEEP_WORK 默认保留）")
+        return "failed"
+    print(f"📦 码流: {bin_file.name}  ({bin_file.stat().st_size / 1024 / 1024:.1f} MB)")
+    print(f"🎬 视频: {video_file.name}  ({video_file.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    jsons = find_jsons(task_dir, work_task, cfg["ref_json_dir"])
+    if jsons is None:
+        print(f"❌ 找不到三件套 json（找过 task 目录和 {work_task / 'uwa_json'}；"
+              f"UWA 型在 task 下，COLMAP 型在 uwa_json/ 下，或用 REF_JSON_DIR 指定）")
+        return "failed"
+
+    vl = load_view_limits(jsons)
+    if vl is None:
+        return "failed"
+    print(f"  📐 原: Phi[{vl['minPhi']:.2f},{vl['maxPhi']:.2f}] "
+          f"Theta[{vl['minTheta']:.2f},{vl['maxTheta']:.2f}] "
+          f"R[{vl['minRadius']:.3f},{vl['maxRadius']:.3f}]")
+
+    # --- 2. 收窄 ---
+    vl_new = crop_view_limits(vl, cfg["margins"])
+    if vl_new is None:
+        return "failed"
+    print(f"  ✂️ 新: Phi[{vl_new['minPhi']:.2f},{vl_new['maxPhi']:.2f}] "
+          f"Theta[{vl_new['minTheta']:.2f},{vl_new['maxTheta']:.2f}] "
+          f"R[{vl_new['minRadius']:.3f},{vl_new['maxRadius']:.3f}]")
+
+    init_json = json.loads(jsons["init_camera"].read_text())
+    init_new = crop_init_camera(init_json, vl_new, vl["maxRadius"] / 1.2)
+    if init_new is None:
+        return "failed"
+
+    if cfg["dry_run"]:
+        print(f"💾 输出(预览): {out_mp4}")
+        print("⏭️  DRY_RUN=1，跳过执行")
+        return "ok"
+
+    # --- 3. 落盘收窄版 json（放 crop_json/，不碰 99b 的 uwa_json/）---
+    crop_dir = work_task / "crop_json"
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    fp_view = crop_dir / CROP_JSONS["view_params"]
+    fp_init = crop_dir / CROP_JSONS["init_camera"]
+    fp_view.write_text(json.dumps(vl_new))
+    fp_init.write_text(json.dumps(init_new))
+    print(f"  ✅ 收窄 json: {fp_view.name} / {fp_init.name} → {crop_dir}")
+
+    glb_file = work_task / "3DGS_crop.glb"
+    t0 = time.time()
+
+    # --- [1/2] 码流 + 相机 → GLB（gltf_packer，参数顺序同 99b）---
+    print("[Step 1/2] 📦 封装为 GLB（收窄视角）...")
+    rc = run_cmd([
+        str(cfg["gltf_packer"]), str(bin_file), str(glb_file),
+        str(fp_init), str(jsons["camera"]), str(fp_view),
+    ])
+    if rc != 0 or not glb_file.is_file():
+        print("❌ Step 1 失败")
+        return "failed"
+    print(f"  ✅ GLB: {glb_file.name}  ({glb_file.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    # --- [2/2] GLB + 视频 → MP4（muxer.py，复用 99b 的视频）---
+    print("[Step 2/2] 📦 封装 GLB 到 MP4...")
+    out_mp4.parent.mkdir(parents=True, exist_ok=True)
+    rc = run_cmd([
+        cfg["python_bin"], "muxer.py",
+        "--glb_path", str(glb_file),
+        "--mp4_path", str(video_file),
+        "--output_path", str(out_mp4),
+    ], cwd=cfg["tool_dir"], env=env)
+    if rc != 0 or not out_mp4.is_file():
+        print("❌ Step 2 失败")
+        return "failed"
+
+    print(f"  ✅ {out_mp4.name}  ({out_mp4.stat().st_size / 1024 / 1024:.1f} MB)"
+          f"  ⏱️ {time.time() - t0:.1f}s")
+    return "ok"
