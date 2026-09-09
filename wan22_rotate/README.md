@@ -216,7 +216,7 @@ INSTALL_DEPS=1 INSTALL_LHM=1 bash wan22_rotate/00_setup_env.sh
 #    在 Windows 浏览器下载 zip，传到容器：
 #      https://gitlab.inria.fr/bkerbl/simple-knn/-/archive/main/simple-knn-main.zip
 #    解压到子模块目录：
-cd /data_3d/w00950754/code/2d-gaussian-splatting/submodules
+cd ../../code/2d-gaussian-splatting/submodules
 unzip /path/to/simple-knn-main.zip
 mv simple-knn-main simple-knn
 ls simple-knn/setup.py   # 确认存在
@@ -232,15 +232,15 @@ export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
 $CUDA_HOME/bin/nvcc --version | tail -1    # 确认输出 cuda_12.4
 #
 # c) GLM 缺失（glm/glm.hpp: No such file or directory）：
-cd /data_3d/w00950754/code/2d-gaussian-splatting
+cd ../../code/2d-gaussian-splatting
 git clone https://github.com/g-truc/glm.git third_party/glm
 ls third_party/glm/glm/glm.hpp   # 确认存在
 #
 # d) 编译两个 CUDA 扩展（--no-deps --no-index 避免联网）：
 pip install --no-build-isolation --no-deps --no-index \
-  /data_3d/w00950754/code/2d-gaussian-splatting/submodules/simple-knn
+  ../../code/2d-gaussian-splatting/submodules/simple-knn
 pip install --no-build-isolation --no-deps --no-index \
-  /data_3d/w00950754/code/2d-gaussian-splatting/submodules/diff-surfel-rasterization
+  ../../code/2d-gaussian-splatting/submodules/diff-surfel-rasterization
 python -c "import simple_knn, diff_surfel_rasterization; print('OK')"
 
 # 3. 下权重（两边各自的下载脚本）
