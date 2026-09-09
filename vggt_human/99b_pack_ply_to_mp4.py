@@ -556,7 +556,9 @@ def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
     print(f"🖼️ ply:    {ply.name}")
 
     # --- 3. 三件套 json ---
-    work_dir = out_mp4.parent / "mp4_work" / task_dir.name
+    # 中间产物放批次目录下与 OUT_DIR 平级的 mp4_work/（不塞进 mp4/）：
+    # mp4/ 保持纯交付物，整目录可直接拷走；磁盘紧张时删 mp4_work/ 不碰成果
+    work_dir = out_mp4.parent.parent / "mp4_work" / task_dir.name
     if mode == MODE_UWA:
         jsons = {k: v for k, v in info["uwa"].items()}
         image_names = []
@@ -740,8 +742,8 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
     print()
 
     subdirs = sorted([d for d in src_root.iterdir() if d.is_dir()], key=lambda p: p.name)
-    # 中间产物目录 mp4_work 在输出目录里，不是 task，排除掉
-    subdirs = [d for d in subdirs if d.name != "mp4_work"]
+    # 排除非 task 目录：mp4_work（结果目录复用为源时）/ ply（99a 输出）
+    subdirs = [d for d in subdirs if d.name not in ("mp4_work", "ply", "mp4")]
     if only:
         subdirs = [d for d in subdirs if d.name in only]
     if not subdirs:
@@ -798,7 +800,8 @@ def main():
         "RESULTS_ROOT", "../../output/recon_human_results"))
     # 输出目录：默认 <RESULTS_ROOT>/<批次名>/mp4（与源目录同名）。
     # ply 收集在同级 ply/ 子目录（99a 产出），同批次目录下按产物类型分开。
-    # 中间产物在 <OUT_DIR>/mp4_work/<task>/，最终 mp4 为 <OUT_DIR>/<task>.mp4
+    # 中间产物在与 OUT_DIR 平级的 mp4_work/（不塞进 mp4/，保持交付目录纯净），
+    # 最终 mp4 为 <OUT_DIR>/<task>.mp4
     OUT_DIR = Path(os.environ.get(
         "OUT_DIR", str(RESULTS_ROOT / SRC_ROOT.resolve().name / "mp4")))
     # 帧序列目录。留空则自动探测 task 下的 image/ images/ input/ frames/；
