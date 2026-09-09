@@ -126,3 +126,117 @@ def load_view_limits(jsons: dict) -> dict | None:
         print(f"  ❌ view_limits.json 缺字段: {', '.join(miss)}")
         return None
     return vl
+
+
+# --------------------------------------------------------------------------
+# 视角收窄数学
+# 位置反解 pitch/yaw 与 get_loc_by_pitch_yaw 重建互为逆变换，
+# 公式与 99b generate_uwa_jsons（抄自 pack_ply_to_mp4_v2.sh）完全一致
+# --------------------------------------------------------------------------
+def pos_to_pitch_yaw(loc, radius):
+    """init_camera.position → (pitch, yaw)，单位度。
+
+    99b 正变换: vy=sin(pitch)*R, vx=sin(yaw)*cos(pitch)*R, vz=cos(yaw)*cos(pitch)*R,
+    且 loc=[-vx, vy, vz]（x 取负）。反解时先还原 vx=-x。
+    """
+    x, y, z = float(loc[0]), float(loc[1]), float(loc[2])
+    nv = math.sqrt(x * x + y * y + z * z)
+    if nv < 1e-10:
+        return None
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, y / nv))))
+    yaw = math.degrees(math.atan2(-x, z))
+    return pitch, yaw
+
+
+def loc_by_pitch_yaw(pitch, yaw, radius):
+    """(pitch, yaw) → position，99b 的 get_loc_by_pitch_yaw 原式。"""
+    vy = math.sin(math.radians(pitch)) * radius
+    theta = math.cos(math.radians(pitch)) * radius
+    vx = math.sin(math.radians(yaw)) * theta
+    vz = math.cos(math.radians(yaw)) * theta
+    return [-vx, vy, vz]
+
+
+def rebuild_rotation(loc):
+    """朝向原点重建 w2c 旋转（c2w），99b generate_uwa_jsons 原式，返回 3x3 嵌套 list。"""
+    import numpy as np
+    loc = np.asarray(loc, dtype=float)
+    n = np.linalg.norm(loc)
+    z_norm = -loc / n if n > 1e-10 else loc * 0.0
+    x_norm = np.cross(z_norm, [0.0, 1.0, 0.0])
+    nx = np.linalg.norm(x_norm)
+    x_norm = x_norm / nx if nx > 1e-10 else x_norm * 0.0
+    y_norm = np.cross(z_norm, x_norm)
+    x_norm = np.cross(y_norm, z_norm)
+    return np.stack([x_norm, y_norm, z_norm]).T.tolist()
+
+
+def clamp_deg(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def crop_view_limits(vl: dict, m: dict) -> dict | None:
+    """对 view_limits 原值内缩（保持中心不动），返回新 dict 或 None（收没了）。"""
+    phi_span = vl["maxPhi"] - vl["minPhi"]
+    theta_span = vl["maxTheta"] - vl["minTheta"]
+    r_span = vl["maxRadius"] - vl["minRadius"]
+
+    # 单侧收窄 ≥ 半跨度 → 区间反转/变空，视为参数错误
+    for name, cut, span in (("Phi", m["phi_left"], phi_span),
+                            ("Phi", m["phi_right"], phi_span),
+                            ("Theta", m["theta_bottom"], theta_span),
+                            ("Theta", m["theta_top"], theta_span),
+                            ("Radius", m["radius_margin"], r_span)):
+        if span > 1e-9 and cut >= span / 2 or span <= 1e-9 and cut > 0:
+            print(f"  ❌ {name} 单侧收窄 {cut:.2f} ≥ 半跨度 {span / 2:.2f}，区间会收没")
+            return None
+
+    new = dict(vl)
+    new["minPhi"] = vl["minPhi"] + m["phi_left"]
+    new["maxPhi"] = vl["maxPhi"] - m["phi_right"]
+    new["minTheta"] = vl["minTheta"] + m["theta_bottom"]
+    new["maxTheta"] = vl["maxTheta"] - m["theta_top"]
+    new["minRadius"] = vl["minRadius"] + m["radius_margin"]
+    new["maxRadius"] = vl["maxRadius"] - m["radius_margin"]
+    return new
+
+
+def crop_init_camera(init_json: list, vl_new: dict, radius: float) -> list | None:
+    """初始相机落到收窄区外时夹到边界（就近），返回新 init_camera 列表。
+
+    pitch/yaw 越界 → 夹紧后用 radius 重建 position/rotation（fov 等其余字段保留）。
+    radius 越界 → 只改 radius 分量？不行，position 由 (pitch,yaw,r) 三个量决定，
+    统一取夹紧后的 (pitch, yaw, r) 重建。
+    """
+    try:
+        import numpy as np  # noqa: F401  # rebuild_rotation 内部用到
+    except ImportError:
+        print("  ❌ 夹紧初始相机需要 numpy（用 PYTHON_BIN 指定带 numpy 的解释器）")
+        return None
+
+    cam = init_json[0]
+    py = pos_to_pitch_yaw(cam["position"], radius)
+    if py is None:
+        print("  ❌ init_camera.position 范数为 0，无法反解角度")
+        return None
+    pitch, yaw = py
+
+    # pitch/yaw ↔ Theta/Phi 换算: Theta = 90 - pitch, Phi = yaw
+    new_pitch = 90.0 - clamp_deg(90.0 - pitch, vl_new["minTheta"], vl_new["maxTheta"])
+    new_yaw = clamp_deg(yaw, vl_new["minPhi"], vl_new["maxPhi"])
+    new_r = clamp_deg(
+        # radius 不在 vl 里单独存，用 position 范数；夹紧到 [minR, maxR]
+        math.sqrt(sum(float(v) ** 2 for v in cam["position"])),
+        vl_new["minRadius"], vl_new["maxRadius"])
+
+    moved = (abs(new_pitch - pitch) > 1e-6 or abs(new_yaw - yaw) > 1e-6
+             or abs(new_r - math.sqrt(sum(float(v) ** 2 for v in cam["position"]))) > 1e-6)
+    if moved:
+        print(f"  ⚠️ 初始视角越界: pitch {pitch:.2f}→{new_pitch:.2f}, "
+              f"yaw {yaw:.2f}→{new_yaw:.2f}, r {math.sqrt(sum(float(v)**2 for v in cam['position'])):.3f}"
+              f"→{new_r:.3f}（已自动夹到收窄区边界）")
+
+    new_cam = dict(cam)
+    new_cam["position"] = loc_by_pitch_yaw(new_pitch, new_yaw, new_r)
+    new_cam["rotation"] = rebuild_rotation(new_cam["position"])
+    return [new_cam]
