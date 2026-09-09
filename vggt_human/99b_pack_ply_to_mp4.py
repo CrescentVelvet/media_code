@@ -36,7 +36,10 @@ Env vars（不设则用下方 main() 里的默认值）:
     PYTHON_BIN  跑 encode.py / muxer.py 的解释器（默认 python，需带工具链依赖）
     FPS / CRF / PRESET   视频编码参数（默认 30 / 28 / fast）
     ASTC_BLOCK  码流文件名的 ASTC 块大小（默认 4，仅用于拼文件名）
-    PLY_NAME / IMAGE_DIR 强制指定 ply 文件名 / 图片子目录名
+    PLY_NAME / IMAGE_DIR 强制指定 ply 文件名 / 帧序列目录。
+                IMAGE_DIR 相对路径的基点按 task 目录 → 批次根 → 结果根 → cwd
+                顺序试（第一个存在的胜出），解析后的绝对路径会打印出来。
+                默认 ../../code/Reconstruction/dataset/B003_Human_Data_w_pose
     FORCE=1     覆盖已存在的 mp4（默认跳过）
     KEEP_WORK=0 成功后删除中间产物目录（默认保留，方便排查）
     DRY_RUN=1   只打印探测结果，不执行
@@ -119,6 +122,15 @@ def detect_ply(task_dir: Path, mode: str, ply_name: str = "") -> Path | None:
     return plies[0] if plies else None
 
 
+def has_images(d: Path) -> bool:
+    """目录（仅一层）里是否有 jpg/png 帧。"""
+    try:
+        return any(f.is_file() and f.suffix.lower().lstrip(".") in IMAGE_EXTS
+                   for f in d.iterdir())
+    except OSError:
+        return False
+
+
 def detect_image_dir(task_dir: Path, image_dir: str = "") -> Path | None:
     if image_dir:
         d = task_dir / image_dir
@@ -127,6 +139,57 @@ def detect_image_dir(task_dir: Path, image_dir: str = "") -> Path | None:
         d = task_dir / name
         if d.is_dir():
             return d
+    return None
+
+
+def pick_image_dir(cand: Path, task_name: str) -> Path | None:
+    """在一个候选基点下挑出真正放帧的目录。
+
+    优先级：① <基点>/<task 名>（数据集按 task 分目录时）② 基点本身 ③ 它们的
+    image/ / images/ 子目录。都命中不了但目录存在时仍返回它，让上层按「缺帧」处理
+    （COLMAP 的渲染帧可能还没生成，属待补而非失败）。
+    """
+    sub = cand / task_name
+    if sub.is_dir() and has_images(sub):
+        return sub
+    if cand.is_dir() and has_images(cand):
+        return cand
+    for d in (sub, cand):
+        if not d.is_dir():
+            continue
+        for name in IMAGE_DIR_CANDIDATES:
+            s = d / name
+            if s.is_dir() and has_images(s):
+                return s
+        return d
+    return None
+
+
+def resolve_image_dir(task_dir: Path, image_dir: str, bases: list) -> Path | None:
+    """解析 IMAGE_DIR。
+
+    绝对路径直接用。相对路径的基点有歧义——可能是相对 task 目录、批次根、结果根
+    或当前工作目录（v2 脚本里是相对 INPUT_DIR，但命令行下也常相对 cwd 写），
+    单一语义猜错代价大，所以按 bases 顺序逐个试，第一个真实存在的胜出，
+    解析结果由调用方打印供核对。
+    """
+    p = Path(image_dir)
+    if p.is_absolute():
+        return pick_image_dir(p, task_dir.name)
+
+    tried, cands = [], []
+    for b in bases:
+        c = (b / p).resolve()
+        if c not in cands:
+            cands.append(c)
+    for c in cands:
+        got = pick_image_dir(c, task_dir.name)
+        tried.append(c)
+        if got is not None:
+            return got
+    print("  🔎 IMAGE_DIR 未命中，试过的路径:")
+    for c in tried:
+        print(f"      - {c}")
     return None
 
 
@@ -524,8 +587,12 @@ def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
               f"/ {jsons['view_params'].name}")
 
     # --- 4. 图片序列 ---
+    out_root = out_mp4.parent
     if cfg["image_dir"]:
-        img_dir = detect_image_dir(task_dir, cfg["image_dir"])
+        # 相对 IMAGE_DIR 的基点按「task → 批次根 → 结果根 → cwd」依次试，命中即停
+        bases = [task_dir, cfg.get("src_root", task_dir), out_root,
+                 out_root.parent, out_root.parent.parent, Path.cwd()]
+        img_dir = resolve_image_dir(task_dir, cfg["image_dir"], bases)
     elif mode == MODE_COLMAP:
         img_dir = (resolve_colmap_image_dir(task_dir, image_names)
                    or detect_image_dir(task_dir))
@@ -544,10 +611,12 @@ def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
         return "failed"
 
     seq = detect_image_sequence(img_dir)
+    # IMAGE_DIR 的基点是试出来的，必须打全路径供核对；自动探测的就在 task 下，打目录名即可
+    shown = str(img_dir) if cfg["image_dir"] else img_dir.name
     if seq is None:
-        print(f"🖼️ 图片:   {img_dir}（非数字命名，glob 按字典序）")
+        print(f"🖼️ 图片:   {shown}（非数字命名，glob 按字典序）")
     else:
-        print(f"🖼️ 图片:   {img_dir.name}/%0{seq['pad']}d.{seq['ext']}"
+        print(f"🖼️ 图片:   {shown}/%0{seq['pad']}d.{seq['ext']}"
               f"  (起始 {seq['start']}, 共 {seq['count']} 张)")
     if not any(f.is_file() and f.suffix.lower().lstrip(".") in IMAGE_EXTS
                for f in img_dir.iterdir()):
@@ -637,6 +706,8 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
         sys.exit(f"❌ 源目录不存在: {src_root}")
     if not cfg["dry_run"]:
         out_root.mkdir(parents=True, exist_ok=True)
+    # 供 IMAGE_DIR 相对路径解析用（相对批次根 / 结果根都支持）
+    cfg["src_root"] = src_root
 
     # 工具链 PYTHONPATH：muxer.py 依赖 pymp4，必须把 thirdparty 和工具链根都加进去
     env = os.environ.copy()
@@ -712,7 +783,7 @@ def main():
     SRC_ROOT = Path(os.environ.get(
         "SRC_ROOT",
         "../../code/Reconstruction/output/"
-        "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"))
+        "B003_Human_Data_w_pose-脸红优化+外插视角增强"))
     # 统一结果根：与 99a_collect_ply.py 同源，便于 ply 和 mp4 一起找
     RESULTS_ROOT = Path(os.environ.get(
         "RESULTS_ROOT", "../../output/recon_human_results"))
@@ -720,6 +791,11 @@ def main():
     # 中间产物在 <OUT_DIR>/mp4_work/<task>/，最终 mp4 为 <OUT_DIR>/<task>.mp4
     OUT_DIR = Path(os.environ.get(
         "OUT_DIR", str(RESULTS_ROOT / SRC_ROOT.resolve().name)))
+    # 帧序列目录。留空则自动探测 task 下的 image/ images/ input/ frames/；
+    # 填了就对所有 task 生效（UWA / COLMAP 都会用它，不再走自动探测）。
+    # 相对路径的基点依次试 task 目录 → 批次根 → 结果根 → cwd，命中即停并打印。
+    IMAGE_DIR = os.environ.get(
+        "IMAGE_DIR", "../../code/Reconstruction/dataset/B003_Human_Data_w_pose")
     # ==============================================
 
     ref = os.environ.get("REF_JSON_DIR", "")
@@ -732,7 +808,7 @@ def main():
         "preset": os.environ.get("PRESET", "fast"),
         "astc_block": os.environ.get("ASTC_BLOCK", "4"),
         "ply_name": os.environ.get("PLY_NAME", ""),
-        "image_dir": os.environ.get("IMAGE_DIR", ""),
+        "image_dir": IMAGE_DIR,
         "mode": os.environ.get("MODE", "auto").lower(),
         "ref_json_dir": Path(ref) if ref else None,
         "insideout": os.environ.get("INSIDEOUT", "0") == "1",
