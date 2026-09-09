@@ -20,7 +20,11 @@ if [ ! -d "${MESH_DIR:-$RESULTS_DIR/06_avatar_gs}" ]; then
     exit 1
 fi
 
-BODY_PLY="${BODY_PLY:-$UPSTREAM_DIR/03h_person_scene_split/body_gs_p{pid}.ply}" \
+# 注意：默认值不能内联写进 ${BODY_PLY:-...}——裸 {pid} 的 } 会提前终止
+# bash 参数展开，BODY_PLY 变成 ...p{pid.ply}，python format 把 {pid.ply}
+# 解析成 pid 的 .ply 属性 → 'str' object has no attribute 'ply'。先算好再引用。
+DEFAULT_BODY_PLY="$UPSTREAM_DIR/03h_person_scene_split/body_gs_p{pid}.ply"
+BODY_PLY="${BODY_PLY:-$DEFAULT_BODY_PLY}" \
 MESH_DIR="${MESH_DIR:-$RESULTS_DIR/06_avatar_gs}" \
 OUT_DIR="${OUT_DIR:-$RESULTS_DIR/07_body_gs}" \
 PERSONS="${PERSONS:-0,1,2}" \
