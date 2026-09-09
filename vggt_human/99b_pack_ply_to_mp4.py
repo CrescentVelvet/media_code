@@ -24,7 +24,7 @@
 Env vars（不设则用下方 main() 里的默认值）:
     TOOL_DIR    UWA 工具链根目录（含 encode.py / muxer.py / build/gltf_packer）
     SRC_ROOT    批次根目录（其下每个子目录是一个 task）
-    RESULTS_ROOT    统一结果根（默认 /data_3d/w00950754/output/recon_human_results）
+    RESULTS_ROOT    统一结果根（默认 ../../output/recon_human_results）
     OUT_DIR     输出目录，默认 <RESULTS_ROOT>/<批次名>（批次名与源目录同名，
                 和 99a 收集的 ply 落在同一批次目录下；显式给 OUT_DIR 则完全覆盖）
     ONLY        逗号分隔的 task 白名单
@@ -707,15 +707,15 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
 def main():
     # ===== 在这里直接改路径（或用环境变量覆盖）=====
     TOOL_DIR = Path(os.environ.get(
-        "TOOL_DIR", "/data_3d/w00950754/model/UWA_Sample_Tool_v3"))
+        "TOOL_DIR", "../../model/UWA_Sample_Tool_v3"))
     # 批次根目录：其下每个子目录是一个 task（UWA 型或 COLMAP 型混着也行）
     SRC_ROOT = Path(os.environ.get(
         "SRC_ROOT",
-        "/data_3d/w00950754/code/Reconstruction/output/"
+        "../../code/Reconstruction/output/"
         "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"))
     # 统一结果根：与 99a_collect_ply.py 同源，便于 ply 和 mp4 一起找
     RESULTS_ROOT = Path(os.environ.get(
-        "RESULTS_ROOT", "/data_3d/w00950754/output/recon_human_results"))
+        "RESULTS_ROOT", "../../output/recon_human_results"))
     # 输出目录：默认 <RESULTS_ROOT>/<批次名>（与源目录同名）。
     # 中间产物在 <OUT_DIR>/mp4_work/<task>/，最终 mp4 为 <OUT_DIR>/<task>.mp4
     OUT_DIR = Path(os.environ.get(

@@ -88,12 +88,12 @@ def main():
     # ===== 在这里直接改路径 =====
     # 源：批次根目录（其下每个子目录是一个 task，含 point_cloud_final.ply）
     SRC_ROOT = Path(
-        "/data_3d/w00950754/code/Reconstruction/output/"
+        "../../code/Reconstruction/output/"
         "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"
     )
     # 输出：会自动新建。批次名与源同名，放在统一的 recon_human_results 下
     DST_ROOT = Path(
-        "/data_3d/w00950754/output/recon_human_results/"
+        "../../output/recon_human_results/"
         "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"
     )
     # 要收集的 ply 文件名（流水线产物固定名）
