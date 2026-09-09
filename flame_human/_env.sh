@@ -60,12 +60,15 @@ if [ -n "${GPU:-}" ]; then
 fi
 
 # CUDA 库路径（libcupti 等）
-for _cuda_lib in \
-    "/usr/local/cuda/extras/CUPTI/lib64" \
-    "/usr/local/cuda/lib64" \
-    "$CONDA_PREFIX/lib"; do
-    [ -d "$_cuda_lib" ] && export LD_LIBRARY_PATH="${_cuda_lib}:${LD_LIBRARY_PATH:-}"
-done
+# 仅在 env 激活成功（CONDA_PREFIX 指向本 env）时才拼，避免 env 未建时
+# 把 base 的 lib 挂进来引起库冲突。
+if [ -n "${CONDA_PREFIX:-}" ] && [ -d "$CONDA_PREFIX/lib" ]; then
+    case ":${LD_LIBRARY_PATH:-}:" in
+        *":$CONDA_PREFIX/lib:"*) ;;  # 已有，不重复拼
+        *) export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}" ;;
+    esac
+fi
+unset _cuda_lib
 
 # --- 官方代码 ---
 # DECA：提供 shape/expr/pose 初值（只取初值，不取 landmark，见 NOTES）
