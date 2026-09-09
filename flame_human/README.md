@@ -14,6 +14,9 @@
 
 | 阶段 | 脚本 | 说明 |
 |---|---|---|
+| — 权重检查 | `01_download_models.sh` | FLAME / DECA / HYPIR 就位检查 |
+| — 468 点嵌入 | `01b_build_lm468_embedding.sh` | MediaPipe 468 → FLAME 重心嵌入 |
+| — person mask | `01c_gen_person_masks.sh` | SAM3 person mask（复用 vggt_human worker）|
 | 一 人脸检测 | `02_detect_faces.sh` | face bbox + 5 点（5 点仅副产物，下游不用）|
 | 二 人脸匹配 | `03_match_faces.sh` | 三层 ID 关联：point-in-mask → IoM → 匈牙利 + 时序 |
 | 三 人脸重建 | `04_recon_faces.sh` | 各向同性 crop → 512²；DECA 出初值；MediaPipe 出 468 点 |
@@ -73,7 +76,7 @@ GPU=0 SOURCE_DIR=../vggt_human_results/03_source \
 | `GPU` | 未设 | 设了才 export `CUDA_VISIBLE_DEVICES` |
 | `UPSTREAM_DIR` | `../vggt_human_results` | 上游 SfM 与 mask 的根 |
 | `SOURCE_DIR` | `$UPSTREAM_DIR/03_source` | COLMAP 场景（images + sparse）|
-| `PERSON_MASKS_DIR` | `$UPSTREAM_DIR/03_sam3_person_masks` | SegTrack/SAM3 person mask |
+| `PERSON_MASKS_DIR` | `$UPSTREAM_DIR/03_sam3_person_masks` | SegTrack/SAM3 person mask；没有上游产物时先跑 01c（默认输出 `$RESULTS_DIR/01c_sam3_person_masks`）|
 | `RESULTS_DIR` | `../flame_human_results` | 本链路输出 |
 | `MODEL_DIR` | `../../model/flame_human` | 权重根 |
 | `FLAME_MODEL` | `$MODEL_DIR/FLAME2020/generic_model.pkl` | FLAME 2020 |
