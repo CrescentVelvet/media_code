@@ -89,3 +89,40 @@ def run_cmd(cmd, cwd=None, env=None, log_tail: int = 15) -> int:
             print("  ---- stderr ----")
             print(_tail(proc.stderr, log_tail))
     return proc.returncode
+
+
+# --------------------------------------------------------------------------
+# 99b 中间产物探测
+# --------------------------------------------------------------------------
+def find_bin(work_task: Path) -> Path | None:
+    """找 99b 产出的压缩码流 GSCompressed_B*.bin。"""
+    bins = sorted(work_task.glob("GSCompressed_B*.bin"))
+    return bins[0] if bins else None
+
+
+def find_jsons(task_dir: Path, work_task: Path, ref_json_dir: Path | None):
+    """定位三件套 json，返回 dict 或 None。
+
+    优先级：REF_JSON_DIR > task 目录（UWA 型）> mp4_work/<task>/uwa_json/
+    （99b COLMAP 型现场生成的位置）。
+    """
+    bases = [ref_json_dir, task_dir, work_task / "uwa_json"]
+    for base in bases:
+        if base is None:
+            continue
+        hit = {k: base / n for k, n in UWA_JSONS.items()}
+        if all(p.is_file() for p in hit.values()):
+            if ref_json_dir and base == ref_json_dir:
+                print(f"  📎 用 REF_JSON_DIR 的三件套: {base}")
+            return hit
+    return None
+
+
+def load_view_limits(jsons: dict) -> dict | None:
+    vl = json.loads(jsons["view_params"].read_text())
+    need = ["minPhi", "maxPhi", "minTheta", "maxTheta", "minRadius", "maxRadius"]
+    miss = [k for k in need if k not in vl]
+    if miss:
+        print(f"  ❌ view_limits.json 缺字段: {', '.join(miss)}")
+        return None
+    return vl
