@@ -20,7 +20,7 @@
     单侧收窄量 ≥ 半跨度 → 该 task 报错跳过（收没了）
 
 用法:
-    python vggt_human/99c_repack_view_limits.py                  # 默认 10° 对称收窄
+    python vggt_human/99c_repack_view_limits.py                  # 默认只收 Phi 两侧 10°
     PHI_MARGIN=15 THETA_MARGIN=5 python vggt_human/99c_repack_view_limits.py
     PHI_LEFT=5 PHI_RIGHT=25 python vggt_human/99c_repack_view_limits.py  # 不对称
     DRY_RUN=1  python ...   # 只打印收窄前后范围，不执行
@@ -34,7 +34,8 @@ Env vars:
                   mp4/ 平级共存，不覆盖 99b 成品）
     WORK_ROOT     99b 中间产物根，默认 <RESULTS_ROOT>/<批次名>/mp4_work
     PHI_MARGIN    Phi 两侧对称收窄角度（度，默认 10；LEFT/RIGHT 未设时用它）
-    THETA_MARGIN  Theta 两侧对称收窄角度（度，默认 10；TOP/BOTTOM 未设时用它）
+    THETA_MARGIN  Theta 两侧对称收窄角度（度，默认 0 不动——人像批次 Theta 跨度
+                  常只有几度，默认收 10 会整批触发「收没了」；需要时再显式给）
     PHI_LEFT / PHI_RIGHT / THETA_TOP / THETA_BOTTOM
                   单侧收窄角度（度，未设则取对应 *_MARGIN）
     RADIUS_MARGIN Radius 两侧内缩（米，默认 0 不动）
@@ -188,7 +189,8 @@ def crop_view_limits(vl: dict, m: dict) -> dict | None:
                             ("Theta", m["theta_top"], theta_span),
                             ("Radius", m["radius_margin"], r_span)):
         if span > 1e-9 and cut >= span / 2 or span <= 1e-9 and cut > 0:
-            print(f"  ❌ {name} 单侧收窄 {cut:.2f} ≥ 半跨度 {span / 2:.2f}，区间会收没")
+            print(f"  ❌ {name} 单侧收窄 {cut:.2f} ≥ 半跨度 {span / 2:.2f}，区间会收没"
+                  f"（调小 {name.upper()}_* 参数，或该维不收）")
             return None
 
     new = dict(vl)
@@ -427,7 +429,7 @@ def main():
     # ==============================================
 
     phi_margin = float(os.environ.get("PHI_MARGIN", "10"))
-    theta_margin = float(os.environ.get("THETA_MARGIN", "10"))
+    theta_margin = float(os.environ.get("THETA_MARGIN", "0"))
     cfg = {
         "tool_dir": TOOL_DIR,
         "gltf_packer": TOOL_DIR / "build/gltf_packer",
