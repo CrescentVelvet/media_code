@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """99b_pack_ply_to_mp4.py — 批量把 PLY（3DGS 重建结果）封装成可播放的 MP4。
 
+环境准备
+    conda activate xcodec
+    conda install -y -c conda-forge ffmpeg
+
 输入是「批次目录」，其下每个子目录是一个 task。脚本**自动判断 task 属于哪种模式**并打印：
 
     模式 UWA     init_camera.json + camera.json + view_limits.json + recon_result.ply

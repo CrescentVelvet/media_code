@@ -2,6 +2,9 @@
 """99a_collect_ply.py — 批量收集各 task 子目录下的 point_cloud_final.ply，
 复制并重命名为「子目录名.ply」，集中放到一个输出目录。
 
+环境准备
+    conda activate xcodec
+
 典型场景：重建流水线跑完后，每个 task 产出各自的 point_cloud_final.ply，
 散落在 <batch_dir>/<task_id>/point_cloud_final.ply。本脚本把它们归集到
 <output_root>/<batch_name>/<task_id>.ply，方便统一查看/上传。
