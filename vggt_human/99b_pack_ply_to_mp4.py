@@ -24,7 +24,9 @@
 Env vars（不设则用下方 main() 里的默认值）:
     TOOL_DIR    UWA 工具链根目录（含 encode.py / muxer.py / build/gltf_packer）
     SRC_ROOT    批次根目录（其下每个子目录是一个 task）
-    OUT_DIR     输出目录（默认 <SRC_ROOT>_mp4），产出 <task_id>.mp4
+    RESULTS_ROOT    统一结果根（默认 /data_3d/w00950754/output/recon_human_results）
+    OUT_DIR     输出目录，默认 <RESULTS_ROOT>/<批次名>（批次名与源目录同名，
+                和 99a 收集的 ply 落在同一批次目录下；显式给 OUT_DIR 则完全覆盖）
     ONLY        逗号分隔的 task 白名单
     MODE        auto（默认）/ uwa / colmap，强制指定模式
     INSIDEOUT=1 室内朝外视角（人像默认 0），影响 view_limits / init_camera 的角度映射
@@ -646,6 +648,7 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
     env["PYTHONPATH"] = os.pathsep.join(parts + ([old] if old else []))
 
     print(f"🔍 源目录:   {src_root}")
+    print(f"📦 批次名:   {src_root.resolve().name}")
     print(f"📁 输出目录: {out_root}")
     print(f"🛠️ 工具链:   {cfg['tool_dir']}")
     if cfg.get("ref_json_dir"):
@@ -710,8 +713,13 @@ def main():
         "SRC_ROOT",
         "/data_3d/w00950754/code/Reconstruction/output/"
         "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"))
-    # 输出目录：默认放在源目录旁边的 <批次名>_mp4
-    OUT_DIR = Path(os.environ.get("OUT_DIR", str(SRC_ROOT) + "_mp4"))
+    # 统一结果根：与 99a_collect_ply.py 同源，便于 ply 和 mp4 一起找
+    RESULTS_ROOT = Path(os.environ.get(
+        "RESULTS_ROOT", "/data_3d/w00950754/output/recon_human_results"))
+    # 输出目录：默认 <RESULTS_ROOT>/<批次名>（与源目录同名）。
+    # 中间产物在 <OUT_DIR>/mp4_work/<task>/，最终 mp4 为 <OUT_DIR>/<task>.mp4
+    OUT_DIR = Path(os.environ.get(
+        "OUT_DIR", str(RESULTS_ROOT / SRC_ROOT.resolve().name)))
     # ==============================================
 
     ref = os.environ.get("REF_JSON_DIR", "")
