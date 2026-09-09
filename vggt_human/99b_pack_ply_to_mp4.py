@@ -4,12 +4,12 @@
 输入是「批次目录」，其下每个子目录是一个 task。脚本**自动判断 task 属于哪种模式**并打印：
 
     模式 UWA     init_camera.json + camera.json + view_limits.json + recon_result.ply
-                → 直接跑完整四步链，得到 <task_id>.mp4
-    模式 COLMAP  cameras.txt + images.txt + points3D.txt + processing.txt + point_cloud_final.ply
-                → 缺 UWA 三件套 json。解析 COLMAP 打印相机/场景统计，并把算出来的数
-                  写成待校验的 json 骨架；拿到真样本后用 REF_JSON_DIR 覆盖即可继续封装。
+                → json 现成，直接跑四步链
+    模式 COLMAP  cameras.txt + images.txt + points3D.txt + point_cloud_final.ply
+                → 现场生成三件套 json（逻辑见 generate_uwa_jsons，抄自
+                  pack_ply_to_mp4_v2.sh，已用旧目录数据数值验证过），再跑四步链
 
-四步链（仅 UWA 模式或有 json 时执行）:
+四步链:
     [1/4] 图片序列        → H.264 视频（ffmpeg）
     [2/4] PLY             → 压缩码流 GSCompressed_B<n>.bin（工具链 encode.py）
     [3/4] 压缩码流 + 相机 → GLB（工具链 build/gltf_packer）
@@ -27,13 +27,14 @@ Env vars（不设则用下方 main() 里的默认值）:
     OUT_DIR     输出目录（默认 <SRC_ROOT>_mp4），产出 <task_id>.mp4
     ONLY        逗号分隔的 task 白名单
     MODE        auto（默认）/ uwa / colmap，强制指定模式
-    REF_JSON_DIR  含真实的 init_camera.json / camera.json / view_limits.json 的目录，
-                  给 COLMAP 模式的 task 借用（优先级最高，不再走推断）
+    INSIDEOUT=1 室内朝外视角（人像默认 0），影响 view_limits / init_camera 的角度映射
+    GS_FALLBACK=1  缺 gs_camera_params_final.json 时，用 COLMAP 相机位姿推断
+                   radius / pitch / yaw 范围（默认关闭：缺该文件即失败）
+    REF_JSON_DIR   外部提供三件套 json 的目录，优先级高于 COLMAP 现场生成
     PYTHON_BIN  跑 encode.py / muxer.py 的解释器（默认 python，需带工具链依赖）
     FPS / CRF / PRESET   视频编码参数（默认 30 / 28 / fast）
     ASTC_BLOCK  码流文件名的 ASTC 块大小（默认 4，仅用于拼文件名）
-    PLY_NAME    指定 ply 文件名，不给则按候选列表自动探测
-    IMAGE_DIR   指定图片子目录名，不给则自动探测
+    PLY_NAME / IMAGE_DIR 强制指定 ply 文件名 / 图片子目录名
     FORCE=1     覆盖已存在的 mp4（默认跳过）
     KEEP_WORK=0 成功后删除中间产物目录（默认保留，方便排查）
     DRY_RUN=1   只打印探测结果，不执行
@@ -49,13 +50,11 @@ import time
 from collections import Counter
 from pathlib import Path
 
-# ply 自动探测顺序：不同流水线产物名不一样，按常见程度排
-PLY_CANDIDATES = [
-    "recon_result.ply",
-    "point_cloud_final.ply",
-    "point_cloud.ply",
-    "scene.ply",
-]
+# ply 探测顺序按模式分开：UWA 目录产物叫 recon_result.ply，COLMAP 目录叫 point_cloud_final.ply
+PLY_CANDIDATES = {
+    "UWA": ["recon_result.ply", "point_cloud_final.ply", "point_cloud.ply", "scene.ply"],
+    "COLMAP": ["point_cloud_final.ply", "recon_result.ply", "point_cloud.ply", "scene.ply"],
+}
 IMAGE_DIR_CANDIDATES = ["image", "images", "input", "frames"]
 IMAGE_EXTS = ["jpg", "jpeg", "png"]
 
@@ -67,6 +66,8 @@ UWA_JSONS = {
 }
 # COLMAP 模式的标志文件
 COLMAP_FILES = ["cameras.txt", "images.txt", "points3D.txt"]
+# 现场生成 view_limits 需要的参数文件（COLMAP 模式）
+GS_PARAMS_NAME = "gs_camera_params_final.json"
 
 MODE_UWA = "UWA"
 MODE_COLMAP = "COLMAP"
@@ -103,11 +104,11 @@ def run_cmd(cmd, cwd=None, env=None, log_tail: int = 15) -> int:
 # --------------------------------------------------------------------------
 # 输入探测
 # --------------------------------------------------------------------------
-def detect_ply(task_dir: Path, ply_name: str = "") -> Path | None:
+def detect_ply(task_dir: Path, mode: str, ply_name: str = "") -> Path | None:
     if ply_name:
         p = task_dir / ply_name
         return p if p.is_file() else None
-    for name in PLY_CANDIDATES:
+    for name in PLY_CANDIDATES.get(mode, PLY_CANDIDATES["UWA"]):
         p = task_dir / name
         if p.is_file():
             return p
@@ -130,7 +131,7 @@ def detect_image_dir(task_dir: Path, image_dir: str = "") -> Path | None:
 def detect_image_sequence(img_dir: Path):
     """识别图片序列的 扩展名 / 数字位宽 / 起始编号。
 
-    返回 dict(ext, pad, start, count) 或 None。
+    返回 dict(ext, pad, start, count)；文件名不是纯数字时返回 None，改用 glob。
     pad 取众数：个别文件位数不一致时按主流命名走。
     start 必须探测：ffmpeg 的 %0Nd 模式默认从 0 开始找，序列从 1 编号会直接报
     "Could find no file with path ..."，所以必须显式传 -start_number。
@@ -158,6 +159,15 @@ def detect_image_sequence(img_dir: Path):
     return {"ext": ext, "pad": pad, "start": idxs[0], "count": len(idxs)}
 
 
+def detect_glob_ext(img_dir: Path) -> str | None:
+    """文件名不是纯数字时，取目录里最多的图片扩展名，供 ffmpeg glob 用。"""
+    cnt = Counter(f.suffix.lower().lstrip(".") for f in img_dir.iterdir() if f.is_file())
+    for ext, _ in cnt.most_common():
+        if ext in IMAGE_EXTS:
+            return ext
+    return None
+
+
 def find_json(task_dir: Path, name: str, override: str = "") -> Path | None:
     """找相机参数 json；override 可以是绝对路径或相对 task_dir 的文件名。"""
     if override:
@@ -178,7 +188,7 @@ def detect_mode(task_dir: Path, cfg: dict):
     """判断 task 属于 UWA 还是 COLMAP 模式。
 
     返回 (mode, info)；mode 为 None 表示两种都不完整。
-    同时存在时以 UWA 优先（json 齐全才能直接封装）。
+    同时存在时以 UWA 优先（json 齐全，省一步生成）。
     """
     uwa_hit = {k: find_json(task_dir, n, cfg.get(f"{k}_name", ""))
                for k, n in UWA_JSONS.items()}
@@ -211,129 +221,207 @@ def detect_mode(task_dir: Path, cfg: dict):
 
 
 # --------------------------------------------------------------------------
-# COLMAP 解析（纯 python，不依赖 numpy）
+# Step 0: COLMAP txt → UWA 三件套 json
+# 逻辑抄自 pack_ply_to_mp4_v2.sh（其源头是 GaussianPhoto3D
+# gaussian3d/reconstruction/src/module/warping.py），已用旧目录数据数值验证。
 # --------------------------------------------------------------------------
-def qvec2rotmat(q):
-    """COLMAP qvec = [qw, qx, qy, qz] → 3x3 旋转矩阵（行优先 list）。"""
-    w, x, y, z = q
-    n = math.sqrt(w * w + x * x + y * y + z * z) or 1.0
-    w, x, y, z = w / n, x / n, y / n, z / n
-    return [
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ]
+def generate_uwa_jsons(task_dir: Path, out_dir: Path | None, insideout: bool,
+                       gs_fallback: bool = False):
+    """从 cameras.txt + images.txt + gs_camera_params_final.json 生成三件套。
 
-
-def _intrinsics_from_params(model: str, params):
-    """从 COLMAP 相机参数里取 fx/fy/cx/cy。"""
-    m = model.upper()
-    if m in ("PINHOLE", "OPENCV", "FULL_OPENCV", "SIMPLE_PINHOLE", "SIMPLE_RADIAL", "RADIAL"):
-        if m in ("PINHOLE", "OPENCV", "FULL_OPENCV"):
-            fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-        else:
-            # SIMPLE_* / RADIAL：第 1 个参数是共享焦距 f
-            fx = fy = params[0]
-            cx, cy = params[1], params[2]
-        return fx, fy, cx, cy
-    # 未知模型：退化处理，按 PINHOLE 前 4 个参数猜
-    if len(params) >= 4:
-        return params[0], params[1], params[2], params[3]
-    return None
-
-
-def read_colmap_cameras(path: Path) -> dict:
-    """cameras.txt → {camera_id: {model,width,height,fx,fy,cx,cy}}"""
-    out = {}
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        cid = int(parts[0])
-        model = parts[1]
-        w, h = int(parts[2]), int(parts[3])
-        params = [float(p) for p in parts[4:]]
-        intr = _intrinsics_from_params(model, params)
-        if intr is None:
-            continue
-        fx, fy, cx, cy = intr
-        out[cid] = {"model": model, "width": w, "height": h,
-                    "fx": fx, "fy": fy, "cx": cx, "cy": cy}
-    return out
-
-
-def read_colmap_images(path: Path) -> list:
-    """images.txt → [{image_id, qvec, tvec, camera_id, name}]。
-
-    位姿行固定 10 列（id qw qx qy qz tx ty tz camera_id name），其后紧跟一行
-    points2D（**可能是空行**）。所以不能先滤空行再按两行跳读——空行一滤，
-    张数就少一半。判定规则：列数 >=10 且不是 3 的倍数（points2D 行恒为 3k 列）。
+    Args:
+        out_dir: 落盘目录；传 None 表示只解析打印、不写文件（DRY_RUN）。
+    Returns:
+        {"init_camera": Path, "camera": Path, "view_params": Path,
+         "image_names": [...]} 或 None（失败）。
     """
-    out = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if len(parts) < 10 or len(parts) % 3 == 0:
-            continue  # points2D 行（3k 列）或异常行
-        out.append({
-            "image_id": int(parts[0]),
-            "qvec": [float(v) for v in parts[1:5]],
-            "tvec": [float(v) for v in parts[5:8]],
-            "camera_id": int(parts[8]),
-            "name": parts[9],
-        })
-    return out
-
-
-def colmap_summary(task_dir: Path):
-    """汇总 COLMAP 信息：相机内参、图像数、场景中心/半径、首帧位姿。"""
-    cams = read_colmap_cameras(task_dir / "cameras.txt")
-    imgs = read_colmap_images(task_dir / "images.txt")
-    if not imgs or not cams:
+    try:
+        import numpy as np
+    except ImportError:
+        print("  ❌ 生成相机 json 需要 numpy，当前解释器里没有（用 PYTHON_BIN 指定）")
         return None
 
-    # 主相机：被最多图像引用的那台
-    cid_count = Counter(im["camera_id"] for im in imgs)
-    main_cid = cid_count.most_common(1)[0][0]
-    if len(cams) > 1:
-        print(f"  ⚠️ 有 {len(cams)} 台相机，取用得最多的 #{main_cid}"
-              f"（各台数量: {dict(cid_count)}）")
-    cam = cams[main_cid]
+    def qvec2rotmat(q):
+        w, x, y, z = q
+        return np.array([
+            [1 - 2 * y * y - 2 * z * z, 2 * x * y - 2 * z * w, 2 * x * z + 2 * y * w],
+            [2 * x * y + 2 * z * w, 1 - 2 * x * x - 2 * z * z, 2 * y * z - 2 * x * w],
+            [2 * x * z - 2 * y * w, 2 * y * z + 2 * x * w, 1 - 2 * x * x - 2 * y * y],
+        ])
 
-    # 相机中心 C = -R^T t；场景中心和半径用相机中心估（相机绕物体，够用且便宜）
-    centers = []
-    first_pose = None
-    for im in sorted(imgs, key=lambda d: d["name"]):
-        R = qvec2rotmat(im["qvec"])
-        t = im["tvec"]
-        C = [-sum(R[k][j] * t[k] for k in range(3)) for j in range(3)]
-        centers.append(C)
-        if first_pose is None:
-            first_pose = C
+    def safe_normalize(v):
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-10 else v * 0.0
 
-    n = len(centers)
-    center = [sum(c[j] for c in centers) / n for j in range(3)]
-    radius = max(math.dist(c, center) for c in centers)
+    # ---------- cameras.txt ----------
+    cams = {}
+    cam_path = task_dir / "cameras.txt"
+    try:
+        for line in cam_path.read_text().splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            p = line.split()
+            if len(p) < 8:
+                continue
+            if p[1] != "PINHOLE":
+                print(f"  ❌ 暂只支持 PINHOLE 相机模型，实际: {p[1]}")
+                return None
+            cams[int(p[0])] = (int(p[2]), int(p[3]), [float(v) for v in p[4:8]])
+    except FileNotFoundError:
+        print(f"  ❌ 缺少 {cam_path}")
+        return None
+    if not cams:
+        print("  ❌ cameras.txt 未解析到相机")
+        return None
 
-    fovx = 2 * math.degrees(math.atan(cam["width"] / (2 * cam["fx"]))) if cam["fx"] else 0.0
-    fovy = 2 * math.degrees(math.atan(cam["height"] / (2 * cam["fy"]))) if cam["fy"] else 0.0
+    # ---------- images.txt ----------
+    # 位姿行: IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME [+3k 个 2D 点] → 字段数 %3==1
+    # 观测行(可能缺省): 3m 个字段 → 字段数 %3==0
+    positions, img_names, cam_ids, quats = [], [], [], []
+    try:
+        for line in (task_dir / "images.txt").read_text().splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            p = line.split()
+            if len(p) < 10 or len(p) % 3 != 1:
+                continue
+            q = [float(v) for v in p[1:5]]
+            R = qvec2rotmat(q)                                  # w2c 旋转
+            t = np.array([float(v) for v in p[5:8]])            # w2c 平移
+            positions.append(-R.T @ t)                          # c2w: 相机中心(世界系)
+            quats.append(q)
+            img_names.append(p[9].rsplit(".", 1)[0])            # 去扩展名
+            cam_ids.append(int(p[8]))
+    except FileNotFoundError:
+        print(f"  ❌ 缺少 {task_dir / 'images.txt'}")
+        return None
+    if not cam_ids:
+        print("  ❌ images.txt 中未解析到图像")
+        return None
 
-    return {
-        "num_images": len(imgs),
-        "num_cameras": len(cams),
-        "camera": cam,
-        "fovx": fovx,
-        "fovy": fovy,
-        "center": center,
-        "radius": radius,
-        "first_position": first_pose,
-        "image_names": [im["name"] for im in sorted(imgs, key=lambda d: d["name"])],
+    w0, h0, (fx0, fy0, cx0, cy0) = cams[cam_ids[0]]
+    print(f"  📷 图像 {len(cam_ids)} 张, 相机 {len(cams)} 台, "
+          f"主相机 {w0}x{h0} fx={fx0:.1f} fy={fy0:.1f}")
+
+    # ---------- camera.json ----------
+    camera_json = []
+    for idx, cid in enumerate(cam_ids):
+        w, h, (fx, fy, cx, cy) = cams[cid]
+        camera_json.append({
+            "id": idx, "img_name": img_names[idx], "width": w, "height": h,
+            "position": positions[idx].tolist(),                # 相机中心(世界系)
+            "rotation": qvec2rotmat(quats[idx]).T.tolist(),     # c2w 旋转
+            "fy": fy, "fx": fx,
+        })
+
+    # ---------- gs_camera_params_final.json ----------
+    gs_path = find_json(task_dir, GS_PARAMS_NAME)
+    radius = pitch_min = pitch_max = yaw_min = yaw_max = None
+    if gs_path is None:
+        if not gs_fallback:
+            print(f"  ❌ 缺少 {GS_PARAMS_NAME}（COLMAP 模式必需；"
+                  f"或设 GS_FALLBACK=1 用相机位姿推断）")
+            return None
+        print(f"  ⚠️ 无 {GS_PARAMS_NAME}，GS_FALLBACK=1：用相机位姿推断（未经数值验证）")
+        # 推断：radius=相机中心到质心的最大距离；pitch/yaw 取各相机实际角度的范围
+        pts = np.stack(positions)
+        centroid = pts.mean(axis=0)
+        radius = float(np.linalg.norm(pts - centroid, axis=1).max())
+        pitches, yaws = [], []
+        for pv in positions:
+            nv = np.linalg.norm(pv)
+            pitches.append(math.degrees(math.asin(float(pv[1] / nv))))
+            yaws.append(math.degrees(math.atan2(float(pv[0]), float(pv[2]))))
+        pitch_min, pitch_max = min(pitches), max(pitches)
+        yaw_min, yaw_max = min(yaws), max(yaws)
+        print(f"     radius={radius:.4f} pitch[{pitch_min:.2f},{pitch_max:.2f}] "
+              f"yaw[{yaw_min:.2f},{yaw_max:.2f}]")
+    else:
+        gs = json.loads(gs_path.read_text())
+        s = gs["setting"]
+        radius = gs["scene"]["radius"]
+        pitch_min, pitch_max = s["pitch_min"], s["pitch_max"]
+        yaw_min, yaw_max = s["yaw_min"], s["yaw_max"]
+
+    # ---------- view_limits.json ----------
+    # 映射(已验证): Phi=yaw, Theta=90-pitch, minR=0.9r, maxR=1.2r
+    if insideout:
+        pitch_min, pitch_max = -pitch_max, -pitch_min
+        yaw_min, yaw_max = yaw_min - 180, yaw_max - 180
+        if yaw_min < -180:
+            yaw_min += 360
+        if yaw_max > 180:
+            yaw_max -= 360
+        yaw_min, yaw_max = min(yaw_min, yaw_max), max(yaw_min, yaw_max)
+
+    view_limits = {
+        "gravityCoordinate": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        "maxPhi": yaw_max, "minPhi": yaw_min,
+        "maxTheta": 90.0 - pitch_min, "minTheta": 90.0 - pitch_max,
+        "maxRadius": 1.2 * radius, "minRadius": 0.9 * radius,
+        "maxX": 0.0, "maxY": 0.0, "maxZ": 0.0,
+        "minX": 0.0, "minY": 0.0, "minZ": 0.0,
+        "target": [0.0, 0.0, 0.0],
     }
+    print(f"  📐 view_limits: Phi[{yaw_min:.2f},{yaw_max:.2f}] "
+          f"Theta[{view_limits['minTheta']:.2f},{view_limits['maxTheta']:.2f}] "
+          f"R[{view_limits['minRadius']:.3f},{view_limits['maxRadius']:.3f}]")
+
+    # ---------- init_camera.json ----------
+    # pitch_init/yaw_init 取第一台相机位置（gs json 里的 yaw_init 硬编码 0，不可用）
+    p0 = positions[0]
+    pitch_init = math.degrees(math.asin(float(p0[1] / np.linalg.norm(p0))))
+    yaw_init = math.degrees(math.atan2(float(p0[0]), float(p0[2])))
+    if insideout:
+        yaw_init = yaw_init - 180 if yaw_init > 0 else yaw_init + 180
+        pitch_init = -pitch_init
+
+    vy = math.sin(math.radians(pitch_init)) * radius
+    theta = math.cos(math.radians(pitch_init)) * radius
+    vx = math.sin(math.radians(yaw_init)) * theta
+    vz = math.cos(math.radians(yaw_init)) * theta
+    loc = np.array([-vx, vy, vz])
+
+    # 朝向原点构建 w2c 旋转（相机 Z 轴指向场景）
+    z_norm = safe_normalize(-loc)
+    x_norm = safe_normalize(np.cross(z_norm, [0.0, 1.0, 0.0]))
+    y_norm = np.cross(z_norm, x_norm)
+    x_norm = np.cross(y_norm, z_norm)
+    c2w_r = np.stack([x_norm, y_norm, z_norm]).T
+
+    # v2 原式用 h0 配 fx0（方形像素下等价），保持原样
+    init_fov = math.degrees(2 * math.atan(h0 / (2 * fx0))) * 0.8
+    name_pos = "".join(f"_{v}" for v in loc)
+    init_camera = [{
+        "id": 0,
+        "img_name": f"novel_{img_names[0]}_pos{name_pos}",
+        "width": w0, "height": h0,
+        "position": loc.tolist(), "rotation": c2w_r.tolist(),
+        "fy": fx0, "fx": fx0, "init_fov": init_fov,
+    }]
+    print(f"  📍 init_camera: pitch_init={pitch_init:.4f} yaw_init={yaw_init:.4f} "
+          f"init_fov={init_fov:.4f}")
+
+    if gs_path is not None and not insideout:
+        if abs(pitch_init - json.loads(gs_path.read_text())["setting"]["pitch_init"]) > 1.0:
+            print("  ⚠️ pitch_init 与 gs json 偏差 > 1°，请检查")
+
+    if out_dir is None:
+        print("  ⏭️  DRY_RUN=1，不落盘")
+        return {"init_camera": None, "camera": None, "view_params": None,
+                "image_names": img_names}
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = {}
+    for key, obj, fname in (("camera", camera_json, UWA_JSONS["camera"]),
+                            ("view_params", view_limits, UWA_JSONS["view_params"]),
+                            ("init_camera", init_camera, UWA_JSONS["init_camera"])):
+        fp = out_dir / fname
+        fp.write_text(json.dumps(obj))
+        paths[key] = fp
+    print(f"  ✅ 三件套 json 已生成: {out_dir}")
+    paths["image_names"] = img_names
+    return paths
 
 
 def resolve_colmap_image_dir(task_dir: Path, names: list) -> Path | None:
@@ -350,168 +438,120 @@ def resolve_colmap_image_dir(task_dir: Path, names: list) -> Path | None:
     return None
 
 
-def build_uwa_json_skeleton(summary: dict) -> dict:
-    """按推断的字段名生成三件套骨架。
+def build_ffmpeg_inputs(img_dir: Path, seq, fps: str) -> list:
+    """拼 ffmpeg 输入参数。
 
-    ⚠️ 字段名是推断的，没有真实样本校验过。真样本到手后：
-       ① 改本函数的 key 名（集中在这一个地方）；
-       ② 或用 REF_JSON_DIR 直接提供已知可用的 json 跳过本函数。
+    数字命名 → %0Nd 模式（-start_number 必传，否则从 1 编号的序列会找不到文件）；
+    其它命名 → glob 按字典序（渲染帧常用）。
     """
-    cam = summary["camera"]
-    note = ("⚠️ 由 COLMAP 推断生成，字段名未经真实样本校验；"
-            "确认后删掉 _note 并用 REF_JSON_DIR 或改 build_uwa_json_skeleton()")
-    return {
-        "init_camera.json": {
-            "_note": note,
-            "position": [round(v, 6) for v in summary["first_position"]],
-            "target": [round(v, 6) for v in summary["center"]],
-            # COLMAP 世界系 Y 朝下，与常见 Y-up 查看器相反，故给 -Y
-            "up": [0, -1, 0],
-            "fov": round(summary["fovx"], 3),
-        },
-        "camera.json": {
-            "_note": note,
-            "camera_model": cam["model"],
-            "width": cam["width"],
-            "height": cam["height"],
-            "fx": round(cam["fx"], 4),
-            "fy": round(cam["fy"], 4),
-            "cx": round(cam["cx"], 4),
-            "cy": round(cam["cy"], 4),
-            "fovx": round(summary["fovx"], 3),
-            "fovy": round(summary["fovy"], 3),
-            "num_images": summary["num_images"],
-        },
-        "view_limits.json": {
-            "_note": note,
-            "center": [round(v, 6) for v in summary["center"]],
-            "radius": round(summary["radius"], 6),
-            "min_distance": round(summary["radius"] * 0.3, 6),
-            "max_distance": round(summary["radius"] * 4.0, 6),
-            "min_pitch": -60.0,
-            "max_pitch": 60.0,
-        },
-    }
-
-
-def write_json_skeleton(out_dir: Path, skeleton: dict) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name, obj in skeleton.items():
-        (out_dir / name).write_text(json.dumps(obj, indent=2, ensure_ascii=False))
+    args = ["-framerate", str(fps)]
+    if seq is not None:
+        args += ["-start_number", str(seq["start"]),
+                 "-i", f"{img_dir}/%0{seq['pad']}d.{seq['ext']}"]
+        return args
+    ext = detect_glob_ext(img_dir)
+    args += ["-pattern_type", "glob", "-i", f"{img_dir}/*.{ext or 'jpg'}"]
+    return args
 
 
 # --------------------------------------------------------------------------
 # 单个 task 的处理
 # --------------------------------------------------------------------------
-def prepare_jsons(task_dir: Path, mode: str, info: dict, work_dir: Path, cfg: dict):
-    """拿到 gltf_packer 需要的三件套 json。
-
-    返回 (jsons|None, status)：
-      ("ok")      jsons 可用
-      ("pending") COLMAP 模式暂无 json，已打印统计 + 落骨架，等真样本
-      ("failed")  真出错
-    """
-    if mode == MODE_UWA:
-        return {k: v for k, v in info["uwa"].items()}, "ok"
-
-    # ---- COLMAP 模式 ----
-    # 优先级 1：外部提供已知可用的 json
-    ref = cfg.get("ref_json_dir")
-    if ref:
-        got = {k: (ref / n) for k, n in UWA_JSONS.items()}
-        missing = [n for k, n in UWA_JSONS.items() if not got[k].is_file()]
-        if missing:
-            print(f"  ❌ REF_JSON_DIR 缺少: {', '.join(missing)}")
-            return None, "failed"
-        print(f"  📎 借用 REF_JSON_DIR 的三件套 json: {ref}")
-        return got, "ok"
-
-    # 优先级 2：解析 COLMAP，打印统计 + 落骨架文件，然后停（不擅自封装）
-    summary = colmap_summary(task_dir)
-    skel_dir = work_dir / "uwa_json"
-    if summary is None:
-        print("  ❌ COLMAP 解析失败（cameras.txt / images.txt 为空或格式异常）")
-        return None, "failed"
-
-    cam = summary["camera"]
-    print(f"  📷 相机 {summary['num_cameras']} 台, 主相机 {cam['model']} "
-          f"{cam['width']}x{cam['height']}, fx={cam['fx']:.1f} fy={cam['fy']:.1f} "
-          f"cx={cam['cx']:.1f} cy={cam['cy']:.1f}")
-    print(f"  🖼️ 图像 {summary['num_images']} 张, fovx={summary['fovx']:.1f}° "
-          f"fovy={summary['fovy']:.1f}°")
-    print(f"  📐 场景中心 [{summary['center'][0]:.3f}, {summary['center'][1]:.3f}, "
-          f"{summary['center'][2]:.3f}], 半径 {summary['radius']:.3f}")
-    print(f"  📍 首帧相机位置 [{summary['first_position'][0]:.3f}, "
-          f"{summary['first_position'][1]:.3f}, {summary['first_position'][2]:.3f}]")
-    write_json_skeleton(skel_dir, build_uwa_json_skeleton(summary))
-    print(f"  📝 推断值已写入（字段名未校验，仅供参考）: {skel_dir}")
-    print("  ⏸️ 无 UWA 三件套 json 真实样本，不做推断封装。"
-          "给 REF_JSON_DIR，或按真样本改 build_uwa_json_skeleton() 后重跑。")
-    return None, "pending"
-
-
 def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
-    """处理一个 task，返回 "ok" / "pending"（缺 json 待补） / "failed"。"""
+    """处理一个 task，返回 "ok" / "pending"（缺输入待补） / "failed"。"""
     print(f"\n================ {task_dir.name} ================")
 
     # --- 1. 模式判断 ---
     mode, info = detect_mode(task_dir, cfg)
     if mode is None:
-        print(f"❌ 模式未知：既没有完整的 UWA 三件套 json，也没有 cameras.txt+images.txt")
+        print("❌ 模式未知：既没有完整的 UWA 三件套 json，也没有 cameras.txt+images.txt")
         print(f"   UWA 命中: {[n for k, n in UWA_JSONS.items() if info['uwa'][k]] or '无'}")
         print(f"   COLMAP 命中: {[f for f, ok in info['colmap'].items() if ok] or '无'}")
         return "failed"
 
     if mode == MODE_UWA:
-        print(f"📦 模式: {MODE_UWA}  "
-              f"({' + '.join(UWA_JSONS.values())} + <ply>)")
+        print(f"📦 模式: {MODE_UWA}  ({' + '.join(UWA_JSONS.values())} + <ply>)")
     else:
         have = [f for f, ok in info["colmap"].items() if ok]
         print(f"📦 模式: {MODE_COLMAP}  ({' + '.join(have)} + <ply>)")
         if info["uwa_any"]:
             print("  ℹ️ 该目录也有部分 UWA json，但不齐全，按 COLMAP 处理")
+        if cfg["insideout"]:
+            print("  🔄 INSIDEOUT=1（室内朝外视角）")
 
-    # --- 2. ply / 图片 ---
-    ply = detect_ply(task_dir, cfg["ply_name"])
+    # --- 2. ply ---
+    ply = detect_ply(task_dir, mode, cfg["ply_name"])
     if ply is None:
-        print(f"❌ 找不到 ply（候选: {PLY_CANDIDATES} 或任一 *.ply）")
+        print(f"❌ 找不到 ply（候选: {PLY_CANDIDATES[mode]} 或任一 *.ply）")
         return "failed"
     print(f"🖼️ ply:    {ply.name}")
 
-    if cfg["image_dir"]:
-        img_dir = detect_image_dir(task_dir, cfg["image_dir"])
-    elif mode == MODE_COLMAP:
-        names = []
-        try:
-            names = [im["name"] for im in read_colmap_images(task_dir / "images.txt")]
-        except Exception as e:
-            print(f"⚠️ 读 images.txt 失败: {e}")
-        img_dir = resolve_colmap_image_dir(task_dir, names) or detect_image_dir(task_dir)
-    else:
-        img_dir = detect_image_dir(task_dir)
-
-    if img_dir is None:
-        print(f"❌ 找不到图片目录（候选: {IMAGE_DIR_CANDIDATES}）")
-        return "failed"
-    seq = detect_image_sequence(img_dir)
-    if seq is None:
-        print(f"❌ {img_dir} 下没有 <数字>.jpg/png 形式的图片序列")
-        return "failed"
-    print(f"🖼️ 图片:   {img_dir.name}/%0{seq['pad']}d.{seq['ext']}"
-          f"  (起始 {seq['start']}, 共 {seq['count']} 张)")
-
     # --- 3. 三件套 json ---
     work_dir = out_mp4.parent / "mp4_work" / task_dir.name
+    if mode == MODE_UWA:
+        jsons = {k: v for k, v in info["uwa"].items()}
+        image_names = []
+    else:
+        ref = cfg.get("ref_json_dir")
+        if ref:
+            jsons = {k: (ref / n) for k, n in UWA_JSONS.items()}
+            missing = [n for k, n in UWA_JSONS.items() if not jsons[k].is_file()]
+            if missing:
+                print(f"  ❌ REF_JSON_DIR 缺少: {', '.join(missing)}")
+                return "failed"
+            print(f"  📎 借用 REF_JSON_DIR 的三件套 json: {ref}")
+            image_names = []
+        else:
+            print("[Step 0/4] 🧮 从 COLMAP txt 生成相机 json...")
+            jsons = generate_uwa_jsons(
+                task_dir,
+                None if cfg["dry_run"] else work_dir / "uwa_json",
+                cfg["insideout"], cfg["gs_fallback"])
+            if jsons is None:
+                return "failed"
+            image_names = jsons.get("image_names", [])
+
     if cfg["dry_run"]:
         print(f"💾 输出(预览): {out_mp4}")
         print("⏭️  DRY_RUN=1，跳过执行")
         return "ok"
 
     work_dir.mkdir(parents=True, exist_ok=True)
-    jsons, status = prepare_jsons(task_dir, mode, info, work_dir, cfg)
-    if jsons is None:
-        return status
-    print(f"📐 相机:   {jsons['init_camera'].name} / {jsons['camera'].name} / {jsons['view_params'].name}")
+    if mode == MODE_UWA:
+        print(f"📐 相机:   {jsons['init_camera'].name} / {jsons['camera'].name} "
+              f"/ {jsons['view_params'].name}")
+
+    # --- 4. 图片序列 ---
+    if cfg["image_dir"]:
+        img_dir = detect_image_dir(task_dir, cfg["image_dir"])
+    elif mode == MODE_COLMAP:
+        img_dir = (resolve_colmap_image_dir(task_dir, image_names)
+                   or detect_image_dir(task_dir))
+    else:
+        img_dir = detect_image_dir(task_dir)
+
+    no_frames = False
+    if img_dir is None:
+        # COLMAP 模式的帧常常是 novel 视角渲染帧，缺帧是「待补」而非出错：
+        # 三件套 json 已经生成好了，补完帧直接重跑即可
+        if mode == MODE_COLMAP:
+            print(f"⏸️ 没有帧目录（候选: {IMAGE_DIR_CANDIDATES}）。novel 视角渲染帧需先渲染，"
+                  f"或用 IMAGE_DIR=/path/to/frames 指定（三件套 json 已生成，可直接复用）")
+            return "pending"
+        print(f"❌ 找不到图片目录（候选: {IMAGE_DIR_CANDIDATES}）")
+        return "failed"
+
+    seq = detect_image_sequence(img_dir)
+    if seq is None:
+        print(f"🖼️ 图片:   {img_dir}（非数字命名，glob 按字典序）")
+    else:
+        print(f"🖼️ 图片:   {img_dir.name}/%0{seq['pad']}d.{seq['ext']}"
+              f"  (起始 {seq['start']}, 共 {seq['count']} 张)")
+    if not any(f.is_file() and f.suffix.lower().lstrip(".") in IMAGE_EXTS
+               for f in img_dir.iterdir()):
+        print(f"⏸️ {img_dir} 下没有 jpg/png 帧。novel 视角渲染帧需先渲染，"
+              f"或用 IMAGE_DIR=/path/to/frames 指定（三件套 json 已生成，可直接复用）")
+        return "pending"
     print(f"💾 输出:   {out_mp4}")
 
     video_file = work_dir / "output.mp4"
@@ -523,9 +563,7 @@ def pack_one(task_dir: Path, out_mp4: Path, cfg: dict, env: dict) -> str:
     # pad=ceil(iw/2)*2: yuv420p 要求宽高为偶数，奇数分辨率会直接编码失败
     rc = run_cmd([
         "ffmpeg", "-y",
-        "-framerate", str(cfg["fps"]),
-        "-start_number", str(seq["start"]),
-        "-i", f"{img_dir}/%0{seq['pad']}d.{seq['ext']}",
+        *build_ffmpeg_inputs(img_dir, seq, cfg["fps"]),
         "-vcodec", "libx264",
         "-crf", str(cfg["crf"]),
         "-preset", cfg["preset"],
@@ -612,6 +650,8 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
     print(f"🛠️ 工具链:   {cfg['tool_dir']}")
     if cfg.get("ref_json_dir"):
         print(f"📎 外部 json: {cfg['ref_json_dir']}")
+    if cfg["insideout"]:
+        print("🔄 INSIDEOUT=1")
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只探测，不执行）")
     print()
@@ -655,7 +695,7 @@ def pack_batch(src_root: Path, out_root: Path, cfg: dict, only: list[str]) -> No
     print(f"🎉 Done.  ✅ {ok}  ⏸️ {pend}  ⏭️ {skip}  ❌ {fail}")
     print("📊 模式统计: " + "  ".join(f"{k} x{v}" for k, v in mode_count.items()))
     if pending:
-        print(f"⏸️ 待补 json: {', '.join(pending)}")
+        print(f"⏸️ 待补输入: {', '.join(pending)}")
     if failed:
         print(f"❌ 失败列表: {', '.join(failed)}")
     print(f"📁 结果: {out_root}")
@@ -687,6 +727,8 @@ def main():
         "image_dir": os.environ.get("IMAGE_DIR", ""),
         "mode": os.environ.get("MODE", "auto").lower(),
         "ref_json_dir": Path(ref) if ref else None,
+        "insideout": os.environ.get("INSIDEOUT", "0") == "1",
+        "gs_fallback": os.environ.get("GS_FALLBACK", "0") == "1",
         "init_camera_name": os.environ.get("INIT_CAMERA_NAME", ""),
         "camera_name": os.environ.get("CAMERA_NAME", ""),
         "view_params_name": os.environ.get("VIEW_PARAMS_NAME", ""),
