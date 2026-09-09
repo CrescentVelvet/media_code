@@ -48,7 +48,10 @@ pip install -q smplx || echo "  ⚠️ smplx install failed" >&2
 pip install -q "chumpy==0.70" --no-build-isolation || echo "  ⚠️ chumpy install failed" >&2
 
 # MediaPipe：468 点 2D landmark（阶段三的主观测，DECA 只给 68 点不够用）
-pip install -q mediapipe || echo "  ⚠️ mediapipe install failed" >&2
+# 必须锁 0.10.x：1.0.0+ 删除了 legacy mp.solutions API（detect_faces.py /
+# recon_faces.py 都用 solutions），且新版 wheel 不再内置 canonical obj。
+# 0.10.14 与 vggt_human 环境实测一致。
+pip install -q "mediapipe==0.10.14" || echo "  ⚠️ mediapipe install failed" >&2
 
 # plyfile / trimesh：读写高斯 PLY 与 mesh
 pip install -q plyfile trimesh || echo "  ⚠️ plyfile/trimesh failed" >&2
