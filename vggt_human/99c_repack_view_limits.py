@@ -332,3 +332,139 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
     print(f"  ✅ {out_mp4.name}  ({out_mp4.stat().st_size / 1024 / 1024:.1f} MB)"
           f"  ⏱️ {time.time() - t0:.1f}s")
     return "ok"
+
+
+# --------------------------------------------------------------------------
+# 批量入口
+# --------------------------------------------------------------------------
+def repack_batch(src_root: Path, work_root: Path, out_root: Path, cfg: dict,
+                 only: list[str]) -> None:
+    if not src_root.is_dir():
+        sys.exit(f"❌ 源目录不存在: {src_root}")
+    if not work_root.is_dir():
+        sys.exit(f"❌ 99b 中间产物目录不存在: {work_root}\n"
+                 f"   先跑 99b（KEEP_WORK 默认保留），或用 WORK_ROOT 指定实际位置")
+    if not cfg["dry_run"]:
+        out_root.mkdir(parents=True, exist_ok=True)
+
+    # 工具链 PYTHONPATH：muxer.py 依赖 pymp4（同 99b）
+    env = os.environ.copy()
+    pymp4 = cfg["tool_dir"] / "thirdparty/pymp4-1.4.0/src"
+    parts = [str(cfg["tool_dir"])]
+    if pymp4.is_dir():
+        parts.append(str(pymp4))
+    old = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(parts + ([old] if old else []))
+
+    m = cfg["margins"]
+    print(f"🔍 源目录:   {src_root}")
+    print(f"🛠️ 中间产物: {work_root}")
+    print(f"📁 输出目录: {out_root}")
+    print(f"✂️ 收窄: Phi[-{m['phi_left']:.1f},-{m['phi_right']:.1f}]° "
+          f"Theta[-{m['theta_bottom']:.1f},-{m['theta_top']:.1f}]° "
+          f"R[-{m['radius_margin']:.2f}m]")
+    if cfg["dry_run"]:
+        print("⏭️  DRY_RUN=1（只打印收窄前后范围，不执行）")
+    print()
+
+    # 以 mp4_work/ 下实际有产物的 task 为准（而不是源目录），
+    # 避免源目录里有但 99b 没跑过/没成功的 task 产生一堆噪音报错
+    tasks = sorted([d for d in work_root.iterdir() if d.is_dir()
+                    and find_bin(d) is not None], key=lambda p: p.name)
+    if only:
+        tasks = [d for d in tasks if d.name in only]
+    if not tasks:
+        print("⚠️ mp4_work/ 下没有带 GSCompressed_B*.bin 的 task 目录")
+        return
+
+    ok = skip = fail = 0
+    failed = []
+    for work_task in tasks:
+        task_dir = src_root / work_task.name
+        if not task_dir.is_dir():
+            # 源目录没有同名 task：三件套 json 只能靠 REF_JSON_DIR 或 uwa_json/
+            print(f"\n================ {work_task.name} ================")
+            print(f"⚠️ 源目录下没有 {task_dir}，三件套 json 只认 uwa_json/ 和 REF_JSON_DIR")
+
+        out_mp4 = out_root / f"{work_task.name}.mp4"
+        if out_mp4.is_file() and not cfg["force"] and not cfg["dry_run"]:
+            print(f"\n================ {work_task.name} ================")
+            print(f"⏭️  skip  {work_task.name}  (已存在 {out_mp4.name}，FORCE=1 可覆盖)")
+            skip += 1
+            continue
+
+        status = repack_one(task_dir, work_task, out_mp4, cfg, env)
+        if status == "ok":
+            ok += 1
+        else:
+            fail += 1
+            failed.append(work_task.name)
+
+    print()
+    print(f"🎉 Done.  ✅ {ok}  ⏭️ {skip}  ❌ {fail}")
+    if failed:
+        print(f"❌ 失败列表: {', '.join(failed)}")
+    print(f"📁 结果: {out_root}")
+
+
+def main():
+    # ===== 在这里直接改路径（或用环境变量覆盖）=====
+    TOOL_DIR = Path(os.environ.get(
+        "TOOL_DIR", "../../model/UWA_Sample_Tool_v3"))
+    SRC_ROOT = Path(os.environ.get(
+        "SRC_ROOT",
+        "../../code/Reconstruction/output/"
+        "B003_Human_Data_w_pose-脸红优化+外插视角增强"))
+    RESULTS_ROOT = Path(os.environ.get(
+        "RESULTS_ROOT", "../../output/recon_human_results"))
+    batch = SRC_ROOT.resolve().name
+    # 输出：与 99b 的 mp4/ 平级共存，不覆盖 99b 成品
+    OUT_DIR = Path(os.environ.get(
+        "OUT_DIR", str(RESULTS_ROOT / batch / "mp4_crop")))
+    # 99b 中间产物根（bin / output.mp4 / uwa_json/ 都在里面）
+    WORK_ROOT = Path(os.environ.get(
+        "WORK_ROOT", str(RESULTS_ROOT / batch / "mp4_work")))
+    # ==============================================
+
+    phi_margin = float(os.environ.get("PHI_MARGIN", "10"))
+    theta_margin = float(os.environ.get("THETA_MARGIN", "10"))
+    cfg = {
+        "tool_dir": TOOL_DIR,
+        "gltf_packer": TOOL_DIR / "build/gltf_packer",
+        "python_bin": os.environ.get("PYTHON_BIN", "python"),
+        "ref_json_dir": (Path(os.environ["REF_JSON_DIR"])
+                         if os.environ.get("REF_JSON_DIR") else None),
+        "margins": {
+            "phi_left": float(os.environ.get("PHI_LEFT", phi_margin)),
+            "phi_right": float(os.environ.get("PHI_RIGHT", phi_margin)),
+            "theta_bottom": float(os.environ.get("THETA_BOTTOM", theta_margin)),
+            "theta_top": float(os.environ.get("THETA_TOP", theta_margin)),
+            "radius_margin": float(os.environ.get("RADIUS_MARGIN", "0")),
+        },
+        "force": os.environ.get("FORCE", "0") == "1",
+        "dry_run": os.environ.get("DRY_RUN", "0") == "1",
+    }
+    only = [s for s in os.environ.get("ONLY", "").split(",") if s]
+
+    # --- 前置检查（99c 只用 muxer.py + gltf_packer，不需要 encode.py/ffmpeg）---
+    if not TOOL_DIR.is_dir():
+        sys.exit(f"❌ 工具链目录不存在: {TOOL_DIR}")
+    if not (TOOL_DIR / "muxer.py").is_file():
+        sys.exit(f"❌ 工具链缺少 muxer.py: {TOOL_DIR / 'muxer.py'}")
+    if not cfg["gltf_packer"].is_file():
+        sys.exit(f"❌ gltf_packer 不存在: {cfg['gltf_packer']}")
+    if not os.access(cfg["gltf_packer"], os.X_OK):
+        sys.exit(f"❌ gltf_packer 不可执行（需 chmod +x）: {cfg['gltf_packer']}")
+    if shutil.which(cfg["python_bin"]) is None:
+        sys.exit(f"❌ PATH 里找不到解释器: {cfg['python_bin']}（用 PYTHON_BIN 指定）")
+    if cfg["ref_json_dir"] and not cfg["ref_json_dir"].is_dir():
+        sys.exit(f"❌ REF_JSON_DIR 不存在: {cfg['ref_json_dir']}")
+    for k, v in cfg["margins"].items():
+        if v < 0:
+            sys.exit(f"❌ 收窄参数 {k}={v} 不能为负")
+
+    repack_batch(SRC_ROOT, WORK_ROOT, OUT_DIR, cfg, only)
+
+
+if __name__ == "__main__":
+    main()
