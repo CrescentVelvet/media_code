@@ -16,8 +16,10 @@
     Phi  (水平)   [minPhi,   maxPhi]   → [minPhi+LEFT,   maxPhi-RIGHT]
     Theta(垂直)   [minTheta, maxTheta] → [minTheta+BOTTOM, maxTheta-TOP]
     Radius        [minRadius,maxRadius]→ [minR+MARGIN,   maxR-MARGIN]（默认 0 不动）
+    收窄后区间反转（收没了）→ 该维降级为一条缝 [c, c] 不报错：
+      c 优先取初始视角在该维的值（初始构图不动），反解失败/越界则取区间中心
+      （人像批次 Theta 跨度常只有几度，默认 THETA_MARGIN=10 即触发此降级）
     初始相机若落到收窄区外 → 自动夹到边界并打印警告
-    单侧收窄量 ≥ 半跨度 → 该 task 报错跳过（收没了）
 
 用法:
     python vggt_human/99c_repack_view_limits.py                  # 默认只收 Phi 两侧 10°
@@ -34,8 +36,8 @@ Env vars:
                   mp4/ 平级共存，不覆盖 99b 成品）
     WORK_ROOT     99b 中间产物根，默认 <RESULTS_ROOT>/<批次名>/mp4_work
     PHI_MARGIN    Phi 两侧对称收窄角度（度，默认 10；LEFT/RIGHT 未设时用它）
-    THETA_MARGIN  Theta 两侧对称收窄角度（度，默认 0 不动——人像批次 Theta 跨度
-                  常只有几度，默认收 10 会整批触发「收没了」；需要时再显式给）
+    THETA_MARGIN  Theta 两侧对称收窄角度（度，默认 10；TOP/BOTTOM 未设时用它。
+                  跨度不够时降级为一条缝，见上方收窄规则）
     PHI_LEFT / PHI_RIGHT / THETA_TOP / THETA_BOTTOM
                   单侧收窄角度（度，未设则取对应 *_MARGIN）
     RADIUS_MARGIN Radius 两侧内缩（米，默认 0 不动）
@@ -176,30 +178,49 @@ def clamp_deg(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def crop_view_limits(vl: dict, m: dict) -> dict | None:
-    """对 view_limits 原值内缩（保持中心不动），返回新 dict 或 None（收没了）。"""
-    phi_span = vl["maxPhi"] - vl["minPhi"]
-    theta_span = vl["maxTheta"] - vl["minTheta"]
-    r_span = vl["maxRadius"] - vl["minRadius"]
+def crop_axis(name: str, lo: float, hi: float, cut_lo: float, cut_hi: float,
+              init_val: float | None) -> tuple[float, float] | None:
+    """单维收窄；收没了降级为一条缝 [c, c]（打印但不报错）。
 
-    # 单侧收窄 ≥ 半跨度 → 区间反转/变空，视为参数错误
-    for name, cut, span in (("Phi", m["phi_left"], phi_span),
-                            ("Phi", m["phi_right"], phi_span),
-                            ("Theta", m["theta_bottom"], theta_span),
-                            ("Theta", m["theta_top"], theta_span),
-                            ("Radius", m["radius_margin"], r_span)):
-        if span > 1e-9 and cut >= span / 2 or span <= 1e-9 and cut > 0:
-            print(f"  ❌ {name} 单侧收窄 {cut:.2f} ≥ 半跨度 {span / 2:.2f}，区间会收没"
-                  f"（调小 {name.upper()}_* 参数，或该维不收）")
-            return None
+    c 优先取初始视角在该维的值（初始构图不动），不可用则取原区间中心。
+    返回 (new_lo, new_hi)；仅当新区间反转且连缝值都取不到（理论不可达）时 None。
+    """
+    new_lo, new_hi = lo + cut_lo, hi - cut_hi
+    if new_lo <= new_hi:
+        return new_lo, new_hi
+
+    # 收没了 → 一条缝。缝值优先用初始视角，但要先夹回原区间
+    # （init 在原区间外说明原始数据本身有问题，退回中心值更稳）
+    if init_val is not None and lo <= init_val <= hi:
+        c = init_val
+        src = "初始视角"
+    else:
+        c = (lo + hi) / 2
+        src = "区间中心"
+    print(f"  ⚠️ {name} 收窄量 [{cut_lo:.2f},{cut_hi:.2f}] 超过半跨度 {(hi - lo) / 2:.2f}，"
+          f"收成一条缝 [{c:.2f},{c:.2f}]（取{src}，不报错）")
+    return c, c
+
+
+def crop_view_limits(vl: dict, m: dict, init_val_phi: float | None = None,
+                     init_val_theta: float | None = None) -> dict | None:
+    """对 view_limits 原值内缩（保持中心不动），返回新 dict 或 None（数学上不可能）。
+
+    init_val_phi/theta: 初始视角的 Phi/Theta（度），仅在收没了降级为缝时使用。
+    """
+    new_phi = crop_axis("Phi", vl["minPhi"], vl["maxPhi"],
+                        m["phi_left"], m["phi_right"], init_val_phi)
+    new_theta = crop_axis("Theta", vl["minTheta"], vl["maxTheta"],
+                          m["theta_bottom"], m["theta_top"], init_val_theta)
+    new_r = crop_axis("Radius", vl["minRadius"], vl["maxRadius"],
+                      m["radius_margin"], m["radius_margin"], None)
+    if new_phi is None or new_theta is None or new_r is None:
+        return None
 
     new = dict(vl)
-    new["minPhi"] = vl["minPhi"] + m["phi_left"]
-    new["maxPhi"] = vl["maxPhi"] - m["phi_right"]
-    new["minTheta"] = vl["minTheta"] + m["theta_bottom"]
-    new["maxTheta"] = vl["maxTheta"] - m["theta_top"]
-    new["minRadius"] = vl["minRadius"] + m["radius_margin"]
-    new["maxRadius"] = vl["maxRadius"] - m["radius_margin"]
+    new["minPhi"], new["maxPhi"] = new_phi
+    new["minTheta"], new["maxTheta"] = new_theta
+    new["minRadius"], new["maxRadius"] = new_r
     return new
 
 
@@ -277,15 +298,23 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
           f"Theta[{vl['minTheta']:.2f},{vl['maxTheta']:.2f}] "
           f"R[{vl['minRadius']:.3f},{vl['maxRadius']:.3f}]")
 
-    # --- 2. 收窄 ---
-    vl_new = crop_view_limits(vl, cfg["margins"])
+    # --- 2. 收窄（先反解 init 的 Phi/Theta 供「一条缝」降级取值）---
+    init_json = json.loads(jsons["init_camera"].read_text())
+    init_py = pos_to_pitch_yaw(init_json[0]["position"],
+                               (vl["minRadius"] + vl["maxRadius"]) / 2)
+    if init_py is not None:
+        init_theta, init_phi = 90.0 - init_py[0], init_py[1]
+    else:
+        init_theta = init_phi = None
+
+    vl_new = crop_view_limits(vl, cfg["margins"], init_val_phi=init_phi,
+                              init_val_theta=init_theta)
     if vl_new is None:
         return "failed"
     print(f"  ✂️ 新: Phi[{vl_new['minPhi']:.2f},{vl_new['maxPhi']:.2f}] "
           f"Theta[{vl_new['minTheta']:.2f},{vl_new['maxTheta']:.2f}] "
           f"R[{vl_new['minRadius']:.3f},{vl_new['maxRadius']:.3f}]")
 
-    init_json = json.loads(jsons["init_camera"].read_text())
     init_new = crop_init_camera(init_json, vl_new, vl["maxRadius"] / 1.2)
     if init_new is None:
         return "failed"
@@ -429,7 +458,7 @@ def main():
     # ==============================================
 
     phi_margin = float(os.environ.get("PHI_MARGIN", "10"))
-    theta_margin = float(os.environ.get("THETA_MARGIN", "0"))
+    theta_margin = float(os.environ.get("THETA_MARGIN", "10"))
     cfg = {
         "tool_dir": TOOL_DIR,
         "gltf_packer": TOOL_DIR / "build/gltf_packer",
