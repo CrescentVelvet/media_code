@@ -328,3 +328,26 @@ diskpart
 # select vdisk file="C:\WSL\Ubuntu2404\ext4.vhdx"
 # compact vdisk
 ```
+
+**9. 99c 的 thetaBuffer/phiBuffer 与 RADIUS_RANGE_SCALE 不生效（2026-09-10 实锤）**
+gltf_packer 往 UWA_viewing_parameters 里**只写六项白名单字段**：
+`longitude、latitude、distance、gravity、target、boundingbox`，view_limits.json
+里的其他字段（thetaBuffer/phiBuffer、minRadius/maxRadius、minPhi/maxPhi、
+minTheta/maxTheta 等）**静默丢弃**。
+
+即：UWA 格式的视角约束实际只有「水平角 / 垂直角 / 距离 / 重力方向 / 目标点 /
+包围盒」六个自由度。99c 当前对 view_limits 的所有收窄改动（buffer 锁死回弹、
+radius 区间内缩、Phi/Theta 区间收窄）都不会进 MP4——**只有 init_camera 的改动
+（初始位置/朝向/FOV）能生效**。
+
+受影响的 99c 参数（写了但不生效，等播放器/工具链侧开口子再启用）：
+`THETA_BUFFER / PHI_BUFFER / RADIUS_RANGE_SCALE`（以及收窄本体 PHI_MARGIN /
+THETA_MARGIN 系列同样不进成品）。
+
+可能的出路（均未验证）：
+- 反编译/分析图库 App 或 UWA 播放器，找 buffer 字段的真实消费端（用户在图库侧
+  找到过 polarBuffer/azimuthBuffer 接口，说明播放器代码里存在这两个 key 的
+  读取逻辑，只是 gltf_packer 不写）；
+- 绕过 gltf_packer，直接改 GLB 二进制里的 UWA_viewing_parameters extension
+  （JSONX pack 无校验，事后注入理论上可行）；
+- 询问图库/UWA 工具链提供方是否有新版 gltf_packer 支持完整字段。

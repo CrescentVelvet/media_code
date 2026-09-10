@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """99c_repack_view_limits.py — 收窄视角重封装：基于 99b 中间产物重打 MP4。
 
+⚠️ 2026-09-10 实锤（详见 NOTES.md 第 9 条）: gltf_packer 往 UWA_viewing_parameters
+只写 longitude/latitude/distance/gravity/target/boundingbox 六项白名单，其余字段
+静默丢弃。因此 THETA_BUFFER/PHI_BUFFER/RADIUS_RANGE_SCALE 以及 PHI/THETA_MARGIN
+收窄本体都不进成品——本脚本当前只有 init_camera 改动（INIT_FOV_SCALE/
+INIT_RADIUS_SCALE 与夹紧）真正生效。buffer/radius_scale 参数保留，等工具链侧
+支持后再启用。
+
 手机端观看视角过大时能看到重建边缘的残缺/伪影。本脚本不动 PLY 编码和视频，
 只收窄 view_limits.json 的可视角范围（必要时夹紧初始相机），重跑封装两步：
 
@@ -452,6 +459,8 @@ def repack_batch(src_root: Path, work_root: Path, out_root: Path, cfg: dict,
           f"R x{m['radius_scale']:.2f}(锚定初始半径)")
     print(f"🔒 回弹: thetaBuffer={cfg['theta_buffer']:.1f}° "
           f"phiBuffer={cfg['phi_buffer']:.1f}°")
+    print("⚠️ 注意: gltf_packer 只写六项白名单字段，buffer/radius_scale/区间收窄"
+          "均不进成品（NOTES.md 第 9 条）；仅 init_camera 改动生效")
     if cfg["fov_scale"] != 1.0:
         print(f"🔍 init_fov x{cfg['fov_scale']}")
     if cfg["init_radius_scale"] != 1.0:
