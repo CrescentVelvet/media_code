@@ -110,12 +110,14 @@ HYPIR_WEIGHT="${HYPIR_WEIGHT:-$HYPIR_MODEL_DIR/HYPIR_sd2.pth}"
 # --- 输入 / 输出 ---
 # 上游 vggt_human 的输出（用 UPSTREAM_DIR 一次性改，避免每步都带两个路径）
 UPSTREAM_DIR="${UPSTREAM_DIR:-$REPO_DIR/../vggt_human_results}"
-# COLMAP 场景（含 images/ 与 sparse 相机）
-SOURCE_DIR="${SOURCE_DIR:-$UPSTREAM_DIR/03_source}"
-# SegTrack/SAM3 的 person mask（阶段二做 face↔body 关联）
-PERSON_MASKS_DIR="${PERSON_MASKS_DIR:-$UPSTREAM_DIR/03_sam3_person_masks}"
-# 本链路输出
+# 本链路输出（PERSON_MASKS_DIR 依赖它，须先定义）
 RESULTS_DIR="${FLAME_HUMAN_RESULTS_DIR:-$REPO_DIR/../flame_human_results}"
+# COLMAP 场景（含 images/ 与 sparse 相机）
+SOURCE_DIR="${SOURCE_DIR:-$UPSTREAM_DIR/source}"
+# SegTrack/SAM3 的 person mask（阶段二做 face↔body 关联）
+# 注意：mask 是本链路 01c 的产物（$RESULTS_DIR/01c_sam3_person_masks），
+# 不是上游 vggt_human 的（那边没有 03_ 前缀的 mask 目录）。
+PERSON_MASKS_DIR="${PERSON_MASKS_DIR:-$RESULTS_DIR/01c_sam3_person_masks}"
 
 export REPO_DIR DECA_DIR DECA_REPO DECA_CKPT GS_DIR GS_REPO \
        MODEL_DIR WEIGHTS_ROOT FLAME_MODEL FLAME_LM468_EMBEDDING \
