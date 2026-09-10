@@ -11,7 +11,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
-PID="${PID:-00}"
+PID="${PID:-0}"   # 与 06 产物 avatar_p0.ply 对齐（曾因默认 00 找不到文件）
 echo "🚀 [flame_human 08] 阶段六 AvatarGaussian 训练 (p${PID})"
 echo "  📦 高斯 : ${AVATAR_PLY:-$RESULTS_DIR/06_avatar_gs/avatar_p${PID}.ply}"
 echo "  🗿 FLAME: $FLAME_MODEL"
