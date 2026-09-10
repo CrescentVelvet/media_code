@@ -28,8 +28,9 @@ def main():
         "SCENE_PLY", results_dir / "07_body_gs_src" / "scene_gs.ply"))
     scene = load_gaussian_ply(scene_ply)
 
-    ck = torch.load(results_dir / "08_train" / f"avatar_p{pid}_final.pth",
-                    map_location="cpu")
+    ck_path = Path(os.environ.get(
+        "HEAD_CKPT", results_dir / "08_train" / f"avatar_p{pid}_final.pth"))
+    ck = torch.load(ck_path, map_location="cpu")
     import smplx
     flame = smplx.create(model_path=os.path.dirname(os.environ["FLAME_MODEL"]),
                          model_type="flame",
