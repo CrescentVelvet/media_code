@@ -20,13 +20,15 @@
       c 优先取初始视角在该维的值（初始构图不动），反解失败/越界则取区间中心
       （人像批次 Theta 跨度常只有几度，默认 THETA_MARGIN=10 即触发此降级）
     初始相机若落到收窄区外 → 自动夹到边界并打印警告
+    另写入 polarBuffer/azimuthBuffer（手势越界回弹余量，polar=垂直 Theta、
+    azimuth=水平 Phi），默认 0 锁死回弹，不想锁可经 env 覆盖
 
 用法:
     python vggt_human/99c_repack_view_limits.py                  # 默认只收 Phi 两侧 10°
-    PHI_MARGIN=15 THETA_MARGIN=5 python vggt_human/99c_repack_view_limits.py
-    PHI_LEFT=5 PHI_RIGHT=25 python vggt_human/99c_repack_view_limits.py  # 不对称
-    DRY_RUN=1  python ...   # 只打印收窄前后范围，不执行
-    FORCE=1 / ONLY=task_a,task_b   # 同 99b
+    FORCE=1 INIT_FOV_SCALE=1.25 PHI_MARGIN=30 THETA_MARGIN=10 python vggt_human/99c_repack_view_limits.py
+    PHI_LEFT=5 PHI_RIGHT=25 python ...  # 不对称
+    DRY_RUN=1 python ...  # 只打印收窄前后范围，不执行
+    FORCE=1 / ONLY=task_a,task_b python ...  # 已存在 mp4 也重跑
 
 Env vars:
     TOOL_DIR      UWA 工具链根目录（含 muxer.py / build/gltf_packer）
@@ -46,6 +48,10 @@ Env vars:
                      1.25 补偿回源相机取景框
     INIT_RADIUS_SCALE 初始半径推远系数（默认 1 不动）。FOV 不够再开；推远
                      超出 maxRadius 时自动抬高 maxRadius 并打印警告
+    POLAR_BUFFER / AZIMUTH_BUFFER
+                     view_limits 新增的回弹余量字段（度，默认 0 锁死）。
+                     播放器手势可越过边界此角度后弹回；polar=垂直、
+                     azimuth=水平。想保留一点手感给非零值即可
     ONLY / FORCE / DRY_RUN / PYTHON_BIN / ASTC_BLOCK   含义同 99b
 """
 import json
@@ -342,11 +348,13 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
     if init_new is None:
         return "failed"
 
+    # 回弹余量字段（播放器手势缓冲区）：0 = 锁死越界回弹
+    vl_new["polarBuffer"] = cfg["polar_buffer"]
+    vl_new["azimuthBuffer"] = cfg["azimuth_buffer"]
+
     print(f"  ✂️ 新: Phi[{vl_new['minPhi']:.2f},{vl_new['maxPhi']:.2f}] "
           f"Theta[{vl_new['minTheta']:.2f},{vl_new['maxTheta']:.2f}] "
           f"R[{vl_new['minRadius']:.3f},{vl_new['maxRadius']:.3f}]")
-    if init_new is None:
-        return "failed"
 
     if cfg["dry_run"]:
         print(f"💾 输出(预览): {out_mp4}")
@@ -507,6 +515,8 @@ def main():
         },
         "fov_scale": float(os.environ.get("INIT_FOV_SCALE", "1")),
         "radius_scale": float(os.environ.get("INIT_RADIUS_SCALE", "1")),
+        "polar_buffer": float(os.environ.get("POLAR_BUFFER", "0")),
+        "azimuth_buffer": float(os.environ.get("AZIMUTH_BUFFER", "0")),
         "force": os.environ.get("FORCE", "0") == "1",
         "dry_run": os.environ.get("DRY_RUN", "0") == "1",
     }
