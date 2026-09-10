@@ -461,6 +461,31 @@ def main():
     if n_mask == 0:
         log("  ⚠️ 无 person mask —— loss 将退化为整图（首轮 verify 已证明会推飞几何）")
 
+    # ── head 职责区收窄（2026-09-10 诊断）─────────────────────────────
+    # 量化：person mask 里只有 32.5% 落在 head_box 投影内，其余 67.5% 是身体
+    # → head 分支 2/3 的 loss 梯度在教它拟合夹克/胳膊（监督区 ≠ 职责边界，
+    # 与 08b/08d 同一个坑）。HEAD_REGION=1 时对 head_box 外降权，
+    # HEAD_OUT_W=0 即硬切；head_box 2D 投影本身较宽松，可含帽子/头发。
+    if os.environ.get("HEAD_REGION", "0") == "1" and mask_cache:
+        from split_body_scene import head_box
+        from finetune_body import head_mask_2d
+        mesh_dir = Path(os.environ.get(
+            "MESH_DIR", f"{os.environ.get('RESULTS_DIR', '')}/06_avatar_gs"))
+        hlo, hhi, _, _ = head_box(
+            mesh_dir / f"avatar_mesh_p{pid}.npz",
+            mesh_dir / f"avatar_bind_p{pid}.npz",
+            float(os.environ.get("HEAD_MARGIN", "0.3")))
+        out_w = float(os.environ.get("HEAD_OUT_W", "0.0"))
+        dil = int(os.environ.get("HEAD_DILATE", "40"))
+        for v in views:
+            t = mask_cache.get(v["stem"])
+            if t is None:
+                continue
+            hb = torch.from_numpy(head_mask_2d(hlo, hhi, v, dil)).unsqueeze(0)
+            mask_cache[v["stem"]] = t * (hb + (1.0 - hb) * out_w)
+        log(f"  🎯 head 职责区收窄: head_box 外权重={out_w} dilate={dil} "
+            f"(head_mask 覆盖率提升见下方 loss)")
+
     # 相机：只保留有该人观测的帧（阶段四的 frames 列表）
     stems = ap["frames"]
     view_by = {v["stem"]: v for v in views}
