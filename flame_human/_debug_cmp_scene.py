@@ -1,5 +1,8 @@
-#!/usr/bin/env python3
-"""composite_psnr_all.py — 全帧 composite PSNR 分布（不只 5 帧）。"""
+"""_debug_cmp_scene.py — scene finetune 前后 composite 对比拼图。
+
+布局: GT | old-scene | ft-scene 三联。body/head 分支固定不变，只换 scene。
+帧: 26/29（大 yaw 雾噪最差段）+ 15（好帧，查是否回退）。
+"""
 import json
 import os
 import sys
@@ -8,25 +11,24 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from composite_check import load_gaussian_ply, MergedGS, CkptAvatar  # noqa: E402
 from train_avatar import N_SHAPE, N_EXPR, read_cameras  # noqa: E402
 
 
 def main():
-    results_dir = Path(os.environ.get("RESULTS_DIR", ""))
-    upstream = Path(os.environ.get("UPSTREAM_DIR", ""))
-    source_dir = os.environ.get("SOURCE_DIR", f"{upstream}/source")
+    results_dir = Path(os.environ["RESULTS_DIR"])
+    source_dir = os.environ["SOURCE_DIR"]
     images_dir = Path(os.environ.get("IMAGES_DIR", f"{source_dir}/images"))
-    pid = os.environ.get("PID", "0")
+    pid = "0"
     dev = torch.device("cuda")
 
-    body_ply = Path(os.environ.get(
-        "BODY_PLY", results_dir / "07_body_gs_src" / f"body_gs_p{pid}.ply"))
-    body = load_gaussian_ply(body_ply)
-    scene_ply = Path(os.environ.get(
-        "SCENE_PLY", results_dir / "07_body_gs_src" / "scene_gs.ply"))
-    scene = load_gaussian_ply(scene_ply)
+    body = load_gaussian_ply(
+        results_dir / "07_body_gs_src" / f"body_gs_p{pid}.ply")
+    scene_old = load_gaussian_ply(
+        results_dir / "07_body_gs_src" / "scene_gs.ply")
+    scene_new = load_gaussian_ply(
+        results_dir / "08d_finetune_scene" / f"scene_ft_p{pid}.ply")
 
     ck = torch.load(results_dir / "08_train" / f"avatar_p{pid}_final.pth",
                     map_location="cpu")
@@ -49,26 +51,20 @@ def main():
 
     views = read_cameras(source_dir)
     view_by = {v["stem"]: v for v in views}
-    align = json.loads((results_dir / "05_align/head_align.json").read_text())
-    stems = align["persons"][pid]["frames"]
+    stems = json.loads(
+        (results_dir / "05_align/head_align.json").read_text()
+    )["persons"][pid]["frames"]
     bg = torch.zeros(3, device=dev)
 
-    # 静态分支预先 cat（body+scene）
     def to_branch(t):
         return (t["xyz"], torch.cat([t["f_dc"].unsqueeze(1), t["f_rest"]], 1),
                 t["opacity"], t["scaling"], t["rotation"])
 
-    bs = [to_branch(body), to_branch(scene)]
-    s_xyz = torch.cat([b[0] for b in bs]).to(dev)
-    s_feat = torch.cat([b[1] for b in bs]).to(dev)
-    s_opa = torch.cat([b[2] for b in bs]).to(dev)
-    s_sc = torch.cat([b[3] for b in bs]).to(dev)
-    s_rot = torch.cat([b[4] for b in bs]).to(dev)
-
     from PIL import Image
-    psnrs = []
-    worst = []
-    for i, s in enumerate(stems):
+    out_dir = results_dir / "composite_sceneft"
+    out_dir.mkdir(exist_ok=True)
+    for i in (26, 29, 15):
+        s = stems[i]
         v = view_by.get(s)
         if v is None:
             continue
@@ -88,31 +84,26 @@ def main():
                        data_device=dev)
         head.set_frame(i)
         h = head.tensors()
-        m = MergedGS(torch.cat([s_xyz, h[0]]),
-                     torch.cat([s_feat, h[1]]),
-                     torch.cat([s_opa, h[2]]),
-                     torch.cat([s_sc, h[3]]),
-                     torch.cat([s_rot, h[4]]), 3)
-        with torch.no_grad():
-            pkg = render(cam, m, pipe, bg, 1.0)
-        pred = pkg["render"].clamp(0, 1)
-        mse = ((pred - gt) ** 2).mean()
-        p = float(-10 * np.log10(mse.item()))
-        psnrs.append((i, s, p))
-
-    arr = np.array([p for _, _, p in psnrs])
-    print(f"n={len(arr)}  mean={arr.mean():.2f}  median={np.median(arr):.2f}  "
-          f"min={arr.min():.2f}  max={arr.max():.2f}")
-    print(f"<10dB: {(arr < 10).sum()} 帧   <15dB: {(arr < 15).sum()} 帧   "
-          f">=20dB: {(arr >= 20).sum()} 帧")
-    worst = sorted(psnrs, key=lambda x: x[2])[:10]
-    print("最差 10 帧:")
-    for i, s, p in worst:
-        print(f"  [{i:3d}] {s}  {p:.2f} dB")
-    out = results_dir / "composite_psnr_all.json"
-    out.write_text(json.dumps(
-        [{"i": i, "stem": s, "psnr": p} for i, s, p in psnrs], indent=1))
-    print("saved", out)
+        row = [gt]
+        for tag, scene in (("old", scene_old), ("ft", scene_new)):
+            bs = [to_branch(body), to_branch(scene)]
+            m = MergedGS(
+                torch.cat([torch.cat([b[0] for b in bs]).to(dev), h[0]]),
+                torch.cat([torch.cat([b[1] for b in bs]).to(dev), h[1]]),
+                torch.cat([torch.cat([b[2] for b in bs]).to(dev), h[2]]),
+                torch.cat([torch.cat([b[3] for b in bs]).to(dev), h[3]]),
+                torch.cat([torch.cat([b[4] for b in bs]).to(dev), h[4]]), 3)
+            with torch.no_grad():
+                pkg = render(cam, m, pipe, bg, 1.0)
+            pred = pkg["render"].clamp(0, 1)
+            mse = ((pred - gt) ** 2).mean()
+            p = float(-10 * np.log10(mse.item()))
+            print(f"  [{i}] {tag} PSNR={p:.2f}")
+            row.append(pred)
+        combo = torch.cat(row, dim=-1)
+        arr = (combo.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+        Image.fromarray(arr).save(out_dir / f"cmp_{i:03d}_{s}.png")
+    print("saved to", out_dir)
 
 
 if __name__ == "__main__":
