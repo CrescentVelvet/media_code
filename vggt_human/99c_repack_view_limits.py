@@ -41,6 +41,11 @@ Env vars:
     PHI_LEFT / PHI_RIGHT / THETA_TOP / THETA_BOTTOM
                   单侧收窄角度（度，未设则取对应 *_MARGIN）
     RADIUS_MARGIN Radius 两侧内缩（米，默认 0 不动）
+    INIT_FOV_SCALE   初始 FOV 缩放系数（默认 1 不动）。v2 生成时乘过 0.8 的
+                     经验系数（等效初始放大 ~37%），主体占满屏看不全时先试
+                     1.25 补偿回源相机取景框
+    INIT_RADIUS_SCALE 初始半径推远系数（默认 1 不动）。FOV 不够再开；推远
+                     超出 maxRadius 时自动抬高 maxRadius 并打印警告
     ONLY / FORCE / DRY_RUN / PYTHON_BIN / ASTC_BLOCK   含义同 99b
 """
 import json
@@ -224,12 +229,15 @@ def crop_view_limits(vl: dict, m: dict, init_val_phi: float | None = None,
     return new
 
 
-def crop_init_camera(init_json: list, vl_new: dict, radius: float) -> list | None:
+def crop_init_camera(init_json: list, vl_new: dict, radius: float,
+                     fov_scale: float = 1.0, radius_scale: float = 1.0) -> list | None:
     """初始相机落到收窄区外时夹到边界（就近），返回新 init_camera 列表。
 
     pitch/yaw 越界 → 夹紧后用 radius 重建 position/rotation（fov 等其余字段保留）。
     radius 越界 → 只改 radius 分量？不行，position 由 (pitch,yaw,r) 三个量决定，
     统一取夹紧后的 (pitch, yaw, r) 重建。
+    fov_scale/radius_scale → 夹紧后应用：FOV 直接乘系数；半径乘系数后若超
+    maxRadius 则同时抬高 vl_new["maxRadius"]（播放器不会把 init 钳回来）。
     """
     try:
         import numpy as np  # noqa: F401  # rebuild_rotation 内部用到
@@ -247,21 +255,36 @@ def crop_init_camera(init_json: list, vl_new: dict, radius: float) -> list | Non
     # pitch/yaw ↔ Theta/Phi 换算: Theta = 90 - pitch, Phi = yaw
     new_pitch = 90.0 - clamp_deg(90.0 - pitch, vl_new["minTheta"], vl_new["maxTheta"])
     new_yaw = clamp_deg(yaw, vl_new["minPhi"], vl_new["maxPhi"])
-    new_r = clamp_deg(
-        # radius 不在 vl 里单独存，用 position 范数；夹紧到 [minR, maxR]
-        math.sqrt(sum(float(v) ** 2 for v in cam["position"])),
-        vl_new["minRadius"], vl_new["maxRadius"])
+    r0 = math.sqrt(sum(float(v) ** 2 for v in cam["position"]))
+    new_r = clamp_deg(r0, vl_new["minRadius"], vl_new["maxRadius"])
 
     moved = (abs(new_pitch - pitch) > 1e-6 or abs(new_yaw - yaw) > 1e-6
-             or abs(new_r - math.sqrt(sum(float(v) ** 2 for v in cam["position"]))) > 1e-6)
+             or abs(new_r - r0) > 1e-6)
     if moved:
         print(f"  ⚠️ 初始视角越界: pitch {pitch:.2f}→{new_pitch:.2f}, "
-              f"yaw {yaw:.2f}→{new_yaw:.2f}, r {math.sqrt(sum(float(v)**2 for v in cam['position'])):.3f}"
-              f"→{new_r:.3f}（已自动夹到收窄区边界）")
+              f"yaw {yaw:.2f}→{new_yaw:.2f}, r {r0:.3f}→{new_r:.3f}（已自动夹到收窄区边界）")
+
+    # --- 半径推远（在夹紧之后应用，且不受 maxRadius 限制——超了就抬上限）---
+    if radius_scale != 1.0:
+        target_r = new_r * radius_scale
+        if target_r > vl_new["maxRadius"]:
+            # 播放器可能把 init 钳回 maxRadius，导致推远无效：同步抬高上限
+            vl_new["maxRadius"] = target_r * 1.02
+            print(f"  ⚠️ 半径推远 {new_r:.3f}→{target_r:.3f} 超出 maxRadius，"
+                  f"已抬高为 {vl_new['maxRadius']:.3f}")
+        new_r = target_r
+        print(f"  🔍 初始半径: {r0:.3f} → {new_r:.3f} (x{radius_scale})")
 
     new_cam = dict(cam)
     new_cam["position"] = loc_by_pitch_yaw(new_pitch, new_yaw, new_r)
     new_cam["rotation"] = rebuild_rotation(new_cam["position"])
+
+    # --- FOV 缩放（纯视窗参数，无几何副作用）---
+    if fov_scale != 1.0 and "init_fov" in cam:
+        old_fov = float(cam["init_fov"])
+        new_cam["init_fov"] = old_fov * fov_scale
+        print(f"  🔍 init_fov: {old_fov:.2f}° → {new_cam['init_fov']:.2f}°"
+              f" (x{fov_scale})")
     return [new_cam]
 
 
@@ -311,11 +334,17 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
                               init_val_theta=init_theta)
     if vl_new is None:
         return "failed"
+
+    # init 处理先于打印：半径推远可能抬高 vl_new["maxRadius"]，落盘值要含调整后的
+    init_new = crop_init_camera(init_json, vl_new, vl["maxRadius"] / 1.2,
+                                fov_scale=cfg["fov_scale"],
+                                radius_scale=cfg["radius_scale"])
+    if init_new is None:
+        return "failed"
+
     print(f"  ✂️ 新: Phi[{vl_new['minPhi']:.2f},{vl_new['maxPhi']:.2f}] "
           f"Theta[{vl_new['minTheta']:.2f},{vl_new['maxTheta']:.2f}] "
           f"R[{vl_new['minRadius']:.3f},{vl_new['maxRadius']:.3f}]")
-
-    init_new = crop_init_camera(init_json, vl_new, vl["maxRadius"] / 1.2)
     if init_new is None:
         return "failed"
 
@@ -394,6 +423,10 @@ def repack_batch(src_root: Path, work_root: Path, out_root: Path, cfg: dict,
     print(f"✂️ 收窄: Phi[-{m['phi_left']:.1f},-{m['phi_right']:.1f}]° "
           f"Theta[-{m['theta_bottom']:.1f},-{m['theta_top']:.1f}]° "
           f"R[-{m['radius_margin']:.2f}m]")
+    if cfg["fov_scale"] != 1.0:
+        print(f"🔍 init_fov x{cfg['fov_scale']}")
+    if cfg["radius_scale"] != 1.0:
+        print(f"🔍 init 半径 x{cfg['radius_scale']}（超出 maxRadius 自动抬高）")
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只打印收窄前后范围，不执行）")
     print()
@@ -472,6 +505,8 @@ def main():
             "theta_top": float(os.environ.get("THETA_TOP", theta_margin)),
             "radius_margin": float(os.environ.get("RADIUS_MARGIN", "0")),
         },
+        "fov_scale": float(os.environ.get("INIT_FOV_SCALE", "1")),
+        "radius_scale": float(os.environ.get("INIT_RADIUS_SCALE", "1")),
         "force": os.environ.get("FORCE", "0") == "1",
         "dry_run": os.environ.get("DRY_RUN", "0") == "1",
     }
