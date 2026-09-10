@@ -21,7 +21,9 @@ def main():
     pid = os.environ.get("PID", "0")
     dev = torch.device("cuda")
 
-    body = load_gaussian_ply(results_dir / "07_body_gs_src" / f"body_gs_p{pid}.ply")
+    body_ply = Path(os.environ.get(
+        "BODY_PLY", results_dir / "07_body_gs_src" / f"body_gs_p{pid}.ply"))
+    body = load_gaussian_ply(body_ply)
     scene = load_gaussian_ply(results_dir / "07_body_gs_src" / "scene_gs.ply")
 
     ck = torch.load(results_dir / "08_train" / f"avatar_p{pid}_final.pth",
