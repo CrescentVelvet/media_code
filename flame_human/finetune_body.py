@@ -14,7 +14,10 @@
   2. person mask 区域监督（p0 alpha）——场景区域不参与 loss，防止把
      body 往背景拉；
   3. densify（官方标准流程，grad 屏幕空间阈值 + opacity prune）；
-  4. **不**补 head 区（头盒内 GT 用不到，监督区域=m ∩ ~head_bbox）。
+  4. **mask 外亮度惩罚**（LAMBDA_OUTSIDE，首轮负结果后补）：body-only
+     渲染在 mask 外本应全黑，惩罚泄漏亮度把膨胀出 mask 的高斯压回。
+     首轮无此项时 composite 17.51→14.72 变差——区域监督对「长到 mask
+     外的高斯」梯度为零（监督盲区），densify 无约束膨胀污染背景。
 
 与 08 train_avatar 的区别：无 FLAME 绑定、无表情驱动，就是标准 3DGS
 微调，只是 loss 限 mask 区域。
@@ -39,6 +42,35 @@ from composite_check import load_gaussian_ply  # noqa: E402
 
 def log(m):
     print(m, flush=True)
+
+
+def head_mask_2d(head_lo, head_hi, v, dilate=8):
+    """3D head_box 投影到帧 v 的图像空间 → 2D 头部排除 mask（float 0/1）。
+
+    投影 8 个角点取 2D 包围矩形（再外扩 dilate px）。头部由 head 分支
+    渲染，body 监督必须排除它，否则 body 被 mask 内头部 GT 拉着往头部
+    生长 → composite 头部重影（08b 两轮负结果的根因）。
+    """
+    from colmap_io import proj_matrix
+    P, _ = proj_matrix(v)
+    xs = [head_lo[0], head_hi[0]]
+    ys = [head_lo[1], head_hi[1]]
+    zs = [head_lo[2], head_hi[2]]
+    corners = np.array([[x, y, z, 1.0]
+                        for x in xs for y in ys for z in zs]).T   # (4,8)
+    proj = P @ corners                                            # (3,8)
+    u = proj[0] / np.clip(proj[2], 1e-6, None)
+    w = proj[1] / np.clip(proj[2], 1e-6, None)
+    front = proj[2] > 0
+    if not front.any():
+        return np.zeros((v["H"], v["W"]), dtype=np.float32)
+    u0 = max(0, int(np.floor(u[front].min())) - dilate)
+    u1 = min(v["W"], int(np.ceil(u[front].max())) + dilate)
+    w0 = max(0, int(np.floor(w[front].min())) - dilate)
+    w1 = min(v["H"], int(np.ceil(w[front].max())) + dilate)
+    m = np.zeros((v["H"], v["W"]), dtype=np.float32)
+    m[w0:w1, u0:u1] = 1.0
+    return m
 
 
 class BodyGS:
@@ -190,6 +222,7 @@ def main():
     grad_thresh = float(os.environ.get("DENSIFY_GRAD", "2e-4"))
     min_opacity = float(os.environ.get("MIN_OPACITY", "0.005"))
     lam_dssim = float(os.environ.get("LAMBDA_DSSIM", "0.2"))
+    lam_outside = float(os.environ.get("LAMBDA_OUTSIDE", "0.5"))
     sh_every = int(os.environ.get("SH_EVERY", "10"))
     seed = int(os.environ.get("SEED", "0"))
 
@@ -227,6 +260,20 @@ def main():
     # person mask（p0 alpha）——body 监督区域
     from PIL import Image
     pid2 = pid.zfill(2)
+
+    # 头盒（06 头网格，07a 同款）：头部由 head 分支渲染，body 监督必须
+    # 排除，否则 body 被 mask 内头部 GT 拉着往头部生长 → composite 重影。
+    # 首轮实验证据：ft 后 22.2% body 高斯落进头盒（old=0%），头部内
+    # opacity 0.334（整体 p50 才 0.181）。
+    from split_body_scene import head_box
+    mesh_dir = Path(os.environ.get(
+        "MESH_DIR", f"{results_dir}/06_avatar_gs"))
+    head_lo, head_hi, _, _ = head_box(
+        mesh_dir / f"avatar_mesh_p{pid}.npz",
+        mesh_dir / f"avatar_bind_p{pid}.npz",
+        float(os.environ.get("HEAD_BBOX_MARGIN", "0.15")))
+    log(f"  🗃️ head_box 排除: lo={np.round(head_lo,3)} hi={np.round(head_hi,3)}")
+
     mask_cache = {}
     n_mask = 0
     for v in views:
@@ -239,8 +286,10 @@ def main():
         m = Image.open(mp).convert("L")
         if m.size != (v["W"], v["H"]):
             m = m.resize((v["W"], v["H"]), Image.LANCZOS)
-        mask_cache[s] = torch.from_numpy(
-            np.asarray(m, dtype=np.float32) / 255.0).unsqueeze(0)
+        m = np.asarray(m, dtype=np.float32) / 255.0
+        # 监督区域 = person mask ∩ ~head_box 投影（头部交给 head 分支）
+        m = m * (1.0 - head_mask_2d(head_lo, head_hi, v))
+        mask_cache[s] = torch.from_numpy(m).unsqueeze(0)
         n_mask += 1
     log(f"  🎭 person mask: {n_mask}/{len(views)} 帧")
     if n_mask == 0:
@@ -305,6 +354,16 @@ def main():
                 Ll1 = (torch.abs(img_m - gt) * m_d).sum() / area
                 loss = (1 - lam_dssim) * Ll1 + \
                     lam_dssim * (1.0 - ssim(img_m, gt))
+                # 🚧 mask 外惩罚（堵监督盲区）：body-only 渲染（bg=黑）在
+                # mask 外本应全黑；泄漏到背景的高斯会让这里变亮。直接惩罚
+                # mask 外的渲染亮度 → 把膨胀出 mask 的高斯压回透明/收缩。
+                # 这是 08b 首轮 composite 变差（17.51→14.72）的根因修复：
+                # 区域监督对「长到 mask 外的高斯」梯度为零，densify 无约束
+                # 膨胀污染背景。lam_outside 控制惩罚强度。
+                if lam_outside > 0:
+                    out_area = (1.0 - m_d).sum() * 3 + 1e-6
+                    L_out = (pkg["render"] * (1.0 - m_d)).sum() / out_area
+                    loss = loss + lam_outside * L_out
             else:
                 loss = (1 - lam_dssim) * l1_loss(pkg["render"], gt) + \
                     lam_dssim * (1.0 - ssim(pkg["render"], gt))
