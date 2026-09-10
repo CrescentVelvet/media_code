@@ -454,8 +454,8 @@ def repack_batch(src_root: Path, work_root: Path, out_root: Path, cfg: dict,
           f"phiBuffer={cfg['phi_buffer']:.1f}°")
     if cfg["fov_scale"] != 1.0:
         print(f"🔍 init_fov x{cfg['fov_scale']}")
-    if cfg["radius_scale"] != 1.0:
-        print(f"🔍 init 半径 x{cfg['radius_scale']}（超出 maxRadius 自动抬高）")
+    if cfg["init_radius_scale"] != 1.0:
+        print(f"🔍 init 半径 x{cfg['init_radius_scale']}（超出 maxRadius 自动抬高）")
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只打印收窄前后范围，不执行）")
     print()
