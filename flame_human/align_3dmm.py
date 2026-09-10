@@ -220,7 +220,7 @@ def init_from_pnp(items, views, device):
 
 # ── 三阶段 ───────────────────────────────────────────────────────────────────
 def run_stage(flame, pack, n_iter, lr, lr_global_scale, optimize, lam_id=0.0,
-              lam_exp=0.0, anchor_w=0.0, verbose_tag=""):
+              lam_exp=0.0, anchor_w=0.0, verbose_tag="", gamma=0.95):
     """optimize: dict 指定哪些参数进优化器。"""
     dev = pack["dev"]
     log_s = pack["log_s"]
@@ -249,7 +249,7 @@ def run_stage(flame, pack, n_iter, lr, lr_global_scale, optimize, lam_id=0.0,
         params.append({"params": [exp]})
 
     opt = torch.optim.Adam(params, lr=lr)
-    sch = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=0.95)
+    sch = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=gamma)
     hist = []
     for it in range(n_iter):
         opt.zero_grad()
@@ -314,7 +314,12 @@ def main():
     emb = os.environ.get("FLAME_LM468_EMBEDDING", "")
     g_iters = int(os.environ.get("GLOBAL_ITERS", "300"))
     l_iters = int(os.environ.get("LOCAL_ITERS", "300"))
-    c_iters = int(os.environ.get("COEFF_ITERS", "300"))
+    # 4.3 精修：默认从 300→3000 步（2026-09-10 诊断）。原 gamma=0.95 逐迭代
+    # 衰减使 300 步后 LR 只剩 2e-7（后 200 步空转）→ 全局拟合欠训练：单帧自
+    # 拟合可达 ~9px，全局却是 26.5px。改用 gamma=0.9995 + 3000 步后实测
+    # RMS 26.53→7.14px（3.7×）。GLOBAL/LOCAL 段保持 0.95 不变。
+    c_iters = int(os.environ.get("COEFF_ITERS", "3000"))
+    c_gamma = float(os.environ.get("COEFF_GAMMA", "0.9995"))
     lr_g = float(os.environ.get("LR_GLOBAL", "1e-2"))
     lr_l = float(os.environ.get("LR_LOCAL", "1e-2"))
     lr_c = float(os.environ.get("LR_COEFF", "5e-3"))
@@ -465,11 +470,11 @@ def main():
                           verbose_tag="4.2c")
             pack.update({k: r[k] for k in ("log_s", "gq", "gt", "lq", "lt", "id", "exp")})
 
-        # 4.3 系数联合优化
+        # 4.3 系数联合优化（gamma 放缓 → 长程精修，见上方 c_iters 注释）
         r = run_stage(flame, pack, c_iters, lr_c, 0.1,
                       {"global": True, "local": True, "id": True, "exp": True},
                       lam_id=lam_id, lam_exp=lam_exp, anchor_w=aw_coeff,
-                      verbose_tag="4.3")
+                      verbose_tag="4.3", gamma=c_gamma)
         pack.update({k: r[k] for k in ("log_s", "gq", "gt", "lq", "lt", "id", "exp")})
 
         with torch.no_grad():

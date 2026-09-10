@@ -28,7 +28,10 @@ RECON_JSON="${RECON_JSON:-$RESULTS_DIR/04_recon/face_recon.json}" \
 OUT_JSON="${OUT_JSON:-$RESULTS_DIR/05_align/head_align.json}" \
 GLOBAL_ITERS="${GLOBAL_ITERS:-300}" \
 LOCAL_ITERS="${LOCAL_ITERS:-300}" \
-COEFF_ITERS="${COEFF_ITERS:-300}" \
+COEFF_ITERS="${COEFF_ITERS:-3000}" \
+# 4.3 gamma 放缓（2026-09-10）：原 0.95 逐迭代衰减使 300 步后 LR 剩 2e-7、
+# 后 200 步空转 → 全局欠训练（26.5px）；0.9995 + 3000 步实测降到 ~7px
+COEFF_GAMMA="${COEFF_GAMMA:-0.9995}" \
 LR_GLOBAL="${LR_GLOBAL:-1e-2}" \
 LR_LOCAL="${LR_LOCAL:-1e-2}" \
 LR_COEFF="${LR_COEFF:-5e-3}" \
