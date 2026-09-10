@@ -29,9 +29,15 @@ def main():
     scene = load_gaussian_ply(results_dir / "08e_pruned/scene_pruned_p0.ply")
 
     import smplx
+    # A/B 两个 head ckpt（env 可指定；默认 对齐修复版 vs 小scale版）
+    ck_a = Path(os.environ.get(
+        "CKPT_A", results_dir / "08e_pruned/avatar_pruned_align7px.pth"))
+    ck_b = Path(os.environ.get(
+        "CKPT_B", results_dir / "08e_pruned/avatar_pruned_scale05.pth"))
+    lab_a = os.environ.get("LABEL_A", "A")
+    lab_b = os.environ.get("LABEL_B", "B")
     heads = {}
-    for tag, hp in (("old", results_dir / "08_train/avatar_p0_final_old26px.pth"),
-                    ("new", results_dir / "08e_pruned/avatar_pruned_p0.pth")):
+    for tag, hp in ((lab_a, ck_a), (lab_b, ck_b)):
         flame = smplx.create(
             model_path=os.path.dirname(os.environ["FLAME_MODEL"]),
             model_type="flame", num_betas=N_SHAPE,
@@ -39,6 +45,7 @@ def main():
         for p in flame.parameters():
             p.requires_grad_(False)
         heads[tag] = CkptAvatar(torch.load(hp, map_location="cpu"), flame, dev)
+    tags = [lab_a, lab_b]
 
     sys.path.insert(0, os.environ.get("GS_DIR", ""))
     from gaussian_renderer import render
@@ -67,7 +74,7 @@ def main():
     from PIL import Image
     out_dir = results_dir / "head_align_cmp"
     out_dir.mkdir(exist_ok=True)
-    totals = {"old": [], "new": []}
+    totals = {t: [] for t in tags}
     for i in (0, 15, 29):
         s = stems[i]
         v = view_by.get(s)
@@ -91,7 +98,7 @@ def main():
 
         row = [gt[:, y0:y1, x0:x1]]
         bs = [to_branch(body), to_branch(scene)]
-        for tag in ("old", "new"):
+        for tag in tags:
             head = heads[tag]
             head.set_frame(i)
             h = head.tensors()
@@ -112,7 +119,7 @@ def main():
         combo = torch.cat(row, dim=-1)
         arr = (combo.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
         Image.fromarray(arr).save(out_dir / f"hc_{i:03d}_{s}.png")
-    for tag in ("old", "new"):
+    for tag in tags:
         print(f"head-crop 平均 PSNR {tag} = {np.mean(totals[tag]):.2f} dB")
     print("saved to", out_dir)
 

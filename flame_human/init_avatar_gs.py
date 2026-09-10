@@ -146,6 +146,9 @@ def main():
     free_off_mm = float(os.environ.get("FREE_OFFSET_MM", "8"))
     scalp_pct = float(os.environ.get("SCALP_Y_PCT", "60"))
     init_op = float(os.environ.get("INIT_OPACITY", "0.1"))
+    # 初始 scale 缩放（提锐度用）：<1 让高斯更细，细节需靠更多点/densify 补。
+    # 2026-09-10：head 残留柔化的一个来源是 scale 被"面片间距"锚住偏大。
+    scale_factor = float(os.environ.get("SCALE_FACTOR", "1.0"))
     seed = int(os.environ.get("SEED", "0"))
 
     if not align_json.exists():
@@ -214,7 +217,7 @@ def main():
         all_bary = np.vstack([bary, np.zeros((len(fpts), 3), dtype=np.float64)])
         is_free = np.concatenate([np.zeros(len(pts), bool),
                                   np.ones(len(fpts), bool)])
-        sc = np.concatenate([spacing, fsp])
+        sc = np.concatenate([spacing, fsp]) * scale_factor
 
         ply_path = out_dir / f"avatar_p{oid}.ply"
         npz_path = out_dir / f"avatar_bind_p{oid}.npz"

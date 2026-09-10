@@ -24,6 +24,7 @@ N_FREE="${N_FREE:-20000}" \
 FREE_OFFSET_MM="${FREE_OFFSET_MM:-8}" \
 SCALP_Y_PCT="${SCALP_Y_PCT:-60}" \
 INIT_OPACITY="${INIT_OPACITY:-0.1}" \
+SCALE_FACTOR="${SCALE_FACTOR:-1.0}" \
 SEED="${SEED:-0}" \
     python "$SCRIPT_DIR/init_avatar_gs.py"
 if [ $? -ne 0 ]; then

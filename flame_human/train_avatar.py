@@ -362,7 +362,11 @@ def main():
         sys.exit(f"❌ 阶段四结果里没有 p{pid}，有: {list(align['persons'])}")
     ap = align["persons"][pid]
 
-    model = AvatarModel(ply_path, bind_path, flame, ap, dev)
+    # SH 阶数（提锐度/表达力用；默认 3）。改动需与 ckpt 里 features_rest 的
+    # 通道数一致（CkptAvatar 从 shape 反推 max_sh，会自洽）。
+    max_sh = int(os.environ.get("SH_DEGREE", "3"))
+    model = AvatarModel(ply_path, bind_path, flame, ap, dev, max_sh=max_sh)
+    log(f"  🎨 SH 阶数 = {max_sh}（K={(max_sh+1)**2}）")
     n_frames = len(ap["local_q"])
     log(f"  🔢 {len(model._opacity):,} 高斯, {n_frames} 帧")
 
