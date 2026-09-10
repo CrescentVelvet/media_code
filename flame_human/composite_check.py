@@ -51,7 +51,8 @@ def load_gaussian_ply(path):
     f_rest = (np.stack([d[f"f_rest_{i}"] for i in range(n_rest)], 1)
               .reshape(-1, 3, K).transpose(0, 2, 1).astype(np.float32))
     opa = torch.sigmoid(torch.tensor(d["opacity"]).float()).cpu()
-    sc = F.softplus(torch.tensor(
+    # 官方 ply 存 log(scale)，激活是 exp（不是 softplus！）
+    sc = torch.exp(torch.tensor(
         np.stack([d[f"scale_{i}"] for i in range(3)], 1)).float())
     rot = F.normalize(torch.tensor(
         np.stack([d[f"rot_{i}"] for i in range(4)], 1)).float(), dim=-1)
