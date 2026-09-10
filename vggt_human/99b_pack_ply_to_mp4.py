@@ -21,9 +21,9 @@
 
 用法:
     python vggt_human/99b_pack_ply_to_mp4.py
-    DRY_RUN=1  python vggt_human/99b_pack_ply_to_mp4.py   # 只探测不执行
-    FORCE=1    python vggt_human/99b_pack_ply_to_mp4.py   # 已存在 mp4 也重跑
-    ONLY=task_id_a,task_id_b python vggt_human/99b_pack_ply_to_mp4.py
+    DRY_RUN=1  python ...   # 只探测不执行
+    FORCE=1    python ...   # 已存在 mp4 也重跑
+    ONLY=task_id_a,task_id_b python ...
 
 Env vars（不设则用下方 main() 里的默认值）:
     TOOL_DIR    UWA 工具链根目录（含 encode.py / muxer.py / build/gltf_packer）

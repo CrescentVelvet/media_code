@@ -24,8 +24,8 @@
     azimuth=水平 Phi），默认 0 锁死回弹，不想锁可经 env 覆盖
 
 用法:
-    python vggt_human/99c_repack_view_limits.py                  # 默认只收 Phi 两侧 10°
-    FORCE=1 INIT_FOV_SCALE=1.25 PHI_MARGIN=30 THETA_MARGIN=10 python vggt_human/99c_repack_view_limits.py
+    python vggt_human/99c_repack_view_limits.py # 默认只收 Phi 两侧 10°
+    FORCE=1 POLAR_BUFFER=0 AZIMUTH_BUFFER=0 INIT_FOV_SCALE=1.25 PHI_MARGIN=30 THETA_MARGIN=10 python vggt_human/99c_repack_view_limits.py
     PHI_LEFT=5 PHI_RIGHT=25 python ...  # 不对称
     DRY_RUN=1 python ...  # 只打印收窄前后范围，不执行
     FORCE=1 / ONLY=task_a,task_b python ...  # 已存在 mp4 也重跑
