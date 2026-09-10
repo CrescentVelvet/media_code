@@ -15,17 +15,19 @@
 收窄规则（对 view_limits.json 原值内缩，保持中心不动）:
     Phi  (水平)   [minPhi,   maxPhi]   → [minPhi+LEFT,   maxPhi-RIGHT]
     Theta(垂直)   [minTheta, maxTheta] → [minTheta+BOTTOM, maxTheta-TOP]
-    Radius        [minRadius,maxRadius]→ [minR+MARGIN,   maxR-MARGIN]（默认 0 不动）
+    Radius        [minRadius,maxRadius]→ 以初始半径 r0 为锚内缩:
+                     [r0-(r0-minR)*K, r0+(maxR-r0)*K]，K=RADIUS_RANGE_SCALE
+                     （默认 1 不动；初始半径不变，min 升 max 降）
     收窄后区间反转（收没了）→ 该维降级为一条缝 [c, c] 不报错：
       c 优先取初始视角在该维的值（初始构图不动），反解失败/越界则取区间中心
       （人像批次 Theta 跨度常只有几度，默认 THETA_MARGIN=10 即触发此降级）
     初始相机若落到收窄区外 → 自动夹到边界并打印警告
-    另写入 polarBuffer/azimuthBuffer（手势越界回弹余量，polar=垂直 Theta、
-    azimuth=水平 Phi），默认 0 锁死回弹，不想锁可经 env 覆盖
+    另写入 thetaBuffer/phiBuffer（手势越界回弹余量，theta=垂直、phi=水平），
+    默认 0 锁死回弹，不想锁可经 env 覆盖
 
 用法:
     python vggt_human/99c_repack_view_limits.py # 默认只收 Phi 两侧 10°
-    FORCE=1 POLAR_BUFFER=0 AZIMUTH_BUFFER=0 INIT_FOV_SCALE=1.25 PHI_MARGIN=30 THETA_MARGIN=10 python vggt_human/99c_repack_view_limits.py
+    FORCE=1 THETA_BUFFER=0 PHI_BUFFER=0 INIT_FOV_SCALE=1.25 PHI_MARGIN=30 THETA_MARGIN=10 python vggt_human/99c_repack_view_limits.py
     PHI_LEFT=5 PHI_RIGHT=25 python ...  # 不对称
     DRY_RUN=1 python ...  # 只打印收窄前后范围，不执行
     FORCE=1 / ONLY=task_a,task_b python ...  # 已存在 mp4 也重跑
@@ -42,16 +44,19 @@ Env vars:
                   跨度不够时降级为一条缝，见上方收窄规则）
     PHI_LEFT / PHI_RIGHT / THETA_TOP / THETA_BOTTOM
                   单侧收窄角度（度，未设则取对应 *_MARGIN）
-    RADIUS_MARGIN Radius 两侧内缩（米，默认 0 不动）
+    RADIUS_RANGE_SCALE
+                  Radius 区间收窄系数（默认 1 不动）。以初始半径 r0 为锚，
+                  min/max 向 r0 收拢: [r0-(r0-minR)*K, r0+(maxR-r0)*K]；
+                  初始半径不变，min 增加 max 减少。0=完全收死到 r0
     INIT_FOV_SCALE   初始 FOV 缩放系数（默认 1 不动）。v2 生成时乘过 0.8 的
                      经验系数（等效初始放大 ~37%），主体占满屏看不全时先试
                      1.25 补偿回源相机取景框
     INIT_RADIUS_SCALE 初始半径推远系数（默认 1 不动）。FOV 不够再开；推远
                      超出 maxRadius 时自动抬高 maxRadius 并打印警告
-    POLAR_BUFFER / AZIMUTH_BUFFER
+    THETA_BUFFER / PHI_BUFFER
                      view_limits 新增的回弹余量字段（度，默认 0 锁死）。
-                     播放器手势可越过边界此角度后弹回；polar=垂直、
-                     azimuth=水平。想保留一点手感给非零值即可
+                     播放器手势可越过边界此角度后弹回；theta=垂直、
+                     phi=水平。想保留一点手感给非零值即可
     ONLY / FORCE / DRY_RUN / PYTHON_BIN / ASTC_BLOCK   含义同 99b
 """
 import json
@@ -214,24 +219,37 @@ def crop_axis(name: str, lo: float, hi: float, cut_lo: float, cut_hi: float,
 
 
 def crop_view_limits(vl: dict, m: dict, init_val_phi: float | None = None,
-                     init_val_theta: float | None = None) -> dict | None:
+                     init_val_theta: float | None = None,
+                     init_radius: float | None = None) -> dict | None:
     """对 view_limits 原值内缩（保持中心不动），返回新 dict 或 None（数学上不可能）。
 
     init_val_phi/theta: 初始视角的 Phi/Theta（度），仅在收没了降级为缝时使用。
+    init_radius: 初始半径 r0（米），radius 维的收窄锚点；None 时退区间中点。
     """
     new_phi = crop_axis("Phi", vl["minPhi"], vl["maxPhi"],
                         m["phi_left"], m["phi_right"], init_val_phi)
     new_theta = crop_axis("Theta", vl["minTheta"], vl["maxTheta"],
                           m["theta_bottom"], m["theta_top"], init_val_theta)
-    new_r = crop_axis("Radius", vl["minRadius"], vl["maxRadius"],
-                      m["radius_margin"], m["radius_margin"], None)
-    if new_phi is None or new_theta is None or new_r is None:
+
+    # radius 维：以初始半径 r0 为锚按倍数收拢（初始半径不动，min 升 max 降）。
+    # 不走 crop_axis 的米数语义；0 ≤ K ≤ 1，K=1 原样，K=0 收死到 [r0, r0]。
+    k = m["radius_scale"]
+    if init_radius is None:
+        init_radius = (vl["minRadius"] + vl["maxRadius"]) / 2
+    new_r_lo = init_radius - (init_radius - vl["minRadius"]) * k
+    new_r_hi = init_radius + (vl["maxRadius"] - init_radius) * k
+    if new_r_lo > new_r_hi + 1e-12:
+        return None
+    # 锚点越界（r0 不在原区间内）时可能算出反转，直接夹回
+    new_r_lo, new_r_hi = min(new_r_lo, init_radius), max(new_r_hi, init_radius)
+
+    if new_phi is None or new_theta is None:
         return None
 
     new = dict(vl)
     new["minPhi"], new["maxPhi"] = new_phi
     new["minTheta"], new["maxTheta"] = new_theta
-    new["minRadius"], new["maxRadius"] = new_r
+    new["minRadius"], new["maxRadius"] = new_r_lo, new_r_hi
     return new
 
 
@@ -327,8 +345,9 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
           f"Theta[{vl['minTheta']:.2f},{vl['maxTheta']:.2f}] "
           f"R[{vl['minRadius']:.3f},{vl['maxRadius']:.3f}]")
 
-    # --- 2. 收窄（先反解 init 的 Phi/Theta 供「一条缝」降级取值）---
+    # --- 2. 收窄（先反解 init 的 Phi/Theta/半径，供缝降级取值与 radius 锚定）---
     init_json = json.loads(jsons["init_camera"].read_text())
+    init_r0 = math.sqrt(sum(float(v) ** 2 for v in init_json[0]["position"]))
     init_py = pos_to_pitch_yaw(init_json[0]["position"],
                                (vl["minRadius"] + vl["maxRadius"]) / 2)
     if init_py is not None:
@@ -337,20 +356,20 @@ def repack_one(task_dir: Path, work_task: Path, out_mp4: Path, cfg: dict,
         init_theta = init_phi = None
 
     vl_new = crop_view_limits(vl, cfg["margins"], init_val_phi=init_phi,
-                              init_val_theta=init_theta)
+                              init_val_theta=init_theta, init_radius=init_r0)
     if vl_new is None:
         return "failed"
 
     # init 处理先于打印：半径推远可能抬高 vl_new["maxRadius"]，落盘值要含调整后的
     init_new = crop_init_camera(init_json, vl_new, vl["maxRadius"] / 1.2,
                                 fov_scale=cfg["fov_scale"],
-                                radius_scale=cfg["radius_scale"])
+                                radius_scale=cfg["init_radius_scale"])
     if init_new is None:
         return "failed"
 
     # 回弹余量字段（播放器手势缓冲区）：0 = 锁死越界回弹
-    vl_new["polarBuffer"] = cfg["polar_buffer"]
-    vl_new["azimuthBuffer"] = cfg["azimuth_buffer"]
+    vl_new["thetaBuffer"] = cfg["theta_buffer"]
+    vl_new["phiBuffer"] = cfg["phi_buffer"]
 
     print(f"  ✂️ 新: Phi[{vl_new['minPhi']:.2f},{vl_new['maxPhi']:.2f}] "
           f"Theta[{vl_new['minTheta']:.2f},{vl_new['maxTheta']:.2f}] "
@@ -430,7 +449,9 @@ def repack_batch(src_root: Path, work_root: Path, out_root: Path, cfg: dict,
     print(f"📁 输出目录: {out_root}")
     print(f"✂️ 收窄: Phi[-{m['phi_left']:.1f},-{m['phi_right']:.1f}]° "
           f"Theta[-{m['theta_bottom']:.1f},-{m['theta_top']:.1f}]° "
-          f"R[-{m['radius_margin']:.2f}m]")
+          f"R x{m['radius_scale']:.2f}(锚定初始半径)")
+    print(f"🔒 回弹: thetaBuffer={cfg['theta_buffer']:.1f}° "
+          f"phiBuffer={cfg['phi_buffer']:.1f}°")
     if cfg["fov_scale"] != 1.0:
         print(f"🔍 init_fov x{cfg['fov_scale']}")
     if cfg["radius_scale"] != 1.0:
@@ -511,12 +532,12 @@ def main():
             "phi_right": float(os.environ.get("PHI_RIGHT", phi_margin)),
             "theta_bottom": float(os.environ.get("THETA_BOTTOM", theta_margin)),
             "theta_top": float(os.environ.get("THETA_TOP", theta_margin)),
-            "radius_margin": float(os.environ.get("RADIUS_MARGIN", "0")),
+            "radius_scale": float(os.environ.get("RADIUS_RANGE_SCALE", "1")),
         },
         "fov_scale": float(os.environ.get("INIT_FOV_SCALE", "1")),
-        "radius_scale": float(os.environ.get("INIT_RADIUS_SCALE", "1")),
-        "polar_buffer": float(os.environ.get("POLAR_BUFFER", "0")),
-        "azimuth_buffer": float(os.environ.get("AZIMUTH_BUFFER", "0")),
+        "init_radius_scale": float(os.environ.get("INIT_RADIUS_SCALE", "1")),
+        "theta_buffer": float(os.environ.get("THETA_BUFFER", "0")),
+        "phi_buffer": float(os.environ.get("PHI_BUFFER", "0")),
         "force": os.environ.get("FORCE", "0") == "1",
         "dry_run": os.environ.get("DRY_RUN", "0") == "1",
     }
@@ -538,6 +559,8 @@ def main():
     for k, v in cfg["margins"].items():
         if v < 0:
             sys.exit(f"❌ 收窄参数 {k}={v} 不能为负")
+    if not 0 <= cfg["margins"]["radius_scale"] <= 1:
+        sys.exit("❌ RADIUS_RANGE_SCALE 需在 [0,1]（0=收死到初始半径，1=不动）")
 
     repack_batch(SRC_ROOT, WORK_ROOT, OUT_DIR, cfg, only)
 
