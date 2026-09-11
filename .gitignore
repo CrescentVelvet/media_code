@@ -9,3 +9,8 @@ face_crop/models/*.tflite
 
 # temporary WSL diagnostic scripts (vggt_human debug)
 .tmp_diag/
+
+# 调试图片产物（flame_human 目检用，单目录上百 MB，不入库）
+flame_human/_debug/
+flame_human/_debug_comp/
+flame_human/_debug_rc/
