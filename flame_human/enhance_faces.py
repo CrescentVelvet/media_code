@@ -97,7 +97,11 @@ def main():
     for i, p in enumerate(imgs):
         stem = p.stem
         dst = out_images / p.name
-        rec = match.get(stem, {}).get("persons", {}).get("0")
+        # 09 渲染帧文件名带帧号前缀（000_<stem>.png）→ 剥掉再查匹配表
+        key = stem
+        if "_" in stem and stem.split("_", 1)[0].isdigit():
+            key = stem.split("_", 1)[1]
+        rec = match.get(key, {}).get("persons", {}).get("0")
         img_pil = Image.open(p).convert("RGB")
         if not rec or "bbox" not in rec:
             img_pil.save(dst)          # 无 p0 脸 → 原样
@@ -137,10 +141,14 @@ def main():
         orig[y1:y2, x1:x2] = orig[y1:y2, x1:x2] * (1 - f) + enh * f
         Image.fromarray(orig.clip(0, 255).astype(np.uint8)).save(dst)
         n_enh += 1
-        if dbg and i < 3:                      # 冒烟：存 GT|增强 裁剪并排
+        if dbg and i < 3:                      # 冒烟：裁剪对 + 整帧对
             side = np.concatenate(
                 [np.asarray(crop), np.asarray(res)], axis=1)
             Image.fromarray(side).save(dbg / f"enh_{i:03d}_{stem}.png")
+            full = np.concatenate(
+                [np.asarray(img_pil),
+                 orig.clip(0, 255).astype(np.uint8)], axis=1)
+            Image.fromarray(full).save(dbg / f"full_{i:03d}_{stem}.png")
         if (i + 1) % 10 == 0 or i == 0:
             print(f"  [{i+1}/{len(imgs)}] {stem} "
                   f"({time.time()-t0:.0f}s)")
