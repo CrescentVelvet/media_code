@@ -8,7 +8,8 @@
 典型场景：B003_Human_Data_w_pose 下每个子目录是一个 task（人），帧放在
 <task>/image/ 下、按帧号命名（01000000.jpg 这种）。做并排对比图 / 人工巡检时
 每人只要 3 帧，本脚本自动取该 task 的**第一帧 / 中间一帧 / 最后一帧**，
-拉平成 <task>_<帧号>.jpg，集中放到一个目录，方便一眼扫完。
+拉平成 <task>_<帧号>.jpg，集中放到
+../../output/recon_human_results/<源目录名>/img_three/，方便一眼扫完。
 
 帧列表按帧号数值排序后取首/中/尾，所以各 task 帧数不同也没关系；
 帧数不足 3（重合）时按实际去重后输出，并打印提醒。
@@ -23,7 +24,7 @@
 Env vars（不设则用下方 main() 里的默认值）:
     SRC_ROOT      批次根目录（其下每个子目录是一个 task）
     RESULTS_ROOT  统一结果根（与 99a/99b 同源）
-    DST_ROOT      输出目录，默认 <RESULTS_ROOT>/img_three
+    DST_ROOT      输出目录，默认 <RESULTS_ROOT>/<源目录名>/img_three
     FRAMES        可选：逗号分隔的帧文件名，显式指定要抽哪几帧
                   （留空 = 默认行为，自动取首 / 中 / 尾）
     IMAGE_SUBDIR  task 下放帧的子目录名（默认 image）
@@ -224,9 +225,10 @@ def main():
     # 统一结果根：与 99a/99b 一致，便于几种产物一起找
     RESULTS_ROOT = Path(os.environ.get(
         "RESULTS_ROOT", "../../output/recon_human_results"))
-    # 输出目录：三个平铺的帧文件都落这里
+    # 输出目录：<RESULTS_ROOT>/<批次名>/img_three，批次名与源目录同名
+    # （99a 的 ply 落同批次 ply/、99b 的 mp4 落 mp4/，同批次下按产物类型分目录）
     DST_ROOT = Path(os.environ.get(
-        "DST_ROOT", str(RESULTS_ROOT / "img_three")))
+        "DST_ROOT", str(RESULTS_ROOT / SRC_ROOT.resolve().name / "img_three")))
     # 显式指定帧名（留空 = 自动取首 / 中 / 尾）
     FRAMES = [s for s in os.environ.get("FRAMES", "").split(",") if s]
     # task 下放帧的子目录名
