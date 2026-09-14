@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 09_move_output.sh — WSL 专用：把结果从 Linux fs 搬到 Windows 盘。
+# 10_move_output.sh — WSL 专用：把结果从 Linux fs 搬到 Windows 盘。
 # 训练写 Linux fs（~/output/...）快；搬完存 /mnt/d/output/ 方便查看。
+# 编号 10：排在 09_enhance_post.sh（渲染后增强）之后，是全链路最后一步。
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +10,7 @@ source "$SCRIPT_DIR/_env.sh"
 DEST="${DEST:-/mnt/d/output/flame_human_results}"
 SRC="${RESULTS_DIR:-$REPO_DIR/../flame_human_results}"
 
-echo "🚚 [flame_human 09] 搬运结果"
+echo "🚚 [flame_human 10] 搬运结果"
 echo "  📤 源: $SRC"
 echo "  📥 目标: $DEST"
 
