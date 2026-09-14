@@ -114,7 +114,64 @@ def make_env(tool_dir: Path) -> dict:
     return env
 
 
-# === CHUNK2 ===
+# --------------------------------------------------------------------------
+# 输入 / 路径解析
+# --------------------------------------------------------------------------
+def resolve_mp4() -> Path:
+    """输入 MP4：命令行第一个位置参数优先，其次 env MP4。"""
+    arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else ""
+    raw = arg or os.environ.get("MP4", "").strip()
+    if not raw:
+        sys.exit("❌ 未指定输入 MP4。用法: python vggt_human/99e_unpack_mp4_to_ply.py /path/to/x.mp4"
+                 "（或先用 MP4=/path/to/x.mp4）")
+    mp4 = Path(raw).expanduser()
+    if not mp4.is_file():
+        sys.exit(f"❌ MP4 不存在: {mp4}")
+    return mp4.resolve()
+
+
+def resolve_dirs(mp4: Path):
+    """推导 task 名 / 批次根 / 输出目录 / 工作目录。
+
+    99b 的产物布局是 <批次>/mp4/<task>.mp4（99c 是 mp4_crop/），命中则批次根上移一层；
+    否则（别人给的孤立 MP4）就把 MP4 所在目录当批次根。
+    """
+    task = mp4.stem
+    batch = mp4.parent.parent if mp4.parent.name in ("mp4", "mp4_crop") else mp4.parent
+    out_dir = Path(os.environ.get("OUT_DIR", str(batch / "unpack_ply")))
+    work_dir = Path(os.environ.get("WORK_DIR", str(batch / "unpack_work" / task)))
+    return task, batch, out_dir, work_dir
+
+
+# --------------------------------------------------------------------------
+# PROBE：打印三个反向工具的 usage，便于核对参数名
+# --------------------------------------------------------------------------
+def probe(tool_dir: Path, python_bin: str, env: dict) -> None:
+    print(f"🔎 PROBE: 工具链 {tool_dir}\n")
+    targets = [
+        ("demuxer.py", tool_dir / DEMUXER, [python_bin, DEMUXER]),
+        ("gltf_unpacker", tool_dir / UNPACKER, [str(tool_dir / UNPACKER)]),
+        ("decode.py", tool_dir / DECODER, [python_bin, DECODER]),
+    ]
+    for name, path, base in targets:
+        print(f"================ {name} ================")
+        if not path.is_file():
+            print(f"  ⚠️ 工具不存在: {path}")
+            print()
+            continue
+        shown = False
+        for extra in (["--help"], ["-h"], []):
+            proc = subprocess.run([str(c) for c in base + extra], cwd=str(tool_dir),
+                                  env=env, capture_output=True, text=True)
+            out = (proc.stdout or "") + (proc.stderr or "")
+            if out.strip():
+                print(f"$ {' '.join(str(c) for c in base + extra)}")
+                print(_tail(out, 40))
+                shown = True
+                break
+        if not shown:
+            print("  （无输出；工具可能必须带参数才能打印用法）")
+        print()
 
 
 if __name__ == "__main__":
