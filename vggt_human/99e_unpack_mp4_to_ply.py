@@ -3,7 +3,7 @@
 
 99b 正向四步：图片→视频 | PLY→bin | bin+相机→GLB | GLB+视频→MP4
 本脚本反向三步（单样例，不批量，始终走 demux）：
-  [1/3] demuxer.py      MP4  → GLB + 视频
+  [1/3] demuxer.py      MP4  → GLB
   [2/3] gltf_unpacker   GLB  → bin + 三件套 json
   [3/3] decode.py       bin  → PLY
 
@@ -32,11 +32,11 @@ Env vars:
     PROBE        默认 0；置 1 只跑三个工具的 usage 后退出
     ASTC_BLOCK   期望的 bin 块大小（默认 4，仅用于拼文件名；对不上自动 glob 兜底）
     DEMUX_ARGS / UNPACK_ARGS / DECODE_ARGS
-                 完整参数模板覆盖（留空用下方默认镜像参数）。占位符：
-                   DEMUX_ARGS   {mp4} {glb} {video}
+                 完整参数模板覆盖（留空用实测/镜像的默认参数）。占位符：
+                   DEMUX_ARGS   {mp4} {glb} {video} {outdir}
                    UNPACK_ARGS  {glb} {bin} {init} {camera} {view} {outdir}
                    DECODE_ARGS  {bin} {ply} {outdir}
-                 例：DEMUX_ARGS='--in {mp4} --glb {glb} --video {video}'
+                 例：UNPACK_ARGS='{glb} {outdir}'
 """
 import os
 import shlex
@@ -58,11 +58,14 @@ UWA_JSONS = {
     "view_params": "view_limits.json",
 }
 
-# 默认参数模板：按 99b 正向调用的「镜像推测」。参数名对不上时用 PROBE=1 查真名，
-# 再用对应 *_ARGS 覆盖，无需改脚本。
-DEMUX_ARGS_DEFAULT = "--mp4_path {mp4} --glb_path {glb} --output_path {video}"
+# 默认参数模板。demuxer.py / decode.py 的 CLI 已于 2026-09-14 用 PROBE 实测：
+#   demuxer.py     --mp4_path <mp4> --output_dir <dir>   # GLB 落到 dir，文件名由工具定
+#   decode.py      --bitstream-path <bin> --save-dir <dir>
+#   gltf_unpacker  --help 直接崩（C++ 二进制不处理 help），参数形态尚未实测；
+#                  默认按 gltf_packer 的镜像给 5 个位置参数，实测后可 env 覆盖。
+DEMUX_ARGS_DEFAULT = "--mp4_path {mp4} --output_dir {outdir}"
 UNPACK_ARGS_DEFAULT = "{glb} {bin} {init} {camera} {view}"
-DECODE_ARGS_DEFAULT = "--bin-path {bin} --save-dir {outdir}"
+DECODE_ARGS_DEFAULT = "--bitstream-path {bin} --save-dir {outdir}"
 
 
 # --------------------------------------------------------------------------
@@ -166,27 +169,33 @@ def probe(tool_dir: Path, python_bin: str, env: dict) -> None:
             print(f"  ⚠️ 工具不存在: {path}")
             print()
             continue
-        shown = False
-        for extra in (["--help"], ["-h"], []):
+        # C++ 二进制遇 --help 可能直接 terminate，所以无参也试一遍；
+        # 三种尝试逐个打印，不因某一个有输出就停（单次尝试看不出参数形态）
+        attempts = [[], ["--help"], ["-h"]] if name == "gltf_unpacker" \
+            else [["--help"], ["-h"], []]
+        for extra in attempts:
+            shown = "  (无参数)" if not extra else ""
             proc = subprocess.run([str(c) for c in base + extra], cwd=str(tool_dir),
                                   env=env, capture_output=True, text=True)
-            out = (proc.stdout or "") + (proc.stderr or "")
-            if out.strip():
-                print(f"$ {' '.join(str(c) for c in base + extra)}")
-                print(_tail(out, 40))
-                shown = True
-                break
-        if not shown:
-            print("  （无输出；工具可能必须带参数才能打印用法）")
+            out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+            print(f"$ {' '.join(str(c) for c in base + extra)}{shown}   [rc={proc.returncode}]")
+            print(_tail(out, 20) if out else "  （无输出）")
         print()
 
 
 # --------------------------------------------------------------------------
 # 解封装（单样例三步）
 # --------------------------------------------------------------------------
-def find_newest(d: Path, pattern: str) -> Path | None:
-    cands = sorted(d.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-    return cands[0] if cands else None
+def find_fresh(d: Path, pattern: str, since: float) -> Path | None:
+    """按 mtime 找 since 之后新写出的文件。
+
+    用 mtime 而不是「执行前后的文件集合差」：重跑时工具常覆盖同名文件，
+    集合差看不出它是新的，会误判成没产出。
+    """
+    cands = [p for p in d.glob(pattern) if p.stat().st_mtime >= since]
+    if not cands:
+        return None
+    return max(cands, key=lambda p: p.stat().st_mtime)
 
 
 def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -> str:
@@ -201,23 +210,30 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     if not cfg["dry_run"]:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    glb = work_dir / "3DGS.glb"
+    glb = work_dir / "3DGS.glb"          # 期望名；demuxer 实际产出名未知，见 Step 1 兜底
     video = work_dir / "output.mp4"
     bin_file = work_dir / f"GSCompressed_B{cfg['astc_block']}.bin"
     j_init = work_dir / UWA_JSONS["init_camera"]
     j_cam = work_dir / UWA_JSONS["camera"]
     j_view = work_dir / UWA_JSONS["view_params"]
 
-    # 三步命令统一走 *_ARGS 模板（参数名与镜像推测不符时可 env 覆盖，无需改脚本）
-    demux_cmd = [cfg["python_bin"], DEMUXER] + build_args(
-        "DEMUX_ARGS", DEMUX_ARGS_DEFAULT, mp4=mp4, glb=glb, video=video)
-    unpack_cmd = [str(cfg["tool_dir"] / UNPACKER)] + build_args(
-        "UNPACK_ARGS", UNPACK_ARGS_DEFAULT, glb=glb, bin=bin_file,
-        init=j_init, camera=j_cam, view=j_view, outdir=work_dir)
-    decode_cmd = [cfg["python_bin"], DECODER] + build_args(
-        "DECODE_ARGS", DECODE_ARGS_DEFAULT, bin=bin_file, ply=out_ply, outdir=work_dir)
+    # 三步命令统一走 *_ARGS 模板（参数名不符时可 env 覆盖，无需改脚本）。
+    # 做成闭包：GLB / 码流的真实文件名要等上一步跑完才知道，届时重建命令。
+    def mk_demux():
+        return [cfg["python_bin"], DEMUXER] + build_args(
+            "DEMUX_ARGS", DEMUX_ARGS_DEFAULT, mp4=mp4, glb=glb, video=video, outdir=work_dir)
 
-    print("[Step 1/3] 🎬 解复用 MP4 → GLB + 视频")
+    def mk_unpack(g):
+        return [str(cfg["tool_dir"] / UNPACKER)] + build_args(
+            "UNPACK_ARGS", UNPACK_ARGS_DEFAULT, glb=g, bin=bin_file,
+            init=j_init, camera=j_cam, view=j_view, outdir=work_dir)
+
+    def mk_decode(b):
+        return [cfg["python_bin"], DECODER] + build_args(
+            "DECODE_ARGS", DECODE_ARGS_DEFAULT, bin=b, ply=out_ply, outdir=work_dir)
+
+    demux_cmd, unpack_cmd, decode_cmd = mk_demux(), mk_unpack(glb), mk_decode(bin_file)
+    print("[Step 1/3] 🎬 解复用 MP4 → GLB")
     print(f"  $ {' '.join(str(c) for c in demux_cmd)}")
     print("[Step 2/3] 📦 解包 GLB → 码流 + 三件套 json")
     print(f"  $ {' '.join(str(c) for c in unpack_cmd)}")
@@ -230,24 +246,36 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
 
     t0 = time.time()
 
-    # --- Step 1/3: MP4 → GLB + 视频 ---
+    # --- Step 1/3: MP4 → GLB（demuxer 只收 --output_dir，产出名由它自己定）---
+    t_step = time.time()
     rc = run_cmd(demux_cmd, cwd=cfg["tool_dir"], env=env)
-    if rc != 0 or not glb.is_file():
-        print(f"❌ Step 1 失败：没得到 GLB（{glb}）")
+    fresh = find_fresh(work_dir, "*.glb", t_step - 1.0)   # -1s 容错文件系统时间精度
+    if fresh is not None:
+        if fresh != glb:
+            print(f"⚠️ 期望 {glb.name} 不存在，改用实际产物 {fresh.name}")
+        glb = fresh
+    elif glb.is_file() and rc == 0:
+        print(f"⚠️ 没检测到新写出的 GLB，沿用已存在的 {glb.name}")
+    else:
+        print(f"❌ Step 1 失败：{work_dir} 下没得到 GLB（rc={rc}）")
         print("   若参数名不符，先 PROBE=1 查真名，再用 DEMUX_ARGS 覆盖")
         return "failed"
     print(f"  ✅ GLB: {glb.name}  ({glb.stat().st_size / 1024 / 1024:.1f} MB)")
 
     # --- Step 2/3: GLB → bin + 三件套 json ---
+    unpack_cmd = mk_unpack(glb)          # GLB 名可能刚被改写，重建命令
+    t_step = time.time()
     rc = run_cmd(unpack_cmd, cwd=cfg["tool_dir"], env=env)
     if not bin_file.is_file():
-        # 块大小由工具内部决定，文件名对不上时按实际产物兜底
-        alt = find_newest(work_dir, "GSCompressed_B*.bin") or find_newest(work_dir, "*.bin")
+        # 块大小由工具内部决定，文件名对不上时按本次新产出的码流兜底
+        alt = find_fresh(work_dir, "GSCompressed_B*.bin", t_step - 1.0) \
+            or find_fresh(work_dir, "*.bin", t_step - 1.0)
         if alt:
             print(f"⚠️ 期望 {bin_file.name} 不存在，改用实际产物 {alt.name}")
             bin_file = alt
         else:
-            print(f"❌ Step 2 失败：{work_dir} 下没有码流 (*.bin)")
+            print(f"❌ Step 2 失败：{work_dir} 下没有码流 (*.bin)（rc={rc}）")
+            print("   gltf_unpacker 的参数形态未实测，可试 UNPACK_ARGS='{glb} {outdir}'")
             return "failed"
     if rc != 0:
         print("⚠️ gltf_unpacker 返回非 0，但码流已产出，继续")
@@ -260,16 +288,12 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     else:
         print("  ✅ 三件套 json: " + ", ".join(got))
 
-    # --- Step 3/3: bin → PLY ---
-    before = {p.resolve() for p in work_dir.glob("*.ply")}
-    rc = run_cmd(decode_cmd, cwd=cfg["tool_dir"], env=env)
-    produced = out_ply if out_ply.is_file() else None
-    if produced is None:
-        # 只认本次新产出的 ply，避免捡到上一轮的残留
-        fresh = [p for p in sorted(work_dir.glob("*.ply"),
-                                   key=lambda q: q.stat().st_mtime, reverse=True)
-                 if p.resolve() not in before]
-        produced = fresh[0] if fresh else None
+    # --- Step 3/3: bin → PLY（decode 输出名未知，按本次新产出识别）---
+    t_step = time.time()
+    rc = run_cmd(mk_decode(bin_file), cwd=cfg["tool_dir"], env=env)
+    produced = find_fresh(work_dir, "*.ply", t_step - 1.0)
+    if produced is None and out_ply.is_file():
+        produced = out_ply      # decode 直接写到了目标路径（DECODE_ARGS 给了 {ply}）
     if produced is None or not produced.is_file():
         print(f"❌ Step 3 失败：没找到解出的 PLY（既不在 {out_ply}，也不在 {work_dir}/*.ply）")
         return "failed"
