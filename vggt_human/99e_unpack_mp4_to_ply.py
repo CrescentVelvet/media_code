@@ -58,11 +58,15 @@ UWA_JSONS = {
     "view_params": "view_limits.json",
 }
 
+# decode.py 实测产出名（--save-dir 下）。仍按 mtime 发现真实文件，这里只用于报错提示。
+DECODE_PLY_NAME = "decode_point_cloud.ply"
+
 # 默认参数模板。demuxer.py / decode.py 的 CLI 已于 2026-09-14 用 PROBE 实测：
 #   demuxer.py     --mp4_path <mp4> --output_dir <dir>   # GLB 落到 dir，文件名由工具定
 #   decode.py      --bitstream-path <bin> --save-dir <dir>
-#   gltf_unpacker  --help 直接崩（C++ 二进制不处理 help），参数形态尚未实测；
-#                  默认按 gltf_packer 的镜像给 5 个位置参数，实测后可 env 覆盖。
+#   gltf_unpacker  --help 直接崩（C++ 二进制不处理 help）。5 位置参数模板实测可用：
+#                  {bin} 位被正确尊重（码流落到了指定路径），但 3 个 json 位不产出文件
+#                  —— 反向 GLB 只带 6 项白名单（NOTES 第 9 条），三件套拿不齐属常态。
 DEMUX_ARGS_DEFAULT = "--mp4_path {mp4} --output_dir {outdir}"
 UNPACK_ARGS_DEFAULT = "{glb} {bin} {init} {camera} {view}"
 DECODE_ARGS_DEFAULT = "--bitstream-path {bin} --save-dir {outdir}"
@@ -281,10 +285,18 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
         print("⚠️ gltf_unpacker 返回非 0，但码流已产出，继续")
     print(f"  ✅ 码流: {bin_file.name}  ({bin_file.stat().st_size / 1024 / 1024:.1f} MB)")
 
+    # 三件套 json：gltf_unpacker 若忽略给出的路径，会把文件落到 CWD（我们以 tool_dir 为 CWD）
+    if cfg["tool_dir"] != work_dir:
+        for name in UWA_JSONS.values():
+            src, dst = cfg["tool_dir"] / name, work_dir / name
+            if src.is_file() and not dst.exists():
+                shutil.move(str(src), str(dst))
+                print(f"  ↩️ 从 {cfg['tool_dir']} 归位 {name}")
     got = [j.name for j in (j_init, j_cam, j_view) if j.is_file()]
     if len(got) < 3:
         others = sorted(p.name for p in work_dir.glob("*.json"))
-        print(f"  ⚠️ 三件套只拿到 {len(got)}/3；work 下现有 json: {others or '无'}")
+        print(f"  ℹ️ 三件套 {len(got)}/3（work 下现有 json: {others or '无'}）")
+        print("     反向 GLB 只带 6 项白名单（NOTES 第 9 条），拿不齐属常态非故障")
     else:
         print("  ✅ 三件套 json: " + ", ".join(got))
 
@@ -296,6 +308,7 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
         produced = out_ply      # decode 直接写到了目标路径（DECODE_ARGS 给了 {ply}）
     if produced is None or not produced.is_file():
         print(f"❌ Step 3 失败：没找到解出的 PLY（既不在 {out_ply}，也不在 {work_dir}/*.ply）")
+        print(f"   decode.py 实测产出名为 {DECODE_PLY_NAME}；若它写到了别处，用 DECODE_ARGS 覆盖")
         return "failed"
     if produced != out_ply:
         shutil.move(str(produced), str(out_ply))
