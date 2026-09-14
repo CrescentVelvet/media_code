@@ -22,10 +22,14 @@ echo "🚀 [09] 渲染 + HYPIR 后处理增强"
 echo "  🎬 渲染 → $RAW_DIR"
 echo "  🖼️  增强 → $OUT_DIR/images"
 
-FRAMES="${FRAMES:-}" python "$SCRIPT_DIR/render_composite.py"
-if [ $? -ne 0 ]; then
-    echo "❌ [09] 渲染失败" >&2
-    exit 1
+if [ "${SKIP_RENDER:-0}" = "1" ]; then
+    echo "  ⏭️  跳过渲染（SKIP_RENDER=1，复用 $RAW_DIR）"
+else
+    FRAMES="${FRAMES:-}" python "$SCRIPT_DIR/render_composite.py"
+    if [ $? -ne 0 ]; then
+        echo "❌ [09] 渲染失败" >&2
+        exit 1
+    fi
 fi
 
 # HYPIR 依赖在 vggt_human 环境（同 01d）
@@ -40,6 +44,7 @@ HYPIR_DIR="$HYPIR_DIR" \
 HYPIR_BASE_MODEL="$HYPIR_BASE_MODEL" \
 HYPIR_WEIGHT="$HYPIR_WEIGHT" \
 FACE_PADDING="${FACE_PADDING:-0.35}" \
+MIN_SHARPNESS="${MIN_SHARPNESS:-7.0}" \
 UPSCALE="${UPSCALE:-2}" \
 DEBUG_DIR="${DEBUG_DIR:-}" \
     python "$SCRIPT_DIR/enhance_faces.py"

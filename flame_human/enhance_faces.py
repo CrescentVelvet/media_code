@@ -42,6 +42,10 @@ PATCH_SIZE = int(os.environ.get("PATCH_SIZE", "512"))
 STRIDE = int(os.environ.get("STRIDE", "256"))
 DEVICE = os.environ.get("DEVICE", "cuda")
 LIMIT = int(os.environ.get("LIMIT", "0"))          # >0 只处理前 N 帧（冒烟）
+# 输入清晰度闸门（2026-09-14）：拉普拉斯方差低于阈值时**跳过增强**。
+# 动机：输入太糊（运动模糊/遮挡）时 HYPIR 会"编"结构，产生涡状伪影——
+# 宁可保留模糊原图也不引入错误细节。0=关闭（保持旧行为）。
+MIN_SHARPNESS = float(os.environ.get("MIN_SHARPNESS", "0"))
 DEBUG_DIR = os.environ.get("DEBUG_DIR", "")
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -93,6 +97,7 @@ def main():
 
     to_tensor = transforms.ToTensor()
     n_enh = 0
+    n_skip = 0
     t0 = time.time()
     for i, p in enumerate(imgs):
         stem = p.stem
@@ -107,14 +112,26 @@ def main():
             img_pil.save(dst)          # 无 p0 脸 → 原样
             continue
         W, H = img_pil.size
-        x1, y1, x2, y2 = rec["bbox"]
-        bw, bh = x2 - x1, y2 - y1
-        x1 = max(0, int(x1 - bw * FACE_PADDING))
-        y1 = max(0, int(y1 - bh * FACE_PADDING))
-        x2 = min(W, int(x2 + bw * FACE_PADDING))
-        y2 = min(H, int(y2 + bh * FACE_PADDING))
+        bx1, by1, bx2, by2 = [float(v) for v in rec["bbox"]]
+        bw, bh = bx2 - bx1, by2 - by1
+        x1 = max(0, int(bx1 - bw * FACE_PADDING))
+        y1 = max(0, int(by1 - bh * FACE_PADDING))
+        x2 = min(W, int(bx2 + bw * FACE_PADDING))
+        y2 = min(H, int(by2 + bh * FACE_PADDING))
         crop = img_pil.crop((x1, y1, x2, y2))
         cw, ch = crop.size
+        if MIN_SHARPNESS > 0:
+            # ⚠️ 度量必须用**未加 padding 的脸框**：加了 padding 会把背景纹理
+            # 算进来（方差偏高）→ 闸门失效（首轮踩过：跳过 0 帧）
+            g = np.asarray(img_pil.crop(
+                (int(bx1), int(by1), int(bx2), int(by2))).convert("L"),
+                dtype=np.float32)
+            lap = (4 * g[1:-1, 1:-1] - g[:-2, 1:-1] - g[2:, 1:-1]
+                   - g[1:-1, :-2] - g[1:-1, 2:])
+            if float(lap.var()) < MIN_SHARPNESS:
+                img_pil.save(dst)          # 太糊 → 不增强，保留原样
+                n_skip += 1
+                continue
         t = to_tensor(crop).unsqueeze(0)
         pad_w = (8 - cw % 8) % 8
         pad_h = (8 - ch % 8) % 8
@@ -152,8 +169,8 @@ def main():
         if (i + 1) % 10 == 0 or i == 0:
             print(f"  [{i+1}/{len(imgs)}] {stem} "
                   f"({time.time()-t0:.0f}s)")
-    print(f"✅ 增强 {n_enh} 帧（无脸帧原样拷贝）→ {out_images}  "
-          f"总耗时 {time.time()-t0:.0f}s")
+    print(f"✅ 增强 {n_enh} 帧 / 跳过 {n_skip} 帧（太糊或无需增强），"
+          f"其余原样拷贝 → {out_images}  总耗时 {time.time()-t0:.0f}s")
 
 
 if __name__ == "__main__":
