@@ -38,7 +38,6 @@ Env vars:
                    DECODE_ARGS  {bin} {ply} {outdir}
                  例：DEMUX_ARGS='--in {mp4} --glb {glb} --video {video}'
 """
-import json
 import os
 import shlex
 import shutil
@@ -273,6 +272,62 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     print(f"  ✅ {out_ply}  ({out_ply.stat().st_size / 1024 / 1024:.1f} MB)"
           f"  ⏱️ {time.time() - t0:.1f}s")
     return "ok"
+
+
+# --------------------------------------------------------------------------
+# 入口
+# --------------------------------------------------------------------------
+def main():
+    # ===== 在这里直接改路径（或用环境变量覆盖）=====
+    TOOL_DIR = Path(os.environ.get("TOOL_DIR", "../../model/UWA_Sample_Tool_v3"))
+    # ==============================================
+    cfg = {
+        "tool_dir": TOOL_DIR,
+        "python_bin": os.environ.get("PYTHON_BIN", "python"),
+        "astc_block": os.environ.get("ASTC_BLOCK", "4"),
+        "force": os.environ.get("FORCE", "0") == "1",
+        # 默认保留中间产物：GLB/bin/视频/json 是排查和复用的关键
+        "keep_work": os.environ.get("KEEP_WORK", "1") == "1",
+        "dry_run": os.environ.get("DRY_RUN", "0") == "1",
+    }
+
+    # --- 前置检查 ---
+    if not TOOL_DIR.is_dir():
+        sys.exit(f"❌ 工具链目录不存在: {TOOL_DIR}")
+    missing = [f for f in (DEMUXER, UNPACKER, DECODER) if not (TOOL_DIR / f).is_file()]
+    if missing:
+        sys.exit(f"❌ 工具链缺少 {', '.join(missing)}（在 {TOOL_DIR} 下）")
+    if not os.access(TOOL_DIR / UNPACKER, os.X_OK):
+        sys.exit(f"❌ gltf_unpacker 不可执行（需 chmod +x）: {TOOL_DIR / UNPACKER}")
+    if shutil.which(cfg["python_bin"]) is None:
+        sys.exit(f"❌ PATH 里找不到解释器: {cfg['python_bin']}（用 PYTHON_BIN 指定）")
+
+    env = make_env(TOOL_DIR)
+
+    if os.environ.get("PROBE", "0") == "1":
+        probe(TOOL_DIR, cfg["python_bin"], env)
+        return
+
+    mp4 = resolve_mp4()
+    task, batch, out_dir, work_dir = resolve_dirs(mp4)
+
+    print(f"🔍 输入 MP4: {mp4}")
+    print(f"📦 批次:     {batch}")
+    print(f"💾 输出 PLY: {out_dir / (task + '.ply')}")
+    print(f"🧰 工作目录: {work_dir}")
+    print(f"🛠️ 工具链:   {TOOL_DIR}")
+    if cfg["dry_run"]:
+        print("⏭️  DRY_RUN=1（只打印命令）")
+    print()
+
+    status = unpack_one(mp4, out_dir, work_dir, cfg, env)
+
+    if status == "failed":
+        sys.exit("❌ 解封装失败")
+    if not cfg["dry_run"] and not cfg["keep_work"] and work_dir.is_dir():
+        shutil.rmtree(work_dir, ignore_errors=True)
+        print(f"🧹 已清理中间产物: {work_dir}")
+    print("🎉 Done.")
 
 
 if __name__ == "__main__":
