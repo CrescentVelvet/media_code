@@ -94,12 +94,20 @@ def run_cmd(cmd, cwd=None, env=None, log_tail: int = 15) -> int:
 
 
 def build_args(env_name: str, default: str, **kw) -> list:
-    """把模板渲染成参数列表：env 覆盖优先，占位符用 kw 里的路径填充。"""
+    """把模板渲染成参数列表：env 覆盖优先，占位符用 kw 里的路径填充。
+
+    先 split 模板再代入路径——若先代入后 split，shlex 会把 Windows 路径里的
+    反斜杠当转义符吃掉（C:\\a\\b → C:ab）；含空格的路径也不会被二次拆开。
+    """
     tpl = os.environ.get(env_name, "").strip() or default
-    try:
-        return shlex.split(tpl.format(**{k: str(v) for k, v in kw.items()}))
-    except KeyError as e:
-        sys.exit(f"❌ {env_name} 里的占位符未知: {e}（可用: {', '.join(kw)}）")
+    subs = {k: str(v) for k, v in kw.items()}
+    out = []
+    for part in shlex.split(tpl):
+        try:
+            out.append(part.format(**subs))
+        except KeyError as e:
+            sys.exit(f"❌ {env_name} 里的占位符未知: {e}（可用: {', '.join(kw)}）")
+    return out
 
 
 def make_env(tool_dir: Path) -> dict:
