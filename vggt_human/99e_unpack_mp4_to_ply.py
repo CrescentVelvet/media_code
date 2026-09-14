@@ -174,5 +174,106 @@ def probe(tool_dir: Path, python_bin: str, env: dict) -> None:
         print()
 
 
+# --------------------------------------------------------------------------
+# 解封装（单样例三步）
+# --------------------------------------------------------------------------
+def find_newest(d: Path, pattern: str) -> Path | None:
+    cands = sorted(d.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    return cands[0] if cands else None
+
+
+def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -> str:
+    """单样例解包：MP4 → GLB+视频 → bin+json → PLY。返回 ok/skip/failed。"""
+    task = mp4.stem
+    out_ply = out_dir / f"{task}.ply"
+    if out_ply.is_file() and not cfg["force"] and not cfg["dry_run"]:
+        print(f"⏭️ 已存在，跳过: {out_ply}（FORCE=1 可覆盖）")
+        return "skip"
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    if not cfg["dry_run"]:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    glb = work_dir / "3DGS.glb"
+    video = work_dir / "output.mp4"
+    bin_file = work_dir / f"GSCompressed_B{cfg['astc_block']}.bin"
+    j_init = work_dir / UWA_JSONS["init_camera"]
+    j_cam = work_dir / UWA_JSONS["camera"]
+    j_view = work_dir / UWA_JSONS["view_params"]
+
+    # 三步命令统一走 *_ARGS 模板（参数名与镜像推测不符时可 env 覆盖，无需改脚本）
+    demux_cmd = [cfg["python_bin"], DEMUXER] + build_args(
+        "DEMUX_ARGS", DEMUX_ARGS_DEFAULT, mp4=mp4, glb=glb, video=video)
+    unpack_cmd = [str(cfg["tool_dir"] / UNPACKER)] + build_args(
+        "UNPACK_ARGS", UNPACK_ARGS_DEFAULT, glb=glb, bin=bin_file,
+        init=j_init, camera=j_cam, view=j_view, outdir=work_dir)
+    decode_cmd = [cfg["python_bin"], DECODER] + build_args(
+        "DECODE_ARGS", DECODE_ARGS_DEFAULT, bin=bin_file, ply=out_ply, outdir=work_dir)
+
+    print("[Step 1/3] 🎬 解复用 MP4 → GLB + 视频")
+    print(f"  $ {' '.join(str(c) for c in demux_cmd)}")
+    print("[Step 2/3] 📦 解包 GLB → 码流 + 三件套 json")
+    print(f"  $ {' '.join(str(c) for c in unpack_cmd)}")
+    print("[Step 3/3] 📦 解码码流 → PLY")
+    print(f"  $ {' '.join(str(c) for c in decode_cmd)}")
+
+    if cfg["dry_run"]:
+        print("⏭️ DRY_RUN=1，以上命令未执行")
+        return "ok"
+
+    t0 = time.time()
+
+    # --- Step 1/3: MP4 → GLB + 视频 ---
+    rc = run_cmd(demux_cmd, cwd=cfg["tool_dir"], env=env)
+    if rc != 0 or not glb.is_file():
+        print(f"❌ Step 1 失败：没得到 GLB（{glb}）")
+        print("   若参数名不符，先 PROBE=1 查真名，再用 DEMUX_ARGS 覆盖")
+        return "failed"
+    print(f"  ✅ GLB: {glb.name}  ({glb.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    # --- Step 2/3: GLB → bin + 三件套 json ---
+    rc = run_cmd(unpack_cmd, cwd=cfg["tool_dir"], env=env)
+    if not bin_file.is_file():
+        # 块大小由工具内部决定，文件名对不上时按实际产物兜底
+        alt = find_newest(work_dir, "GSCompressed_B*.bin") or find_newest(work_dir, "*.bin")
+        if alt:
+            print(f"⚠️ 期望 {bin_file.name} 不存在，改用实际产物 {alt.name}")
+            bin_file = alt
+        else:
+            print(f"❌ Step 2 失败：{work_dir} 下没有码流 (*.bin)")
+            return "failed"
+    if rc != 0:
+        print("⚠️ gltf_unpacker 返回非 0，但码流已产出，继续")
+    print(f"  ✅ 码流: {bin_file.name}  ({bin_file.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    got = [j.name for j in (j_init, j_cam, j_view) if j.is_file()]
+    if len(got) < 3:
+        others = sorted(p.name for p in work_dir.glob("*.json"))
+        print(f"  ⚠️ 三件套只拿到 {len(got)}/3；work 下现有 json: {others or '无'}")
+    else:
+        print("  ✅ 三件套 json: " + ", ".join(got))
+
+    # --- Step 3/3: bin → PLY ---
+    before = {p.resolve() for p in work_dir.glob("*.ply")}
+    rc = run_cmd(decode_cmd, cwd=cfg["tool_dir"], env=env)
+    produced = out_ply if out_ply.is_file() else None
+    if produced is None:
+        # 只认本次新产出的 ply，避免捡到上一轮的残留
+        fresh = [p for p in sorted(work_dir.glob("*.ply"),
+                                   key=lambda q: q.stat().st_mtime, reverse=True)
+                 if p.resolve() not in before]
+        produced = fresh[0] if fresh else None
+    if produced is None or not produced.is_file():
+        print(f"❌ Step 3 失败：没找到解出的 PLY（既不在 {out_ply}，也不在 {work_dir}/*.ply）")
+        return "failed"
+    if produced != out_ply:
+        shutil.move(str(produced), str(out_ply))
+        print(f"  ↩️ 重命名 {produced.name} → {out_ply.name}")
+
+    print(f"  ✅ {out_ply}  ({out_ply.stat().st_size / 1024 / 1024:.1f} MB)"
+          f"  ⏱️ {time.time() - t0:.1f}s")
+    return "ok"
+
+
 if __name__ == "__main__":
     main()
