@@ -363,6 +363,24 @@ THETA_MARGIN 系列同样不进成品）。
 > 是否可行——若 extension 里本就带完整字段，那条路就彻底打开了。
 > 验证方法：拿 99b 打包前的原始三件套与解出来的三份做字段级 diff。
 
+> **2026-09-15 判读（用户实测 view_limits.json / init_cam.json 内容）**：
+> - `thetaBuffer` / `phiBuffer` **确认不在**解出的 view_limits.json 里 → 白名单结论对
+>   这两个字段成立，「回弹锁死」这条路死掉（回弹是播放器内置行为，不走数据通路）。
+> - 但解出的 view_limits.json **有** `minPhi/maxPhi/minTheta/maxTheta/minRadius/maxRadius`
+>   （外加 `gravityCoordinate` / `target` / `min|max X Y Z`），共 14 项，字段名与 99c 的
+>   输入 json **完全一致**。即白名单六项的映射是：`longitude→Phi 区间`、`latitude→Theta
+>   区间`、`distance→Radius 区间`、`gravity→gravityCoordinate`、`target→target`、
+>   `boundingbox→min|max XYZ`。
+> - 实测样本 `temp_video_1789371030897`：Phi[127.510, 238.405]、Theta[58.912, 66.155]、
+>   R[0.4318, 2.1590]；由 init_cam 反算 pos−target 半径 1.9089、极角(自 −Y 轴) 58.900，
+>   与 minTheta 58.912 差 0.012° → **疑似以 init 相机为锚**，但精度不足以定论。
+> - 区间跨度随内容变化（本样本 Theta 跨度 7.243°；此前多样本 Theta 半跨度
+>   7.19 / 6.16 / 2.475）→ **不是固定余量推导**，跨度是可变量。
+> - **仍待定论的一步**：直接 dump GLB 的 JSON chunk，看 `UWA_viewing_parameters` 原始块
+>   里是 3 个标量还是 6 个区间字段。只有标量 → 区间是解封装时推导的，99c 收窄无用；
+>   若原始块里就带区间 → **白名单结论需修正**，99c 的 RADIUS/THETA 有救，要回头查
+>   为何实测无效（可能 99c 写的位置不对，或测试用了旧 mp4）。
+
 **10. 99e 解封装报 `FileNotFoundError: /dev/shm/.../image0.bmp`（2026-09-15）**
 
 真因不在 PLY 也不在 decode 逻辑，而是 **`astcenc` 缺可执行权限**，且错误被吞掉：
