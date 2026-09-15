@@ -329,7 +329,28 @@ diskpart
 # compact vdisk
 ```
 
-**9. 99c 的 thetaBuffer/phiBuffer 与 RADIUS_RANGE_SCALE 不生效（2026-09-10 实锤）**
+**9. 99c 的 thetaBuffer/phiBuffer 曾不生效（2026-09-10 实测）→ 2026-09-15 定位并修复**
+
+> **2026-09-15 结论修正（取代下面的原始记录）**
+>
+> 真因不是「六项白名单丢掉所有区间字段」，而是 **cgltf 封装侧原本不写
+> `thetaBuffer` / `phiBuffer` 这两项**。99e 从旧 MP4 解回的 view_limits.json 实测
+> 有 14 项，`minPhi/maxPhi`、`minTheta/maxTheta`、`minRadius/maxRadius` **都在**，
+> 字段名与 99c 的输入 json 完全一致 → 区间字段一直是写进去的。
+>
+> 用户已**修改 cgltf 源码补上这两项的写入**：**新封装的 MP4 会带
+> `thetaBuffer` / `phiBuffer`，旧 MP4 不带**（要看效果必须重新封装）。
+>
+> 由此：①「回弹锁死」这条路**重新打开**，不再是死路；②`RADIUS_RANGE_SCALE` /
+> `PHI_MARGIN` / `THETA_MARGIN` 当时实测无效**另有原因**，待复查（区间既已在文件里，
+> 就该查是不是被上游 encode 覆盖、写入位置不对，或测试样本不对）。
+>
+> **一次跑通三件事的验证法**：cgltf 补丁后的链路跑 99c（buffer=0、区间按 cfg 收窄）
+> → 99e 解回 → 比对 view_limits.json：① `thetaBuffer/phiBuffer` 是否落值；
+> ② `minPhi/maxPhi`/`minTheta/maxTheta` 是否等于 99c 打印的「新」值；
+> ③ `minRadius/maxRadius` 是否向 init 半径内缩。
+
+原始记录（2026-09-10，其中「丢弃字段清单」的表述已被本次修正取代，保留作历史）：
 gltf_packer 往 UWA_viewing_parameters 里**只写六项白名单字段**：
 `longitude、latitude、distance、gravity、target、boundingbox`，view_limits.json
 里的其他字段（thetaBuffer/phiBuffer、minRadius/maxRadius、minPhi/maxPhi、
@@ -357,11 +378,16 @@ THETA_MARGIN 系列同样不进成品）。
 > `cameras.json` / `init_cam.json` / `view_limit.json`（注意与官方
 > `camera.json` / `init_camera.json` / `view_limits.json` 不同名，99e 已做候选名容错）。
 >
-> **待验证**：这三份 json 的内容是否等价于打包前的原始 json（还是只 dump 了
-> UWA_viewing_parameters 的那 6 项白名单）。这直接决定：
-> ① 能否回灌 99b/99c 做往返；② 上面「出路 2：绕过 gltf_packer 直改 GLB 二进制」
-> 是否可行——若 extension 里本就带完整字段，那条路就彻底打开了。
-> 验证方法：拿 99b 打包前的原始三件套与解出来的三份做字段级 diff。
+> **2026-09-15 后续判读**：解出的 view_limits.json 是 **14 项**
+> （`gravityCoordinate` / `min|maxPhi` / `min|maxTheta` / `min|maxRadius` /
+> `min|max X Y Z` / `target`）——**不是只 dump 六项白名单**，区间字段确实在；
+> 但 `thetaBuffer` / `phiBuffer` 不在（旧 MP4 未写，见本条正文修正）。
+> 反算：init 相机 pos−target 半径 1.9089、极角(自 −Y) 58.900 vs `minTheta` 58.912，
+> 疑似以初始相机为锚；区间跨度随场景变化（本样本 Theta 跨度 7.243°，历史半跨度
+> 7.19 / 6.16 / 2.475），**不是固定余量推导**。
+>
+> **仍待定论**：GLB 的 `UWA_viewing_parameters` 原始块里到底是标量还是区间——
+> 这决定 99c 的区间收窄能否生效。验证法见本条「一次跑通三件事」。
 
 > **2026-09-15 判读（用户实测 view_limits.json / init_cam.json 内容）**：
 > - `thetaBuffer` / `phiBuffer` **确认不在**解出的 view_limits.json 里 → 白名单结论对
