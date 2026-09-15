@@ -351,3 +351,25 @@ THETA_MARGIN 系列同样不进成品）。
 - 绕过 gltf_packer，直接改 GLB 二进制里的 UWA_viewing_parameters extension
   （JSONX pack 无校验，事后注入理论上可行）；
 - 询问图库/UWA 工具链提供方是否有新版 gltf_packer 支持完整字段。
+
+**10. 99e 解封装报 `FileNotFoundError: /dev/shm/.../image0.bmp`（2026-09-15）**
+
+真因不在 PLY 也不在 decode 逻辑，而是 **`astcenc` 缺可执行权限**，且错误被吞掉：
+
+1. `decode.py` 用 shell 脚本调用 `src/xencode/tools/astcenc-sse2` 把 `.astc` 转 `.bmp`；
+   该文件权限是 `-rw-rw-r--`（**没有 +x**），bash 直接 `Permission denied`
+2. 这个调用的报错被**重定向到临时目录的日志**（`decode.py` 内部），而临时目录在
+   `/dev/shm` 下、进程退出即删除 —— **错误被彻底吞掉**
+3. astcenc 没产出 `image0.bmp`，于是 PIL 打开时报 `FileNotFoundError: image0.bmp`，
+   表象离真因极远，几乎无法从报错反推
+
+修复：`chmod +x <tool_dir>/src/xencode/tools/astcenc-sse2`（该工具目录里可能同时有
+`astcenc-avx2` 等变体，decode.py 指定用的是 sse2）。
+
+99e 已做前置拦截：启动时扫描 `TOOL_DIR` 下所有 `astcenc*` 检查 `os.X_OK`，缺执行位
+直接报错并打印可复制的 `chmod +x` 命令；`ASTCENC_AUTOFIX=1` 可自动补。
+`ASTCENC_PATH` 可显式指定路径（工具链版本不同时兜底）。
+
+教训：**凡是「报错被重定向进临时目录」的子进程，都要在上游做前置检查**——这类静默
+失败的表象（PIL 打不开文件）与真因（少一个执行位）之间没有任何线索链。
+

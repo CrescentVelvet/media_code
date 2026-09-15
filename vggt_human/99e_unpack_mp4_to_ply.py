@@ -13,6 +13,9 @@
     boundingbox 六项白名单（详见 NOTES.md 第 9 条），其余字段打包时已丢弃。
   - PLY 未必位级无损：encode/decode 若含量化，往返会有数值偏差。
   - 反向产出的三件套 json 不可当原始 json 回灌 99b/99c。
+  - decode.py 依赖 astcenc 把 .astc 转 .bmp，且把它的报错重定向到 /dev/shm 临时日志
+    （退出即删）——缺执行位时错误被吞掉，最终伪装成 PIL 的 FileNotFoundError:
+    image0.bmp，极难定位。本脚本已在前置检查里拦这一项（见 check_astcenc）。
 
 用法:
     python vggt_human/99e_unpack_mp4_to_ply.py /path/to/taskA.mp4
@@ -31,6 +34,10 @@ Env vars:
     DRY_RUN      默认 0；只打印三步命令不执行
     PROBE        默认 0；置 1 只跑三个工具的 usage 后退出
     ASTC_BLOCK   期望的 bin 块大小（默认 4，仅用于拼文件名；对不上自动 glob 兜底）
+    ASTCENC_PATH 显式指定 astcenc 可执行文件（默认在 TOOL_DIR 下自动找）
+    ASTCENC_AUTOFIX
+                 默认 0：发现 astcenc 缺执行位时报错并给出 chmod 命令；
+                 置 1 则自动补 chmod +x 后继续
     DEMUX_ARGS / UNPACK_ARGS / DECODE_ARGS
                  完整参数模板覆盖（留空用实测/镜像的默认参数）。占位符：
                    DEMUX_ARGS   {mp4} {glb} {video} {outdir}
@@ -126,6 +133,45 @@ def make_env(tool_dir: Path) -> dict:
     old = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = os.pathsep.join(parts + ([old] if old else []))
     return env
+
+
+# decode.py 内部经 shell 调用 astcenc 把 .astc 转 .bmp，且把它的报错重定向到 /dev/shm
+# 临时日志（退出即删）。缺执行位时 Permission denied 被吞掉，只表现为 PIL 打不开
+# image0.bmp——所以这里必须前置拦，不能等 Step 3 报错再猜。
+ASTCENC_GLOBS = ("src/xencode/tools/astcenc*", "**/astcenc*")
+
+
+def check_astcenc(tool_dir: Path) -> list:
+    """检查 astcenc 可执行位。返回「存在但不可执行」的列表（空 = 通过）。
+
+    ASTCENC_AUTOFIX=1 时直接补 chmod +x；找不到文件不报错（不同版本路径可能不同）。
+    """
+    explicit = os.environ.get("ASTCENC_PATH", "").strip()
+    if explicit:
+        cands = [Path(explicit)]
+    else:
+        cands = sorted({p for pat in ASTCENC_GLOBS for p in tool_dir.glob(pat)
+                        if p.is_file()})
+    if not cands:
+        print("  ℹ️ 未找到 astcenc（版本差异，跳过；若 Step 3 报 image0.bmp 缺失，"
+              "用 ASTCENC_PATH 指定）")
+        return []
+
+    autofix = os.environ.get("ASTCENC_AUTOFIX", "0") == "1"
+    bad = []
+    for p in cands:
+        if os.access(p, os.X_OK):
+            print(f"  ✅ astcenc 可执行: {p}")
+            continue
+        if autofix:
+            try:
+                p.chmod(p.stat().st_mode | 0o111)
+                print(f"  🔧 已补执行位: {p}")
+                continue
+            except OSError as e:
+                print(f"  ⚠️ 自动 chmod 失败: {e}")
+        bad.append(p)
+    return bad
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +355,8 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     if produced is None or not produced.is_file():
         print(f"❌ Step 3 失败：没找到解出的 PLY（既不在 {out_ply}，也不在 {work_dir}/*.ply）")
         print(f"   decode.py 实测产出名为 {DECODE_PLY_NAME}；若它写到了别处，用 DECODE_ARGS 覆盖")
+        print("   若日志里有 FileNotFoundError: .../image0.bmp → astcenc 缺执行位"
+              "（chmod +x <astcenc> 或 ASTCENC_AUTOFIX=1）")
         return "failed"
     if produced != out_ply:
         shutil.move(str(produced), str(out_ply))
@@ -352,6 +400,14 @@ def main():
     if os.environ.get("PROBE", "0") == "1":
         probe(TOOL_DIR, cfg["python_bin"], env)
         return
+
+    # decode.py 的隐式依赖：astcenc 缺执行位会静默失败，必须前置拦（见 check_astcenc）
+    bad_astc = check_astcenc(TOOL_DIR)
+    if bad_astc:
+        sys.exit("❌ astcenc 存在但没有可执行位，decode.py 会静默失败"
+                 "（伪装成 FileNotFoundError: image0.bmp）。修复：\n   "
+                 + "\n   ".join(f"chmod +x {p}" for p in bad_astc)
+                 + "\n   或加 ASTCENC_AUTOFIX=1 自动补")
 
     mp4 = resolve_mp4()
     task, batch, out_dir, work_dir = resolve_dirs(mp4)
