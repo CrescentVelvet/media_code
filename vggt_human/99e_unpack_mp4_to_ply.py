@@ -23,14 +23,18 @@
     image0.bmp，极难定位。本脚本已在前置检查里拦这一项（见 check_astcenc）。
 
 用法:
-    python vggt_human/99e_unpack_mp4_to_ply.py /path/to/taskA.mp4
     MP4=/path/to/taskA.mp4 python vggt_human/99e_unpack_mp4_to_ply.py
-    PROBE=1 TOOL_DIR=../../model/UWA_Sample_Tool_v3 \
-        python vggt_human/99e_unpack_mp4_to_ply.py     # 只看三个工具的 usage
+    python ... /path/to/taskA.mp4     # 默认路径是mp4的路径
+    python ... taskA.mp4              # 裸文件名：到缺省目录 <RESULTS_ROOT>/<批次>/mp4/ 下找
+    python ...                        # 不给 MP4：缺省目录里恰好一个 mp4 就直接用
+    PROBE=1 TOOL_DIR=../../model/UWA_Sample_Tool_v3 python ...     # 只看三个工具的 usage
 
 Env vars:
-    MP4          输入 MP4（也可用命令行第一个位置参数）
+    MP4          输入 MP4（也可用命令行第一个位置参数，支持裸文件名）
     TOOL_DIR     工具链根（含 demuxer.py / decode.py / build/gltf_unpacker）
+    SRC_ROOT     批次源根（与 99c 同名同默认；99e 只取它的目录名当批次名）
+    RESULTS_ROOT 统一结果根（与 99c 同名同默认；MP4 缺省搜索目录 =
+                 <RESULTS_ROOT>/<SRC_ROOT 批次名>/mp4/，即 99b 成品位置）
     PYTHON_BIN   跑 demuxer.py / decode.py 的解释器（默认 python）
     OUT_DIR      输出目录（默认 <MP4 所属批次>/unpack_ply，产出 <task>.ply）
     WORK_DIR     中间产物目录（默认 <批次>/unpack_work/<task>）
@@ -187,14 +191,30 @@ def check_astcenc(tool_dir: Path) -> list:
 # --------------------------------------------------------------------------
 # 输入 / 路径解析
 # --------------------------------------------------------------------------
-def resolve_mp4() -> Path:
-    """输入 MP4：命令行第一个位置参数优先，其次 env MP4。"""
+def resolve_mp4(default_dir: Path) -> Path:
+    """输入 MP4：命令行第一个位置参数 → env MP4 → 缺省目录里唯一 mp4。
+
+    位置参数支持裸文件名（如 taskA.mp4）：先按相对 CWD 找，不存在再落到
+    default_dir（<RESULTS_ROOT>/<SRC_ROOT 批次名>/mp4/）里找。
+    """
     arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else ""
-    raw = arg or os.environ.get("MP4", "").strip()
+    raw = (arg or os.environ.get("MP4", "")).strip()
     if not raw:
-        sys.exit("❌ 未指定输入 MP4。用法: python vggt_human/99e_unpack_mp4_to_ply.py /path/to/x.mp4"
-                 "（或先用 MP4=/path/to/x.mp4）")
+        cands = sorted(default_dir.glob("*.mp4"))
+        if len(cands) == 1:
+            print(f"ℹ️ 未指定 MP4，使用缺省目录里唯一的: {cands[0]}")
+            return cands[0].resolve()
+        if len(cands) > 1:
+            sys.exit(f"❌ 缺省目录里有多份 mp4，请指定其一: {default_dir}\n"
+                     + "\n".join(f"   {p.name}" for p in cands))
+        sys.exit(f"❌ 未指定输入 MP4（缺省目录没有 mp4: {default_dir}）。"
+                 "用法: python vggt_human/99e_unpack_mp4_to_ply.py /path/to/x.mp4"
+                 "（或裸文件名 / MP4= 环境变量）")
     mp4 = Path(raw).expanduser()
+    if not mp4.is_file() and not mp4.is_absolute() and mp4.parent == Path("."):
+        alt = default_dir / mp4          # 裸文件名 → 缺省目录里找
+        if alt.is_file():
+            mp4 = alt
     if not mp4.is_file():
         sys.exit(f"❌ MP4 不存在: {mp4}")
     return mp4.resolve()
@@ -426,7 +446,18 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
 # --------------------------------------------------------------------------
 def main():
     # ===== 在这里直接改路径（或用环境变量覆盖）=====
-    TOOL_DIR = Path(os.environ.get("TOOL_DIR", "../../model/UWA_Sample_Tool_v3"))
+    TOOL_DIR = Path(os.environ.get(
+        "TOOL_DIR", "../../model/UWA_Sample_Tool_v3"))
+    # 批次源根（与 99c 同名同默认）：99e 只取它的目录名当批次名
+    SRC_ROOT = Path(os.environ.get(
+        "SRC_ROOT",
+        "../../code/Reconstruction/output/"
+        "B003_Human_Data_w_pose-脸红优化+外插视角增强"))
+    # 统一结果根（与 99c 同名同默认）：缺省 MP4 搜索目录 = <RESULTS_ROOT>/<批次>/mp4/
+    RESULTS_ROOT = Path(os.environ.get(
+        "RESULTS_ROOT", "../../output/recon_human_results"))
+    batch = SRC_ROOT.resolve().name
+    DEFAULT_MP4_DIR = RESULTS_ROOT / batch / "mp4"   # 99b 成品位置
     # ==============================================
     cfg = {
         "tool_dir": TOOL_DIR,
@@ -463,7 +494,7 @@ def main():
                  + "\n   ".join(f"chmod +x {p}" for p in bad_astc)
                  + "\n   或加 ASTCENC_AUTOFIX=1 自动补")
 
-    mp4 = resolve_mp4()
+    mp4 = resolve_mp4(DEFAULT_MP4_DIR)
     task, batch, out_dir, work_dir = resolve_dirs(mp4)
 
     print(f"🔍 输入 MP4: {mp4}")
