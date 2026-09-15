@@ -352,6 +352,17 @@ THETA_MARGIN 系列同样不进成品）。
   （JSONX pack 无校验，事后注入理论上可行）；
 - 询问图库/UWA 工具链提供方是否有新版 gltf_packer 支持完整字段。
 
+> **2026-09-15 补充**：本条的「反向拿不到三件套」结论已被改动推翻——用户直接修改
+> **cgltf 源码增加 json 输出**后，99e 解封装能拿到三件套了，实际文件名是
+> `cameras.json` / `init_cam.json` / `view_limit.json`（注意与官方
+> `camera.json` / `init_camera.json` / `view_limits.json` 不同名，99e 已做候选名容错）。
+>
+> **待验证**：这三份 json 的内容是否等价于打包前的原始 json（还是只 dump 了
+> UWA_viewing_parameters 的那 6 项白名单）。这直接决定：
+> ① 能否回灌 99b/99c 做往返；② 上面「出路 2：绕过 gltf_packer 直改 GLB 二进制」
+> 是否可行——若 extension 里本就带完整字段，那条路就彻底打开了。
+> 验证方法：拿 99b 打包前的原始三件套与解出来的三份做字段级 diff。
+
 **10. 99e 解封装报 `FileNotFoundError: /dev/shm/.../image0.bmp`（2026-09-15）**
 
 真因不在 PLY 也不在 decode 逻辑，而是 **`astcenc` 缺可执行权限**，且错误被吞掉：

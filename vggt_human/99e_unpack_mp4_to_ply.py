@@ -8,11 +8,16 @@
   [3/3] decode.py       bin  → PLY
 
 ⚠️ 已知局限（务必先读）
-  - 还原出的 view_limits.json 必然是残缺版：gltf_packer 只往
-    UWA_viewing_parameters 写 longitude/latitude/distance/gravity/target/
-    boundingbox 六项白名单（详见 NOTES.md 第 9 条），其余字段打包时已丢弃。
+  - 三件套 json 的完整性取决于工具链版本：
+      · 原版 gltf_packer 只往 UWA_viewing_parameters 写 longitude/latitude/
+        distance/gravity/target/boundingbox 六项白名单（NOTES.md 第 9 条），
+        此时反向拿不到三件套；
+      · cgltf 打了「补丁输出 json」后可以拿到三件套，但内容是否等价于打包前的
+        原始 json 尚未验证——**回灌 99b/99c 前务必先比对字段**。
   - PLY 未必位级无损：encode/decode 若含量化，往返会有数值偏差。
-  - 反向产出的三件套 json 不可当原始 json 回灌 99b/99c。
+  - 三件套命名在不同版本/补丁下不一致（如 cameras.json / init_cam.json /
+    view_limit.json），脚本按 UWA_JSONS 候选名 + 名字子串两级容错识别；
+    传参给 gltf_unpacker 时统一用官方名，便于回灌 99b/99c。
   - decode.py 依赖 astcenc 把 .astc 转 .bmp，且把它的报错重定向到 /dev/shm 临时日志
     （退出即删）——缺执行位时错误被吞掉，最终伪装成 PIL 的 FileNotFoundError:
     image0.bmp，极难定位。本脚本已在前置检查里拦这一项（见 check_astcenc）。
@@ -58,12 +63,17 @@ DEMUXER = "demuxer.py"
 UNPACKER = "build/gltf_unpacker"
 DECODER = "decode.py"
 
-# 反向三件套 json 名（gltf_unpacker 的产出）
+# 反向三件套 json 名。**首个是官方名**（99b 正向生成、99c 回灌、UWA 样本都用它），
+# 传参给 gltf_unpacker 时用它，便于解出来的 json 直接回灌 99b/99c；
+# 其余为已知别名（cgltf 补丁实测输出 cameras.json / init_cam.json / view_limit.json）。
 UWA_JSONS = {
-    "init_camera": "init_camera.json",
-    "camera": "camera.json",
-    "view_params": "view_limits.json",
+    "init_camera": ("init_camera.json", "init_cam.json"),
+    "camera": ("camera.json", "cameras.json"),
+    "view_params": ("view_limits.json", "view_limit.json"),
 }
+# 候选名全不命中时按文件名子串兜底归类。顺序不能反：init_cam.json 同时含
+# "init" 和 "cam"，必须先匹配 init。
+JSON_HINTS = (("init_camera", "init"), ("view_params", "view"), ("camera", "cam"))
 
 # decode.py 实测产出名（--save-dir 下）。仍按 mtime 发现真实文件，这里只用于报错提示。
 DECODE_PLY_NAME = "decode_point_cloud.ply"
@@ -248,6 +258,47 @@ def find_fresh(d: Path, pattern: str, since: float) -> Path | None:
     return max(cands, key=lambda p: p.stat().st_mtime)
 
 
+def pick_glb(work_dir: Path, since: float) -> Path | None:
+    """挑 demuxer 产出的 GLB：优先精确名 3DGS.glb，否则取本次最新的 *.glb。
+
+    补丁版 unpacker 会额外写出 3DGS_1.glb 之类的副本，用名字偏好保证结果确定。
+    """
+    exact = work_dir / "3DGS.glb"
+    if exact.is_file() and exact.stat().st_mtime >= since:
+        return exact
+    return find_fresh(work_dir, "*.glb", since)
+
+
+def find_jsons(work_dir: Path, tool_dir: Path) -> dict:
+    """收集三件套 json，返回 {key: Path}。
+
+    两级容错：① 候选名逐个试（官方名优先）；② 全不命中时按文件名子串猜。
+    工具若忽略给出的输出路径、把 json 写进 CWD（我们以 tool_dir 为 CWD），自动归位。
+    """
+    found = {}
+    for key, cands in UWA_JSONS.items():
+        for base in (work_dir, tool_dir):
+            hit = next((base / n for n in cands if (base / n).is_file()), None)
+            if hit is None:
+                continue
+            if base != work_dir:
+                shutil.move(str(hit), str(work_dir / hit.name))
+                print(f"  ↩️ 从 {base} 归位 {hit.name}")
+                hit = work_dir / hit.name
+            found[key] = hit
+            break
+
+    if len(found) < len(UWA_JSONS):
+        for p in sorted(work_dir.glob("*.json")):
+            low = p.name.lower()
+            for key, hint in JSON_HINTS:
+                if key not in found and hint in low:
+                    found[key] = p
+                    print(f"  ℹ️ 候选名未命中，按名字猜出 {key} ← {p.name}")
+                    break
+    return found
+
+
 def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -> str:
     """单样例解包：MP4 → GLB+视频 → bin+json → PLY。返回 ok/skip/failed。"""
     task = mp4.stem
@@ -263,9 +314,10 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     glb = work_dir / "3DGS.glb"          # 期望名；demuxer 实际产出名未知，见 Step 1 兜底
     video = work_dir / "output.mp4"
     bin_file = work_dir / f"GSCompressed_B{cfg['astc_block']}.bin"
-    j_init = work_dir / UWA_JSONS["init_camera"]
-    j_cam = work_dir / UWA_JSONS["camera"]
-    j_view = work_dir / UWA_JSONS["view_params"]
+    # 传参用官方名（各候选名元组的首项），拿到别名时由 find_jsons 兜底识别
+    j_init = work_dir / UWA_JSONS["init_camera"][0]
+    j_cam = work_dir / UWA_JSONS["camera"][0]
+    j_view = work_dir / UWA_JSONS["view_params"][0]
 
     # 三步命令统一走 *_ARGS 模板（参数名不符时可 env 覆盖，无需改脚本）。
     # 做成闭包：GLB / 码流的真实文件名要等上一步跑完才知道，届时重建命令。
@@ -299,10 +351,10 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
     # --- Step 1/3: MP4 → GLB（demuxer 只收 --output_dir，产出名由它自己定）---
     t_step = time.time()
     rc = run_cmd(demux_cmd, cwd=cfg["tool_dir"], env=env)
-    fresh = find_fresh(work_dir, "*.glb", t_step - 1.0)   # -1s 容错文件系统时间精度
+    fresh = pick_glb(work_dir, t_step - 1.0)              # -1s 容错文件系统时间精度
     if fresh is not None:
         if fresh != glb:
-            print(f"⚠️ 期望 {glb.name} 不存在，改用实际产物 {fresh.name}")
+            print(f"ℹ️ 未得到 {glb.name}，改用实际产物 {fresh.name}")
         glb = fresh
     elif glb.is_file() and rc == 0:
         print(f"⚠️ 没检测到新写出的 GLB，沿用已存在的 {glb.name}")
@@ -331,20 +383,22 @@ def unpack_one(mp4: Path, out_dir: Path, work_dir: Path, cfg: dict, env: dict) -
         print("⚠️ gltf_unpacker 返回非 0，但码流已产出，继续")
     print(f"  ✅ 码流: {bin_file.name}  ({bin_file.stat().st_size / 1024 / 1024:.1f} MB)")
 
-    # 三件套 json：gltf_unpacker 若忽略给出的路径，会把文件落到 CWD（我们以 tool_dir 为 CWD）
-    if cfg["tool_dir"] != work_dir:
-        for name in UWA_JSONS.values():
-            src, dst = cfg["tool_dir"] / name, work_dir / name
-            if src.is_file() and not dst.exists():
-                shutil.move(str(src), str(dst))
-                print(f"  ↩️ 从 {cfg['tool_dir']} 归位 {name}")
-    got = [j.name for j in (j_init, j_cam, j_view) if j.is_file()]
-    if len(got) < 3:
-        others = sorted(p.name for p in work_dir.glob("*.json"))
-        print(f"  ℹ️ 三件套 {len(got)}/3（work 下现有 json: {others or '无'}）")
-        print("     反向 GLB 只带 6 项白名单（NOTES 第 9 条），拿不齐属常态非故障")
+    js = find_jsons(work_dir, cfg["tool_dir"])
+    if len(js) == len(UWA_JSONS):
+        print("  ✅ 三件套 json: " + ", ".join(p.name for p in js.values()))
+    elif js:
+        print(f"  ⚠️ 三件套 {len(js)}/3: "
+              + ", ".join(f"{k}={p.name}" for k, p in js.items()))
+        missing = [k for k in UWA_JSONS if k not in js]
+        print(f"     缺: {', '.join(missing)}（可能是该维本来就没进 GLB）")
     else:
-        print("  ✅ 三件套 json: " + ", ".join(got))
+        others = sorted(p.name for p in work_dir.glob("*.json"))
+        if others:
+            print(f"  ⚠️ 三件套 0/3，但 work 下有 json: {others}")
+            print("     像是命名不匹配，把实际名字加进 UWA_JSONS 的候选元组即可")
+        else:
+            print("  ℹ️ 三件套 0/3（work 下无 json）——旧版 gltf_packer 只写 6 项白名单"
+                  "（NOTES 第 9 条），属预期；打过补丁的 cgltf 应能吐出三件套")
 
     # --- Step 3/3: bin → PLY（decode 输出名未知，按本次新产出识别）---
     t_step = time.time()
