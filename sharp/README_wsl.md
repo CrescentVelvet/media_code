@@ -124,12 +124,30 @@ bash sharp/08_move_output.sh               # 实际搬
 坐标系遵循 OpenCV 约定（x 右 / y 下 / z 前），场景中心大致在 `(0, 0, +z)`；
 导入第三方渲染器时需自行缩放旋转居中。
 
+## 实测结果（本机 RTX 3090 / WSL Ubuntu 24.04）
+
+| 阶段 | 实测 |
+|---|---|
+| `00a` 环境安装 | 约 35 分钟（大头是 torch 888MB + nvidia-* 全家桶 ≈ 4.5GB 下载） |
+| gsplat CUDA 核首次 JIT 编译 | **113 秒**（仅一次，缓存于 `~/.cache/torch_extensions/`） |
+| 权重加载 + 网络构建 | ≈ 30 秒 |
+| 单图推理（出 `.ply`） | 约 12 秒；整条 02 脚本端到端 **42 秒** |
+| 单图推理 + 环绕渲染 | 整条 02 脚本端到端 **26 秒**（JIT 已缓存） |
+| 产出（单张输入） | `*.ply` 66 MB = **1,179,648 个高斯**（论文称"约 120 万个"）；`*.mp4` 环绕轨迹；`*.depth.mp4` 深度视频 |
+
+输入图用的是 `/mnt/d/dataset/测试数据sample/.../image_jpg/*.jpg`（1536×2048 竖幅人像 + 室内场景），
+渲染帧检视：首帧忠实还原原视角，推移到侧向视角后无破面、结构稳定。
+
+> ⚠️ 该测试图**无 EXIF 焦距**，日志会提示 `Did not find focallength ... Setting to 30mm.`。
+> 带 EXIF 焦距的照片才有准确的度量尺度（SHARP 的输出是 metric 的，尺度由焦距反推）。
+
 ## 已知风险与排错
 
 | 症状 | 原因 / 处理 |
 |---|---|
-| `--render` 报 CUDA 编译错 | nvcc/g++ 不可用。查：`nvcc --version`、`which x86_64-conda-linux-gnu-g++`。修：`conda activate sharp && conda install -c conda-forge gxx_linux-64=12` |
-| JIT 编译卡很久 | 正常（分钟级）。设了 `TORCH_CUDA_ARCH_LIST=8.6`（`_env.sh` 里针对 3090）可显著缩短；换卡要覆盖该变量 |
+| **`cuda_runtime_api.h: No such file or directory`**（`--render` 的典型失败） | conda 的 cuda-toolkit 把头放在 `$CONDA_PREFIX/targets/x86_64-linux/include`，而 torch 的 JIT 只搜 `$CUDA_HOME/include`，两边对不上 → gsplat 的 CUDA 核编不过。`00a` 的第 7b 步会自动补软链接；若手工重建过 env，重跑 `00a`，或手动执行：`cd $CONDA_PREFIX/include && for f in $CONDA_PREFIX/targets/x86_64-linux/include/*; do n=$(basename $f); [ -e "$n" ] && continue; ln -s "$f" "$n"; done` |
+| `--render` 报其它 CUDA 编译错 | nvcc/g++ 不可用。查：`nvcc --version`、`which x86_64-conda-linux-gnu-g++` |
+| JIT 编译卡很久 | 正常：本机实测 **113 秒**（一次）。设了 `TORCH_CUDA_ARCH_LIST=8.6`（`_env.sh` 里针对 3090）避免为全架构编译；换卡要覆盖该变量 |
 | `sharp: command not found` | `conda activate sharp && pip install -e ~/repos/ml-sharp` |
 | pip 装 torch 慢 | 清华镜像已配（`proxy.env` 的 `PIP_INDEX_URL`）；或迅雷下 wheel 后本地装 |
 | 显存不足 | 3090 24GB 对 1536×1536 输入绰绰有余；若报 OOM 先试单张图 |

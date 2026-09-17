@@ -81,7 +81,10 @@ media_code/sharp/                 # 本目录（编排脚本）
 
 ## Notes
 
-- 推理速度：论文称 A100 上 <1s/图；3090 上单图数秒量级（未实测，以实际运行为准）。
+- **实测（3090）**：单图 02 脚本端到端 42 秒（首次）/ 26 秒（JIT 缓存后），其中权重加载约 30 秒；
+  产出 `.ply` 66 MB / 1,179,648 个高斯。论文给的 <1s 是 A100 上的纯前馈推理时间，不含权重加载。
 - 输出 `.ply` 遵循 OpenCV 坐标系（x 右 / y 下 / z 前），中心在 `(0,0,+z)`；
-  第三方渲染器需自行缩放旋转居中。
-- `gsplat` 是纯 Python wheel，CUDA 核**首次运行时 JIT 编译** → 必须装 nvcc + gcc。
+  第三方渲染器需自行缩放旋转居中。有 EXIF 焦距的照片才有准确度量尺度（无则按 30mm 兜底）。
+- `gsplat` 是纯 Python wheel，CUDA 核**首次运行时 JIT 编译**（实测 113 秒）→ 必须装 nvcc + gcc，
+  且需把 `$CONDA_PREFIX/targets/x86_64-linux/include` 补进 `$CONDA_PREFIX/include`
+  （`00a` 已自动处理，详见 [`README_wsl.md`](README_wsl.md) 排错表）。

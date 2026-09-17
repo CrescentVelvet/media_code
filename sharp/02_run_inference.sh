@@ -82,4 +82,7 @@ echo "⏱️  耗时: $((_t1 - _t0))s"
 echo "🎉 [02] Done."
 echo "  📁 输出目录: $OUT_DIR"
 echo "     *.ply  — 3D Gaussian（拖进 https://playcanvas.com/supersplat/editor 即可查看）"
-[ "$RENDER" = "1" ] && echo "     *.mp4  — 环绕轨迹渲染"
+# 用 if 而非 `[ ] && echo`：后者在 RENDER!=1 时返回 1，会把整个脚本的退出码带成失败。
+if [ "$RENDER" = "1" ]; then
+    echo "     *.mp4  — 环绕轨迹渲染"
+fi

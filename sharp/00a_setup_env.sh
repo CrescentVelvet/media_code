@@ -150,6 +150,34 @@ else
         echo "  ❌ 无编译器 —— gsplat JIT 编译会失败。请装: sudo apt install build-essential" >&2
 fi
 
+# ── 7b. 修补 conda CUDA 头文件布局（torch JIT 编译必需）─────────────────────
+# conda 的 cuda-toolkit 把头文件放在 $CONDA_PREFIX/targets/x86_64-linux/include，
+# 而 torch 的 cpp_extension 只搜索 $CUDA_HOME/include（= $CONDA_PREFIX/include）。
+# 两者不一致时，任何 torch JIT 扩展都会编译失败，典型报错：
+#   torch/include/c10/cuda/CUDAStream.h:3:10: fatal error:
+#   cuda_runtime_api.h: No such file or directory
+# （gsplat 的 CUDA 光栅化核就是走 JIT，所以 --render 会挂在这里）
+# 做法：把 targets include 下**缺失**的条目软链接进 $CONDA_PREFIX/include，不覆盖已有。
+if [ -d "$CONDA_PREFIX/targets/x86_64-linux/include" ]; then
+    echo "📦 修补 conda CUDA 头文件布局（targets/… -> include/，供 torch JIT 使用）..."
+    _n=0
+    for _src in "$CONDA_PREFIX/targets/x86_64-linux/include"/*; do
+        _name="$(basename "$_src")"
+        if [ -e "$CONDA_PREFIX/include/$_name" ] || [ -L "$CONDA_PREFIX/include/$_name" ]; then
+            continue
+        fi
+        ln -s "$_src" "$CONDA_PREFIX/include/$_name" && _n=$((_n + 1))
+    done
+    unset _src _name
+    if [ -e "$CONDA_PREFIX/include/cuda_runtime_api.h" ]; then
+        echo "  ✅ linked $_n entries，cuda_runtime_api.h 已可见"
+    else
+        echo "  ⚠️ 修补后仍看不到 cuda_runtime_api.h —— JIT 编译会失败" >&2
+    fi
+else
+    echo "  ⏭️  没有 targets/x86_64-linux/include（可能用的是系统 CUDA），跳过修补"
+fi
+
 # ── 8. Clone 官方仓 ───────────────────────────────────────────────────────
 if [ "${SKIP_TOCLONE:-0}" != "1" ] && [ ! -d "$SHARP_DIR/.git" ]; then
     mkdir -p "$(dirname "$SHARP_DIR")"
@@ -172,10 +200,14 @@ if [ ! -f "$SHARP_DIR/requirements.txt" ]; then
     exit 1
 fi
 echo "📦 installing SHARP requirements (torch/gsplat/nvidia-* 约 3-4GB，走镜像) ..."
-pip install "${PIP_FLAGS[@]}" -r "$SHARP_DIR/requirements.txt" || {
+# ⚠️ requirements.txt 第 3 行是 `-e .`（相对路径）：pip 按**当前工作目录**解析它，
+#    必须在仓根执行，否则 pip 会去 media_code 找 pyproject.toml 并报
+#    "does not appear to be a Python project"。且 pip 是全量解析通过后才开始装，
+#    这一步一失败会连带前面已解出的依赖全部不装。
+if ! ( cd "$SHARP_DIR" && pip install "${PIP_FLAGS[@]}" -r requirements.txt ); then
     echo "❌ requirements 安装失败" >&2
     exit 1
-}
+fi
 
 # CLI 入口（pip install -e . 装出来的控制台脚本）
 if command -v sharp >/dev/null 2>&1; then
