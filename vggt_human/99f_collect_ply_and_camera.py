@@ -10,8 +10,8 @@ point_cloud.ply / gs_camera_params.json，按 task 名建子目录集中放到�
 本脚本保留 task 目录层级、并把同 task 的相机参数一并带上，产出「一目录一 task」
 的成对形态，供下游按目录整体加载：
 
-    <RESULTS_ROOT>/<批次名>/ply_gs/<task_id>/point_cloud.ply
-    <RESULTS_ROOT>/<批次名>/ply_gs/<task_id>/gs_camera_params.json
+    <RESULTS_ROOT>/<批次名>/ply_viewlimit/<task_id>/point_cloud.ply
+    <RESULTS_ROOT>/<批次名>/ply_viewlimit/<task_id>/gs_camera_params.json
 
 输入输出的预设路径与 99a 保持一致（改批次时改 main() 里那几行即可）。
 
@@ -23,7 +23,7 @@ point_cloud.ply / gs_camera_params.json，按 task 名建子目录集中放到�
 Env vars（不设则用下方 main() 里的默认值）:
     SRC_ROOT      批次根目录（其下每个子目录是一个 task）
     RESULTS_ROOT  统一结果根（默认 ../../output/recon_human_results）
-    OUT_DIR       输出目录，默认 <RESULTS_ROOT>/<批次名>/ply_gs
+    OUT_DIR       输出目录，默认 <RESULTS_ROOT>/<批次名>/ply_viewlimit
     PLY_NAME      源 ply 文件名（默认 point_cloud_final.ply）
     GS_NAME       源相机 json 文件名（默认 gs_camera_params_final.json）
     PLY_OUT_NAME  复制后的 ply 名（默认 point_cloud.ply）
@@ -147,12 +147,12 @@ def main():
     # 源：批次根目录（其下每个子目录是一个 task）
     SRC_ROOT = Path(
         "../../code/Reconstruction/output/"
-        "B003_Human_Data_w_pose-脸红优化+外插视角增强+互补双监督"
+        "B003_Human_Data_w_pose-脸红优化+外插视角增强"
     )
-    # 输出：会自动新建。批次名与源同名；ply_gs/ 与 99a 的 ply/、99b 的 mp4/ 平级，
+    # 输出：会自动新建。批次名与源同名；ply_viewlimit/ 与 99a 的 ply/、99b 的 mp4/ 平级，
     # 同一批次目录下按产物形态分开，互不覆盖
     RESULTS_ROOT = Path("../../output/recon_human_results")
-    DST_ROOT = RESULTS_ROOT / SRC_ROOT.resolve().name / "ply_gs"
+    DST_ROOT = RESULTS_ROOT / SRC_ROOT.resolve().name / "ply_viewlimit"
     # 要收集的文件（流水线产物固定名）及其改名后的名字
     SRC_NAMES = ["point_cloud_final.ply", "gs_camera_params_final.json"]
     DST_NAMES = ["point_cloud.ply", "gs_camera_params.json"]
