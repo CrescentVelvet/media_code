@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """99f_collect_ply_and_camera.py — 批量收集各 task 子目录下的
-point_cloud_final.ply + gs_camera_params_final.json，成对复制并改名为
-point_cloud.ply / gs_camera_params.json，按 task 名建子目录集中放到一个输出目录。
+point_cloud_final.ply + gs_camera_params_final.json + front_image.jpg，
+复制并改名（jpg 不改名），按 task 名建子目录集中放到一个输出目录。
 
 环境准备
     纯标准库，任意 python3 即可（无需 conda）
 
 与 99a 的区别：99a 把 ply **压平**成 <批次>/ply/<task_id>.ply（适合单独看/上传），
-本脚本保留 task 目录层级、并把同 task 的相机参数一并带上，产出「一目录一 task」
-的成对形态，供下游按目录整体加载：
+本脚本保留 task 目录层级、并把同 task 的相机参数与参考图一并带上，产出
+「一目录一 task」的成套形态，供下游按目录整体加载：
 
     <RESULTS_ROOT>/<批次名>/ply_viewlimit/<task_id>/point_cloud.ply
     <RESULTS_ROOT>/<批次名>/ply_viewlimit/<task_id>/gs_camera_params.json
+    <RESULTS_ROOT>/<批次名>/ply_viewlimit/<task_id>/front_image.jpg
 
 输入输出的预设路径与 99a 保持一致（改批次时改 main() 里那几行即可）。
 
@@ -26,8 +27,10 @@ Env vars（不设则用下方 main() 里的默认值）:
     OUT_DIR       输出目录，默认 <RESULTS_ROOT>/<批次名>/ply_viewlimit
     PLY_NAME      源 ply 文件名（默认 point_cloud_final.ply）
     GS_NAME       源相机 json 文件名（默认 gs_camera_params_final.json）
+    IMG_NAME      源参考图文件名（默认 front_image.jpg）
     PLY_OUT_NAME  复制后的 ply 名（默认 point_cloud.ply）
     GS_OUT_NAME   复制后的 json 名（默认 gs_camera_params.json）
+    IMG_OUT_NAME  复制后的图名（默认 front_image.jpg，即不改名）
     ONLY          逗号分隔的 task 白名单（不设=全部）
     DRY_RUN=1     只打印不复制
 """
@@ -44,7 +47,7 @@ def _fmt_size(nbytes: int) -> str:
     return f"{nbytes / 1024:.1f} KB"
 
 
-def collect_task_pairs(
+def collect_task_files(
     src_root: Path,
     dst_root: Path,
     src_names: list,
@@ -52,11 +55,11 @@ def collect_task_pairs(
     only=None,
     dry_run: bool = False,
 ) -> dict:
-    """遍历 src_root 下每个子目录（task），把其中的 src_names 成对复制到
+    """遍历 src_root 下每个子目录（task），把其中的 src_names 成套复制到
     dst_root/<task>/ 下并改名为 dst_names。
 
     同一 task 的多个文件**要么全成功要么不复制**：先整体检查是否齐全，
-    缺任一文件就跳过该 task（避免下游拿到 ply 却没有相机参数的半成品）。
+    缺任一文件就跳过该 task（避免下游拿到 ply 却没有相机参数/参考图的半成品）。
 
     Args:
         src_root:  批次根目录（其下每个子目录是一个 task）。
@@ -153,9 +156,9 @@ def main():
     # 同一批次目录下按产物形态分开，互不覆盖
     RESULTS_ROOT = Path("../../output/recon_human_results")
     DST_ROOT = RESULTS_ROOT / SRC_ROOT.resolve().name / "ply_viewlimit"
-    # 要收集的文件（流水线产物固定名）及其改名后的名字
-    SRC_NAMES = ["point_cloud_final.ply", "gs_camera_params_final.json"]
-    DST_NAMES = ["point_cloud.ply", "gs_camera_params.json"]
+    # 要收集的文件（流水线产物固定名）及其复制后的名字（jpg 不改名）
+    SRC_NAMES = ["point_cloud_final.ply", "gs_camera_params_final.json", "front_image.jpg"]
+    DST_NAMES = ["point_cloud.ply", "gs_camera_params.json", "front_image.jpg"]
     # ======================================================
 
     # env 覆盖（不设则用上面的预设）
@@ -164,13 +167,15 @@ def main():
     DST_ROOT = Path(os.environ.get("OUT_DIR", str(DST_ROOT)))
     SRC_NAMES[0] = os.environ.get("PLY_NAME", SRC_NAMES[0])
     SRC_NAMES[1] = os.environ.get("GS_NAME", SRC_NAMES[1])
+    SRC_NAMES[2] = os.environ.get("IMG_NAME", SRC_NAMES[2])
     DST_NAMES[0] = os.environ.get("PLY_OUT_NAME", DST_NAMES[0])
     DST_NAMES[1] = os.environ.get("GS_OUT_NAME", DST_NAMES[1])
+    DST_NAMES[2] = os.environ.get("IMG_OUT_NAME", DST_NAMES[2])
 
     only = [s.strip() for s in os.environ.get("ONLY", "").split(",") if s.strip()]
     dry_run = os.environ.get("DRY_RUN", "0") == "1"
 
-    collect_task_pairs(SRC_ROOT, DST_ROOT, SRC_NAMES, DST_NAMES, only=only, dry_run=dry_run)
+    collect_task_files(SRC_ROOT, DST_ROOT, SRC_NAMES, DST_NAMES, only=only, dry_run=dry_run)
 
 
 if __name__ == "__main__":
