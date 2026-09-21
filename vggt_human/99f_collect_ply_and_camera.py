@@ -148,9 +148,13 @@ def main():
 
     # ===== 预设路径与 99a 保持一致，改批次时只改这几行 =====
     # 源：批次根目录（其下每个子目录是一个 task）
+    # SRC_ROOT = Path(
+    #     "../../code/Reconstruction/output/"
+    #     "B003_Human_Data_w_pose-脸红优化+外插视角增强"
+    # )
     SRC_ROOT = Path(
-        "../../code/Reconstruction/output/"
-        "B003_Human_Data_w_pose-脸红优化+外插视角增强"
+        "../../code/3d_gaussian_photo/GaussianPhoto3D/python/"
+        "UserData"
     )
     # 输出：会自动新建。批次名与源同名；ply_viewlimit/ 与 99a 的 ply/、99b 的 mp4/ 平级，
     # 同一批次目录下按产物形态分开，互不覆盖
