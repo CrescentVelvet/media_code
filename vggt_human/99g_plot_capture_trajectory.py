@@ -35,7 +35,7 @@ from pathlib import Path
 PLY_MAX_POINTS = 300000
 # 单块图最多画多少个点：先按「视野」过滤再限流。只做全局抽稀的话，
 # 视野被放大时落在视野内的点只剩百分之几，点云会稀到看不见。
-PLY_DRAW_POINTS = 9000
+PLY_DRAW_POINTS = 30000
 
 STYLES = ("combo", "minimal", "darkspace", "fov", "iso")
 
