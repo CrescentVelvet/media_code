@@ -13,12 +13,12 @@
 
 用法:
     python vggt_human/99g_plot_capture_trajectory.py
-    STYLE=all       ...   # 一次出全部风格（<ID>__<style>.html），便于挑图
-    STYLE=minimal   ...   # 只出一种（<ID>.html）
-    SRC_ROOT=... DST_ROOT=... bash ...
+    STYLE=all python ...   # 一次出全部风格（<ID>__<style>.html），便于挑图
+    STYLE=combo python ...   # 只出一种（<ID>.html）
+    SRC_ROOT=... DST_ROOT=... python ...
 
     # 可选：只画其中几个 ID
-    IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all ...
+    IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
 
 路径与默认风格写在下方 main() 里。
 """
@@ -1076,9 +1076,14 @@ def run(src_root: Path, dst_root: Path, styles, ids=None):
 def main():
     # ===== 在这里直接改路径 =====
     # 批次根目录：其下每个子目录 = 一个采集 ID（含 transforms.json）
-    SRC_ROOT = Path(os.environ.get("SRC_ROOT", "/mnt/d/dataset/测试数据sample"))
+    # SRC_ROOT = Path(os.environ.get("SRC_ROOT", "/mnt/d/dataset/测试数据sample"))
+    SRC_ROOT = Path(
+        "../../code/Reconstruction/dataset/"
+        "43例人像数据-增加佳佳版"
+    )
     # 输出目录（HTML 很小，放哪儿都行）
-    DST_ROOT = Path(os.environ.get("DST_ROOT", "../../output/remy_traj_html"))
+    RESULTS_ROOT = Path("../../output/recon_human_results")
+    DST_ROOT = RESULTS_ROOT / SRC_ROOT.resolve().name / "html"
     # 风格：combo（等轴测+俯视双联）/ minimal / darkspace / fov / iso / all
     STYLE = os.environ.get("STYLE", "combo")
     # 只画指定 ID（逗号分隔，留空 = 全部）
