@@ -31,8 +31,11 @@ import struct
 import sys
 from pathlib import Path
 
-# 点云最多画多少个点（超出按等间隔抽稀，保证渲染不卡）
-PLY_MAX_POINTS = 12000
+# 读盘时最多保留多少个点（用于取 bbox 与后续按视野过滤）
+PLY_MAX_POINTS = 300000
+# 单块图最多画多少个点：先按「视野」过滤再限流。只做全局抽稀的话，
+# 视野被放大时落在视野内的点只剩百分之几，点云会稀到看不见。
+PLY_DRAW_POINTS = 9000
 
 STYLES = ("combo", "minimal", "darkspace", "fov", "iso")
 
@@ -343,9 +346,39 @@ PAL_LIGHT = {
 RAMP_LIGHT = [(0.0, (0x1D, 0x4E, 0xD8)), (0.5, (0x7C, 0x3A, 0xED)), (1.0, (0xDB, 0x27, 0x77))]
 
 
+def cloud_in_view(points, extent, proj=None, max_pts=PLY_DRAW_POINTS):
+    """只保留落在视野内的点云点并限流到 max_pts 个，返回投影后的 [(u, v)]。
+
+    extent = (u_min, u_max, v_min, v_max)，与 View 的 umin/umax/vmin/vmax 对应。
+    proj 默认按俯视图取 (X, Z)；等轴测传 iso_proj_pt。
+    """
+    proj = proj or (lambda p: (p[0], p[2]))
+    u0, u1, v0, v1 = extent
+    sel = []
+    for p in points:
+        u, v = proj(p)
+        if u0 <= u <= u1 and v0 <= v <= v1:
+            sel.append((u, v))
+    if len(sel) > max_pts:
+        step = len(sel) / max_pts
+        sel = [sel[int(i * step)] for i in range(max_pts)]
+    return sel
+
+
+def cloud_screen_for(view, ctx, proj=None):
+    """按 view 的视野取点云、投影成画布坐标 [(x, y)]，供绘制函数直接落点。"""
+    pts = cloud_in_view(ctx["points"], (view.umin, view.umax, view.vmin, view.vmax), proj=proj)
+    return [view.p(u, v) for u, v in pts]
+
+
 def iso_proj(x, y, z):
     """等轴测投影：世界 (X, Y, Z) → 平面 (u, v)，v 向下。"""
     return (x - z) * ISO_COS, (x + z) * ISO_SIN - y
+
+
+def iso_proj_pt(p):
+    """同上，但按「整点 (x, y, z)」调用——给 cloud_in_view 这类接口用。"""
+    return iso_proj(*p)
 
 
 def iso_extent(ctx):
@@ -368,13 +401,14 @@ def iso_extent(ctx):
 
 def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                       arrows_every=20, dots_every=10, arrow_len=0.26,
-                      arrow_color=None, ring=True, cloud=False, track_width=2.0,
+                      arrow_color=None, ring=True, cloud_screen=None, track_width=2.0,
                       clip_rect=None):
     """把俯视图的几何画进给定 view。
 
     ramp=None → 轨迹用 pal['track'] 单色；否则传 [(pos,(r,g,b)),...] 按帧序做时间渐变。
     clip_rect 给定时按它裁剪（用于「绘图区预留框比数据框宽」的场合：点云/半径环裁到
     预留框，把两侧的空档填满）；不给则按数据框 view.rect() 裁。
+    cloud_screen = 已投影到画布的 [(x, y)]（cloud_screen_for 的返回值），None 则不画点云。
     锚点与起终点标记不裁剪（避免贴边被切掉）。
     """
     out = []
@@ -383,10 +417,9 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                f'height="{bh:.1f}" rx="10"/></clipPath>')
     out.append(f'<g clip-path="url(#{clip})">')
 
-    if cloud and ctx["points"]:
-        out.append("".join(
-            f'<circle cx="{view.p(p[0], p[2])[0]:.1f}" cy="{view.p(p[0], p[2])[1]:.1f}" r="1" '
-            f'fill="{pal["cloud"]}" opacity="0.5"/>' for p in ctx["points"]))
+    if cloud_screen:
+        out.append("".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1" fill="{pal["cloud"]}" opacity="0.5"/>'
+                           for x, y in cloud_screen))
 
     if ring and ctx["anchor"]:
         ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
@@ -439,9 +472,12 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
     return "\n".join(out)
 
 
-def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, drop_every=5,
+def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid=True, drop_every=5,
                       dots_every=10, floor=None, clip_rect=None):
-    """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。"""
+    """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。
+
+    cloud_screen = 已投影到画布的 [(x, y)]，None 则不画点云。
+    """
     out = []
     x0, y0, bw, bh = clip_rect if clip_rect is not None else view.rect()
     if floor is None:
@@ -469,10 +505,9 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, 
             out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{pal["grid"]}" stroke-width="0.8"/>')
             k += 0.5
 
-    if cloud and ctx["points"]:
-        out.append("".join(
-            f'<circle cx="{view.p(*iso_proj(*p))[0]:.1f}" cy="{view.p(*iso_proj(*p))[1]:.1f}" r="1.1" '
-            f'fill="{pal["cloud"]}" opacity="0.45"/>' for p in ctx["points"]))
+    if cloud_screen:
+        out.append("".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.1" fill="{pal["cloud"]}" opacity="0.45"/>'
+                           for x, y in cloud_screen))
 
     for i in range(0, ctx["n"], drop_every):   # 相机到地面的垂线，表达高度
         c = ctx["pos"][i]
@@ -671,12 +706,10 @@ def style_fov(ctx):
     out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10"/></clipPath>')
     out.append(f'<g clip-path="url(#{clip})">')
 
-    if ctx["points"]:
-        pd = []
-        for p in ctx["points"]:
-            x, y = view.p(p[0], p[2])
-            pd.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1" fill="#B4B2A9" opacity="0.5"/>')
-        out.append("".join(pd))
+    cs = cloud_screen_for(view, ctx)
+    if cs:
+        out.append("".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1" fill="#B4B2A9" opacity="0.5"/>'
+                           for x, y in cs))
 
     cone, lines = [], []
     for i in range(0, ctx["n"], 15):
@@ -752,7 +785,8 @@ def style_iso(ctx):
     x0, y0, bw, bh = view.rect()
     out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
-    geom, floor = draw_iso_geometry(ctx, view, f"clip_{ctx['id'][:8]}_iso")
+    geom, floor = draw_iso_geometry(ctx, view, f"clip_{ctx['id'][:8]}_iso",
+                                    cloud_screen=cloud_screen_for(view, ctx, proj=iso_proj_pt))
     out.append(geom)
 
     row1, cx1 = legend_row([
@@ -823,7 +857,16 @@ def style_combo(ctx):
     TOP_Y = 120.0
     W = BOX_R + 40
 
-    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], BOX_L, TOP_Y, BOX_R, TOP_Y + PANEL_H)
+    # 俯视图取景 = 相机范围 ∪ 锚点±均值半径。
+    # 画了均值半径环就得让环完整入框：相机只沿锚点一侧走一小段弧时（浅弧样例），
+    # 只按相机范围取景会把锚点和环一起裁到框外，画面上只剩一条大轨迹。
+    x_lo, x_hi = ctx["range"]["x"]
+    z_lo, z_hi = ctx["range"]["z"]
+    if ctx["anchor"]:
+        ax_, az_, r_ = ctx["anchor"][0], ctx["anchor"][2], ctx["dist_mean"]
+        x_lo, x_hi = min(x_lo, ax_ - r_), max(x_hi, ax_ + r_)
+        z_lo, z_hi = min(z_lo, az_ - r_), max(z_hi, az_ + r_)
+    view_top = View(x_lo, x_hi, z_lo, z_hi, BOX_L, TOP_Y, BOX_R, TOP_Y + PANEL_H)
 
     # 等轴测：视野由 iso_extent() 决定（只按相机活动范围，点云作背景）
     u0, u1, v0, v1, _ = iso_extent(ctx)
@@ -842,7 +885,7 @@ def style_combo(ctx):
     out.append(f'<rect x="{BOX_L}" y="{TOP_Y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT,
-                                 cloud=True, clip_rect=panel_top))
+                                 cloud_screen=cloud_screen_for(view_top, ctx), clip_rect=panel_top))
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
     out.append(scale_bar(BOX_L + 16, TOP_Y + PANEL_H - 44, 0.5, view_top, color=MUTED))
 
@@ -865,7 +908,8 @@ def style_combo(ctx):
     panel_iso = (BOX_L, iso_y, PANEL_W, PANEL_H)
     out.append(f'<rect x="{BOX_L}" y="{iso_y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
-    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci", clip_rect=panel_iso)
+    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci", clip_rect=panel_iso,
+                                    cloud_screen=cloud_screen_for(view_iso, ctx, proj=iso_proj_pt))
     out.append(geom)
     out.append(scale_bar(BOX_L + 16, iso_y + PANEL_H - 44, 0.5, view_iso, color=MUTED))
 
@@ -911,7 +955,7 @@ def stat_cards(ctx) -> str:
         ("相机高度范围 (Y)", f"{r['y'][0]:.2f} – {r['y'][1]:.2f} m（跨度 {r['y'][1] - r['y'][0]:.2f}）"),
         ("内参（全帧一致）", f"{intr['w']}×{intr['h']} · fl {ctx['fl']:.1f}px · 等效 {ctx['f_equiv']:.1f}mm · 对角 {ctx['fov_d']:.1f}°"),
         ("畸变", f"k1 {intr['k1']:.4f} · k2 {intr['k2']:.4f} · k3 {intr['k3']:.4f} · p1 {intr['p1']:.2e} · p2 {intr['p2']:.2e}"),
-        ("点云 pcd.ply", (f"{ctx['ply_total']} 点（图上抽稀 {len(ctx['points'])}）· "
+        ("点云 pcd.ply", (f"{ctx['ply_total']} 点（每块图最多绘 {PLY_DRAW_POINTS} 点）· "
                           f"bbox "
                           f"{ctx['bbox']['max'][0] - ctx['bbox']['min'][0]:.2f} × "
                           f"{ctx['bbox']['max'][1] - ctx['bbox']['min'][1]:.2f} × "
