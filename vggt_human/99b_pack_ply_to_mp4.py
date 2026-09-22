@@ -400,7 +400,9 @@ def generate_uwa_jsons(task_dir: Path, out_dir: Path | None, insideout: bool,
         for pv in positions:
             nv = np.linalg.norm(pv)
             pitches.append(math.degrees(math.asin(float(pv[1] / nv))))
-            yaws.append(math.degrees(math.atan2(float(pv[0]), float(pv[2]))))
+            # 取负：下方放置式 loc=[-vx,vy,vz] 是 X 轴镜像，凡从相机位置反推的 yaw
+            # 都得取负，放置方位角 -yaw 才会落回该相机位置本身
+            yaws.append(-math.degrees(math.atan2(float(pv[0]), float(pv[2]))))
         pitch_min, pitch_max = min(pitches), max(pitches)
         yaw_min, yaw_max = min(yaws), max(yaws)
         print(f"     radius={radius:.4f} pitch[{pitch_min:.2f},{pitch_max:.2f}] "
@@ -438,9 +440,11 @@ def generate_uwa_jsons(task_dir: Path, out_dir: Path | None, insideout: bool,
 
     # ---------- init_camera.json ----------
     # pitch_init/yaw_init 取第一台相机位置（gs json 里的 yaw_init 硬编码 0，不可用）
+    # yaw 取负：下面 loc=[-vx,vy,vz] 是 X 轴镜像，反推的 yaw 取负后放置方位角
+    # 才是 -yaw，恰好等于相机实际方位角
     p0 = positions[0]
     pitch_init = math.degrees(math.asin(float(p0[1] / np.linalg.norm(p0))))
-    yaw_init = math.degrees(math.atan2(float(p0[0]), float(p0[2])))
+    yaw_init = -math.degrees(math.atan2(float(p0[0]), float(p0[2])))
     if insideout:
         yaw_init = yaw_init - 180 if yaw_init > 0 else yaw_init + 180
         pitch_init = -pitch_init
