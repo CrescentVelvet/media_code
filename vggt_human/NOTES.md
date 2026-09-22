@@ -428,3 +428,36 @@ THETA_MARGIN 系列同样不进成品）。
 教训：**凡是「报错被重定向进临时目录」的子进程，都要在上游做前置检查**——这类静默
 失败的表象（PIL 打不开文件）与真因（少一个执行位）之间没有任何线索链。
 
+## Remy（鸿蒙 3D 采集包）transforms.json 格式速查（2026-09-22 实测）
+
+采集端 = 华为 / KIRI 的 **Remy**（HarmonyOS 独家的 3D 空间记忆 App，`pcd.ply` 头部有
+`comment Created in Remy`）。每个采集 ID 目录 = `transforms.json` + `image/*.heic` + `pcd.ply`。
+
+**顶层**：`version=1` / `platform=Harmony` / `platform_version`（`phone/HUAWEI/HUAWEI/地区码/
+系统/机型代号/机型代号/API/版本/渠道`）/ `capture_mode`（模式编号，语义未核实）/ `camera_model=OPENCV`
+/ `anchor_point`（环绕轴心）/ `ply_file_path`（相对本 json）/ `frames[]`。
+
+**frames[] 每帧**：`w,h,cx,cy,fl_x,fl_y,k1,k2,k3,p1,p2,file_path,transform_matrix`。
+`file_path` 的文件名是 **自开机的纳秒时间戳**（15 位），帧间隔 ≈ 0.107 s（155 帧 / 16.43 s ≈ 9.37 fps）。
+
+**四条容易踩的坑（都已实测核对）**：
+
+1. **`transform_matrix` 是 camera-to-world**：第 4 列 = 相机光心（米），不是 w2c 的 t。
+   判据：按 c2w 解释时各帧光心到 `anchor_point` 的水平距离恒为 0.81–1.08 m（等距环绕），
+   按 w2c 解释（C = −Rᵀt）则变成 7.2 m 且朝向角余弦只有 −0.38。
+2. **相机前向 = −Z（OpenGL/Blender 约定），不是 OpenCV 的 +Z**。`camera_model:"OPENCV"`
+   只声明畸变参数集（k1,k2,k3,p1,p2 的 Brown-Conrady 模型），**不决定外参轴向**。
+   判据：取 look = −R[:,2]，与 (anchor − C) 的夹角余弦均值 0.9926；若按 +Z 为前向则为 −0.9926
+   （等于所有相机都背对目标，不成立）。
+3. **世界系 +Y 向上（重力对齐）**，相机 +Y 轴在世界 Y 的分量均值 0.889（min 0.805 / max 0.984）。
+   不是 nerfstudio 默认的 Z-up，走 nerfstudio 数据解析要显式核对 orientation。
+4. **位姿来自 AR Engine VIO，自带米制尺度**，不要再跑 COLMAP SfM（会引入重投影误差且丢尺度）。
+   同一份 json 里 155 帧内参完全一致（唯一组合数 = 1）→ 单一标定，非逐帧估计。
+
+**常用量**：对角线 82.9°、等效焦距 ≈ 24.5 mm（35mm 制，`f_equiv = 43.2666 × fl_px / hypot(w,h)`）；
+`image/` 全是 HEIC（需 `01b_heic_to_jpg.sh` 或 pillow-heif 解码）；`pcd.ply` 是
+binary_little_endian、xyz float32 + rgb uint8（15 B/点），点云与相机同处一个米制世界系。
+
+**可视化**：`99g_plot_capture_trajectory.py` 把每个 ID 画成自包含 HTML（四种风格：
+`minimal` / `darkspace` / `fov` / `iso`），标题与文件名都用文件夹 ID。
+
