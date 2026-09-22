@@ -368,14 +368,17 @@ def iso_extent(ctx):
 
 def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                       arrows_every=20, dots_every=10, arrow_len=0.26,
-                      arrow_color=None, ring=True, cloud=False, track_width=2.0):
+                      arrow_color=None, ring=True, cloud=False, track_width=2.0,
+                      clip_rect=None):
     """把俯视图的几何画进给定 view。
 
     ramp=None → 轨迹用 pal['track'] 单色；否则传 [(pos,(r,g,b)),...] 按帧序做时间渐变。
-    轨迹/环/点云统一裁剪到绘图区；锚点与起终点标记不裁剪（避免贴边被切掉）。
+    clip_rect 给定时按它裁剪（用于「绘图区预留框比数据框宽」的场合：点云/半径环裁到
+    预留框，把两侧的空档填满）；不给则按数据框 view.rect() 裁。
+    锚点与起终点标记不裁剪（避免贴边被切掉）。
     """
     out = []
-    x0, y0, bw, bh = view.rect()
+    x0, y0, bw, bh = clip_rect if clip_rect is not None else view.rect()
     out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" '
                f'height="{bh:.1f}" rx="10"/></clipPath>')
     out.append(f'<g clip-path="url(#{clip})">')
@@ -437,10 +440,10 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
 
 
 def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, drop_every=5,
-                      dots_every=10, floor=None):
+                      dots_every=10, floor=None, clip_rect=None):
     """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。"""
     out = []
-    x0, y0, bw, bh = view.rect()
+    x0, y0, bw, bh = clip_rect if clip_rect is not None else view.rect()
     if floor is None:
         floor = ctx["bbox"]["min"][1] if ctx["bbox"] else min(p[1] for p in ctx["pos"]) - 0.2
 
@@ -450,7 +453,8 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, 
 
     x_lo, x_hi = ctx["range"]["x"]
     z_lo, z_hi = ctx["range"]["z"]
-    pad = 0.3
+    # 地面网格铺到「可见范围」而不只是相机范围：预留框比数据框宽时，两侧露出的地面也要有网格
+    pad = 0.3 + max(0.0, (bw - view.rect()[2]) / 2) / view.s
     if grid:   # 地面网格：0.5 m 一条，投影后仍是直线
         k = math.floor(x_lo / 0.5) * 0.5
         while k <= x_hi + pad:
@@ -484,9 +488,8 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, 
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.6" fill="{pal["track"]}"/>')
     out.append('</g>')
 
-    # 世界轴三叉：固定像素尺寸画在绘图区左下角（用 rect 而非 box，否则会画到框外）
-    rx0, ry0, rw, rh = view.rect()
-    ox, oy = rx0 + 78, ry0 + rh - 110
+    # 世界轴三叉：固定像素尺寸画在绘图区左下角（按裁剪框定位，框比数据宽时才不会跑偏）
+    ox, oy = x0 + 78, y0 + bh - 110
     L = 48
     for dx, dy, lab, col in ((ISO_COS, ISO_SIN, "+X", "#DC2626"), (0, -1, "+Y", "#16A34A"),
                              (-ISO_COS, ISO_SIN, "+Z", "#2563EB")):
@@ -807,30 +810,25 @@ def legend_grid(items, x, y, col_w, cols, line_h=26, fs=12, color_var="#4B5563")
 def style_combo(ctx):
     """双联图（上下排列）：上＝俯视图（世界系 XZ，轨迹按帧序时间渐变），下＝等轴测（含 Y 高度）。
 
-    排版要点：
-    · 两块绘图区的**尺寸按各自数据长宽比反推**，画满预留宽度 → 绘图区里不留白边
-      （View 是等比例缩放，预留框比例不对就必然出现一侧留白）。
-    · 俯视图数据接近方形，撑满宽度后会很高，右上角就空出一列 → 图例竖排进那一列；
-      等轴测撑满宽度后没有余量 → 它的图例摊在下方两行里（图例不堆在一处）。
-    · 画布高度按两块图的实际高度累加，不写死。
+    排版约定（2026-09-22 定稿）：
+    · 两块绘图区**统一预留框 800×450**，图框就按预留框画（两块一样大、左右对齐）。
+    · 俯视图数据通常窄于 1.78 的长宽比，两侧会空出来 → 把点云画进去填满，并作为背景裁到预留框。
+    · 两个图例都**铺在各自绘图区下方、占满整幅宽度**（俯视图 5 项一行 + 色条行；
+      等轴测 2 行 × 3 列）。
     """
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
-    W = 760
-    TOP_W, TOP_Y = 400.0, 120.0
-    ISO_W = 680.0
+    PANEL_W, PANEL_H = 800.0, 450.0      # 统一预留框
+    BOX_L = 40.0
+    BOX_R = BOX_L + PANEL_W
+    TOP_Y = 120.0
+    W = BOX_R + 40
 
-    # 俯视图：由数据长宽比反推高度（aspect = X 跨度 / Z 跨度）
-    span_x = ctx["range"]["x"][1] - ctx["range"]["x"][0]
-    span_z = ctx["range"]["z"][1] - ctx["range"]["z"][0]
-    top_h = min(max(TOP_W / ((span_x or 1.0) / (span_z or 1.0)), 300.0), 470.0)
-    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], 40, TOP_Y, 40 + TOP_W, TOP_Y + top_h)
+    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], BOX_L, TOP_Y, BOX_R, TOP_Y + PANEL_H)
 
     # 等轴测：视野由 iso_extent() 决定（只按相机活动范围，点云作背景）
-    u0, u1, v0, v1, floor_guess = iso_extent(ctx)
-    aspect_iso = ((u1 - u0) or 1.0) / ((v1 - v0) or 1.0)
-    iso_h = min(max(ISO_W / aspect_iso, 320.0), 470.0)
-    iso_y = TOP_Y + top_h + 74
-    view_iso = View(u0, u1, v0, v1, 40, iso_y, 40 + ISO_W, iso_y + iso_h)
+    u0, u1, v0, v1, _ = iso_extent(ctx)
+    iso_y = TOP_Y + PANEL_H + 170.0
+    view_iso = View(u0, u1, v0, v1, BOX_L, iso_y, BOX_R, iso_y + PANEL_H)
 
     out = [svg_open(W, 100, "#FFFFFF")]
     out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
@@ -840,43 +838,39 @@ def style_combo(ctx):
     # ── ① 俯视图 ──
     out.append(f'<text x="40" y="104" font-size="13" font-weight="500" fill="{INK}">'
                f'① 俯视图（世界系 XZ · 轨迹按帧序时间渐变）</text>')
-    tx0, ty0, tw, th = view_top.rect()
-    out.append(f'<rect x="{tx0:.1f}" y="{ty0:.1f}" width="{tw:.1f}" height="{th:.1f}" rx="10" '
+    panel_top = (BOX_L, TOP_Y, PANEL_W, PANEL_H)
+    out.append(f'<rect x="{BOX_L}" y="{TOP_Y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
-    out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT))
+    out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT,
+                                 cloud=True, clip_rect=panel_top))
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
-    out.append(scale_bar(tx0 + 16, ty0 + th - 44, 0.5, view_top, color=MUTED))
+    out.append(scale_bar(BOX_L + 16, TOP_Y + PANEL_H - 44, 0.5, view_top, color=MUTED))
 
-    # 俯视图右列：图例竖排并在这列里竖向居中（行距放宽，摊开而不是挤成一坨）
-    lx = 40 + TOP_W + 44
-    LEG_ROWS, LEG_LINE_H, LEG_TAIL = 5, 36, 118      # 5 行 + 色条与两行小字的高度
-    lcy = ty0 + max(24.0, (th - (LEG_ROWS * LEG_LINE_H + LEG_TAIL)) / 2)
-    top_legend, lcy_end = legend_col([
+    # 俯视图图例：铺在绘图区下方，5 项等距排满整幅宽度
+    ly = TOP_Y + PANEL_H + 40
+    out.append(legend_grid([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
         ("arrow", "视线方向", PAL_LIGHT["arrow"]),
         ("ring", f"均值半径 {ctx['dist_mean']:.2f} m", PAL_LIGHT["ring"]),
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], lx, lcy, line_h=LEG_LINE_H, color_var=MUTED)
-    out.append(top_legend)
-    out.append(ramp_bar(lx, lcy_end + 22, 236, 12, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
-    out.append(f'<text x="{lx}" y="{lcy_end + 78}" font-size="12" fill="#9CA3AF">世界 +Y 向上</text>')
-    out.append(f'<text x="{lx}" y="{lcy_end + 98}" font-size="12" fill="#9CA3AF">'
-               f'等比例尺 {view_top.s:.1f} px/m</text>')
+    ], BOX_L, ly, PANEL_W / 5, 5, color_var=MUTED))
+    out.append(ramp_bar(BOX_L, ly + 54, 200, 12, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
+    out.append(f'<text x="{BOX_L + 250}" y="{ly + 66}" font-size="12" fill="#9CA3AF">'
+               f'点云 pcd.ply（背景，超出绘图区已裁）｜ 世界 +Y 向上 ｜ 等比例尺 {view_top.s:.1f} px/m</text>')
 
     # ── ② 等轴测 ──
-    iso_title_y = TOP_Y + top_h + 44
-    out.append(f'<text x="40" y="{iso_title_y}" font-size="13" font-weight="500" fill="{INK}">'
+    out.append(f'<text x="40" y="{iso_y - 16:.0f}" font-size="13" font-weight="500" fill="{INK}">'
                f'② 等轴测视图（含世界 Y 高度）</text>')
-    ix0, iy0, iw, ih = view_iso.rect()
-    out.append(f'<rect x="{ix0:.1f}" y="{iy0:.1f}" width="{iw:.1f}" height="{ih:.1f}" rx="10" '
+    panel_iso = (BOX_L, iso_y, PANEL_W, PANEL_H)
+    out.append(f'<rect x="{BOX_L}" y="{iso_y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
-    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci")
+    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci", clip_rect=panel_iso)
     out.append(geom)
-    out.append(scale_bar(ix0 + 16, iy0 + ih - 44, 0.5, view_iso, color=MUTED))
+    out.append(scale_bar(BOX_L + 16, iso_y + PANEL_H - 44, 0.5, view_iso, color=MUTED))
 
-    # 等轴测图例摊在下方两行（三列等距），再把两行脚注放在其下
-    ly = iy0 + ih + 34
+    # 等轴测图例：同样铺在绘图区下方（2 行 × 3 列）
+    ly2 = iso_y + PANEL_H + 40
     out.append(legend_grid([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
         ("dot", "点云 pcd.ply（背景）", PAL_LIGHT["cloud"]),
@@ -884,12 +878,11 @@ def style_combo(ctx):
         ("dash", "地面投影线", "#CBD5E1"),
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], 40, ly, 680 / 3, 3, line_h=28, color_var=MUTED))
-    out.append(f'<text x="40" y="{ly + 66}" font-size="12" fill="#9CA3AF">'
+    ], BOX_L, ly2, PANEL_W / 3, 3, color_var=MUTED))
+    out.append(f'<text x="40" y="{ly2 + 66}" font-size="12" fill="#9CA3AF">'
                f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m ｜ '
-               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z（仅俯视图）｜ 两块图均为等比例尺 ｜ '
-               f'两块图都只按相机活动范围取视野，点云超出部分已裁掉</text>')
-    H = ly + 90
+               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z（仅俯视图）｜ 两块图均为等比例尺、同为 {PANEL_W:.0f}×{PANEL_H:.0f} 预留框</text>')
+    H = ly2 + 92
     out[0] = svg_open(W, H, "#FFFFFF")
     out.append("</svg>")
     return "\n".join(out), H

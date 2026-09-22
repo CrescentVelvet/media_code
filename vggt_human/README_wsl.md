@@ -352,8 +352,9 @@ IDS=13a8ecadfeb448e890db319ac828befe \
 STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 ```
 
-风格可选 `combo`（**默认**：上「俯视图 XZ」+ 下「等轴测含 Y 高度」上下排列，俯视轨迹按帧序做
-蓝→紫→玫红渐变，统计卡片竖排在右栏）/ `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）
+风格可选 `combo`（**默认**：上「俯视图 XZ」+ 下「等轴测含 Y 高度」上下排列，两块绘图区统一
+800×450 预留框、图例都铺在各自绘图区下方占满整幅宽度，俯视轨迹按帧序做蓝→紫→玫红渐变，
+统计卡片竖排在右栏）/ `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）
 / `fov`（视锥扇形 + 点云底图）/ `iso`（等轴测单图），或 `all`。纯标准库实现
 （json/math/struct），不需要 conda env。
 输入的 `transforms.json` 字段含义与四条易踩的坐标系坑见 [NOTES.md](NOTES.md)「Remy 采集包」。
