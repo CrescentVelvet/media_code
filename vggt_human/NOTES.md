@@ -459,6 +459,7 @@ THETA_MARGIN 系列同样不进成品）。
 binary_little_endian、xyz float32 + rgb uint8（15 B/点），点云与相机同处一个米制世界系。
 
 **可视化**：`99g_plot_capture_trajectory.py` 把每个 ID 画成一份自包含 HTML + 一份独立 `.svg`，
-标题与文件名都用文件夹 ID。默认风格 `combo`＝左「等轴测（含 Y 高度）」+ 右「俯视图（XZ，
-轨迹按帧序做蓝→紫→玫红时间渐变）」双联图；另有 `minimal` / `darkspace` / `fov` / `iso` 单图风格。
+标题与文件名都用文件夹 ID。默认风格 `combo`＝上「俯视图（XZ，轨迹按帧序做蓝→紫→玫红时间渐变）」
++ 下「等轴测（含 Y 高度）」上下排列的双联图，统计卡片竖排在右侧；另有
+`minimal` / `darkspace` / `fov` / `iso` 单图风格。
 

@@ -37,7 +37,7 @@ PLY_MAX_POINTS = 12000
 STYLES = ("combo", "minimal", "darkspace", "fov", "iso")
 
 STYLE_LABELS = {
-    "combo": "等轴测 + 俯视双联图（俯视轨迹按帧序时间渐变）",
+    "combo": "俯视 + 等轴测双联图（上下排列，俯视轨迹按帧序时间渐变）",
     "minimal": "浅色极简 · 轨迹 + 视线 + 均值半径环",
     "darkspace": "深色网格 · 按时间渐变的轨迹",
     "fov": "视锥扇形 + 点云底图（浅色）",
@@ -297,17 +297,21 @@ def scale_bar(x, y, meters, view, color="#4B5563", fs=12, label=None):
 
 
 def axis_hints(view, color, fs=12):
-    """在绘图区左下/右下角标出世界 X / Z 的正方向（俯视图约定：X 右、Z 下）。"""
-    x0, y0, x1, y1 = view.box
+    """在绘图区外侧标出世界 X / Z 的正方向（俯视图约定：X 右、Z 下）。
+
+    位置贴着数据框外侧而不是框内：数据框本身只有数据那么宽，框内左下角常常正好被
+    轨迹压住；框外紧邻位置是白边，放轴指示既清楚又不遮数据。
+    """
+    rx0, ry0, rw, rh = view.rect()
     out = []
-    # 左下角：Z 向下
-    ax, ay = x0 + 30, y1 - 150
+    # 左侧：Z 向下
+    ax, ay = rx0 - 30, ry0 + rh - 200
     out.append(f'<line x1="{ax}" y1="{ay}" x2="{ax}" y2="{ay + 34}" stroke="{color}" stroke-width="1.4"/>')
     out.append(f'<path d="M{ax - 4},{ay + 28} L{ax},{ay + 34} L{ax + 4},{ay + 28}" fill="none" stroke="{color}" '
                f'stroke-width="1.4" stroke-linecap="round"/>')
     out.append(f'<text x="{ax + 9}" y="{ay + 34}" font-size="{fs}" fill="{color}">+Z</text>')
-    # 右下角：X 向右
-    bx, by = x1 - 76, y1 - 26
+    # 右侧：X 向右
+    bx, by = rx0 + rw + 12, ry0 + rh - 26
     out.append(f'<line x1="{bx}" y1="{by}" x2="{bx + 34}" y2="{by}" stroke="{color}" stroke-width="1.4"/>')
     out.append(f'<path d="M{bx + 28},{by - 4} L{bx + 34},{by} L{bx + 28},{by + 4}" fill="none" stroke="{color}" '
                f'stroke-width="1.4" stroke-linecap="round"/>')
@@ -462,9 +466,9 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, 
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.6" fill="{pal["track"]}"/>')
     out.append('</g>')
 
-    # 世界轴三叉：固定像素尺寸画在左下角，避免随数据范围缩放
-    tx0, ty0, tx1, ty1 = view.box
-    ox, oy = tx0 + 78, ty1 - 62
+    # 世界轴三叉：固定像素尺寸画在绘图区左下角（用 rect 而非 box，否则会画到框外）
+    rx0, ry0, rw, rh = view.rect()
+    ox, oy = rx0 + 78, ry0 + rh - 110
     L = 48
     for dx, dy, lab, col in ((ISO_COS, ISO_SIN, "+X", "#DC2626"), (0, -1, "+Y", "#16A34A"),
                              (-ISO_COS, ISO_SIN, "+Z", "#2563EB")):
@@ -753,82 +757,104 @@ def style_iso(ctx):
     return "\n".join(out), H
 
 
+def legend_col(items, x, y, fs=12, line_h=24, color_var="#4B5563"):
+    """竖排图例（给绘图区右侧的窄列用）。返回 (svg, 末行之后的 y)。"""
+    out, cy = [], y
+    for kind, label, color in items:
+        if kind == "line":
+            out.append(f'<line x1="{x}" y1="{cy}" x2="{x + 22}" y2="{cy}" stroke="{color}" stroke-width="2.2"/>')
+            out.append(f'<circle cx="{x + 11}" cy="{cy}" r="3" fill="{color}"/>')
+        elif kind == "arrow":
+            out.append(f'<line x1="{x}" y1="{cy}" x2="{x + 22}" y2="{cy}" stroke="{color}" stroke-width="1.4"/>')
+            out.append(f'<path d="M{x + 16},{cy - 4} L{x + 22},{cy} L{x + 16},{cy + 4}" fill="none" '
+                       f'stroke="{color}" stroke-width="1.4" stroke-linecap="round"/>')
+        elif kind == "dot":
+            out.append(f'<circle cx="{x + 11}" cy="{cy}" r="4.5" fill="{color}"/>')
+        elif kind == "ring":
+            out.append(f'<circle cx="{x + 11}" cy="{cy}" r="6" fill="none" stroke="{color}" stroke-width="1.8"/>')
+        elif kind == "dash":
+            out.append(f'<line x1="{x}" y1="{cy}" x2="{x + 22}" y2="{cy}" stroke="{color}" stroke-width="1.2" stroke-dasharray="4 4"/>')
+        out.append(f'<text x="{x + 30}" y="{cy + 4}" font-size="{fs}" fill="{color_var}">{esc(label)}</text>')
+        cy += line_h
+    return "\n".join(out), cy
+
+
 def style_combo(ctx):
-    """双联图：左＝等轴测（含 Y 高度），右＝浅色俯视图（轨迹按帧序时间渐变）。
+    """双联图（上下排列）：上＝俯视图（世界系 XZ，轨迹按帧序时间渐变），下＝等轴测（含 Y 高度）。
 
-    两块绘图区按各自数据的长宽比给尺寸；图例/脚注一律以「绘图区实际左边界」对齐，
-    因为 View 会按数据长宽比居中留白，硬编码 x 会随数据不同而错位、互相压字。
+    俯视图数据接近方形，横排图例会把画布右半边空着、左半边又挤在一起；
+    所以两块绘图区都只占左侧，图例竖排在各自绘图区右边的窄列里。
+    图纸右列之上/之下由 HTML 侧栏承载统计卡片（见 render_html 的 combo 分支）。
     """
-    W, H = 1140, 656
+    W, H = 900, 1010
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
+    LEG_X = 650          # 图例列左边界
+    BOX_L, BOX_R = 40, 620   # 绘图区预留的 x 范围
 
-    # ── 左：等轴测 ──
+    # ── 上：俯视图（XZ）──
+    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], BOX_L, 120, BOX_R, 500)
+
+    # ── 下：等轴测 ──
     cpts = [iso_proj(*p) for p in ctx["pos"]]
     us = [p[0] for p in cpts] + [iso_proj(*p)[0] for p in ctx["points"]]
     vs = [p[1] for p in cpts] + [iso_proj(*p)[1] for p in ctx["points"]]
     if ctx["anchor"]:
         us.append(iso_proj(*ctx["anchor"])[0])
         vs.append(iso_proj(*ctx["anchor"])[1])
-    view_iso = View(min(us), max(us), min(vs), max(vs), 40, 122, 680, 522)
-
-    # ── 右：俯视（XZ）──
-    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], 720, 122, 1100, 522)
+    view_iso = View(min(us), max(us), min(vs), max(vs), BOX_L, 566, BOX_R, 946)
 
     out = [svg_open(W, H, "#FFFFFF")]
     out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
-               f'{esc(ctx["id"])} · 采集轨迹图（等轴测 + 俯视）</text>')
+               f'{esc(ctx["id"])} · 采集轨迹图（俯视 + 等轴测）</text>')
     out.append(caption(ctx, 40, 66, MUTED))
-    # 两栏之间的分隔线
-    out.append(f'<line x1="700" y1="98" x2="700" y2="628" stroke="{LINE}" stroke-width="1" stroke-dasharray="4 6"/>')
 
-    out.append(f'<text x="40" y="106" font-size="13" font-weight="500" fill="{INK}">① 等轴测视图（含世界 Y 高度）</text>')
-    out.append(f'<text x="720" y="106" font-size="13" font-weight="500" fill="{INK}">② 俯视图（世界系 XZ · 轨迹按帧序时间渐变）</text>')
-
-    ix0, iy0, iw, ih = view_iso.rect()
-    out.append(f'<rect x="{ix0:.1f}" y="{iy0:.1f}" width="{iw:.1f}" height="{ih:.1f}" rx="10" '
-               f'fill="#FAFAF9" stroke="{LINE}"/>')
-    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci")
-    out.append(geom)
-
+    # ── ① 俯视图 ──
+    out.append(f'<text x="40" y="104" font-size="13" font-weight="500" fill="{INK}">'
+               f'① 俯视图（世界系 XZ · 轨迹按帧序时间渐变）</text>')
     tx0, ty0, tw, th = view_top.rect()
     out.append(f'<rect x="{tx0:.1f}" y="{ty0:.1f}" width="{tw:.1f}" height="{th:.1f}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT))
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
-
-    # 左栏图例 + 脚注
-    row1, cx1 = legend_row([
+    # 比例尺画在图框内部左下角：scale_bar 的标签在 y+22，留够 44px 才不会顶出框
+    out.append(scale_bar(tx0 + 16, ty0 + th - 44, 0.5, view_top, color=MUTED))
+    top_legend, cy = legend_col([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
-        ("dot", "pcd.ply 点云", PAL_LIGHT["cloud"]),
-        ("ring", "anchor_point", PAL_LIGHT["anc"]),
-    ], ix0, 552, color_var=MUTED)
-    row2, cx2 = legend_row([
-        ("dash", "相机到地面的垂直投影线", "#CBD5E1"),
-        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
-        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], ix0, 578, color_var=MUTED)
-    out.append(row1)
-    out.append(row2)
-    # 比例尺画在绘图区内部：放外面时，右栏会随数据长宽比右移、0.5 m 的像素长度也随比例尺变化，容易出界
-    out.append(scale_bar(ix0 + 16, iy0 + ih - 18, 0.5, view_iso, color=MUTED))
-
-    # 右栏图例 + 色条
-    row3, cx3 = legend_row([
         ("arrow", "视线方向", PAL_LIGHT["arrow"]),
         ("ring", f"均值半径 {ctx['dist_mean']:.2f} m", PAL_LIGHT["ring"]),
-    ], tx0, 552, fs=12, color_var=MUTED)
-    row4, cx4 = legend_row([
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], tx0, 578, fs=12, color_var=MUTED)
-    out.append(row3)
-    out.append(row4)
-    out.append(scale_bar(tx0 + 16, ty0 + th - 18, 0.5, view_top, color=MUTED))
-    out.append(ramp_bar(tx0, 610, 150, 11, RAMP_LIGHT, f"轨迹颜色 = 帧序（0 → {ctx['n'] - 1}）", MUTED, fs=12))
-    # 两个脚注合成一行放最底部（各占一栏时，右栏那行会因绘图区右移而顶到画布外）
-    out.append(f'<text x="40" y="642" font-size="12" fill="#9CA3AF">'
-               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z ｜ 俯视等比例尺 {view_top.s:.1f} px/m ｜ 世界 +Y 向上 ｜ '
-               f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
+    ], LEG_X, ty0 + 26, color_var=MUTED)
+    out.append(top_legend)
+    out.append(ramp_bar(LEG_X, cy + 10, 190, 11, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
+    out.append(f'<text x="{LEG_X}" y="{cy + 56}" font-size="12" fill="#9CA3AF">'
+               f'世界 +Y 向上 ｜ 等比例尺 {view_top.s:.1f} px/m</text>')
+
+    # ── ② 等轴测 ──
+    out.append(f'<text x="40" y="550" font-size="13" font-weight="500" fill="{INK}">'
+               f'② 等轴测视图（含世界 Y 高度）</text>')
+    ix0, iy0, iw, ih = view_iso.rect()
+    out.append(f'<rect x="{ix0:.1f}" y="{iy0:.1f}" width="{iw:.1f}" height="{ih:.1f}" rx="10" '
+               f'fill="#FAFAF9" stroke="{LINE}"/>')
+    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci")
+    out.append(geom)
+    out.append(scale_bar(ix0 + 16, iy0 + ih - 44, 0.5, view_iso, color=MUTED))
+    iso_legend, cy2 = legend_col([
+        ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
+        ("dot", "点云 pcd.ply", PAL_LIGHT["cloud"]),
+        ("ring", "anchor_point", PAL_LIGHT["anc"]),
+        ("dash", "地面投影线", "#CBD5E1"),
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
+    ], LEG_X, iy0 + 26, color_var=MUTED)
+    out.append(iso_legend)
+    out.append(f'<text x="{LEG_X}" y="{cy2 + 16}" font-size="12" fill="#9CA3AF">'
+               f'等轴测 (X−Z)·cos30°,</text>')
+    out.append(f'<text x="{LEG_X}" y="{cy2 + 34}" font-size="12" fill="#9CA3AF">'
+               f'(X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
+
+    out.append(f'<text x="40" y="986" font-size="12" fill="#9CA3AF">'
+               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z（仅俯视图）｜ 两块图均为等比例尺 ｜ 世界 +Y 向上（重力对齐）</text>')
     out.append("</svg>")
     return "\n".join(out), H
 
@@ -875,7 +901,12 @@ PAGE_CSS = """
 body{margin:0;padding:28px 24px 40px;background:var(--bg);color:var(--ink);
      font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif}
 .wrap{max-width:980px;margin:0 auto}
-.wrap.wide{max-width:1220px}
+.wrap.wide{max-width:1240px}
+.figrow{display:flex;gap:16px;align-items:flex-start}
+.figrow .fig{flex:1 1 auto;min-width:0}
+.figrow .side{flex:0 0 296px;display:flex;flex-direction:column;gap:8px}
+.figrow .side .card{padding:9px 11px}
+@media (max-width:1040px){.figrow{flex-direction:column}.figrow .side{flex:1 1 auto;width:100%}}
 h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:.2px}
 .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
 .fig{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px 4px;overflow:hidden}
@@ -897,6 +928,13 @@ def render_html(ctx, style, svg) -> str:
     title = f'{ctx["id"]} · {STYLE_LABELS[style]}'
     # 双联图更宽，容器跟着放宽，否则整张图被缩到 980px 宽、字变小
     wrap_cls = "wrap wide" if style == "combo" else "wrap"
+    cards = stat_cards(ctx)
+    # combo：图在左、统计卡片竖排在右侧；其它风格沿用下方卡片网格
+    if style == "combo":
+        body = (f'<div class="figrow"><div class="fig">{svg}</div>'
+                f'<aside class="side">{cards}</aside></div>')
+    else:
+        body = f'<div class="fig">{svg}</div>\n<div class="grid">{cards}</div>'
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -905,8 +943,7 @@ def render_html(ctx, style, svg) -> str:
 <body><div class="{wrap_cls}">
 <h1>{esc(ctx["id"])}</h1>
 <div class="sub">Remy 采集包 · {esc(STYLE_LABELS[style])} · {ctx["n"]} 帧</div>
-<div class="fig">{svg}</div>
-<div class="grid">{stat_cards(ctx)}</div>
+{body}
 <div class="foot">
   图内坐标系：世界 XZ 俯视，世界 +Y 向上（重力对齐）；相机前向 = −Z（OpenGL 约定）。
   transform_matrix 第 4 列即相机光心，单位米；各帧到 anchor_point 的距离近似恒定 → 属「等距环绕」采集。<br>
