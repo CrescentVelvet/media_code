@@ -399,10 +399,93 @@ def iso_extent(ctx):
     return min(us), max(us), min(vs), max(vs), floor
 
 
+def label_box(tx, ty, text, fs, anchor):
+    """按 text-anchor 与基线位置估算文字包围盒 (x, y, w, h)。"""
+    w = text_w(text, fs)
+    x0 = tx if anchor == "start" else (tx - w if anchor == "end" else tx - w / 2.0)
+    return (x0, ty - fs, w, fs + 5)
+
+
+def boxes_hit(a, b, pad=3.0):
+    return not (a[0] + a[2] + pad < b[0] or b[0] + b[2] + pad < a[0]
+                or a[1] + a[3] + pad < b[1] or b[1] + b[3] + pad < a[1])
+
+
+def draw_world_origin(ctx, view, proj, panel, ink, muted, blocked=(), fs=12):
+    """画世界原点 (0,0,0)：在取景内直接画标记，在取景外就画到绘图区边缘并指向它。
+
+    为什么不把原点并进取景范围：Remy 的 AR 世界原点是会话起点，实测离场景 0.5–5.1 m
+    （10 个样本里只有 4 个落在场景取景内），并进去会把整个场景压成一小团。
+    所以取景维持不变，框外用「边缘标记 + 箭头 + 距离」表示。
+
+    blocked 是已占用的文字包围盒（锚点/起终点标签），框内时会挑一个不压字的方位放标签。
+    """
+    u, v = proj(0.0, 0.0, 0.0)
+    x0, y0, w, h = panel
+    px, py = view.p(u, v)
+
+    def glyph(cx, cy):
+        return (f'<rect x="{cx - 4:.1f}" y="{cy - 4:.1f}" width="8" height="8" fill="none" '
+                f'stroke="{ink}" stroke-width="1.6"/>'
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="1.5" fill="{ink}"/>')
+
+    label = "世界原点 (0,0,0)"
+    if ctx["anchor"]:
+        label += f" · 距锚点 {math.dist((0.0, 0.0, 0.0), ctx["anchor"]):.2f} m"
+
+    if view.umin <= u <= view.umax and view.vmin <= v <= view.vmax:
+        # 框内：在四个方位里挑第一个不压字、且完整落在绘图区内的
+        cands = [(px + 12, py + 4, "start"), (px - 12, py + 4, "end"),
+                 (px, py - 13, "middle"), (px, py + 20, "middle")]
+        pick = None
+        for tx, ty, an in cands:
+            box = label_box(tx, ty, label, fs, an)
+            in_panel = box[0] >= x0 + 4 and box[0] + box[2] <= x0 + w - 4
+            if in_panel and not any(boxes_hit(box, b) for b in blocked):
+                pick = (tx, ty, an)
+                break
+        if pick is None:
+            pick = cands[0]
+        tx, ty, an = pick
+        return "\n".join([
+            glyph(px, py),
+            f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="{fs}" text-anchor="{an}" fill="{muted}">{esc(label)}</text>',
+        ])
+
+    # 框外：把方向向量夹到绘图区边框内侧，画外指箭头 + 标记 + 标签
+    cx, cy = x0 + w / 2.0, y0 + h / 2.0
+    dx, dy = px - cx, py - cy
+    margin = 30.0
+    t = min((w / 2 - margin) / abs(dx) if dx else 1e9, (h / 2 - margin) / abs(dy) if dy else 1e9)
+    ex, ey = cx + dx * t, cy + dy * t
+    n = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / n, dy / n
+    out = [
+        f'<line x1="{ex - ux * 15:.1f}" y1="{ey - uy * 15:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" '
+        f'stroke="{ink}" stroke-width="1.4"/>',
+        f'<path d="M{ex - ux * 7 - uy * 4:.1f},{ey - uy * 7 + ux * 4:.1f} L{ex:.1f},{ey:.1f} '
+        f'L{ex - ux * 7 + uy * 4:.1f},{ey - uy * 7 - ux * 4:.1f}" fill="none" stroke="{ink}" '
+        f'stroke-width="1.4" stroke-linecap="round"/>',
+        glyph(ex - ux * 24, ey - uy * 24),
+    ]
+    # 文字要落在标记之外：箭头占内 0~15px、标记占内 20~28px，所以文字从内 40px 起排
+    tw = text_w(label, fs)
+    if abs(ux) >= abs(uy):            # 贴左右边：文字朝框内展开
+        lx = ex - ux * 40
+        ly = ey + 4
+        an = "start" if ux < 0 else "end"
+    else:                              # 贴上下边：文字居中，横向夹在框内
+        lx = min(max(ex, x0 + tw / 2 + 6), x0 + w - tw / 2 - 6)
+        ly = ey - uy * 40 + 4
+        an = "middle"
+    out.append(f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="{fs}" text-anchor="{an}" fill="{muted}">{esc(label)}</text>')
+    return "\n".join(out)
+
+
 def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                       arrows_every=20, dots_every=10, arrow_len=0.26,
                       arrow_color=None, ring=True, cloud_screen=None, track_width=2.0,
-                      clip_rect=None):
+                      clip_rect=None, origin=False):
     """把俯视图的几何画进给定 view。
 
     ramp=None → 轨迹用 pal['track'] 单色；否则传 [(pos,(r,g,b)),...] 按帧序做时间渐变。
@@ -456,6 +539,19 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                    f'stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>')
     out.append('</g>')
 
+    if origin:   # 世界原点：框内画标记、框外画边缘指示；放在锚点之前，锚点压在上层
+        blocked = []
+        if ctx["anchor"]:
+            ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+            blocked.append(label_box(ax + 16, ay - 8, "anchor_point", 12, "start"))
+        if ctx["pos"]:
+            sx, sy = view.p(ctx["pos"][0][0], ctx["pos"][0][2])
+            ex, ey = view.p(ctx["pos"][-1][0], ctx["pos"][-1][2])
+            blocked.append(label_box(sx + 12, sy + 5, "frame 0", 12, "start"))
+            blocked.append(label_box(ex + 12, ey + 5, f"frame {ctx['n'] - 1}", 12, "start"))
+        out.append(draw_world_origin(ctx, view, lambda x, y, z: (x, z), (x0, y0, bw, bh),
+                                     pal["ink"], pal["muted"], blocked=blocked))
+
     if ctx["anchor"]:
         ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="8" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
@@ -473,7 +569,7 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
 
 
 def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid=True, drop_every=5,
-                      dots_every=10, floor=None, clip_rect=None):
+                      dots_every=10, floor=None, clip_rect=None, origin=False):
     """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。
 
     cloud_screen = 已投影到画布的 [(x, y)]，None 则不画点云。
@@ -534,6 +630,14 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid
                    f'font-size="12" text-anchor="{"start" if dx > 0 else ("middle" if dx == 0 else "end")}" '
                    f'fill="{col}">{lab}</text>')
 
+    if origin:   # 世界原点：框内画标记、框外画边缘指示
+        blocked = []
+        if ctx["anchor"]:
+            ax, ay = view.p(*iso_proj(*ctx["anchor"]))
+            blocked.append(label_box(ax + 14, ay - 10, "anchor_point", 12, "start"))
+        out.append(draw_world_origin(ctx, view, iso_proj, (x0, y0, bw, bh), pal["ink"], pal["muted"],
+                                     blocked=blocked))
+
     if ctx["anchor"]:
         ax, ay = view.p(*iso_proj(*ctx["anchor"]))
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="7" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
@@ -574,7 +678,7 @@ def style_minimal(ctx):
     x0, y0, bw, bh = view.rect()
     out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}" stroke-width="1"/>')
-    out.append(draw_top_geometry(ctx, view, f"clip_{ctx['id'][:8]}_min"))
+    out.append(draw_top_geometry(ctx, view, f"clip_{ctx['id'][:8]}_min", origin=True))
 
     out.append(axis_hints(view, "#9CA3AF"))
 
@@ -650,6 +754,9 @@ def style_darkspace(ctx):
                    f'stroke-width="1.1" opacity="0.42"/>')
     out.append("".join(arr))
     out.append('</g>')
+
+    _rx, _ry, _rw, _rh = view.rect()
+    out.append(draw_world_origin(ctx, view, lambda x, y, z: (x, z), (_rx, _ry, _rw, _rh), INK, MUTED))
 
     if ctx["anchor"]:
         ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
@@ -738,6 +845,9 @@ def style_fov(ctx):
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{C_TRACK}"/>')
     out.append('</g>')
 
+    _rx, _ry, _rw, _rh = view.rect()
+    out.append(draw_world_origin(ctx, view, lambda x, y, z: (x, z), (_rx, _ry, _rw, _rh), INK, MUTED))
+
     if ctx["anchor"]:
         ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="7" fill="none" stroke="{C_ANC}" stroke-width="2"/>')
@@ -786,7 +896,8 @@ def style_iso(ctx):
     out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     geom, floor = draw_iso_geometry(ctx, view, f"clip_{ctx['id'][:8]}_iso",
-                                    cloud_screen=cloud_screen_for(view, ctx, proj=iso_proj_pt))
+                                    cloud_screen=cloud_screen_for(view, ctx, proj=iso_proj_pt),
+                                    origin=True)
     out.append(geom)
 
     row1, cx1 = legend_row([
@@ -885,7 +996,8 @@ def style_combo(ctx):
     out.append(f'<rect x="{BOX_L}" y="{TOP_Y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT,
-                                 cloud_screen=cloud_screen_for(view_top, ctx), clip_rect=panel_top))
+                                 cloud_screen=cloud_screen_for(view_top, ctx), clip_rect=panel_top,
+                                 origin=True))
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
     out.append(scale_bar(BOX_L + 16, TOP_Y + PANEL_H - 44, 0.5, view_top, color=MUTED))
 
@@ -909,7 +1021,8 @@ def style_combo(ctx):
     out.append(f'<rect x="{BOX_L}" y="{iso_y}" width="{PANEL_W}" height="{PANEL_H}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci", clip_rect=panel_iso,
-                                    cloud_screen=cloud_screen_for(view_iso, ctx, proj=iso_proj_pt))
+                                    cloud_screen=cloud_screen_for(view_iso, ctx, proj=iso_proj_pt),
+                                    origin=True)
     out.append(geom)
     out.append(scale_bar(BOX_L + 16, iso_y + PANEL_H - 44, 0.5, view_iso, color=MUTED))
 
@@ -947,6 +1060,10 @@ def stat_cards(ctx) -> str:
     d = ctx["data"]
     r = ctx["range"]
     intr = ctx["intr"]
+    pos = ctx["pos"]
+    cen = tuple(sum(p[i] for p in pos) / len(pos) for i in range(3))
+    d_origin_cen = math.dist(cen, (0.0, 0.0, 0.0))
+    d_origin_anc = math.dist(ctx["anchor"], (0.0, 0.0, 0.0)) if ctx["anchor"] else float("nan")
     cards = [
         ("帧数 / 时长", f"{ctx['n']} 帧 · {ctx['duration']:.1f} s · {ctx['fps']:.2f} fps"),
         ("相机-锚点水平距离", f"{ctx['dist_min']:.2f} – {ctx['dist_max']:.2f} m（均值 {ctx['dist_mean']:.2f}）"),
@@ -961,6 +1078,8 @@ def stat_cards(ctx) -> str:
                           f"{ctx['bbox']['max'][1] - ctx['bbox']['min'][1]:.2f} × "
                           f"{ctx['bbox']['max'][2] - ctx['bbox']['min'][2]:.2f} m")
          if ctx["bbox"] else "未找到或无有效点"),
+        ("世界原点 (0,0,0)", (f"距锚点 {d_origin_anc:.2f} m · 距相机质心 {d_origin_cen:.2f} m"
+                              if ctx["anchor"] else f"距相机质心 {d_origin_cen:.2f} m")),
         ("采集端", f'{d.get("platform", "?")} · {str(d.get("platform_version", "?")).split("/")[5] if len(str(d.get("platform_version", "")).split("/")) > 5 else "?"} · capture_mode {d.get("capture_mode", "?")}'),
     ]
     return "\n".join(
