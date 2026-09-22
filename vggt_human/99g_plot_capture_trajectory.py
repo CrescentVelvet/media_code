@@ -34,9 +34,10 @@ from pathlib import Path
 # 点云最多画多少个点（超出按等间隔抽稀，保证渲染不卡）
 PLY_MAX_POINTS = 12000
 
-STYLES = ("minimal", "darkspace", "fov", "iso")
+STYLES = ("combo", "minimal", "darkspace", "fov", "iso")
 
 STYLE_LABELS = {
+    "combo": "等轴测 + 俯视双联图（俯视轨迹按帧序时间渐变）",
     "minimal": "浅色极简 · 轨迹 + 视线 + 均值半径环",
     "darkspace": "深色网格 · 按时间渐变的轨迹",
     "fov": "视锥扇形 + 点云底图（浅色）",
@@ -324,13 +325,184 @@ def caption(ctx, x, y, color, fs=13):
     return f'<text x="{x}" y="{y}" font-size="{fs}" fill="{color}">{txt}</text>'
 
 
+# ─────────────────────── 公共几何绘制（minimal / iso / combo 共用） ───────────────────────
+
+PAL_LIGHT = {
+    "ink": "#111827", "muted": "#4B5563", "line": "#D1D5DB", "plot": "#FAFAF9",
+    "track": "#185FA5", "dot": "#378ADD", "arrow": "#6B7280",
+    "ring": "#B45309", "anc": "#B45309",
+    "start": "#4D7C0F", "end": "#BE123C",
+    "cloud": "#B4B2A9", "axis": "#9CA3AF", "grid": "#E5E7EB",
+}
+
+# 浅色底上的时间渐变（蓝 → 紫 → 玫红）：纯青/纯粉在白底上对比度不够，换成深一档
+RAMP_LIGHT = [(0.0, (0x1D, 0x4E, 0xD8)), (0.5, (0x7C, 0x3A, 0xED)), (1.0, (0xDB, 0x27, 0x77))]
+
+
+def iso_proj(x, y, z):
+    """等轴测投影：世界 (X, Y, Z) → 平面 (u, v)，v 向下。"""
+    return (x - z) * ISO_COS, (x + z) * ISO_SIN - y
+
+
+def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
+                      arrows_every=20, dots_every=10, arrow_len=0.26,
+                      arrow_color=None, ring=True, cloud=False, track_width=2.0):
+    """把俯视图的几何画进给定 view。
+
+    ramp=None → 轨迹用 pal['track'] 单色；否则传 [(pos,(r,g,b)),...] 按帧序做时间渐变。
+    轨迹/环/点云统一裁剪到绘图区；锚点与起终点标记不裁剪（避免贴边被切掉）。
+    """
+    out = []
+    x0, y0, bw, bh = view.rect()
+    out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" '
+               f'height="{bh:.1f}" rx="10"/></clipPath>')
+    out.append(f'<g clip-path="url(#{clip})">')
+
+    if cloud and ctx["points"]:
+        out.append("".join(
+            f'<circle cx="{view.p(p[0], p[2])[0]:.1f}" cy="{view.p(p[0], p[2])[1]:.1f}" r="1" '
+            f'fill="{pal["cloud"]}" opacity="0.5"/>' for p in ctx["points"]))
+
+    if ring and ctx["anchor"]:
+        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="{ctx["dist_mean"] * view.s:.1f}" fill="none" '
+                   f'stroke="{pal["ring"]}" stroke-width="1.2" stroke-dasharray="5 5" opacity="0.55"/>')
+
+    if ramp is None:
+        pts = " ".join("%.1f,%.1f" % view.p(p[0], p[2]) for p in ctx["pos"])
+        out.append(f'<polyline points="{pts}" fill="none" stroke="{pal["track"]}" stroke-width="{track_width}" '
+                   f'stroke-linejoin="round" opacity="0.92"/>')
+    else:
+        for i in range(ctx["n"] - 1):
+            x1, y1 = view.p(ctx["pos"][i][0], ctx["pos"][i][2])
+            x2, y2 = view.p(ctx["pos"][i + 1][0], ctx["pos"][i + 1][2])
+            out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                       f'stroke="{ramp_color(i / max(1, ctx["n"] - 1), ramp)}" stroke-width="{track_width + 0.4}" '
+                       f'stroke-linecap="round"/>')
+
+    for i in range(0, ctx["n"], dots_every):
+        x, y = view.p(ctx["pos"][i][0], ctx["pos"][i][2])
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.8" fill="{pal["dot"]}"/>')
+
+    acolor = arrow_color or pal["arrow"]
+    for i in range(0, ctx["n"], arrows_every):
+        x, y = view.p(ctx["pos"][i][0], ctx["pos"][i][2])
+        d = ctx["look"][i]
+        L = math.hypot(d[0], d[2]) or 1.0
+        ex, ey = x + d[0] / L * arrow_len * view.s, y + d[2] / L * arrow_len * view.s
+        ux, uy = (ex - x) / (math.hypot(ex - x, ey - y) or 1), (ey - y) / (math.hypot(ex - x, ey - y) or 1)
+        out.append(f'<line x1="{x:.1f}" y1="{y:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{acolor}" '
+                   f'stroke-width="1.2" opacity="0.5"/>')
+        out.append(f'<path d="M{ex - ux * 6 - uy * 4:.1f},{ey - uy * 6 + ux * 4:.1f} L{ex:.1f},{ey:.1f} '
+                   f'L{ex - ux * 6 + uy * 4:.1f},{ey - uy * 6 - ux * 4:.1f}" fill="none" stroke="{acolor}" '
+                   f'stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>')
+    out.append('</g>')
+
+    if ctx["anchor"]:
+        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="8" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
+        out.append(f'<line x1="{ax - 12:.1f}" y1="{ay:.1f}" x2="{ax + 12:.1f}" y2="{ay:.1f}" stroke="{pal["anc"]}" stroke-width="1"/>')
+        out.append(f'<line x1="{ax:.1f}" y1="{ay - 12:.1f}" x2="{ax:.1f}" y2="{ay + 12:.1f}" stroke="{pal["anc"]}" stroke-width="1"/>')
+        out.append(f'<text x="{ax + 16:.1f}" y="{ay - 8:.1f}" font-size="12" fill="{pal["anc"]}">anchor_point</text>')
+
+    sx, sy = view.p(ctx["pos"][0][0], ctx["pos"][0][2])
+    ex, ey = view.p(ctx["pos"][-1][0], ctx["pos"][-1][2])
+    out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="6" fill="{pal["start"]}"/>')
+    out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="6" fill="{pal["end"]}"/>')
+    out.append(f'<text x="{sx + 12:.1f}" y="{sy + 5:.1f}" font-size="12" fill="{pal["start"]}">frame 0</text>')
+    out.append(f'<text x="{ex + 12:.1f}" y="{ey + 5:.1f}" font-size="12" fill="{pal["end"]}">frame {ctx["n"] - 1}</text>')
+    return "\n".join(out)
+
+
+def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud=True, grid=True, drop_every=5,
+                      dots_every=10, floor=None):
+    """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。"""
+    out = []
+    x0, y0, bw, bh = view.rect()
+    if floor is None:
+        floor = ctx["bbox"]["min"][1] if ctx["bbox"] else min(p[1] for p in ctx["pos"]) - 0.2
+
+    out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" '
+               f'height="{bh:.1f}" rx="10"/></clipPath>')
+    out.append(f'<g clip-path="url(#{clip})">')
+
+    x_lo, x_hi = ctx["range"]["x"]
+    z_lo, z_hi = ctx["range"]["z"]
+    pad = 0.3
+    if grid:   # 地面网格：0.5 m 一条，投影后仍是直线
+        k = math.floor(x_lo / 0.5) * 0.5
+        while k <= x_hi + pad:
+            x1, y1 = view.p(*iso_proj(k, floor, z_lo - pad))
+            x2, y2 = view.p(*iso_proj(k, floor, z_hi + pad))
+            out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{pal["grid"]}" stroke-width="0.8"/>')
+            k += 0.5
+        k = math.floor(z_lo / 0.5) * 0.5
+        while k <= z_hi + pad:
+            x1, y1 = view.p(*iso_proj(x_lo - pad, floor, k))
+            x2, y2 = view.p(*iso_proj(x_hi + pad, floor, k))
+            out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{pal["grid"]}" stroke-width="0.8"/>')
+            k += 0.5
+
+    if cloud and ctx["points"]:
+        out.append("".join(
+            f'<circle cx="{view.p(*iso_proj(*p))[0]:.1f}" cy="{view.p(*iso_proj(*p))[1]:.1f}" r="1.1" '
+            f'fill="{pal["cloud"]}" opacity="0.45"/>' for p in ctx["points"]))
+
+    for i in range(0, ctx["n"], drop_every):   # 相机到地面的垂线，表达高度
+        c = ctx["pos"][i]
+        x1, y1 = view.p(*iso_proj(c[0], c[1], c[2]))
+        x2, y2 = view.p(*iso_proj(c[0], floor, c[2]))
+        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#CBD5E1" '
+                   f'stroke-width="0.8" stroke-dasharray="3 3"/>')
+
+    pts = " ".join("%.1f,%.1f" % view.p(*iso_proj(*p)) for p in ctx["pos"])
+    out.append(f'<polyline points="{pts}" fill="none" stroke="{pal["track"]}" stroke-width="2" stroke-linejoin="round"/>')
+    for i in range(0, ctx["n"], dots_every):
+        x, y = view.p(*iso_proj(*ctx["pos"][i]))
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.6" fill="{pal["track"]}"/>')
+    out.append('</g>')
+
+    # 世界轴三叉：固定像素尺寸画在左下角，避免随数据范围缩放
+    tx0, ty0, tx1, ty1 = view.box
+    ox, oy = tx0 + 78, ty1 - 62
+    L = 48
+    for dx, dy, lab, col in ((ISO_COS, ISO_SIN, "+X", "#DC2626"), (0, -1, "+Y", "#16A34A"),
+                             (-ISO_COS, ISO_SIN, "+Z", "#2563EB")):
+        ex, ey = ox + dx * L, oy + dy * L
+        out.append(f'<line x1="{ox:.1f}" y1="{oy:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{col}" stroke-width="1.6"/>')
+        out.append(f'<text x="{ex + 6 * (1 if dx > 0 else -1):.1f}" y="{ey + (4 if dy >= 0 else -6):.1f}" '
+                   f'font-size="12" text-anchor="{"start" if dx > 0 else ("middle" if dx == 0 else "end")}" '
+                   f'fill="{col}">{lab}</text>')
+
+    if ctx["anchor"]:
+        ax, ay = view.p(*iso_proj(*ctx["anchor"]))
+        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="7" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
+        out.append(f'<text x="{ax + 14:.1f}" y="{ay - 10:.1f}" font-size="12" fill="{pal["anc"]}">anchor_point</text>')
+
+    sx, sy = view.p(*iso_proj(*ctx["pos"][0]))
+    ex, ey = view.p(*iso_proj(*ctx["pos"][-1]))
+    out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="6" fill="{pal["start"]}"/>')
+    out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="6" fill="{pal["end"]}"/>')
+    return "\n".join(out), floor
+
+
+def ramp_bar(x, y, w, h, ramp, label, ink, fs=12, steps=48):
+    """时间渐变色条 + 两端帧号，用于说明轨迹颜色随时间变化。"""
+    out = [f'<text x="{x}" y="{y - 8}" font-size="{fs}" fill="{ink}">{esc(label)}</text>']
+    for k in range(steps):
+        out.append(f'<rect x="{x + w * k / steps:.1f}" y="{y}" width="{w / steps + 1:.2f}" height="{h}" '
+                   f'fill="{ramp_color(k / (steps - 1), ramp)}"/>')
+    out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="{ink}" stroke-width="0.5" opacity="0.35"/>')
+    return "\n".join(out)
+
+
 # ─────────────────────────── 四种风格 ───────────────────────────
 
 def style_minimal(ctx):
     """浅色极简：轨迹 + 视线箭头 + 锚点均值半径环。"""
     W, H = 900, 620
     C_TRACK, C_DOT, C_ARR = "#185FA5", "#378ADD", "#6B7280"
-    C_START, C_END, C_ANC = "#4D7C0F", "#B45309", "#B45309"
+    C_START, C_END, C_ANC = "#4D7C0F", "#BE123C", "#B45309"
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
 
     view = View(*ctx["range"]["x"], *ctx["range"]["z"], 60, 110, 840, 500)
@@ -342,57 +514,7 @@ def style_minimal(ctx):
     x0, y0, bw, bh = view.rect()
     out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10" '
                f'fill="#FAFAF9" stroke="{LINE}" stroke-width="1"/>')
-    # 轨迹/箭头/半径环统一裁剪到绘图区内，避免均值半径环超出画面压到页面上
-    clip = f"clip_{ctx['id'][:8]}_min"
-    out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10"/></clipPath>')
-    out.append(f'<g clip-path="url(#{clip})">')
-
-    # 锚点均值半径环：直观看出「等距环绕」这件事成不成立
-    if ctx["anchor"]:
-        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
-        r = ctx["dist_mean"] * view.s
-        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="{r:.1f}" fill="none" stroke="{C_ANC}" '
-                   f'stroke-width="1.2" stroke-dasharray="5 5" opacity="0.55"/>')
-
-    # 轨迹 + 抽稀节点
-    pts = " ".join("%.1f,%.1f" % view.p(p[0], p[2]) for p in ctx["pos"])
-    out.append(f'<polyline points="{pts}" fill="none" stroke="{C_TRACK}" stroke-width="2" '
-               f'stroke-linejoin="round" opacity="0.92"/>')
-    dots = []
-    for i in range(0, ctx["n"], 10):
-        x, y = view.p(ctx["pos"][i][0], ctx["pos"][i][2])
-        dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.8" fill="{C_DOT}"/>')
-    out.append("".join(dots))
-
-    # 视线方向（每 20 帧一支）
-    arr = []
-    for i in range(0, ctx["n"], 20):
-        x, y = view.p(ctx["pos"][i][0], ctx["pos"][i][2])
-        d = ctx["look"][i]
-        L = math.hypot(d[0], d[2]) or 1.0
-        ex, ey = x + d[0] / L * 0.26 * view.s, y + d[2] / L * 0.26 * view.s
-        arr.append(f'<line x1="{x:.1f}" y1="{y:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{C_ARR}" '
-                   f'stroke-width="1.2" opacity="0.5"/>')
-        ux, uy = (ex - x) / (math.hypot(ex - x, ey - y) or 1), (ey - y) / (math.hypot(ex - x, ey - y) or 1)
-        arr.append(f'<path d="M{ex - ux * 6 - uy * 4:.1f},{ey - uy * 6 + ux * 4:.1f} L{ex:.1f},{ey:.1f} '
-                   f'L{ex - ux * 6 + uy * 4:.1f},{ey - uy * 6 - ux * 4:.1f}" fill="none" stroke="{C_ARR}" '
-                   f'stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>')
-    out.append("".join(arr))
-    out.append('</g>')
-
-    if ctx["anchor"]:
-        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
-        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="8" fill="none" stroke="{C_ANC}" stroke-width="2"/>')
-        out.append(f'<line x1="{ax - 12:.1f}" y1="{ay:.1f}" x2="{ax + 12:.1f}" y2="{ay:.1f}" stroke="{C_ANC}" stroke-width="1"/>')
-        out.append(f'<line x1="{ax:.1f}" y1="{ay - 12:.1f}" x2="{ax:.1f}" y2="{ay + 12:.1f}" stroke="{C_ANC}" stroke-width="1"/>')
-        out.append(f'<text x="{ax + 16:.1f}" y="{ay - 8:.1f}" font-size="12" fill="{C_ANC}">anchor_point</text>')
-
-    sx, sy = view.p(ctx["pos"][0][0], ctx["pos"][0][2])
-    ex, ey = view.p(ctx["pos"][-1][0], ctx["pos"][-1][2])
-    out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="6" fill="{C_START}"/>')
-    out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="6" fill="{C_END}"/>')
-    out.append(f'<text x="{sx + 12:.1f}" y="{sy + 5:.1f}" font-size="12" fill="{C_START}">frame 0</text>')
-    out.append(f'<text x="{ex + 12:.1f}" y="{ey + 5:.1f}" font-size="12" fill="{C_END}">frame {ctx["n"] - 1}</text>')
+    out.append(draw_top_geometry(ctx, view, f"clip_{ctx['id'][:8]}_min"))
 
     out.append(axis_hints(view, "#9CA3AF"))
 
@@ -592,99 +714,34 @@ def style_fov(ctx):
 def style_iso(ctx):
     """等轴测：把 (X, Y, Z) 投到 2D，点云 + 相机高度 + 垂直投影线都看得到。"""
     W, H = 900, 660
-    C_TRACK, C_ANC = "#185FA5", "#B45309"
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
 
-    def iso(x, y, z):
-        return (x - z) * ISO_COS, (x + z) * ISO_SIN - y
-
-    fpts = [iso(*p) for p in ctx["points"]] if ctx["points"] else []
-    cpts = [iso(*p) for p in ctx["pos"]]
-    us = [p[0] for p in cpts] + [p[0] for p in fpts]
-    vs = [p[1] for p in cpts] + [p[1] for p in fpts]
+    cpts = [iso_proj(*p) for p in ctx["pos"]]
+    us = [p[0] for p in cpts] + [iso_proj(*p)[0] for p in ctx["points"]]
+    vs = [p[1] for p in cpts] + [iso_proj(*p)[1] for p in ctx["points"]]
     if ctx["anchor"]:
-        au, av = iso(*ctx["anchor"])
-        us.append(au)
-        vs.append(av)
+        us.append(iso_proj(*ctx["anchor"])[0])
+        vs.append(iso_proj(*ctx["anchor"])[1])
     view = View(min(us), max(us), min(vs), max(vs), 60, 110, 860, 545)
-    floor = ctx["bbox"]["min"][1] if ctx["bbox"] else min(p[1] for p in ctx["pos"]) - 0.2
 
     out = [svg_open(W, H, "#FFFFFF")]
     out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
                f'{esc(ctx["id"])} · 采集轨迹等轴测视图（含世界 Y 高度）</text>')
     out.append(caption(ctx, 40, 66, MUTED))
-    out.append(f'<rect x="60" y="90" width="800" height="455" rx="10" fill="#FAFAF9" stroke="{LINE}"/>')
-
-    out.append('<g clip-path="url(#iso_clip)">')
-    out.append('<clipPath id="iso_clip"><rect x="60" y="90" width="800" height="455" rx="10"/></clipPath>')
-    # 地面网格（Y = floor 平面上的 0.5 m 网格线，投影后仍是直线）
-    import math as _m
-    gy = floor
-    x_lo, x_hi = ctx["range"]["x"]
-    z_lo, z_hi = ctx["range"]["z"]
-    pad = 0.3
-    k = _m.floor(x_lo / 0.5) * 0.5
-    while k <= x_hi + pad:
-        x1, y1 = view.p(*iso(k, gy, z_lo - pad))
-        x2, y2 = view.p(*iso(k, gy, z_hi + pad))
-        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#E5E7EB" stroke-width="0.8"/>')
-        k += 0.5
-    k = _m.floor(z_lo / 0.5) * 0.5
-    while k <= z_hi + pad:
-        x1, y1 = view.p(*iso(x_lo - pad, gy, k))
-        x2, y2 = view.p(*iso(x_hi + pad, gy, k))
-        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#E5E7EB" stroke-width="0.8"/>')
-        k += 0.5
-
-    for p in ctx["points"]:
-        x, y = view.p(*iso(*p))
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.1" fill="#B4B2A9" opacity="0.45"/>')
-
-    # 相机：位置点到地面的垂直投影线（表达高度）
-    for i in range(0, ctx["n"], 5):
-        c = ctx["pos"][i]
-        x1, y1 = view.p(*iso(c[0], c[1], c[2]))
-        x2, y2 = view.p(*iso(c[0], floor, c[2]))
-        out.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#CBD5E1" '
-                   f'stroke-width="0.8" stroke-dasharray="3 3"/>')
-
-    pts = " ".join("%.1f,%.1f" % view.p(*q) for q in cpts)
-    out.append(f'<polyline points="{pts}" fill="none" stroke="{C_TRACK}" stroke-width="2" stroke-linejoin="round"/>')
-    for i in range(0, ctx["n"], 10):
-        x, y = view.p(*cpts[i])
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.6" fill="{C_TRACK}"/>')
-    out.append('</g>')
-
-    # 世界轴三叉：固定在画布左下角（尺寸按像素给，避免随数据范围缩放到看不见）
-    tx0, ty0, tx1, ty1 = view.box
-    ox, oy = tx0 + 78, ty1 - 62
-    L = 48
-    axes = [(ISO_COS, ISO_SIN, "+X", "#DC2626"), (0, -1, "+Y", "#16A34A"), (-ISO_COS, ISO_SIN, "+Z", "#2563EB")]
-    for dx, dy, lab, col in axes:
-        ex, ey = ox + dx * L, oy + dy * L
-        out.append(f'<line x1="{ox:.1f}" y1="{oy:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{col}" stroke-width="1.6"/>')
-        out.append(f'<text x="{ex + 6 * (1 if dx > 0 else -1):.1f}" y="{ey + (4 if dy >= 0 else -6):.1f}" '
-                   f'font-size="12" text-anchor="{"start" if dx > 0 else ("middle" if dx == 0 else "end")}" '
-                   f'fill="{col}">{lab}</text>')
-
-    if ctx["anchor"]:
-        ax, ay = view.p(au, av)
-        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="7" fill="none" stroke="{C_ANC}" stroke-width="2"/>')
-        out.append(f'<text x="{ax + 14:.1f}" y="{ay - 10:.1f}" font-size="12" fill="{C_ANC}">anchor_point</text>')
-
-    sx, sy = view.p(*cpts[0])
-    ex, ey = view.p(*cpts[-1])
-    out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="6" fill="#4D7C0F"/>')
-    out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="6" fill="#BE123C"/>')
+    x0, y0, bw, bh = view.rect()
+    out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="10" '
+               f'fill="#FAFAF9" stroke="{LINE}"/>')
+    geom, floor = draw_iso_geometry(ctx, view, f"clip_{ctx['id'][:8]}_iso")
+    out.append(geom)
 
     row1, cx1 = legend_row([
-        ("line", f"相机轨迹（{ctx['n']} 帧）", C_TRACK),
-        ("dot", "pcd.ply 点云", "#B4B2A9"),
-        ("ring", "anchor_point", C_ANC),
+        ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
+        ("dot", "pcd.ply 点云", PAL_LIGHT["cloud"]),
+        ("ring", "anchor_point", PAL_LIGHT["anc"]),
     ], 60, 578, color_var=MUTED)
     row2, _ = legend_row([
-        ("dot", "起点 frame 0", "#4D7C0F"),
-        ("dot", f"末帧 frame {ctx['n'] - 1}", "#BE123C"),
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
         ("dash", "相机到地面的垂直投影线", "#CBD5E1"),
     ], 60, 610, color_var=MUTED)
     out.append(row1)
@@ -696,7 +753,88 @@ def style_iso(ctx):
     return "\n".join(out), H
 
 
+def style_combo(ctx):
+    """双联图：左＝等轴测（含 Y 高度），右＝浅色俯视图（轨迹按帧序时间渐变）。
+
+    两块绘图区按各自数据的长宽比给尺寸；图例/脚注一律以「绘图区实际左边界」对齐，
+    因为 View 会按数据长宽比居中留白，硬编码 x 会随数据不同而错位、互相压字。
+    """
+    W, H = 1140, 656
+    INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
+
+    # ── 左：等轴测 ──
+    cpts = [iso_proj(*p) for p in ctx["pos"]]
+    us = [p[0] for p in cpts] + [iso_proj(*p)[0] for p in ctx["points"]]
+    vs = [p[1] for p in cpts] + [iso_proj(*p)[1] for p in ctx["points"]]
+    if ctx["anchor"]:
+        us.append(iso_proj(*ctx["anchor"])[0])
+        vs.append(iso_proj(*ctx["anchor"])[1])
+    view_iso = View(min(us), max(us), min(vs), max(vs), 40, 122, 680, 522)
+
+    # ── 右：俯视（XZ）──
+    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], 720, 122, 1100, 522)
+
+    out = [svg_open(W, H, "#FFFFFF")]
+    out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
+               f'{esc(ctx["id"])} · 采集轨迹图（等轴测 + 俯视）</text>')
+    out.append(caption(ctx, 40, 66, MUTED))
+    # 两栏之间的分隔线
+    out.append(f'<line x1="700" y1="98" x2="700" y2="628" stroke="{LINE}" stroke-width="1" stroke-dasharray="4 6"/>')
+
+    out.append(f'<text x="40" y="106" font-size="13" font-weight="500" fill="{INK}">① 等轴测视图（含世界 Y 高度）</text>')
+    out.append(f'<text x="720" y="106" font-size="13" font-weight="500" fill="{INK}">② 俯视图（世界系 XZ · 轨迹按帧序时间渐变）</text>')
+
+    ix0, iy0, iw, ih = view_iso.rect()
+    out.append(f'<rect x="{ix0:.1f}" y="{iy0:.1f}" width="{iw:.1f}" height="{ih:.1f}" rx="10" '
+               f'fill="#FAFAF9" stroke="{LINE}"/>')
+    geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci")
+    out.append(geom)
+
+    tx0, ty0, tw, th = view_top.rect()
+    out.append(f'<rect x="{tx0:.1f}" y="{ty0:.1f}" width="{tw:.1f}" height="{th:.1f}" rx="10" '
+               f'fill="#FAFAF9" stroke="{LINE}"/>')
+    out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT))
+    out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
+
+    # 左栏图例 + 脚注
+    row1, cx1 = legend_row([
+        ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
+        ("dot", "pcd.ply 点云", PAL_LIGHT["cloud"]),
+        ("ring", "anchor_point", PAL_LIGHT["anc"]),
+    ], ix0, 552, color_var=MUTED)
+    row2, cx2 = legend_row([
+        ("dash", "相机到地面的垂直投影线", "#CBD5E1"),
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
+    ], ix0, 578, color_var=MUTED)
+    out.append(row1)
+    out.append(row2)
+    # 比例尺画在绘图区内部：放外面时，右栏会随数据长宽比右移、0.5 m 的像素长度也随比例尺变化，容易出界
+    out.append(scale_bar(ix0 + 16, iy0 + ih - 18, 0.5, view_iso, color=MUTED))
+
+    # 右栏图例 + 色条
+    row3, cx3 = legend_row([
+        ("arrow", "视线方向", PAL_LIGHT["arrow"]),
+        ("ring", f"均值半径 {ctx['dist_mean']:.2f} m", PAL_LIGHT["ring"]),
+    ], tx0, 552, fs=12, color_var=MUTED)
+    row4, cx4 = legend_row([
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
+    ], tx0, 578, fs=12, color_var=MUTED)
+    out.append(row3)
+    out.append(row4)
+    out.append(scale_bar(tx0 + 16, ty0 + th - 18, 0.5, view_top, color=MUTED))
+    out.append(ramp_bar(tx0, 610, 150, 11, RAMP_LIGHT, f"轨迹颜色 = 帧序（0 → {ctx['n'] - 1}）", MUTED, fs=12))
+    # 两个脚注合成一行放最底部（各占一栏时，右栏那行会因绘图区右移而顶到画布外）
+    out.append(f'<text x="40" y="642" font-size="12" fill="#9CA3AF">'
+               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z ｜ 俯视等比例尺 {view_top.s:.1f} px/m ｜ 世界 +Y 向上 ｜ '
+               f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
+    out.append("</svg>")
+    return "\n".join(out), H
+
+
 RENDERERS = {
+    "combo": style_combo,
     "minimal": style_minimal,
     "darkspace": style_darkspace,
     "fov": style_fov,
@@ -737,6 +875,7 @@ PAGE_CSS = """
 body{margin:0;padding:28px 24px 40px;background:var(--bg);color:var(--ink);
      font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif}
 .wrap{max-width:980px;margin:0 auto}
+.wrap.wide{max-width:1220px}
 h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:.2px}
 .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
 .fig{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px 4px;overflow:hidden}
@@ -754,15 +893,16 @@ tr:last-child td{border-bottom:none}
 """
 
 
-def render_html(ctx, style) -> str:
-    svg, _ = RENDERERS[style](ctx)
+def render_html(ctx, style, svg) -> str:
     title = f'{ctx["id"]} · {STYLE_LABELS[style]}'
+    # 双联图更宽，容器跟着放宽，否则整张图被缩到 980px 宽、字变小
+    wrap_cls = "wrap wide" if style == "combo" else "wrap"
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
 <style>{PAGE_CSS}</style></head>
-<body><div class="wrap">
+<body><div class="{wrap_cls}">
 <h1>{esc(ctx["id"])}</h1>
 <div class="sub">Remy 采集包 · {esc(STYLE_LABELS[style])} · {ctx["n"]} 帧</div>
 <div class="fig">{svg}</div>
@@ -806,7 +946,7 @@ def render_index(entries, styles) -> str:
 # ─────────────────────────── 主流程 ───────────────────────────
 
 def process_one(folder: Path, dst_root: Path, styles, suffix=""):
-    """画一个 ID 目录，返回全部产物路径 + 索引用的摘要行。"""
+    """画一个 ID 目录，每个风格落一份 .html + 一份独立 .svg，返回摘要行供 index 用。"""
     tj = folder / "transforms.json"
     data = load_transforms(tj)
     points, total, pbbox = load_ply_points(folder / "pcd.ply")
@@ -814,11 +954,14 @@ def process_one(folder: Path, dst_root: Path, styles, suffix=""):
 
     out = []
     for style in styles:
-        name = f"{folder.name}{suffix}.html" if len(styles) == 1 else f"{folder.name}__{style}{suffix}.html"
-        p = dst_root / name
-        p.write_text(render_html(ctx, style), encoding="utf-8")
+        stem = folder.name if len(styles) == 1 else f"{folder.name}__{style}"
+        svg, _ = RENDERERS[style](ctx)
+        p = dst_root / f"{stem}.html"
+        p.write_text(render_html(ctx, style, svg), encoding="utf-8")
+        # 同时落一份独立 .svg（矢量原图，可直接拖进 PPT / 报告排版）
+        (dst_root / f"{stem}.svg").write_text(svg, encoding="utf-8")
         out.append((style, p))
-        print(f"  ✅ {style:<10} {p.name}")
+        print(f"  ✅ {style:<10} {p.name} + {stem}.svg")
 
     summary = {
         "id": folder.name, "files": {style: p.name for style, p in out},
@@ -870,8 +1013,8 @@ def main():
     SRC_ROOT = Path(os.environ.get("SRC_ROOT", "/mnt/d/dataset/测试数据sample"))
     # 输出目录（HTML 很小，放哪儿都行）
     DST_ROOT = Path(os.environ.get("DST_ROOT", "../../output/remy_traj_html"))
-    # 风格：minimal / darkspace / fov / iso / all
-    STYLE = os.environ.get("STYLE", "minimal")
+    # 风格：combo（等轴测+俯视双联）/ minimal / darkspace / fov / iso / all
+    STYLE = os.environ.get("STYLE", "combo")
     # 只画指定 ID（逗号分隔，留空 = 全部）
     IDS = [s for s in os.environ.get("IDS", "").split(",") if s.strip()]
     # ===========================

@@ -334,13 +334,14 @@ bash vggt_human/08_move_output.sh
 ## 数据集体检：Remy 采集包轨迹图（99g）
 
 对批次目录下每个采集 ID 画一张自包含 HTML 轨迹图（图内标题与文件名都用文件夹 ID），
-用于快速判断这批评数据「拍得怎么样」：环绕是否完整、相机到目标距离是否稳定、视线是否对得准。
+用于快速判断这批数据「拍得怎么样」：环绕是否完整、相机到目标距离是否稳定、视线是否对得准。
+每个风格同时落一份独立 `.svg`（矢量原图，可直接拖进 PPT / 报告排版）。
 
 ```bash
-# 默认：只出 minimal 风格，源 = /mnt/d/dataset/测试数据sample
+# 默认：combo 风格（等轴测 + 俯视双联图），源 = /mnt/d/dataset/测试数据sample
 python vggt_human/99g_plot_capture_trajectory.py
 
-# 一次出全部 4 种风格（挑图用）+ 额外生成 index.html 总览页
+# 一次出全部 5 种风格（挑图用）+ 额外生成 index.html 总览页
 SRC_ROOT=/mnt/d/dataset/测试数据sample \
 DST_ROOT=../../output/remy_traj_html \
 STYLE=all python vggt_human/99g_plot_capture_trajectory.py
@@ -348,11 +349,12 @@ STYLE=all python vggt_human/99g_plot_capture_trajectory.py
 # 只画指定 ID（逗号分隔）
 SRC_ROOT=/mnt/d/dataset/测试数据sample \
 IDS=13a8ecadfeb448e890db319ac828befe \
-STYLE=iso python vggt_human/99g_plot_capture_trajectory.py
+STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 ```
 
-风格可选 `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）/ `fov`（视锥扇形 + 点云底图）
-/ `iso`（等轴测含高度），或 `all`。纯标准库实现（json/math/struct），不需要 conda env。
+风格可选 `combo`（**默认**：左等轴测含 Y 高度 + 右俯视，俯视轨迹按帧序做蓝→紫→玫红渐变）
+/ `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）/ `fov`（视锥扇形 + 点云底图）
+/ `iso`（等轴测单图），或 `all`。纯标准库实现（json/math/struct），不需要 conda env。
 输入的 `transforms.json` 字段含义与四条易踩的坐标系坑见 [NOTES.md](NOTES.md)「Remy 采集包」。
 
 ## 详细文档
