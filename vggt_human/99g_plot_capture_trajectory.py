@@ -348,6 +348,24 @@ def iso_proj(x, y, z):
     return (x - z) * ISO_COS, (x + z) * ISO_SIN - y
 
 
+def iso_extent(ctx):
+    """等轴测视野范围：只按「相机 + 锚点 + 相机在地面的投影」取，点云只作背景。
+
+    室内扫描的点云常比相机活动范围大好几倍（3.7×2.1×4.9 m 的点云 vs 1.2×1.7 m 的轨迹），
+    把点云也算进范围会把轨迹压成角落一小团；超出视野的点由 clipPath 裁掉。
+    返回 (u_min, u_max, v_min, v_max, floor)。
+    """
+    pts = [iso_proj(*p) for p in ctx["pos"]]
+    floor = ctx["bbox"]["min"][1] if ctx["bbox"] else min(p[1] for p in ctx["pos"]) - 1.0
+    us = [p[0] for p in pts]
+    vs = [p[1] for p in pts] + [iso_proj(c[0], floor, c[2])[1] for c in ctx["pos"]]
+    if ctx["anchor"]:
+        au, av = iso_proj(*ctx["anchor"])
+        us.append(au)
+        vs.append(av)
+    return min(us), max(us), min(vs), max(vs), floor
+
+
 def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                       arrows_every=20, dots_every=10, arrow_len=0.26,
                       arrow_color=None, ring=True, cloud=False, track_width=2.0):
@@ -720,13 +738,9 @@ def style_iso(ctx):
     W, H = 900, 660
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
 
-    cpts = [iso_proj(*p) for p in ctx["pos"]]
-    us = [p[0] for p in cpts] + [iso_proj(*p)[0] for p in ctx["points"]]
-    vs = [p[1] for p in cpts] + [iso_proj(*p)[1] for p in ctx["points"]]
-    if ctx["anchor"]:
-        us.append(iso_proj(*ctx["anchor"])[0])
-        vs.append(iso_proj(*ctx["anchor"])[1])
-    view = View(min(us), max(us), min(vs), max(vs), 60, 110, 860, 545)
+    # 视野只按相机活动范围（与 combo 一致）：大场景点云会把轨迹压成角落一小团
+    u0, u1, v0, v1, floor_guess = iso_extent(ctx)
+    view = View(u0, u1, v0, v1, 60, 110, 860, 545)
 
     out = [svg_open(W, H, "#FFFFFF")]
     out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
@@ -779,31 +793,46 @@ def legend_col(items, x, y, fs=12, line_h=24, color_var="#4B5563"):
     return "\n".join(out), cy
 
 
+def legend_grid(items, x, y, col_w, cols, line_h=26, fs=12, color_var="#4B5563"):
+    """把图例项按固定列宽摆成 cols 列的网格（用于把图例摊开到整幅宽度上）。"""
+    out = []
+    for idx, (kind, label, color) in enumerate(items):
+        r, c = divmod(idx, cols)
+        svg, _ = legend_col([(kind, label, color)], x + c * col_w, y + r * line_h,
+                            fs=fs, line_h=line_h, color_var=color_var)
+        out.append(svg)
+    return "\n".join(out)
+
+
 def style_combo(ctx):
     """双联图（上下排列）：上＝俯视图（世界系 XZ，轨迹按帧序时间渐变），下＝等轴测（含 Y 高度）。
 
-    俯视图数据接近方形，横排图例会把画布右半边空着、左半边又挤在一起；
-    所以两块绘图区都只占左侧，图例竖排在各自绘图区右边的窄列里。
-    图纸右列之上/之下由 HTML 侧栏承载统计卡片（见 render_html 的 combo 分支）。
+    排版要点：
+    · 两块绘图区的**尺寸按各自数据长宽比反推**，画满预留宽度 → 绘图区里不留白边
+      （View 是等比例缩放，预留框比例不对就必然出现一侧留白）。
+    · 俯视图数据接近方形，撑满宽度后会很高，右上角就空出一列 → 图例竖排进那一列；
+      等轴测撑满宽度后没有余量 → 它的图例摊在下方两行里（图例不堆在一处）。
+    · 画布高度按两块图的实际高度累加，不写死。
     """
-    W, H = 900, 1010
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
-    LEG_X = 650          # 图例列左边界
-    BOX_L, BOX_R = 40, 620   # 绘图区预留的 x 范围
+    W = 760
+    TOP_W, TOP_Y = 400.0, 120.0
+    ISO_W = 680.0
 
-    # ── 上：俯视图（XZ）──
-    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], BOX_L, 120, BOX_R, 500)
+    # 俯视图：由数据长宽比反推高度（aspect = X 跨度 / Z 跨度）
+    span_x = ctx["range"]["x"][1] - ctx["range"]["x"][0]
+    span_z = ctx["range"]["z"][1] - ctx["range"]["z"][0]
+    top_h = min(max(TOP_W / ((span_x or 1.0) / (span_z or 1.0)), 300.0), 470.0)
+    view_top = View(*ctx["range"]["x"], *ctx["range"]["z"], 40, TOP_Y, 40 + TOP_W, TOP_Y + top_h)
 
-    # ── 下：等轴测 ──
-    cpts = [iso_proj(*p) for p in ctx["pos"]]
-    us = [p[0] for p in cpts] + [iso_proj(*p)[0] for p in ctx["points"]]
-    vs = [p[1] for p in cpts] + [iso_proj(*p)[1] for p in ctx["points"]]
-    if ctx["anchor"]:
-        us.append(iso_proj(*ctx["anchor"])[0])
-        vs.append(iso_proj(*ctx["anchor"])[1])
-    view_iso = View(min(us), max(us), min(vs), max(vs), BOX_L, 566, BOX_R, 946)
+    # 等轴测：视野由 iso_extent() 决定（只按相机活动范围，点云作背景）
+    u0, u1, v0, v1, floor_guess = iso_extent(ctx)
+    aspect_iso = ((u1 - u0) or 1.0) / ((v1 - v0) or 1.0)
+    iso_h = min(max(ISO_W / aspect_iso, 320.0), 470.0)
+    iso_y = TOP_Y + top_h + 74
+    view_iso = View(u0, u1, v0, v1, 40, iso_y, 40 + ISO_W, iso_y + iso_h)
 
-    out = [svg_open(W, H, "#FFFFFF")]
+    out = [svg_open(W, 100, "#FFFFFF")]
     out.append(f'<text x="40" y="42" font-size="21" font-weight="500" fill="{INK}">'
                f'{esc(ctx["id"])} · 采集轨迹图（俯视 + 等轴测）</text>')
     out.append(caption(ctx, 40, 66, MUTED))
@@ -816,22 +845,28 @@ def style_combo(ctx):
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT))
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
-    # 比例尺画在图框内部左下角：scale_bar 的标签在 y+22，留够 44px 才不会顶出框
     out.append(scale_bar(tx0 + 16, ty0 + th - 44, 0.5, view_top, color=MUTED))
-    top_legend, cy = legend_col([
+
+    # 俯视图右列：图例竖排并在这列里竖向居中（行距放宽，摊开而不是挤成一坨）
+    lx = 40 + TOP_W + 44
+    LEG_ROWS, LEG_LINE_H, LEG_TAIL = 5, 36, 118      # 5 行 + 色条与两行小字的高度
+    lcy = ty0 + max(24.0, (th - (LEG_ROWS * LEG_LINE_H + LEG_TAIL)) / 2)
+    top_legend, lcy_end = legend_col([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
         ("arrow", "视线方向", PAL_LIGHT["arrow"]),
         ("ring", f"均值半径 {ctx['dist_mean']:.2f} m", PAL_LIGHT["ring"]),
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], LEG_X, ty0 + 26, color_var=MUTED)
+    ], lx, lcy, line_h=LEG_LINE_H, color_var=MUTED)
     out.append(top_legend)
-    out.append(ramp_bar(LEG_X, cy + 10, 190, 11, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
-    out.append(f'<text x="{LEG_X}" y="{cy + 56}" font-size="12" fill="#9CA3AF">'
-               f'世界 +Y 向上 ｜ 等比例尺 {view_top.s:.1f} px/m</text>')
+    out.append(ramp_bar(lx, lcy_end + 22, 236, 12, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
+    out.append(f'<text x="{lx}" y="{lcy_end + 78}" font-size="12" fill="#9CA3AF">世界 +Y 向上</text>')
+    out.append(f'<text x="{lx}" y="{lcy_end + 98}" font-size="12" fill="#9CA3AF">'
+               f'等比例尺 {view_top.s:.1f} px/m</text>')
 
     # ── ② 等轴测 ──
-    out.append(f'<text x="40" y="550" font-size="13" font-weight="500" fill="{INK}">'
+    iso_title_y = TOP_Y + top_h + 44
+    out.append(f'<text x="40" y="{iso_title_y}" font-size="13" font-weight="500" fill="{INK}">'
                f'② 等轴测视图（含世界 Y 高度）</text>')
     ix0, iy0, iw, ih = view_iso.rect()
     out.append(f'<rect x="{ix0:.1f}" y="{iy0:.1f}" width="{iw:.1f}" height="{ih:.1f}" rx="10" '
@@ -839,22 +874,23 @@ def style_combo(ctx):
     geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci")
     out.append(geom)
     out.append(scale_bar(ix0 + 16, iy0 + ih - 44, 0.5, view_iso, color=MUTED))
-    iso_legend, cy2 = legend_col([
+
+    # 等轴测图例摊在下方两行（三列等距），再把两行脚注放在其下
+    ly = iy0 + ih + 34
+    out.append(legend_grid([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
-        ("dot", "点云 pcd.ply", PAL_LIGHT["cloud"]),
+        ("dot", "点云 pcd.ply（背景）", PAL_LIGHT["cloud"]),
         ("ring", "anchor_point", PAL_LIGHT["anc"]),
         ("dash", "地面投影线", "#CBD5E1"),
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
-    ], LEG_X, iy0 + 26, color_var=MUTED)
-    out.append(iso_legend)
-    out.append(f'<text x="{LEG_X}" y="{cy2 + 16}" font-size="12" fill="#9CA3AF">'
-               f'等轴测 (X−Z)·cos30°,</text>')
-    out.append(f'<text x="{LEG_X}" y="{cy2 + 34}" font-size="12" fill="#9CA3AF">'
-               f'(X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
-
-    out.append(f'<text x="40" y="986" font-size="12" fill="#9CA3AF">'
-               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z（仅俯视图）｜ 两块图均为等比例尺 ｜ 世界 +Y 向上（重力对齐）</text>')
+    ], 40, ly, 680 / 3, 3, line_h=28, color_var=MUTED))
+    out.append(f'<text x="40" y="{ly + 66}" font-size="12" fill="#9CA3AF">'
+               f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m ｜ '
+               f'横轴 = 世界 X ｜ 纵轴 = 世界 Z（仅俯视图）｜ 两块图均为等比例尺 ｜ '
+               f'两块图都只按相机活动范围取视野，点云超出部分已裁掉</text>')
+    H = ly + 90
+    out[0] = svg_open(W, H, "#FFFFFF")
     out.append("</svg>")
     return "\n".join(out), H
 
