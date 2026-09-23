@@ -356,8 +356,21 @@ STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 800×450 预留框、图例都铺在各自绘图区下方占满整幅宽度，俯视轨迹按帧序做蓝→紫→玫红渐变，
 统计卡片竖排在右栏）/ `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）
 / `fov`（视锥扇形 + 点云底图）/ `iso`（等轴测单图），或 `all`。纯标准库实现
-（json/math/struct），不需要 conda env。
+（json/math/struct），不需要 conda env，**兼容 Python ≥ 3.8**。
 输入的 `transforms.json` 字段含义与四条易踩的坐标系坑见 [NOTES.md](NOTES.md)「Remy 采集包」。
+
+### ⚠️ 提交前跑一次语法兼容检查（99h）
+
+本机 WorkBuddy 的 Python 是 3.13，而 `vggt_human` env 是 **3.10.20**。3.12+ 才合法的写法
+在本机一路通过、到服务器直接 SyntaxError（99g 第 434 行的 f-string 嵌套同类引号就这么挂过）。
+
+```bash
+python vggt_human/99h_check_py_syntax.py            # 扫 vggt_human/*.py，命中则退出码 1
+python vggt_human/99h_check_py_syntax.py a.py b/    # 也可指定文件/目录
+```
+
+需要 Python ≥ 3.12 运行该检查（tokenize 的 FSTRING_* token）；判定规则都是在 3.10.20 上
+逐条实测过的，不是照文档猜的。
 
 ## 详细文档
 

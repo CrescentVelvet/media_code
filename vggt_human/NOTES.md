@@ -428,6 +428,33 @@ THETA_MARGIN 系列同样不进成品）。
 教训：**凡是「报错被重定向进临时目录」的子进程，都要在上游做前置检查**——这类静默
 失败的表象（PIL 打不开文件）与真因（少一个执行位）之间没有任何线索链。
 
+## ⚠️ 本机 Python 3.13 / 服务器 Python 3.10 的语法陷阱（2026-09-23 踩坑）
+
+`vggt_human` env 是 **Python 3.10.20**（本机 WorkBuddy 内置的是 3.13）。3.12+ 才合法的写法
+会在本机一路通过、到服务器 **SyntaxError 挂在 import 阶段**，报错行号还指向 f-string 内部：
+
+```python
+label += f" · 距锚点 {math.dist(原点, ctx["anchor"]):.2f} m"
+                                       ^^^^^^^^^^^  3.10 报 f-string: unmatched '['
+```
+
+规则（已在 3.10.20 上逐条实测，不是照文档猜的）：
+
+| 写法 | 3.10 |
+|---|---|
+| `f"{d["k"]}"`（单引号外层 + 内层同类引号） | ❌ SyntaxError |
+| `f'{d['k']}'`（外层单引号同理） | ❌ SyntaxError |
+| 表达式段里出现反斜杠（`f"{s.replace('\n','')}"`） | ❌ SyntaxError |
+| `f'''{d["k"]}'''`（三引号外层 + 内层双引号） | ✅ 合法 |
+| `f"{d['k']}"`（内外引号类型不同） | ✅ 合法 |
+| `f"{f'{x}'}"`（嵌套 f-string，内外类型不同） | ✅ 合法 |
+
+**自查工具**：`python vggt_human/99h_check_py_syntax.py`（扫 `vggt_human/*.py`，命中退出码 1）。
+它用 tokenize 判定（注释与普通字符串天然排除），需 Python ≥ 3.12 运行。
+`ast.parse(src, feature_version=(3,10))` **查不出这一类**——PEG 解析器不再按旧规则限制 f-string，
+三种 feature_version 实测全部通过，所以别指望它兜底。
+最强验证仍是用**真 3.10 解释器**跑一遍：WSL 里 `~/miniconda3/envs/vggt_human/bin/python <脚本>`。
+
 ## Remy（鸿蒙 3D 采集包）transforms.json 格式速查（2026-09-22 实测）
 
 采集端 = 华为 / KIRI 的 **Remy**（HarmonyOS 独家的 3D 空间记忆 App，`pcd.ply` 头部有

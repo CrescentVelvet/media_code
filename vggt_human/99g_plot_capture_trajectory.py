@@ -11,6 +11,10 @@
 
 只依赖标准库（json/math/struct），服务器与 WSL 都免装包。
 
+⚠️ 兼容 Python 3.8+（服务器 vggt_human env 是 3.10，本机是 3.13）。**别用 3.12+ 才合法的语法**，
+尤其 f-string 表达式段里复用同类引号——3.10 会直接 SyntaxError，本机 3.13 却看不出来。
+提交前跑 `python vggt_human/99h_check_py_syntax.py` 自查。
+
 用法:
     python vggt_human/99g_plot_capture_trajectory.py
     STYLE=all python ...   # 一次出全部风格（<ID>__<style>.html），便于挑图
@@ -30,6 +34,9 @@ import os
 import struct
 import sys
 from pathlib import Path
+
+if sys.version_info < (3, 8):
+    sys.exit("❌ 需要 Python ≥ 3.8（用到 math.dist）；服务器 vggt_human env 是 3.10")
 
 # 读盘时最多保留多少个点（用于取 bbox 与后续按视野过滤）
 PLY_MAX_POINTS = 300000
@@ -431,7 +438,9 @@ def draw_world_origin(ctx, view, proj, panel, ink, muted, blocked=(), fs=12):
 
     label = "世界原点 (0,0,0)"
     if ctx["anchor"]:
-        label += f" · 距锚点 {math.dist((0.0, 0.0, 0.0), ctx["anchor"]):.2f} m"
+        # 距离先取出来再拼：f-string 的表达式段里再出现同类引号，只有 Python 3.12+ 才合法
+        d_origin = math.dist((0.0, 0.0, 0.0), ctx["anchor"])
+        label += f" · 距锚点 {d_origin:.2f} m"
 
     if view.umin <= u <= view.umax and view.vmin <= v <= view.vmax:
         # 框内：在四个方位里挑第一个不压字、且完整落在绘图区内的
