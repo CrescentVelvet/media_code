@@ -6,14 +6,18 @@
 <title>3DGS 相机位姿调整工具 — 改进汇报</title>
 <style>
   :root{
-    --ink:#1F2937; --ink-soft:#4B5563; --muted:#6B7280; --faint:#9CA3AF;
-    --line:#E5E7EB; --line-soft:#F1F3F5; --bg:#F6F8FA; --card:#FFFFFF;
-    --blue:#1E40AF; --blue-2:#2563EB; --blue-soft:#EFF4FF;
-    --teal:#0D9488; --teal-soft:#ECFDF7;
-    --amber:#B45309; --amber-soft:#FFF8EB;
-    --red:#DC2626; --red-soft:#FEF2F2;
-    --green:#059669; --green-soft:#ECFDF5;
-    --violet:#6D28D9; --violet-soft:#F5F3FF;
+    --ink:#111827; --ink-soft:#374151; --muted:#4B5563; --faint:#6B7280;
+    --line:#DCE1E8; --line-soft:#EEF1F5; --bg:#F6F8FA; --card:#FFFFFF;
+    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
+    --indigo:#3730A3; --indigo-2:#4F46E5; --indigo-soft:#EEF2FF;
+    --cyan:#0E7490; --cyan-2:#0891B2; --cyan-soft:#ECFEFF;
+    --amber:#B45309; --amber-2:#D97706; --amber-soft:#FFFBEB;
+    --red:#B91C1C; --red-soft:#FEF2F2;
+    --green:#047857; --green-soft:#ECFDF5;
+    --violet:#5B21B6; --violet-soft:#F5F3FF;
+    /* 旧变量名转发到新色板，正文样式随之同步 */
+    --blue:var(--indigo); --blue-2:var(--indigo-2); --blue-soft:var(--indigo-soft);
+    --teal:var(--cyan); --teal-soft:var(--cyan-soft);
   }
   *{box-sizing:border-box}
   body{
@@ -48,7 +52,7 @@
   li::marker{color:var(--faint)}
   code{font-family:ui-monospace,Consolas,"Courier New",monospace; font-size:.88em;
        background:var(--line-soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
-  .hl{background:linear-gradient(transparent 62%, #FEF3C7 62%); font-weight:600}
+  .hl{background:linear-gradient(transparent 58%, #FDE68A 58%); font-weight:600}
 
   /* ── 结论卡片 ── */
   .cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px}
@@ -63,7 +67,7 @@
 
   /* ── 图卡 ── */
   figure{margin:22px 0 8px; border:1px solid var(--line); border-radius:12px;
-         background:#FCFDFE; padding:18px 18px 10px; overflow:hidden}
+         background:#FFFFFF; padding:18px 18px 10px; overflow:hidden}
   figure svg{display:block; width:100%; height:auto}
   figcaption{font-size:13px; color:var(--muted); text-align:center;
              padding:10px 0 6px; border-top:1px solid var(--line-soft); margin-top:12px}
@@ -86,8 +90,9 @@
   .quote{margin:18px 0; padding:14px 18px; border-left:3px solid var(--blue-2);
          background:var(--blue-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--ink-soft)}
   .quote b{color:var(--blue)}
-  .note{margin:18px 0 0; padding:13px 16px; border:1px dashed var(--line); border-radius:8px;
-        background:#FCFCFD; font-size:13.5px; color:var(--muted)}
+  .note{margin:18px 0 0; padding:13px 16px; border:2px dashed var(--amber-2); border-radius:8px;
+        background:var(--amber-soft); font-size:13.5px; color:var(--ink-soft)}
+  .note strong{color:var(--amber)}
 
   /* ── 附录 ── */
   details{border:1px solid var(--line); border-radius:12px; background:var(--card); margin:22px 0}
@@ -110,19 +115,36 @@
     h1{font-size:23px}
   }
 
-  /* ══════ 图内样式 ══════ */
-  .f-t{font-size:14px; font-weight:600; fill:#1F2937}
-  .f-t2{font-size:12.5px; font-weight:600; fill:#374151}
-  .f-s{font-size:11.5px; fill:#6B7280}
-  .f-xs{font-size:10.5px; fill:#9CA3AF}
-  .f-lbl{font-size:10.5px; font-weight:600; fill:#9CA3AF; letter-spacing:.1em}
-  .f-w{font-size:12px; fill:#FFFFFF; font-weight:600}
-  .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:600}
-  .fig-bg{fill:#FFFFFF; stroke:#E5E7EB; stroke-width:1}
-  .ln{stroke:#D1D5DB; stroke-width:1.4; fill:none}
-  .ar{stroke:#9CA3AF; stroke-width:1.4; fill:none}
-  .ln-d{stroke:#9CA3AF; stroke-width:1.3; fill:none; stroke-dasharray:5 4}
-  .ln-r{stroke:#DC2626; stroke-width:1.6; fill:none; stroke-dasharray:6 4}
+  /* ══════ 图内样式（按 PPT 投影加固：文字加深、描边加粗、填充提浓）══════ */
+  .f-t{font-size:14.5px; font-weight:700; fill:#111827}
+  .f-t2{font-size:13px; font-weight:700; fill:#1F2937}
+  .f-s{font-size:12px; fill:#374151}
+  .f-xs{font-size:11px; fill:#4B5563}
+  .f-lbl{font-size:11px; font-weight:700; fill:#6B7280; letter-spacing:.1em}
+  .f-w{font-size:12.5px; fill:#FFFFFF; font-weight:600}
+  .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:700}
+  .fig-bg{fill:#FFFFFF; stroke:#DCE1E8; stroke-width:1.4}
+  .ln{stroke:#CBD5E1; stroke-width:1.6; fill:none}
+  .ar{stroke:#64748B; stroke-width:1.8; fill:none}
+  .ln-d{stroke:#64748B; stroke-width:1.6; fill:none; stroke-dasharray:6 4}
+  .ln-r{stroke:#B91C1C; stroke-width:2; fill:none; stroke-dasharray:7 4}
+
+  /* 语义框 / 线：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
+  .k-data{fill:#EEF2FF; stroke:#4338CA; stroke-width:2}
+  .k-data-2{fill:#E0E7FF; stroke:#3730A3; stroke-width:2.2}
+  .k-out{fill:#3730A3; stroke:#312E81; stroke-width:2}
+  .k-core{fill:#ECFEFF; stroke:#0891B2; stroke-width:3}
+  .k-note{fill:#FFFBEB; stroke:#D97706; stroke-width:2; stroke-dasharray:8 5}
+  .k-issue{fill:#FEF2F2; stroke:#DC2626; stroke-width:1.9}
+  .ln-note{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:8 5}
+  .ln-data{stroke:#4338CA; stroke-width:2.2; fill:none}
+  .ln-core{stroke:#0891B2; stroke-width:2.6; fill:none}
+  .ln-core-d{stroke:#0891B2; stroke-width:2.4; fill:none; stroke-dasharray:9 6}
+  .dot-data{fill:#4338CA}
+  .dot-core{fill:#0891B2}
+  .dot-note{fill:#D97706}
+  .dot-issue{fill:#DC2626}
+
 </style>
 </head>
 <body>
@@ -187,21 +209,21 @@
       <rect class="fig-bg" x="30" y="46" width="530" height="440" rx="11"/>
       <text class="f-t" x="56" y="76">可观看视角 ≠ 重建质量良好视角</text>
 
-      <!-- 覆盖扇区（绿）：方位角 a ∈ [-140°, 140°] -->
-      <path d="M 295,320 L 195.3,438.7 A 155,155 0 1 1 394.7,438.7 Z" style="fill:#10B981;fill-opacity:0.14"/>
-      <!-- 越界扇区（红）：a ∈ [140°, 220°] -->
-      <path d="M 295,320 L 394.7,438.7 A 155,155 0 0 1 195.3,438.7 Z" style="fill:#DC2626;fill-opacity:0.13"/>
+      <!-- 覆盖扇区（靛蓝 = 采集到的数据充分区）：方位角 a ∈ [-140°, 140°] -->
+      <path d="M 295,320 L 195.3,438.7 A 155,155 0 1 1 394.7,438.7 Z" style="fill:#4338CA;fill-opacity:0.24"/>
+      <!-- 越界扇区（红 = 数据不支撑）：a ∈ [140°, 220°] -->
+      <path d="M 295,320 L 394.7,438.7 A 155,155 0 0 1 195.3,438.7 Z" style="fill:#DC2626;fill-opacity:0.24"/>
 
       <!-- 采集半径环 -->
-      <circle cx="295" cy="320" r="155" stroke-width="1.6" stroke-dasharray="5 4" style="fill:none;stroke:#10B981;stroke-opacity:0.55"/>
+      <circle cx="295" cy="320" r="155" style="fill:none;stroke:#4338CA;stroke-width:2.2;stroke-dasharray:7 5"/>
       <!-- 扇区边界（两条都是覆盖区边界，故同色） -->
-      <line x1="295" y1="320" x2="195.3" y2="438.7" stroke-width="1.4" style="stroke:#10B981;stroke-opacity:0.7"/>
-      <line x1="295" y1="320" x2="394.7" y2="438.7" stroke-width="1.4" style="stroke:#10B981;stroke-opacity:0.7"/>
+      <line x1="295" y1="320" x2="195.3" y2="438.7" style="stroke:#3730A3;stroke-width:2.4"/>
+      <line x1="295" y1="320" x2="394.7" y2="438.7" style="stroke:#3730A3;stroke-width:2.4"/>
       <!-- 越界扇区的外弧 -->
-      <path d="M 394.7,438.7 A 155,155 0 0 1 195.3,438.7" stroke-width="1.5" stroke-dasharray="5 4" style="fill:none;stroke:#DC2626;stroke-opacity:0.55"/>
+      <path d="M 394.7,438.7 A 155,155 0 0 1 195.3,438.7" style="fill:none;stroke:#DC2626;stroke-width:2.4;stroke-dasharray:7 5"/>
 
       <!-- 采集相机位姿 + 视线（8 个位姿均落在覆盖区内） -->
-      <g stroke-width="1" style="stroke:#2563EB;stroke-opacity:0.45">
+      <g style="stroke:#4338CA;stroke-width:1.6;stroke-opacity:0.7">
         <line x1="295" y1="320" x2="176.3" y2="419.7"/>
         <line x1="295" y1="320" x2="140.6" y2="333.5"/>
         <line x1="295" y1="320" x2="160.8" y2="242.5"/>
@@ -211,57 +233,59 @@
         <line x1="295" y1="320" x2="447.7" y2="293.0"/>
         <line x1="295" y1="320" x2="435.4" y2="385.6"/>
       </g>
-      <g style="fill:#2563EB">
-        <circle cx="176.3" cy="419.7" r="4.5"/><circle cx="140.6" cy="333.5" r="4.5"/>
-        <circle cx="160.8" cy="242.5" r="4.5"/><circle cx="229.4" cy="179.6" r="4.5"/>
-        <circle cx="322.0" cy="167.3" r="4.5"/><circle cx="404.6" cy="210.4" r="4.5"/>
-        <circle cx="447.7" cy="293.0" r="4.5"/><circle cx="435.4" cy="385.6" r="4.5"/>
+      <g style="fill:#3730A3">
+        <circle cx="176.3" cy="419.7" r="5"/><circle cx="140.6" cy="333.5" r="5"/>
+        <circle cx="160.8" cy="242.5" r="5"/><circle cx="229.4" cy="179.6" r="5"/>
+        <circle cx="322.0" cy="167.3" r="5"/><circle cx="404.6" cy="210.4" r="5"/>
+        <circle cx="447.7" cy="293.0" r="5"/><circle cx="435.4" cy="385.6" r="5"/>
       </g>
 
       <!-- 越界视角（红） -->
-      <line x1="295" y1="320" x2="295" y2="475" stroke-width="1.6" stroke-dasharray="6 4" style="stroke:#DC2626;stroke-opacity:0.85"/>
-      <circle cx="295" cy="475" r="5" style="fill:#DC2626"/>
+      <line x1="295" y1="320" x2="295" y2="475" style="stroke:#DC2626;stroke-width:2.4;stroke-dasharray:8 5"/>
+      <circle cx="295" cy="475" r="5.5" style="fill:#DC2626"/>
 
       <!-- 重建主体 -->
-      <circle cx="295" cy="320" r="34" stroke-width="1.6" style="fill:#1E40AF;fill-opacity:0.10;stroke:#1E40AF"/>
-      <circle cx="295" cy="320" r="4" style="fill:#1E40AF"/>
-      <text class="f-s" x="295" y="276" text-anchor="middle" font-weight="600" style="fill:#1E40AF">重建主体</text>
+      <circle cx="295" cy="320" r="34" style="fill:#312E81;fill-opacity:0.18;stroke:#312E81;stroke-width:2.4"/>
+      <circle cx="295" cy="320" r="5" style="fill:#312E81"/>
+      <text class="f-s" x="295" y="274" text-anchor="middle" font-weight="700" style="fill:#312E81;stroke:#FFFFFF;stroke-width:3.5;paint-order:stroke">重建主体</text>
 
       <!-- 图例（放在圆外，避免压住弧线） -->
-      <circle cx="52" cy="100" r="4.5" style="fill:#059669"/>
-      <text class="f-s" x="66" y="104" font-weight="600" style="fill:#059669">采集覆盖区 · 重建质量良好</text>
-      <circle cx="52" cy="124" r="4.5" style="fill:#DC2626"/>
-      <text class="f-s" x="66" y="128" font-weight="600" style="fill:#DC2626">越界区 · 模糊 / 伪影 / 穿模</text>
-      <text class="f-xs" x="66" y="150">视角约束范围应落在绿色覆盖区之内</text>
-      <text class="f-xs" x="46" y="476">俯视示意（+Y 向上，重力对齐）</text>
+      <rect x="46" y="94" width="11" height="11" rx="2" style="fill:#4338CA;fill-opacity:0.3;stroke:#4338CA;stroke-width:1.6"/>
+      <text class="f-s" x="66" y="105" font-weight="700" style="fill:#3730A3">采集覆盖区 · 数据充分，重建质量良好</text>
+      <circle cx="51.5" cy="128" r="5" style="fill:#3730A3"/>
+      <text class="f-s" x="66" y="133" font-weight="700" style="fill:#3730A3">采集相机位姿（8 个视角）</text>
+      <circle cx="51.5" cy="156" r="5" style="fill:#DC2626"/>
+      <text class="f-s" x="66" y="161" font-weight="700" style="fill:#DC2626">越界区 · 模糊 / 伪影 / 穿模</text>
+      <text class="f-xs" x="66" y="184">约束范围应落在靛蓝覆盖区内</text>
+      <text class="f-xs" x="46" y="474">俯视示意（+Y 向上，重力对齐）</text>
 
       <!-- ── 右：三类症状 ── -->
       <rect class="fig-bg" x="590" y="46" width="560" height="440" rx="11"/>
       <text class="f-t" x="616" y="76">越界后稳定复现的三类观感问题</text>
 
       <!-- 症状 1 -->
-      <rect x="616" y="96" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
-      <circle cx="644" cy="128" r="4.5" style="fill:#DC2626"/>
-      <text class="f-t2" x="662" y="133">模糊</text>
-      <text class="f-s" x="662" y="156">越界角度上像素采样密度不足，主体边缘发虚、细节塌陷</text>
+      <rect class="k-issue" x="616" y="96" width="508" height="88" rx="9"/>
+      <circle cx="646" cy="128" r="6" style="fill:#DC2626"/>
+      <text class="f-t2" x="664" y="133" style="fill:#B91C1C">模糊</text>
+      <text class="f-s" x="664" y="157">越界角度上像素采样密度不足，主体边缘发虚、细节塌陷</text>
 
       <!-- 症状 2 -->
-      <rect x="616" y="198" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
-      <circle cx="644" cy="230" r="4.5" style="fill:#DC2626"/>
-      <text class="f-t2" x="662" y="235">伪影</text>
-      <text class="f-s" x="662" y="258">训练视角之外，3DGS 产生漂浮的高斯斑块，遮挡主体</text>
+      <rect class="k-issue" x="616" y="198" width="508" height="88" rx="9"/>
+      <circle cx="646" cy="230" r="6" style="fill:#DC2626"/>
+      <text class="f-t2" x="664" y="235" style="fill:#B91C1C">伪影</text>
+      <text class="f-s" x="664" y="259">训练视角之外，3DGS 产生漂浮的高斯斑块，遮挡主体</text>
 
       <!-- 症状 3 -->
-      <rect x="616" y="300" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
-      <circle cx="644" cy="332" r="4.5" style="fill:#DC2626"/>
-      <text class="f-t2" x="662" y="337">穿模</text>
-      <text class="f-s" x="662" y="360">未采集区域的背面几何暴露，出现穿透与空洞</text>
+      <rect class="k-issue" x="616" y="300" width="508" height="88" rx="9"/>
+      <circle cx="646" cy="332" r="6" style="fill:#DC2626"/>
+      <text class="f-t2" x="664" y="337" style="fill:#B91C1C">穿模</text>
+      <text class="f-s" x="664" y="361">未采集区域的背面几何暴露，出现穿透与空洞</text>
 
-      <!-- 结论条 -->
-      <rect x="616" y="410" width="508" height="56" rx="9" stroke-width="1" style="fill:#EFF4FF;stroke:#BFDBFE"/>
-      <text class="f-s" x="640" y="434" font-weight="600" style="fill:#1E40AF">结论</text>
-      <text class="f-s" x="690" y="434">可观看视角必须收敛到重建质量良好区间，观感才可控。</text>
-      <text class="f-xs" x="640" y="454">单纯靠后期或用户自觉无法解决，需要工具级约束。</text>
+      <!-- 结论条（附加说明：琥珀虚线） -->
+      <rect class="k-note" x="616" y="410" width="508" height="58" rx="9"/>
+      <text class="f-s" x="640" y="435" font-weight="700" style="fill:#B45309">结论</text>
+      <text class="f-s" x="688" y="435">可观看视角必须收敛到重建质量良好区间，观感才可控。</text>
+      <text class="f-xs" x="640" y="456" style="fill:#B45309">单纯靠后期或用户自觉无法解决，需要工具级约束。</text>
     </svg>
     <figcaption><b>图 1</b>　问题定位：视角越界 → 重建数据不支撑 → 三类观感问题稳定复现。</figcaption>
   </figure>
@@ -322,98 +346,114 @@
     <svg viewBox="0 0 1180 620" role="img" aria-label="相机位姿调整工具改进方案架构图">
       <text class="f-lbl" x="30" y="30">图 2 ｜ SOLUTION ARCHITECTURE</text>
 
-      <!-- 输入层 -->
-      <text class="f-lbl" x="30" y="66">INPUT ｜ 输入</text>
-      <rect x="30" y="80" width="545" height="72" rx="9" stroke-width="1" style="fill:#F9FAFB;stroke:#E5E7EB"/>
-      <text class="f-t2" x="52" y="110">UWA 高斯模型</text>
-      <text class="f-s" x="52" y="131">camera.json ／ camera_crop.json（待调整的相机位姿）</text>
-      <rect x="605" y="80" width="545" height="72" rx="9" stroke-width="1" style="fill:#F9FAFB;stroke:#E5E7EB"/>
-      <text class="f-t2" x="627" y="110">COLMAP ／ 实拍产出</text>
-      <text class="f-s" x="627" y="131">重建得到的相机位姿与采集覆盖角度分布</text>
+      <!-- 输入层（靛蓝 = 数据） -->
+      <text class="f-lbl" x="30" y="66">INPUT ｜ 输入数据</text>
+      <rect class="k-data" x="30" y="80" width="545" height="72" rx="9"/>
+      <text class="f-t2" x="52" y="110" style="fill:#3730A3">UWA 高斯模型</text>
+      <text class="f-s" x="52" y="132">camera.json ／ camera_crop.json（待调整的相机位姿）</text>
+      <rect class="k-data" x="605" y="80" width="545" height="72" rx="9"/>
+      <text class="f-t2" x="627" y="110" style="fill:#3730A3">COLMAP ／ 实拍产出</text>
+      <text class="f-s" x="627" y="132">重建得到的相机位姿与采集覆盖角度分布</text>
 
       <!-- 汇流 -->
-      <path class="ln" d="M 302.5,152 L 302.5,180 L 877.5,180 L 877.5,152"/>
+      <path class="ln-data" d="M 302.5,152 L 302.5,180 L 877.5,180 L 877.5,152"/>
       <line class="ar" x1="590" y1="180" x2="590" y2="206" marker-end="url(#ah)"/>
 
-      <!-- 内核层：四个模块 -->
+      <!-- 内核层：四个模块（青=工具核心，靛蓝=数据产出） -->
       <text class="f-lbl" x="30" y="228">MODULES ｜ 工具链模块</text>
-      <g>
-        <rect x="30" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
-        <text class="f-num" x="52" y="272" style="fill:#2563EB">01</text>
-        <text class="f-t2" x="80" y="272">核心算法</text>
-        <text class="f-num" x="52" y="296" style="fill:#2563EB">crop_camera_by_angle.py</text>
-        <line class="ln" x1="52" y1="316" x2="273" y2="316" style="stroke:#DBEAFE"/>
-        <circle cx="57" cy="342" r="1.9" style="fill:#2563EB"/>
-        <text class="f-xs" x="68" y="346">视线交汇最小二乘求目标点</text>
-        <circle cx="57" cy="364" r="1.9" style="fill:#2563EB"/>
-        <text class="f-xs" x="68" y="368">±180° 方位角循环补偿</text>
-        <circle cx="57" cy="386" r="1.9" style="fill:#2563EB"/>
-        <text class="f-xs" x="68" y="390">角度 / 高度 / 半径多维调整</text>
+      <g filter="url(#glow2)">
+        <rect class="k-core" x="30" y="242" width="265" height="180" rx="10"/>
       </g>
+      <text class="f-num" x="52" y="274" style="fill:#0891B2">01</text>
+      <text class="f-t2" x="82" y="274" style="fill:#0E7490">核心算法</text>
+      <text class="f-num" x="52" y="298" style="fill:#0E7490">crop_camera_by_angle.py</text>
+      <line x1="52" y1="318" x2="273" y2="318" style="stroke:#A5F3FC;stroke-width:1.6"/>
+      <circle cx="57" cy="344" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="68" y="348" style="fill:#155E75">视线交汇最小二乘求目标点</text>
+      <circle cx="57" cy="366" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="68" y="370" style="fill:#155E75">±180° 方位角循环补偿</text>
+      <circle cx="57" cy="388" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="68" y="392" style="fill:#155E75">角度 / 高度 / 半径多维调整</text>
+
       <g>
-        <rect x="315" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#F5F3FF;stroke:#DDD6FE"/>
-        <text class="f-num" x="337" y="272" style="fill:#6D28D9">02</text>
-        <text class="f-t2" x="365" y="272">可视化验证</text>
-        <text class="f-num" x="337" y="296" style="fill:#6D28D9">visualize_cameras.py</text>
-        <line class="ln" x1="337" y1="316" x2="558" y2="316" style="stroke:#EDE9FE"/>
-        <circle cx="342" cy="342" r="1.9" style="fill:#6D28D9"/>
-        <text class="f-xs" x="353" y="346">3D 空间分布 + 极坐标角度分布</text>
-        <circle cx="342" cy="364" r="1.9" style="fill:#6D28D9"/>
-        <text class="f-xs" x="353" y="368">裁剪前后自动对比</text>
-        <circle cx="342" cy="386" r="1.9" style="fill:#6D28D9"/>
-        <text class="f-xs" x="353" y="390">输出 300 dpi PNG</text>
+        <rect x="315" y="242" width="265" height="180" rx="10" style="fill:#ECFEFF;stroke:#0891B2;stroke-width:2.2"/>
       </g>
+      <text class="f-num" x="337" y="274" style="fill:#0891B2">02</text>
+      <text class="f-t2" x="367" y="274" style="fill:#0E7490">可视化验证</text>
+      <text class="f-num" x="337" y="298" style="fill:#0E7490">visualize_cameras.py</text>
+      <line x1="337" y1="318" x2="558" y2="318" style="stroke:#A5F3FC;stroke-width:1.6"/>
+      <circle cx="342" cy="344" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="353" y="348" style="fill:#155E75">3D 空间分布 + 极坐标角度分布</text>
+      <circle cx="342" cy="366" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="353" y="370" style="fill:#155E75">裁剪前后自动对比</text>
+      <circle cx="342" cy="388" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="353" y="392" style="fill:#155E75">输出 300 dpi PNG</text>
+
       <g>
-        <rect x="600" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#ECFDF7;stroke:#A7F3D0"/>
-        <text class="f-num" x="622" y="272" style="fill:#0D9488">03</text>
-        <text class="f-t2" x="650" y="272">UWA 格式生成</text>
-        <text class="f-num" x="622" y="296" style="fill:#0D9488">generate_camera_files.py</text>
-        <line class="ln" x1="622" y1="316" x2="843" y2="316" style="stroke:#D1FAE5"/>
-        <circle cx="627" cy="342" r="1.9" style="fill:#0D9488"/>
-        <text class="f-xs" x="638" y="346">cameras_init.json ／ cameras_out.json</text>
-        <circle cx="627" cy="364" r="1.9" style="fill:#0D9488"/>
-        <text class="f-xs" x="638" y="368">view_params.json</text>
-        <circle cx="627" cy="386" r="1.9" style="fill:#0D9488"/>
-        <text class="f-xs" x="638" y="390">角度范围 / 包围盒 / 半径 自动计算</text>
+        <rect x="600" y="242" width="265" height="180" rx="10" style="fill:#EEF2FF;stroke:#4338CA;stroke-width:2.2"/>
       </g>
+      <text class="f-num" x="622" y="274" style="fill:#4338CA">03</text>
+      <text class="f-t2" x="652" y="274" style="fill:#3730A3">UWA 格式生成</text>
+      <text class="f-num" x="622" y="298" style="fill:#3730A3">generate_camera_files.py</text>
+      <line x1="622" y1="318" x2="843" y2="318" style="stroke:#C7D2FE;stroke-width:1.6"/>
+      <circle cx="627" cy="344" r="2.6" style="fill:#4338CA"/>
+      <text class="f-xs" x="638" y="348" style="fill:#3730A3">cameras_init.json ／ cameras_out.json</text>
+      <circle cx="627" cy="366" r="2.6" style="fill:#4338CA"/>
+      <text class="f-xs" x="638" y="370" style="fill:#3730A3">view_params.json</text>
+      <circle cx="627" cy="388" r="2.6" style="fill:#4338CA"/>
+      <text class="f-xs" x="638" y="392" style="fill:#3730A3">角度范围 / 包围盒 / 半径 自动计算</text>
+
       <g>
-        <rect x="885" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#FFF8EB;stroke:#FDE68A"/>
-        <text class="f-num" x="907" y="272" style="fill:#B45309">04</text>
-        <text class="f-t2" x="935" y="272">桌面图形工具</text>
-        <text class="f-num" x="907" y="296" style="fill:#B45309">main.py</text>
-        <line class="ln" x1="907" y1="316" x2="1128" y2="316" style="stroke:#FEF3C7"/>
-        <circle cx="912" cy="342" r="1.9" style="fill:#B45309"/>
-        <text class="f-xs" x="923" y="346">Tkinter GUI，参数界面化填写</text>
-        <circle cx="912" cy="364" r="1.9" style="fill:#B45309"/>
-        <text class="f-xs" x="923" y="368">PyInstaller 打包单文件 exe</text>
-        <circle cx="912" cy="386" r="1.9" style="fill:#B45309"/>
-        <text class="f-xs" x="923" y="390">调参闭环：看图验证 → 调整参数</text>
+        <rect x="885" y="242" width="265" height="180" rx="10" style="fill:#ECFEFF;stroke:#0891B2;stroke-width:2.2"/>
       </g>
+      <text class="f-num" x="907" y="274" style="fill:#0891B2">04</text>
+      <text class="f-t2" x="937" y="274" style="fill:#0E7490">桌面图形工具</text>
+      <text class="f-num" x="907" y="298" style="fill:#0E7490">main.py</text>
+      <line x1="907" y1="318" x2="1128" y2="318" style="stroke:#A5F3FC;stroke-width:1.6"/>
+      <circle cx="912" cy="344" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="923" y="348" style="fill:#155E75">Tkinter GUI，参数界面化填写</text>
+      <circle cx="912" cy="366" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="923" y="370" style="fill:#155E75">PyInstaller 打包单文件 exe</text>
+      <circle cx="912" cy="388" r="2.6" style="fill:#0891B2"/>
+      <text class="f-xs" x="923" y="392" style="fill:#155E75">调参闭环：看图验证 → 调整参数</text>
 
       <!-- 汇流 -->
-      <path class="ln" d="M 162.5,422 L 162.5,446 L 1017.5,446 L 1017.5,422"/>
+      <path class="ln-data" d="M 162.5,422 L 162.5,446 L 1017.5,446 L 1017.5,422"/>
       <line class="ar" x1="590" y1="446" x2="590" y2="472" marker-end="url(#ah)"/>
 
-      <!-- 输出层 -->
+      <!-- 输出层（靛蓝 = 数据产物） -->
       <text class="f-lbl" x="30" y="494">OUTPUT ｜ 输出与交付</text>
-      <rect x="30" y="508" width="355" height="86" rx="10" stroke-width="1.2" style="fill:#FFFFFF;stroke:#E5E7EB"/>
-      <text class="f-t2" x="52" y="540">调整后相机</text>
-      <text class="f-s" x="52" y="564">角度 / 高度 / 半径调整完毕的位姿</text>
+      <rect class="k-data" x="30" y="508" width="355" height="86" rx="10"/>
+      <text class="f-t2" x="52" y="541" style="fill:#3730A3">调整后相机</text>
+      <text class="f-s" x="52" y="565">角度 / 高度 / 半径调整完毕的位姿</text>
       <line class="ar" x1="390" y1="551" x2="409" y2="551" marker-end="url(#ah)"/>
 
-      <rect x="412" y="508" width="355" height="86" rx="10" stroke-width="1.2" style="fill:#FFFFFF;stroke:#E5E7EB"/>
-      <text class="f-t2" x="434" y="540">编码 &amp; 封装</text>
-      <text class="f-s" x="434" y="564">UWA 编码格式转换与 MP4 封装</text>
+      <rect class="k-data" x="412" y="508" width="355" height="86" rx="10"/>
+      <text class="f-t2" x="434" y="541" style="fill:#3730A3">编码 &amp; 封装</text>
+      <text class="f-s" x="434" y="565">UWA 编码格式转换与 MP4 封装</text>
       <line class="ar" x1="772" y1="551" x2="791" y2="551" marker-end="url(#ah)"/>
 
-      <rect x="794" y="508" width="355" height="86" rx="10" stroke-width="1.2" style="fill:#1E40AF;fill-opacity:0.06;stroke:#1E40AF"/>
-      <text class="f-t2" x="816" y="540" style="fill:#1E40AF">3DGS 壁纸产出</text>
-      <text class="f-s" x="816" y="564" style="fill:#1E40AF">约束已内嵌，直接可用的成品</text>
+      <rect class="k-out" x="794" y="508" width="355" height="86" rx="10"/>
+      <text class="f-t2" x="816" y="541" style="fill:#FFFFFF">3DGS 壁纸产出</text>
+      <text class="f-s" x="816" y="565" style="fill:#C7D2FE">约束已内嵌，直接可用的成品</text>
 
       <defs>
         <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#64748B"/>
         </marker>
+        <filter id="glow2" x="-20%" y="-60%" width="140%" height="220%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="b1"/>
+          <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="b2"/>
+          <feFlood flood-color="#67E8F9" result="c1"/>
+          <feFlood flood-color="#0891B2" result="c2"/>
+          <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+          <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+          <feMerge>
+            <feMergeNode in="g1"/><feMergeNode in="g1"/>
+            <feMergeNode in="g2"/><feMergeNode in="g2"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
     </svg>
     <figcaption><b>图 2</b>　工具链模块构成：四个模块 + 一个反向入口，串成从输入到成品的完整链路。</figcaption>
@@ -457,55 +497,71 @@
 
       <!-- 主链：输入 → 核心算法 → 格式生成 → 编码封装 → 成品 -->
       <g>
-        <rect x="55" y="206" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#F9FAFB;stroke:#D1D5DB"/>
-        <text class="f-t2" x="150" y="238" text-anchor="middle">输入数据</text>
-        <text class="f-xs" x="150" y="260" text-anchor="middle">UWA 高斯模型</text>
-        <text class="f-xs" x="150" y="278" text-anchor="middle">COLMAP ／ 实拍产出</text>
+        <rect class="k-data" x="55" y="206" width="190" height="88" rx="9"/>
+        <text class="f-t2" x="150" y="240" text-anchor="middle" style="fill:#3730A3">输入数据</text>
+        <text class="f-xs" x="150" y="262" text-anchor="middle" style="fill:#4338CA">UWA 高斯模型</text>
+        <text class="f-xs" x="150" y="280" text-anchor="middle" style="fill:#4338CA">COLMAP ／ 实拍产出</text>
       </g>
-      <line class="ar" x1="247" y1="250" x2="273" y2="250" marker-end="url(#ah2)"/>
-      <g>
-        <rect x="275" y="206" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
-        <text class="f-num" x="370" y="236" text-anchor="middle" style="fill:#2563EB;font-size:10.5px">crop_camera_by_angle.py</text>
-        <text class="f-xs" x="370" y="258" text-anchor="middle">核心算法 · 多维调参</text>
-        <text class="f-xs" x="370" y="278" text-anchor="middle">视线交汇 · 循环补偿</text>
+      <line class="ar" x1="247" y1="250" x2="272" y2="250" marker-end="url(#ah2)"/>
+      <g filter="url(#glow3)">
+        <rect class="k-core" x="275" y="206" width="190" height="88" rx="9"/>
       </g>
-      <line class="ar" x1="467" y1="250" x2="493" y2="250" marker-end="url(#ah2)"/>
+      <text class="f-num" x="370" y="238" text-anchor="middle" style="fill:#0E7490;font-size:11px">crop_camera_by_angle.py</text>
+      <text class="f-xs" x="370" y="260" text-anchor="middle" style="fill:#155E75">核心算法 · 多维调参</text>
+      <text class="f-xs" x="370" y="278" text-anchor="middle" style="fill:#155E75">视线交汇 · 循环补偿</text>
+      <line class="ar" x1="467" y1="250" x2="492" y2="250" marker-end="url(#ah2)"/>
       <g>
-        <rect x="495" y="206" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#ECFDF7;stroke:#A7F3D0"/>
-        <text class="f-num" x="590" y="236" text-anchor="middle" style="fill:#0D9488;font-size:10.5px">generate_camera_files.py</text>
-        <text class="f-xs" x="590" y="258" text-anchor="middle">UWA 格式自动生成</text>
-        <text class="f-xs" x="590" y="278" text-anchor="middle">三件套 json 自动计算</text>
+        <rect class="k-data" x="495" y="206" width="190" height="88" rx="9"/>
+        <text class="f-num" x="590" y="238" text-anchor="middle" style="fill:#3730A3;font-size:11px">generate_camera_files.py</text>
+        <text class="f-xs" x="590" y="260" text-anchor="middle" style="fill:#4338CA">UWA 格式自动生成</text>
+        <text class="f-xs" x="590" y="278" text-anchor="middle" style="fill:#4338CA">三件套 json 自动计算</text>
       </g>
-      <line class="ar" x1="687" y1="250" x2="713" y2="250" marker-end="url(#ah2)"/>
+      <line class="ar" x1="687" y1="250" x2="712" y2="250" marker-end="url(#ah2)"/>
       <g>
-        <rect x="715" y="206" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
-        <text class="f-t2" x="810" y="238" text-anchor="middle">编码 &amp; 封装</text>
-        <text class="f-xs" x="810" y="262" text-anchor="middle">UWA 编码转换 + MP4</text>
+        <rect class="k-data" x="715" y="206" width="190" height="88" rx="9"/>
+        <text class="f-t2" x="810" y="242" text-anchor="middle" style="fill:#3730A3">编码 &amp; 封装</text>
+        <text class="f-xs" x="810" y="264" text-anchor="middle" style="fill:#4338CA">UWA 编码转换 + MP4</text>
       </g>
-      <line class="ar" x1="907" y1="250" x2="933" y2="250" marker-end="url(#ah2)"/>
+      <line class="ar" x1="907" y1="250" x2="932" y2="250" marker-end="url(#ah2)"/>
       <g>
-        <rect x="935" y="206" width="190" height="88" rx="9" stroke-width="1.4" style="fill:#1E40AF;fill-opacity:0.06;stroke:#1E40AF"/>
-        <text class="f-t2" x="1030" y="238" text-anchor="middle" style="fill:#1E40AF">3DGS 壁纸产出</text>
-        <text class="f-xs" x="1030" y="262" text-anchor="middle" style="fill:#1E40AF">约束已内嵌</text>
+        <rect class="k-out" x="935" y="206" width="190" height="88" rx="9"/>
+        <text class="f-t2" x="1030" y="240" text-anchor="middle" style="fill:#FFFFFF">3DGS 壁纸产出</text>
+        <text class="f-xs" x="1030" y="262" text-anchor="middle" style="fill:#C7D2FE">约束已内嵌</text>
       </g>
 
-      <!-- 上：可视化验证模块（挂在核心算法之后） -->
-      <line class="ar" x1="370" y1="204" x2="370" y2="162" marker-end="url(#ah2)"/>
-      <rect x="310" y="76" width="560" height="84" rx="9" stroke-width="1.2" style="fill:#F5F3FF;stroke:#DDD6FE"/>
-      <text class="f-num" x="590" y="106" text-anchor="middle" style="fill:#6D28D9">visualize_cameras.py</text>
-      <text class="f-xs" x="590" y="128" text-anchor="middle" style="fill:#7C3AED">3D 空间分布 + 极坐标角度分布</text>
-      <text class="f-xs" x="590" y="148" text-anchor="middle" style="fill:#7C3AED">裁剪前后自动对比 → 300 dpi PNG（看图即验）</text>
+      <!-- 上：可视化验证模块（核心环节，挂在核心算法之后） -->
+      <line class="ln-core" x1="370" y1="204" x2="370" y2="162" marker-end="url(#ah2)"/>
+      <rect x="310" y="76" width="560" height="84" rx="9" style="fill:#ECFEFF;stroke:#0891B2;stroke-width:2.6"/>
+      <text class="f-num" x="590" y="108" text-anchor="middle" style="fill:#0E7490;font-size:11.5px">visualize_cameras.py</text>
+      <text class="f-xs" x="590" y="130" text-anchor="middle" style="fill:#155E75">3D 空间分布 + 极坐标角度分布</text>
+      <text class="f-xs" x="590" y="148" text-anchor="middle" style="fill:#155E75">裁剪前后自动对比 → 300 dpi PNG（看图即验）</text>
 
-      <!-- 下：MP4 解封装标签页（反向入口，回灌输入） -->
-      <rect x="100" y="392" width="440" height="76" rx="9" stroke-width="1.2" style="fill:#FFF8EB;stroke:#FDE68A"/>
-      <text class="f-t2" x="320" y="422" text-anchor="middle" style="fill:#B45309">MP4 解封装标签页</text>
-      <text class="f-xs" x="320" y="446" text-anchor="middle" style="fill:#C2831D">从 MP4 提取 3DGS 模型与相机数据（反向入口）</text>
-      <line class="ar" x1="150" y1="390" x2="150" y2="298" marker-end="url(#ah2)"/>
+      <!-- 下：MP4 解封装标签页（附加入口：琥珀虚线） -->
+      <rect class="k-note" x="100" y="392" width="440" height="76" rx="9"/>
+      <text class="f-t2" x="320" y="423" text-anchor="middle" style="fill:#B45309">MP4 解封装标签页</text>
+      <text class="f-xs" x="320" y="447" text-anchor="middle" style="fill:#B45309">从 MP4 提取 3DGS 模型与相机数据（附加入口）</text>
+      <line class="ln-note" x1="150" y1="390" x2="150" y2="298" marker-end="url(#ah-note)"/>
 
       <defs>
         <marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#64748B"/>
         </marker>
+        <marker id="ah-note" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#D97706"/>
+        </marker>
+        <filter id="glow3" x="-20%" y="-80%" width="140%" height="260%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="b1"/>
+          <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="b2"/>
+          <feFlood flood-color="#67E8F9" result="c1"/>
+          <feFlood flood-color="#0891B2" result="c2"/>
+          <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+          <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+          <feMerge>
+            <feMergeNode in="g1"/><feMergeNode in="g1"/>
+            <feMergeNode in="g2"/><feMergeNode in="g2"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
     </svg>
     <figcaption><b>图 3</b>　工具链数据流：核心算法 → UWA 格式生成 → 编码封装；可视化验证与反向解封装分挂两侧。</figcaption>
@@ -526,88 +582,101 @@
     <svg viewBox="0 0 1180 520" role="img" aria-label="改进前后验证链路对比图">
       <text class="f-lbl" x="30" y="30">图 4 ｜ BEFORE / AFTER</text>
 
-      <!-- ── 上：改进前 ── -->
-      <rect x="30" y="46" width="1120" height="228" rx="11" stroke-width="1" style="fill:#FEF7F7;stroke:#FECACA"/>
-      <text class="f-t2" x="52" y="76" style="fill:#B91C1C">改进前 · 第一版约束脚本</text>
+      <!-- ── 上：改进前（红 = 问题） ── -->
+      <rect x="30" y="46" width="1120" height="228" rx="11" style="fill:#FEF2F2;stroke:#FCA5A5;stroke-width:2"/>
+      <text class="f-t2" x="52" y="78" style="fill:#B91C1C">改进前 · 第一版约束脚本</text>
 
       <g>
-        <rect x="52" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
-        <text class="f-s" x="152" y="122" text-anchor="middle" font-weight="600">单一维度调参</text>
-        <text class="f-xs" x="152" y="142" text-anchor="middle">改一维牵动其他维度</text>
+        <rect x="52" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
+        <text class="f-s" x="152" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">单一维度调参</text>
+        <text class="f-xs" x="152" y="144" text-anchor="middle" style="fill:#B91C1C">改一维牵动其他维度</text>
       </g>
-      <line class="ar" x1="254" y1="128" x2="277" y2="128" marker-end="url(#ah3)"/>
+      <line class="ar" x1="254" y1="128" x2="276" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="279" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
-        <text class="f-s" x="379" y="122" text-anchor="middle" font-weight="600">封装 MP4</text>
-        <text class="f-xs" x="379" y="142" text-anchor="middle">必须完成整轮封装</text>
+        <rect x="279" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
+        <text class="f-s" x="379" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">封装 MP4</text>
+        <text class="f-xs" x="379" y="144" text-anchor="middle" style="fill:#B91C1C">必须完成整轮封装</text>
       </g>
-      <line class="ar" x1="481" y1="128" x2="504" y2="128" marker-end="url(#ah3)"/>
+      <line class="ar" x1="481" y1="128" x2="503" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="506" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
-        <text class="f-s" x="606" y="122" text-anchor="middle" font-weight="600">导入手机</text>
-        <text class="f-xs" x="606" y="142" text-anchor="middle">文件传输 + 上机安装</text>
+        <rect x="506" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
+        <text class="f-s" x="606" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">导入手机</text>
+        <text class="f-xs" x="606" y="144" text-anchor="middle" style="fill:#B91C1C">文件传输 + 上机安装</text>
       </g>
-      <line class="ar" x1="708" y1="128" x2="731" y2="128" marker-end="url(#ah3)"/>
+      <line class="ar" x1="708" y1="128" x2="730" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="733" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
-        <text class="f-s" x="833" y="122" text-anchor="middle" font-weight="600">上机观看判断</text>
-        <text class="f-xs" x="833" y="142" text-anchor="middle">手动转动逐个角度确认</text>
+        <rect x="733" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
+        <text class="f-s" x="833" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">上机观看判断</text>
+        <text class="f-xs" x="833" y="144" text-anchor="middle" style="fill:#B91C1C">手动转动逐个角度确认</text>
       </g>
-      <line class="ar" x1="935" y1="128" x2="958" y2="128" marker-end="url(#ah3)"/>
+      <line class="ar" x1="935" y1="128" x2="957" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="960" y="92" width="168" height="72" rx="8" stroke-width="1.2" style="fill:#FEE2E2;stroke:#F87171"/>
-        <text class="f-s" x="1044" y="122" text-anchor="middle" font-weight="600" style="fill:#B91C1C">不满意 → 回炉</text>
-        <text class="f-xs" x="1044" y="142" text-anchor="middle" style="fill:#B91C1C">从第一步重来</text>
+        <rect x="960" y="92" width="168" height="72" rx="8" style="fill:#FEE2E2;stroke:#DC2626;stroke-width:2"/>
+        <text class="f-s" x="1044" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">不满意 → 回炉</text>
+        <text class="f-xs" x="1044" y="144" text-anchor="middle" style="fill:#B91C1C">从第一步重来</text>
       </g>
 
       <!-- 回流弧 -->
-      <path d="M 1044,166 C 1044,246 152,246 152,166" stroke-width="1.6" stroke-dasharray="6 4" style="fill:none;stroke:#DC2626"/>
-      <path d="M 152,166 L 146,178 L 158,178 Z" style="fill:#DC2626"/>
-      <text class="f-xs" x="598" y="244" text-anchor="middle" font-weight="600" style="fill:#B91C1C">每验证一轮，都要重走完整条链路</text>
+      <path d="M 1044,166 C 1044,246 152,246 152,166" style="fill:none;stroke:#DC2626;stroke-width:2.4;stroke-dasharray:8 5"/>
+      <path d="M 152,166 L 145,179 L 159,179 Z" style="fill:#DC2626"/>
+      <text class="f-xs" x="598" y="244" text-anchor="middle" font-weight="700" style="fill:#B91C1C">每验证一轮，都要重走完整条链路</text>
 
-      <!-- ── 下：改进后 ── -->
-      <rect x="30" y="296" width="1120" height="212" rx="11" stroke-width="1" style="fill:#F5FCF9;stroke:#A7F3D0"/>
-      <text class="f-t2" x="52" y="326" style="fill:#047857">改进后 · 标准化调整工具</text>
+      <!-- ── 下：改进后（青 = 工具核心，靛蓝 = 数据产物） ── -->
+      <rect x="30" y="296" width="1120" height="212" rx="11" style="fill:#ECFEFF;stroke:#67E8F9;stroke-width:2"/>
+      <text class="f-t2" x="52" y="328" style="fill:#0E7490">改进后 · 标准化调整工具</text>
 
       <g>
-        <rect x="52" y="336" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
-        <text class="f-s" x="167" y="366" text-anchor="middle" font-weight="600">GUI 填写参数</text>
-        <text class="f-xs" x="167" y="388" text-anchor="middle">main.py · 三轴独立调整</text>
+        <rect x="52" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0891B2;stroke-width:2"/>
+        <text class="f-s" x="167" y="367" text-anchor="middle" font-weight="700" style="fill:#0E7490">GUI 填写参数</text>
+        <text class="f-xs" x="167" y="389" text-anchor="middle" style="fill:#155E75">main.py · 三轴独立调整</text>
       </g>
-      <line class="ar" x1="284" y1="374" x2="312" y2="374" marker-end="url(#ah3)"/>
+      <line class="ar" x1="284" y1="374" x2="311" y2="374" marker-end="url(#ah3)"/>
       <g>
-        <rect x="314" y="336" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
-        <text class="f-s" x="429" y="366" text-anchor="middle" font-weight="600">看图即验</text>
-        <text class="f-xs" x="429" y="388" text-anchor="middle">visualize_cameras.py · 300 dpi</text>
+        <rect x="314" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0891B2;stroke-width:2"/>
+        <text class="f-s" x="429" y="367" text-anchor="middle" font-weight="700" style="fill:#0E7490">看图即验</text>
+        <text class="f-xs" x="429" y="389" text-anchor="middle" style="fill:#155E75">visualize_cameras.py · 300 dpi</text>
       </g>
-      <line class="ar" x1="546" y1="374" x2="574" y2="374" marker-end="url(#ah3)"/>
+      <line class="ar" x1="546" y1="374" x2="573" y2="374" marker-end="url(#ah3)"/>
       <g>
-        <rect x="576" y="336" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
-        <text class="f-s" x="691" y="366" text-anchor="middle" font-weight="600">一键生成 UWA 格式</text>
-        <text class="f-xs" x="691" y="388" text-anchor="middle">generate_camera_files.py</text>
+        <rect x="576" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#4338CA;stroke-width:2"/>
+        <text class="f-s" x="691" y="367" text-anchor="middle" font-weight="700" style="fill:#3730A3">一键生成 UWA 格式</text>
+        <text class="f-xs" x="691" y="389" text-anchor="middle" style="fill:#4338CA">generate_camera_files.py</text>
       </g>
-      <line class="ar" x1="808" y1="374" x2="836" y2="374" marker-end="url(#ah3)"/>
+      <line class="ar" x1="808" y1="374" x2="835" y2="374" marker-end="url(#ah3)"/>
       <g>
-        <rect x="838" y="336" width="200" height="76" rx="8" stroke-width="1.4" style="fill:#ECFDF5;stroke:#10B981"/>
-        <text class="f-s" x="938" y="366" text-anchor="middle" font-weight="600" style="fill:#047857">编码封装</text>
-        <text class="f-xs" x="938" y="388" text-anchor="middle" style="fill:#047857">3DGS 壁纸产出</text>
+        <rect class="k-out" x="838" y="336" width="200" height="76" rx="8"/>
+        <text class="f-s" x="938" y="367" text-anchor="middle" font-weight="700" style="fill:#FFFFFF">编码封装</text>
+        <text class="f-xs" x="938" y="389" text-anchor="middle" style="fill:#C7D2FE">3DGS 壁纸产出</text>
       </g>
 
-      <!-- 调参闭环：看图验证 → 调整参数（短闭环，与上栏的长往返对比） -->
-      <path d="M 429,414 C 429,442 167,442 167,414" stroke-width="1.6" stroke-dasharray="6 4" style="fill:none;stroke:#059669"/>
-      <path d="M 167,414 L 161,426 L 173,426 Z" style="fill:#059669"/>
-      <text class="f-xs" x="298" y="462" text-anchor="middle" font-weight="600" style="fill:#047857">调参闭环：看图验证 → 调整参数</text>
-      <rect x="1056" y="336" width="78" height="76" rx="8" stroke-width="1" style="fill:#1E40AF;fill-opacity:0.06;stroke:#BFDBFE"/>
-      <text class="f-xs" x="1095" y="362" text-anchor="middle" font-weight="600" style="fill:#1E40AF">单文件</text>
-      <text class="f-xs" x="1095" y="378" text-anchor="middle" font-weight="600" style="fill:#1E40AF">exe</text>
-      <text class="f-xs" x="1095" y="397" text-anchor="middle" style="fill:#6B7280">点击即用</text>
+      <!-- 调参闭环：看图验证 → 调整参数（核心机制：青色粗虚线 + 光晕） -->
+      <path class="ln-core-d" d="M 429,414 C 429,436 167,436 167,414" filter="url(#glow4)"/>
+      <path d="M 167,414 L 160,427 L 174,427 Z" style="fill:#0891B2"/>
+      <text class="f-xs" x="298" y="468" text-anchor="middle" font-weight="700" style="fill:#0E7490">调参闭环：看图验证 → 调整参数</text>
+      <rect class="k-data" x="1056" y="336" width="78" height="76" rx="8"/>
+      <text class="f-xs" x="1095" y="363" text-anchor="middle" font-weight="700" style="fill:#3730A3">单文件</text>
+      <text class="f-xs" x="1095" y="379" text-anchor="middle" font-weight="700" style="fill:#3730A3">exe</text>
+      <text class="f-xs" x="1095" y="398" text-anchor="middle" style="fill:#4338CA">点击即用</text>
 
-      <text class="f-xs" x="52" y="490" style="fill:#6B7280">对比要点：反馈回路从"封装—传输—上机"缩短为"看图确认"；工具不再依赖开发者本人操作。</text>
+      <text class="f-xs" x="52" y="490" style="fill:#374151">对比要点：反馈回路从"封装—传输—上机"缩短为"看图确认"；工具不再依赖开发者本人操作。</text>
 
       <defs>
         <marker id="ah3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#64748B"/>
         </marker>
+        <filter id="glow4" x="-20%" y="-200%" width="140%" height="500%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="b1"/>
+          <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="b2"/>
+          <feFlood flood-color="#67E8F9" result="c1"/>
+          <feFlood flood-color="#0891B2" result="c2"/>
+          <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+          <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+          <feMerge>
+            <feMergeNode in="g1"/><feMergeNode in="g1"/>
+            <feMergeNode in="g2"/><feMergeNode in="g2"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
     </svg>
     <figcaption><b>图 4</b>　改进前后对比：验证回路长度是这次改进最直接的变化。</figcaption>
