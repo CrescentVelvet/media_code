@@ -117,12 +117,12 @@
   .f-t2{font-size:13px; font-weight:700; fill:#1E293B}
   .f-s{font-size:12px; fill:#334155}
   .f-xs{font-size:11px; fill:#64748B}
-  .f-lbl{font-size:11px; font-weight:700; fill:#64748B; letter-spacing:.1em}
+  .f-lbl{font-size:12px; font-weight:700; fill:#475569; letter-spacing:.12em}
   .f-w{font-size:12.5px; fill:#FFFFFF; font-weight:600}
   .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:700}
   .fig-bg{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
   .ln{stroke:#CBD5E1; stroke-width:1.6; fill:none}
-  .ar{stroke:#475569; stroke-width:2.2; fill:none}
+  .ar{stroke:#475569; stroke-width:2.6; fill:none}
   .ln-d{stroke:#64748B; stroke-width:1.2; fill:none; stroke-dasharray:4 3}
 
   /* 节点：普通 / 数据文件 / 核心 / 最终产出 / 附加说明 / 问题 / 改进后 / 强调提示 */
@@ -137,10 +137,10 @@
   .k-tip{fill:#EFF6FF; stroke:#93C5FD; stroke-width:1.6}
 
   /* 连线：流程箭头 / 核心 / 反馈闭环 / 附加说明 / 问题 */
-  .ln-data{stroke:#475569; stroke-width:2.2; fill:none}
+  .ln-data{stroke:#475569; stroke-width:2.6; fill:none}
   .ln-core{stroke:#0D9488; stroke-width:2.5; fill:none}
   .ln-core-d{stroke:#0D9488; stroke-width:2.5; fill:none; stroke-dasharray:6 5}
-  .ln-fb{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
+  .ln-fb{stroke:#D97706; stroke-width:2.6; fill:none; stroke-dasharray:6 5}
   .ln-issue{stroke:#DC2626; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
 
   .dot-data{fill:#4F46E5}
