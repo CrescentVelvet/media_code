@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3DGS 相机位姿调整工具 — 改进汇报</title>
+<style>
+  :root{
+    --ink:#1F2937; --ink-soft:#4B5563; --muted:#6B7280; --faint:#9CA3AF;
+    --line:#E5E7EB; --line-soft:#F1F3F5; --bg:#F6F8FA; --card:#FFFFFF;
+    --blue:#1E40AF; --blue-2:#2563EB; --blue-soft:#EFF4FF;
+    --teal:#0D9488; --teal-soft:#ECFDF7;
+    --amber:#B45309; --amber-soft:#FFF8EB;
+    --red:#DC2626; --red-soft:#FEF2F2;
+    --green:#059669; --green-soft:#ECFDF5;
+    --violet:#6D28D9; --violet-soft:#F5F3FF;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    font-size:15.5px; line-height:1.75; -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:1180px; margin:0 auto; padding:0 0 72px}
+  .sheet{background:var(--card); border:1px solid var(--line); border-radius:14px;
+         padding:34px 40px 30px; margin:22px 0; }
+  .lead{box-shadow:0 1px 2px rgba(16,24,40,.04)}
+
+  /* ── 页头 ── */
+  .top{border-top:4px solid var(--blue); border-radius:14px 14px 14px 14px}
+  .kicker{font-size:12.5px; letter-spacing:.14em; color:var(--blue);
+          font-weight:600; text-transform:uppercase; margin:0 0 10px}
+  h1{font-size:29px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-size:14.5px; margin:0}
+  .meta{margin-top:20px; padding-top:16px; border-top:1px dashed var(--line);
+        display:flex; gap:28px; flex-wrap:wrap; font-size:13px; color:var(--muted)}
+  .meta b{color:var(--ink-soft); font-weight:600}
+
+  /* ── 章节 ── */
+  h2{font-size:20px; margin:0 0 6px; display:flex; align-items:baseline; gap:12px; letter-spacing:-.005em}
+  h2 .num{font-size:13px; font-weight:700; color:#fff; background:var(--blue);
+          border-radius:6px; padding:2px 9px; letter-spacing:.04em; position:relative; top:-2px}
+  h3{font-size:16px; margin:26px 0 8px; color:var(--ink)}
+  .sec-desc{color:var(--muted); font-size:14px; margin:0 0 20px}
+  p{margin:0 0 12px}
+  ul{margin:0 0 12px; padding-left:20px}
+  li{margin:5px 0}
+  li::marker{color:var(--faint)}
+  code{font-family:ui-monospace,Consolas,"Courier New",monospace; font-size:.88em;
+       background:var(--line-soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
+  .hl{background:linear-gradient(transparent 62%, #FEF3C7 62%); font-weight:600}
+
+  /* ── 结论卡片 ── */
+  .cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:16px 16px 14px;
+        position:relative; overflow:hidden}
+  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--blue-2)}
+  .card.t::before{background:var(--teal)}
+  .card.a::before{background:var(--amber)}
+  .card.v::before{background:var(--violet)}
+  .card .t1{font-size:13px; color:var(--muted); margin:0 0 6px}
+  .card .t2{font-size:15px; font-weight:600; line-height:1.5; margin:0; color:var(--ink)}
+
+  /* ── 图卡 ── */
+  figure{margin:22px 0 8px; border:1px solid var(--line); border-radius:12px;
+         background:#FCFDFE; padding:18px 18px 10px; overflow:hidden}
+  figure svg{display:block; width:100%; height:auto}
+  figcaption{font-size:13px; color:var(--muted); text-align:center;
+             padding:10px 0 6px; border-top:1px solid var(--line-soft); margin-top:12px}
+  figcaption b{color:var(--ink-soft)}
+
+  /* ── 表格 ── */
+  table{width:100%; border-collapse:collapse; margin:14px 0 6px; font-size:14.5px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  thead th{background:#F9FAFB; color:var(--ink-soft); font-weight:600; font-size:13.5px;
+           border-bottom:1px solid var(--line)}
+  tbody tr:last-child td{border-bottom:1px solid var(--line)}
+  td.k{color:var(--muted); width:150px}
+  .pill{display:inline-block; font-size:12.5px; padding:1px 9px; border-radius:20px;
+        border:1px solid currentColor; line-height:1.7; white-space:nowrap}
+  .pill.bad{color:var(--red); background:var(--red-soft)}
+  .pill.ok{color:var(--green); background:var(--green-soft)}
+  .pill.mid{color:var(--amber); background:var(--amber-soft)}
+
+  /* ── 引用条 ── */
+  .quote{margin:18px 0; padding:14px 18px; border-left:3px solid var(--blue-2);
+         background:var(--blue-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--ink-soft)}
+  .quote b{color:var(--blue)}
+  .note{margin:18px 0 0; padding:13px 16px; border:1px dashed var(--line); border-radius:8px;
+        background:#FCFCFD; font-size:13.5px; color:var(--muted)}
+
+  /* ── 附录 ── */
+  details{border:1px solid var(--line); border-radius:12px; background:var(--card); margin:22px 0}
+  summary{cursor:pointer; padding:16px 22px; font-weight:600; font-size:15px; color:var(--blue);
+          list-style:none; display:flex; align-items:center; gap:10px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸"; color:var(--faint); transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  details[open] summary{border-bottom:1px solid var(--line)}
+  .dt-body{padding:8px 22px 20px}
+  .dt-body h4{font-size:14.5px; margin:18px 0 6px; color:var(--ink)}
+
+  @media print{
+    body{background:#fff} .page{max-width:none} .sheet{break-inside:avoid; border:none; padding:0 0 18px}
+    figure{break-inside:avoid} details{display:none}
+  }
+  @media (max-width:900px){
+    .cards{grid-template-columns:repeat(2,1fr)}
+    .sheet{padding:24px 20px}
+    h1{font-size:23px}
+  }
+
+  /* ══════ 图内样式 ══════ */
+  .f-t{font-size:14px; font-weight:600; fill:#1F2937}
+  .f-t2{font-size:12.5px; font-weight:600; fill:#374151}
+  .f-s{font-size:11.5px; fill:#6B7280}
+  .f-xs{font-size:10.5px; fill:#9CA3AF}
+  .f-lbl{font-size:10.5px; font-weight:600; fill:#9CA3AF; letter-spacing:.1em}
+  .f-w{font-size:12px; fill:#FFFFFF; font-weight:600}
+  .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:600}
+  .fig-bg{fill:#FFFFFF; stroke:#E5E7EB; stroke-width:1}
+  .ln{stroke:#D1D5DB; stroke-width:1.4; fill:none}
+  .ar{stroke:#9CA3AF; stroke-width:1.4; fill:none}
+  .ln-d{stroke:#9CA3AF; stroke-width:1.3; fill:none; stroke-dasharray:5 4}
+  .ln-r{stroke:#DC2626; stroke-width:1.6; fill:none; stroke-dasharray:6 4}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ══════════════ 页头 ══════════════ -->
+<div class="sheet top lead">
+  <p class="kicker">技术改进汇报 · 3DGS 应用链路</p>
+  <h1>3DGS 相机位姿调整工具</h1>
+  <p class="sub">把 3DGS 壁纸的可观看视角，收敛到重建质量良好的角度范围内 —— 从"调参靠试"到"看图即验"。</p>
+  <div class="meta">
+    <span><b>汇报口径</b>　部门技术评审</span>
+    <span><b>涉及环节</b>　视角约束求解 · 参数调整 · UWA 封装 · 工具交付</span>
+    <span><b>交付形态</b>　自动化脚本 + 单文件 Windows 工具</span>
+  </div>
+</div>
+
+<!-- ══════════════ 结论先行 ══════════════ -->
+<div class="sheet">
+  <h2><span class="num">摘要</span>结论先行</h2>
+  <p class="sec-desc">四句话说明这次改进解决了什么。</p>
+  <div class="cards">
+    <div class="card">
+      <p class="t1">建立了什么能力</p>
+      <p class="t2">3DGS 壁纸观看视角约束能力</p>
+    </div>
+    <div class="card t">
+      <p class="t1">解决了什么痛点</p>
+      <p class="t2">视角越界导致的模糊、伪影、穿模</p>
+    </div>
+    <div class="card a">
+      <p class="t1">效率变化</p>
+      <p class="t2">验证由"多轮封装往返"变为"看图即验"</p>
+    </div>
+    <div class="card v">
+      <p class="t1">使用门槛</p>
+      <p class="t2">图形界面 + 单文件部署，非开发同学可自助</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 1 问题背景 ══════════════ -->
+<div class="sheet">
+  <h2><span class="num">01</span>问题背景</h2>
+  <p class="sec-desc">观感问题的根源不在渲染，而在"允许用户看到哪个角度"没有约束。</p>
+
+  <p>3DGS 壁纸的可观看视角，必须限制在模型重建质量良好的角度范围内。模型只在采集覆盖过的视角上被充分观测，一旦用户把视角转到覆盖范围之外，重建数据支撑不住，画面立即劣化。</p>
+
+  <p>而现阶段的相机视角<strong>缺乏约束</strong>，用户可以在任意角度自由旋转，于是三类问题稳定复现、破坏观感：</p>
+  <ul>
+    <li><strong>模糊</strong> —— 越界角度上像素采样密度不足，主体边缘发虚；</li>
+    <li><strong>伪影</strong> —— 3DGS 在训练视角之外产生漂浮的高斯斑块；</li>
+    <li><strong>穿模</strong> —— 未采集区域的背面几何暴露，出现穿透与空洞。</li>
+  </ul>
+
+  <figure>
+    <!-- ═══ 图 1：问题定位 ═══ -->
+    <svg viewBox="0 0 1180 520" role="img" aria-label="视角越界导致观感劣化的问题定位图">
+      <text class="f-lbl" x="30" y="30">图 1 ｜ PROBLEM MAPPING</text>
+
+      <!-- ── 左：俯视示意 ── -->
+      <rect class="fig-bg" x="30" y="46" width="530" height="440" rx="11"/>
+      <text class="f-t" x="56" y="76">可观看视角 ≠ 重建质量良好视角</text>
+
+      <!-- 覆盖扇区（绿）：方位角 a ∈ [-140°, 140°] -->
+      <path d="M 295,320 L 195.3,438.7 A 155,155 0 1 1 394.7,438.7 Z" style="fill:#10B981;fill-opacity:0.14"/>
+      <!-- 越界扇区（红）：a ∈ [140°, 220°] -->
+      <path d="M 295,320 L 394.7,438.7 A 155,155 0 0 1 195.3,438.7 Z" style="fill:#DC2626;fill-opacity:0.13"/>
+
+      <!-- 采集半径环 -->
+      <circle cx="295" cy="320" r="155" stroke-width="1.6" stroke-dasharray="5 4" style="fill:none;stroke:#10B981;stroke-opacity:0.55"/>
+      <!-- 扇区边界（两条都是覆盖区边界，故同色） -->
+      <line x1="295" y1="320" x2="195.3" y2="438.7" stroke-width="1.4" style="stroke:#10B981;stroke-opacity:0.7"/>
+      <line x1="295" y1="320" x2="394.7" y2="438.7" stroke-width="1.4" style="stroke:#10B981;stroke-opacity:0.7"/>
+      <!-- 越界扇区的外弧 -->
+      <path d="M 394.7,438.7 A 155,155 0 0 1 195.3,438.7" stroke-width="1.5" stroke-dasharray="5 4" style="fill:none;stroke:#DC2626;stroke-opacity:0.55"/>
+
+      <!-- 采集相机位姿 + 视线（8 个位姿均落在覆盖区内） -->
+      <g stroke-width="1" style="stroke:#2563EB;stroke-opacity:0.45">
+        <line x1="295" y1="320" x2="176.3" y2="419.7"/>
+        <line x1="295" y1="320" x2="140.6" y2="333.5"/>
+        <line x1="295" y1="320" x2="160.8" y2="242.5"/>
+        <line x1="295" y1="320" x2="229.4" y2="179.6"/>
+        <line x1="295" y1="320" x2="322.0" y2="167.3"/>
+        <line x1="295" y1="320" x2="404.6" y2="210.4"/>
+        <line x1="295" y1="320" x2="447.7" y2="293.0"/>
+        <line x1="295" y1="320" x2="435.4" y2="385.6"/>
+      </g>
+      <g style="fill:#2563EB">
+        <circle cx="176.3" cy="419.7" r="4.5"/><circle cx="140.6" cy="333.5" r="4.5"/>
+        <circle cx="160.8" cy="242.5" r="4.5"/><circle cx="229.4" cy="179.6" r="4.5"/>
+        <circle cx="322.0" cy="167.3" r="4.5"/><circle cx="404.6" cy="210.4" r="4.5"/>
+        <circle cx="447.7" cy="293.0" r="4.5"/><circle cx="435.4" cy="385.6" r="4.5"/>
+      </g>
+
+      <!-- 越界视角（红） -->
+      <line x1="295" y1="320" x2="295" y2="475" stroke-width="1.6" stroke-dasharray="6 4" style="stroke:#DC2626;stroke-opacity:0.85"/>
+      <circle cx="295" cy="475" r="5" style="fill:#DC2626"/>
+
+      <!-- 重建主体 -->
+      <circle cx="295" cy="320" r="34" stroke-width="1.6" style="fill:#1E40AF;fill-opacity:0.10;stroke:#1E40AF"/>
+      <circle cx="295" cy="320" r="4" style="fill:#1E40AF"/>
+      <text class="f-s" x="295" y="276" text-anchor="middle" font-weight="600" style="fill:#1E40AF">重建主体</text>
+
+      <!-- 图例（放在圆外，避免压住弧线） -->
+      <circle cx="52" cy="100" r="4.5" style="fill:#059669"/>
+      <text class="f-s" x="66" y="104" font-weight="600" style="fill:#059669">采集覆盖区 · 重建质量良好</text>
+      <circle cx="52" cy="124" r="4.5" style="fill:#DC2626"/>
+      <text class="f-s" x="66" y="128" font-weight="600" style="fill:#DC2626">越界区 · 模糊 / 伪影 / 穿模</text>
+      <text class="f-xs" x="66" y="150">视角约束范围应落在绿色覆盖区之内</text>
+      <text class="f-xs" x="46" y="476">俯视示意（+Y 向上，重力对齐）</text>
+
+      <!-- ── 右：三类症状 ── -->
+      <rect class="fig-bg" x="590" y="46" width="560" height="440" rx="11"/>
+      <text class="f-t" x="616" y="76">越界后稳定复现的三类观感问题</text>
+
+      <!-- 症状 1 -->
+      <rect x="616" y="96" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
+      <circle cx="644" cy="128" r="4.5" style="fill:#DC2626"/>
+      <text class="f-t2" x="662" y="133">模糊</text>
+      <text class="f-s" x="662" y="156">越界角度上像素采样密度不足，主体边缘发虚、细节塌陷</text>
+
+      <!-- 症状 2 -->
+      <rect x="616" y="198" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
+      <circle cx="644" cy="230" r="4.5" style="fill:#DC2626"/>
+      <text class="f-t2" x="662" y="235">伪影</text>
+      <text class="f-s" x="662" y="258">训练视角之外，3DGS 产生漂浮的高斯斑块，遮挡主体</text>
+
+      <!-- 症状 3 -->
+      <rect x="616" y="300" width="508" height="88" rx="9" stroke-width="1" style="fill:#FEF2F2;stroke:#FECACA"/>
+      <circle cx="644" cy="332" r="4.5" style="fill:#DC2626"/>
+      <text class="f-t2" x="662" y="337">穿模</text>
+      <text class="f-s" x="662" y="360">未采集区域的背面几何暴露，出现穿透与空洞</text>
+
+      <!-- 结论条 -->
+      <rect x="616" y="410" width="508" height="56" rx="9" stroke-width="1" style="fill:#EFF4FF;stroke:#BFDBFE"/>
+      <text class="f-s" x="640" y="434" font-weight="600" style="fill:#1E40AF">结论</text>
+      <text class="f-s" x="690" y="434">可观看视角必须收敛到重建质量良好区间，观感才可控。</text>
+      <text class="f-xs" x="640" y="454">单纯靠后期或用户自觉无法解决，需要工具级约束。</text>
+    </svg>
+    <figcaption><b>图 1</b>　问题定位：视角越界 → 重建数据不支撑 → 三类观感问题稳定复现。</figcaption>
+  </figure>
+
+  <h3>第一版脚本的局限</h3>
+  <p>第一版相机视角约束脚本已经能给出约束，但离"可用工具"还差两步：</p>
+  <ul>
+    <li><strong>调整维度单一</strong> —— 角度、高度、半径无法独立调整，改一个维度会连带影响其他维度，参数之间互相牵制；</li>
+    <li><strong>验证手段繁琐</strong> —— 每轮调参都要走完「改参 → 封装 MP4 → 导入手机 → 上机观看」的完整链路，才能判断这次调整对不对。</li>
+  </ul>
+  <div class="quote">
+    结果是：<b>调参反馈链路过长</b>，一次调整的验证成本远高于调整本身的成本，工具只能由开发者自己低频使用。
+  </div>
+</div>
+
+<!-- ══════════════ 2 改进方案 ══════════════ -->
+<div class="sheet">
+  <h2><span class="num">02</span>改进方案</h2>
+  <p class="sec-desc">把"能约束"升级为"标准化、可量化、可自助的工具"。</p>
+
+  <p>开发标准化 3DGS 相机位姿调整工具，构建自动化调整脚本，从三个层面完成改进：<strong>约束怎么算得准</strong>、<strong>参数怎么调得动</strong>、<strong>工具怎么交得出</strong>。</p>
+
+  <figure>
+    <!-- ═══ 图 2：方案架构 ═══ -->
+    <svg viewBox="0 0 1180 620" role="img" aria-label="相机位姿调整工具改进方案架构图">
+      <text class="f-lbl" x="30" y="30">图 2 ｜ SOLUTION ARCHITECTURE</text>
+
+      <!-- 输入层 -->
+      <text class="f-lbl" x="30" y="66">INPUT ｜ 输入</text>
+      <rect x="30" y="80" width="545" height="72" rx="9" stroke-width="1" style="fill:#F9FAFB;stroke:#E5E7EB"/>
+      <text class="f-t2" x="52" y="110">3DGS 重建产物</text>
+      <text class="f-s" x="52" y="131">PLY 点云 / 高斯场，含各视角的重建质量差异</text>
+      <rect x="605" y="80" width="545" height="72" rx="9" stroke-width="1" style="fill:#F9FAFB;stroke:#E5E7EB"/>
+      <text class="f-t2" x="627" y="110">相机位姿与采集参数</text>
+      <text class="f-s" x="627" y="131">各帧相机光心、朝向、采集覆盖角度分布</text>
+
+      <!-- 汇流 -->
+      <path class="ln" d="M 302.5,152 L 302.5,180 L 877.5,180 L 877.5,152"/>
+      <line class="ar" x1="590" y1="180" x2="590" y2="206" marker-end="url(#ah)"/>
+
+      <!-- 内核层 -->
+      <text class="f-lbl" x="30" y="228">CORE ｜ 工具内核</text>
+      <g>
+        <rect x="30" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
+        <text class="f-num" x="52" y="270" style="fill:#2563EB">01</text>
+        <text class="f-t2" x="52" y="296">视角约束求解</text>
+        <text class="f-s" x="52" y="321">由相机光心与角度分布，</text>
+        <text class="f-s" x="52" y="340">解出可观看的角度裁剪范围</text>
+        <line class="ln" x1="52" y1="356" x2="273" y2="356" style="stroke:#DBEAFE"/>
+        <text class="f-xs" x="52" y="378">输出为目标区间，</text>
+        <text class="f-xs" x="52" y="396">而非单一数值或经验常数</text>
+      </g>
+      <g>
+        <rect x="315" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#F5F3FF;stroke:#DDD6FE"/>
+        <text class="f-num" x="337" y="270" style="fill:#6D28D9">02</text>
+        <text class="f-t2" x="337" y="296">维度解耦调整</text>
+        <text class="f-s" x="337" y="321">角度、高度、半径三轴拆开，</text>
+        <text class="f-s" x="337" y="340">各自独立调整、互不牵制</text>
+        <line class="ln" x1="337" y1="356" x2="558" y2="356" style="stroke:#EDE9FE"/>
+        <text class="f-xs" x="337" y="378">每个维度单独给余量，</text>
+        <text class="f-xs" x="337" y="396">改动可追溯到具体一轴</text>
+      </g>
+      <g>
+        <rect x="600" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#FFF8EB;stroke:#FDE68A"/>
+        <text class="f-num" x="622" y="270" style="fill:#B45309">03</text>
+        <text class="f-t2" x="622" y="296">方位角循环补偿</text>
+        <text class="f-s" x="622" y="321">处理跨越 180° 的角度分支</text>
+        <text class="f-s" x="622" y="340">跳变，实现连续展开</text>
+        <line class="ln" x1="622" y1="356" x2="843" y2="356" style="stroke:#FEF3C7"/>
+        <text class="f-xs" x="622" y="378">跨分支、慢速小步长、</text>
+        <text class="f-xs" x="622" y="396">绕圈等情形均不误判</text>
+      </g>
+      <g>
+        <rect x="885" y="242" width="265" height="180" rx="10" stroke-width="1.2" style="fill:#ECFDF7;stroke:#A7F3D0"/>
+        <text class="f-num" x="907" y="270" style="fill:#0D9488">04</text>
+        <text class="f-t2" x="907" y="296">结果可量化核对</text>
+        <text class="f-s" x="907" y="321">调整结果以数值区间形式输出，</text>
+        <text class="f-s" x="907" y="340">可与封装产物逐项比对</text>
+        <line class="ln" x1="907" y1="356" x2="1128" y2="356" style="stroke:#D1FAE5"/>
+        <text class="f-xs" x="907" y="378">调整对不对不再靠肉眼猜，</text>
+        <text class="f-xs" x="907" y="396">而是能对数字</text>
+      </g>
+
+      <!-- 汇流 -->
+      <path class="ln" d="M 162.5,422 L 162.5,446 L 1017.5,446 L 1017.5,422"/>
+      <line class="ar" x1="590" y1="446" x2="590" y2="472" marker-end="url(#ah)"/>
+
+      <!-- 交付层 -->
+      <text class="f-lbl" x="30" y="494">DELIVERY ｜ 交付形态</text>
+      <rect x="30" y="508" width="360" height="86" rx="10" stroke-width="1.2" style="fill:#FFFFFF;stroke:#E5E7EB"/>
+      <text class="f-t2" x="52" y="538">UWA 编码一键封装</text>
+      <text class="f-s" x="52" y="562">结果一键转换为 UWA 编码格式，</text>
+      <text class="f-s" x="52" y="580">直接封装为可上机的 MP4</text>
+
+      <rect x="410" y="508" width="360" height="86" rx="10" stroke-width="1.2" style="fill:#FFFFFF;stroke:#E5E7EB"/>
+      <text class="f-t2" x="432" y="538">相机轨迹可视化</text>
+      <text class="f-s" x="432" y="562">输出相机轨迹与视角约束范围图，</text>
+      <text class="f-s" x="432" y="580">看图即可验证，无需上机</text>
+
+      <rect x="790" y="508" width="360" height="86" rx="10" stroke-width="1.2" style="fill:#FFFFFF;stroke:#E5E7EB"/>
+      <text class="f-t2" x="812" y="538">图形界面 + 单文件 exe</text>
+      <text class="f-s" x="812" y="562">参数界面化填写、结果图片弹窗查看，</text>
+      <text class="f-s" x="812" y="580">打包为单文件 Windows exe，点击即用</text>
+
+      <defs>
+        <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption><b>图 2</b>　改进方案架构：输入 → 工具内核四项能力 → 交付形态三种出口。</figcaption>
+  </figure>
+
+  <h3>2.1　约束怎么算得准：相机裁剪脚本</h3>
+  <p>构建了相机裁剪脚本，计算<strong>相机光心</strong>与<strong>角度裁剪范围</strong>。约束的几何本质是：以目标为球心的一圈球壳扇块，由三个区间共同描述 ——</p>
+  <table>
+    <thead>
+      <tr><th style="width:130px">维度</th><th>含义</th><th style="width:230px">在产物中的落地字段</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">方位角</td><td>相机绕主体一周的水平角度范围</td><td><code>minPhi</code> / <code>maxPhi</code></td></tr>
+      <tr><td class="k">仰角</td><td>相机相对水平面的俯仰角度范围（即"高度"）</td><td><code>minTheta</code> / <code>maxTheta</code></td></tr>
+      <tr><td class="k">半径</td><td>相机到主体的距离范围</td><td><code>minRadius</code> / <code>maxRadius</code></td></tr>
+    </tbody>
+  </table>
+  <p>这三个区间经换算写入封装产物的视角约束字段，由播放端据此限制用户的可转动范围 —— 约束是<strong>写在成品里的</strong>，不依赖使用者的自觉。</p>
+
+  <h3>2.2　参数怎么调得动：维度解耦 + 方位角循环补偿</h3>
+  <p>加入<strong>方位角循环补偿</strong>，处理 180° 跨越，实现角度、高度、半径的<strong>单独调整</strong>，结果可量化核对。</p>
+  <ul>
+    <li><strong>为什么要做方位角循环补偿</strong> —— 方位角是一个周期量，采集轨迹一旦跨越 ±180° 这条分支线，原始角度值就会出现一次跳变（例如 179° 的下一帧是 −179°）。若不补偿，区间统计会把这个"跨越"误判成横跨近 360° 的覆盖范围，算出来的约束范围直接失真。</li>
+    <li><strong>怎么做</strong> —— 改为按帧序逐帧展开：每帧先算相对上一帧的增量，把增量归一到 (−180°, 180°] 后再累加，得到连续的方位角序列，再在新序列上取区间。这样慢速小步长、跨分支、甚至绕行多圈都能正确展开。</li>
+    <li><strong>为什么要解耦三维</strong> —— 角度、高度、半径在原始参数里互相耦合，改一个会牵动另一个。解耦后每轴独立给余量、独立调整，出问题时能直接定位到是哪一轴给多了或给少了。</li>
+    <li><strong>为什么强调可量化核对</strong> —— 调整结果以区间数值输出，可直接与封装后解回的字段逐项比对，验证从"看着差不多"变成"数字对得上"。</li>
+  </ul>
+
+  <h3>2.3　工具怎么交得出：工具链配套与交付形态</h3>
+  <p>完善工具链配套：<strong>结果一键转换 UWA 编码格式</strong>并封装 MP4；可视化验证输出<strong>相机轨迹图</strong>；基于 Tkinter 实现 GUI，参数界面化填写，集成可视化结果图片查看弹窗；通过 PyInstaller 打包为单文件 Windows exe，处理好打包环境下的模块路径与隐藏依赖。最终做到<strong>图形界面与一键部署、点击即用</strong>。</p>
+
+  <figure>
+    <!-- ═══ 图 3：工具链数据流 ═══ -->
+    <svg viewBox="0 0 1180 460" role="img" aria-label="工具链数据流图">
+      <text class="f-lbl" x="30" y="30">图 3 ｜ TOOLCHAIN DATA FLOW</text>
+
+      <!-- 主链 -->
+      <g>
+        <rect x="55" y="196" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#F9FAFB;stroke:#D1D5DB"/>
+        <text class="f-t2" x="150" y="230" text-anchor="middle">重建产物 + 相机位姿</text>
+        <text class="f-xs" x="150" y="252" text-anchor="middle">PLY ／ 采集 transforms</text>
+      </g>
+      <line class="ar" x1="247" y1="240" x2="273" y2="240" marker-end="url(#ah2)"/>
+      <g>
+        <rect x="275" y="196" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
+        <text class="f-t2" x="370" y="230" text-anchor="middle">视角约束计算</text>
+        <text class="f-xs" x="370" y="252" text-anchor="middle">光心 + 角度裁剪范围</text>
+      </g>
+      <line class="ar" x1="467" y1="240" x2="493" y2="240" marker-end="url(#ah2)"/>
+      <g>
+        <rect x="495" y="196" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#ECFDF7;stroke:#A7F3D0"/>
+        <text class="f-t2" x="590" y="226" text-anchor="middle">三轴区间输出</text>
+        <text class="f-xs" x="590" y="248" text-anchor="middle">角度 ／ 高度 ／ 半径</text>
+        <text class="f-xs" x="590" y="266" text-anchor="middle" font-weight="600" style="fill:#0D9488">数值可核对</text>
+      </g>
+      <line class="ar" x1="687" y1="240" x2="713" y2="240" marker-end="url(#ah2)"/>
+      <g>
+        <rect x="715" y="196" width="190" height="88" rx="9" stroke-width="1.2" style="fill:#EFF4FF;stroke:#BFDBFE"/>
+        <text class="f-t2" x="810" y="230" text-anchor="middle">UWA 重封装</text>
+        <text class="f-xs" x="810" y="252" text-anchor="middle">写入视角约束字段</text>
+      </g>
+      <line class="ar" x1="907" y1="240" x2="933" y2="240" marker-end="url(#ah2)"/>
+      <g>
+        <rect x="935" y="196" width="190" height="88" rx="9" stroke-width="1.4" style="fill:#1E40AF;fill-opacity:0.06;stroke:#1E40AF"/>
+        <text class="f-t2" x="1030" y="230" text-anchor="middle" style="fill:#1E40AF">MP4 成品</text>
+        <text class="f-xs" x="1030" y="252" text-anchor="middle" style="fill:#1E40AF">约束已内嵌</text>
+      </g>
+
+      <!-- 上：可视化分支 -->
+      <line class="ar" x1="590" y1="194" x2="590" y2="150" marker-end="url(#ah2)"/>
+      <rect x="410" y="70" width="360" height="78" rx="9" stroke-width="1.2" style="fill:#F5F3FF;stroke:#DDD6FE"/>
+      <text class="f-t2" x="590" y="100" text-anchor="middle" style="fill:#6D28D9">相机轨迹可视化 → 看图即验</text>
+      <text class="f-xs" x="590" y="122" text-anchor="middle" style="fill:#7C3AED">轨迹 + 视角约束范围同图呈现，验证不下机</text>
+
+      <!-- 下：校验闭环 -->
+      <line class="ar" x1="1030" y1="286" x2="1030" y2="336" marker-end="url(#ah2)"/>
+      <rect x="600" y="338" width="440" height="78" rx="9" stroke-width="1.2" style="fill:#FFF8EB;stroke:#FDE68A"/>
+      <text class="f-t2" x="820" y="368" text-anchor="middle" style="fill:#B45309">反向解封装 → 逐项字段比对</text>
+      <text class="f-xs" x="820" y="390" text-anchor="middle" style="fill:#C2831D">把成品解回参数，验证约束确实写进去了、值也没被改写</text>
+      <path class="ln-d" d="M 600,377 L 590,377 L 590,288" marker-end="url(#ah2)"/>
+
+      <defs>
+        <marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption><b>图 3</b>　工具链数据流：调整、封装、可视化验证与反向校验构成闭环。</figcaption>
+  </figure>
+
+  <div class="note">
+    <strong>技术口径备注（讲解时可选）</strong>　方位角是其严格意义上的球面角度；换算进 UWA 视角约束字段时，方位角对应 <code>Phi</code>、仰角对应 <code>Theta</code>（自 +Y 轴量起，<code>Theta = 90° − 仰角</code>）、距离对应 <code>Radius</code>。三者的映射关系是固定的，因此"三轴独立调整"在产物层面就是三个字段区间各自收放。
+  </div>
+</div>
+
+<!-- ══════════════ 3 改进效果 ══════════════ -->
+<div class="sheet">
+  <h2><span class="num">03</span>改进效果</h2>
+  <p class="sec-desc">能力、效率、门槛三个维度都有明确变化。</p>
+
+  <figure>
+    <!-- ═══ 图 4：改进前后对比 ═══ -->
+    <svg viewBox="0 0 1180 520" role="img" aria-label="改进前后验证链路对比图">
+      <text class="f-lbl" x="30" y="30">图 4 ｜ BEFORE / AFTER</text>
+
+      <!-- ── 上：改进前 ── -->
+      <rect x="30" y="46" width="1120" height="228" rx="11" stroke-width="1" style="fill:#FEF7F7;stroke:#FECACA"/>
+      <text class="f-t2" x="52" y="76" style="fill:#B91C1C">改进前 · 第一版约束脚本</text>
+
+      <g>
+        <rect x="52" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
+        <text class="f-s" x="152" y="122" text-anchor="middle" font-weight="600">单一维度调参</text>
+        <text class="f-xs" x="152" y="142" text-anchor="middle">改一维牵动其他维度</text>
+      </g>
+      <line class="ar" x1="254" y1="128" x2="277" y2="128" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="279" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
+        <text class="f-s" x="379" y="122" text-anchor="middle" font-weight="600">封装 MP4</text>
+        <text class="f-xs" x="379" y="142" text-anchor="middle">必须完成整轮封装</text>
+      </g>
+      <line class="ar" x1="481" y1="128" x2="504" y2="128" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="506" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
+        <text class="f-s" x="606" y="122" text-anchor="middle" font-weight="600">导入手机</text>
+        <text class="f-xs" x="606" y="142" text-anchor="middle">文件传输 + 上机安装</text>
+      </g>
+      <line class="ar" x1="708" y1="128" x2="731" y2="128" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="733" y="92" width="200" height="72" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#FCA5A5"/>
+        <text class="f-s" x="833" y="122" text-anchor="middle" font-weight="600">上机观看判断</text>
+        <text class="f-xs" x="833" y="142" text-anchor="middle">手动转动逐个角度确认</text>
+      </g>
+      <line class="ar" x1="935" y1="128" x2="958" y2="128" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="960" y="92" width="168" height="72" rx="8" stroke-width="1.2" style="fill:#FEE2E2;stroke:#F87171"/>
+        <text class="f-s" x="1044" y="122" text-anchor="middle" font-weight="600" style="fill:#B91C1C">不满意 → 回炉</text>
+        <text class="f-xs" x="1044" y="142" text-anchor="middle" style="fill:#B91C1C">从第一步重来</text>
+      </g>
+
+      <!-- 回流弧 -->
+      <path d="M 1044,166 C 1044,246 152,246 152,166" stroke-width="1.6" stroke-dasharray="6 4" style="fill:none;stroke:#DC2626"/>
+      <path d="M 152,166 L 146,178 L 158,178 Z" style="fill:#DC2626"/>
+      <text class="f-xs" x="598" y="244" text-anchor="middle" font-weight="600" style="fill:#B91C1C">每验证一轮，都要重走完整条链路</text>
+
+      <!-- ── 下：改进后 ── -->
+      <rect x="30" y="296" width="1120" height="212" rx="11" stroke-width="1" style="fill:#F5FCF9;stroke:#A7F3D0"/>
+      <text class="f-t2" x="52" y="326" style="fill:#047857">改进后 · 标准化调整工具</text>
+
+      <g>
+        <rect x="52" y="342" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
+        <text class="f-s" x="167" y="372" text-anchor="middle" font-weight="600">GUI 填写参数</text>
+        <text class="f-xs" x="167" y="394" text-anchor="middle">三轴独立调整，界面化录入</text>
+      </g>
+      <line class="ar" x1="284" y1="380" x2="312" y2="380" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="314" y="342" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
+        <text class="f-s" x="429" y="372" text-anchor="middle" font-weight="600">看图即验</text>
+        <text class="f-xs" x="429" y="394" text-anchor="middle">轨迹与约束范围图，弹窗直看</text>
+      </g>
+      <line class="ar" x1="546" y1="380" x2="574" y2="380" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="576" y="342" width="230" height="76" rx="8" stroke-width="1" style="fill:#FFFFFF;stroke:#6EE7B7"/>
+        <text class="f-s" x="691" y="372" text-anchor="middle" font-weight="600">一键封装 UWA</text>
+        <text class="f-xs" x="691" y="394" text-anchor="middle">编码转换与封装全自动</text>
+      </g>
+      <line class="ar" x1="808" y1="380" x2="836" y2="380" marker-end="url(#ah3)"/>
+      <g>
+        <rect x="838" y="342" width="200" height="76" rx="8" stroke-width="1.4" style="fill:#ECFDF5;stroke:#10B981"/>
+        <text class="f-s" x="938" y="372" text-anchor="middle" font-weight="600" style="fill:#047857">MP4 成品</text>
+        <text class="f-xs" x="938" y="394" text-anchor="middle" style="fill:#047857">约束已内嵌，直接可用</text>
+      </g>
+      <rect x="1056" y="342" width="78" height="76" rx="8" stroke-width="1" style="fill:#1E40AF;fill-opacity:0.06;stroke:#BFDBFE"/>
+      <text class="f-xs" x="1095" y="368" text-anchor="middle" font-weight="600" style="fill:#1E40AF">单文件</text>
+      <text class="f-xs" x="1095" y="384" text-anchor="middle" font-weight="600" style="fill:#1E40AF">exe</text>
+      <text class="f-xs" x="1095" y="403" text-anchor="middle" style="fill:#6B7280">点击即用</text>
+
+      <text class="f-xs" x="598" y="452" text-anchor="middle" font-weight="600" style="fill:#047857">调整 → 看图 → 定稿，无需上机往返</text>
+      <text class="f-xs" x="52" y="486" style="fill:#6B7280">对比要点：反馈回路从"封装—传输—上机"缩短为"看图确认"；工具不再依赖开发者本人操作。</text>
+
+      <defs>
+        <marker id="ah3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" style="fill:#9CA3AF"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption><b>图 4</b>　改进前后对比：验证回路长度是这次改进最直接的变化。</figcaption>
+  </figure>
+
+  <table>
+    <thead>
+      <tr><th style="width:118px">维度</th><th style="width:40%">改进前</th><th>改进后</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="k">视角约束</td>
+        <td>有约束脚本，但调整维度单一、参数相互牵制</td>
+        <td><span class="pill ok">已建立</span> 三轴解耦的视角约束能力，可单独调整、可量化核对</td>
+      </tr>
+      <tr>
+        <td class="k">观看效果</td>
+        <td>视角可转到任意角度，越界即出现模糊 / 伪影 / 穿模</td>
+        <td><span class="pill ok">已达成</span> 实现"只在重建良好角度展示"的观看效果</td>
+      </tr>
+      <tr>
+        <td class="k">验证方式</td>
+        <td><span class="pill bad">链路长</span> 每轮需封装 MP4 并导入手机观看</td>
+        <td><span class="pill ok">看图即验</span> 轨迹与约束范围同图输出，验证不下机</td>
+      </tr>
+      <tr>
+        <td class="k">使用门槛</td>
+        <td><span class="pill bad">仅开发者</span> 需命令行操作与链路知识</td>
+        <td><span class="pill ok">可自助</span> 图形界面填写参数、单文件 exe 点击即用</td>
+      </tr>
+      <tr>
+        <td class="k">链路打通</td>
+        <td>调整与编码封装脱节，需人工衔接</td>
+        <td><span class="pill ok">已打通</span> 一键转换 UWA 编码格式并封装，配套反向校验</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="quote">
+    一句话概括：<b>验证周期从"重新封装往返"缩短为"看图即验"</b>，工具从开发者自用变为非开发同学可自助使用的标准件。
+  </div>
+</div>
+
+<!-- ══════════════ 4 推广情况 ══════════════ -->
+<div class="sheet">
+  <h2><span class="num">04</span>推广情况</h2>
+  <p class="sec-desc">工具已经进入实际生产链路，而不只是技术验证。</p>
+
+  <ul>
+    <li><strong>支撑 3DGS 壁纸的应用</strong> —— 视角约束能力直接作用于壁纸交付链路，保证上机后的观看观感；</li>
+    <li><strong>支撑预置壁纸的调整</strong> —— 预置视角与约束范围可独立调整，改稿无需重走整条重建链路。</li>
+  </ul>
+
+  <div class="note">
+    <strong>下一步可延伸的方向</strong>（可选讲）　① 约束区间与重建质量指标自动关联，减少人工给余量；② 批量批次的约束参数模板化，同一类采集直接套用。
+  </div>
+</div>
+
+<!-- ══════════════ 附录 ══════════════ -->
+<details>
+  <summary>附录　术语与口径对照（答辩准备）</summary>
+  <div class="dt-body">
+    <h4>三个调整维度在产物里分别是什么</h4>
+    <table>
+      <thead><tr><th style="width:130px">口语说法</th><th style="width:200px">几何量</th><th>UWA 视角约束字段</th></tr></thead>
+      <tbody>
+        <tr><td class="k">角度（左右转）</td><td>方位角 azimuth</td><td><code>minPhi</code> / <code>maxPhi</code></td></tr>
+        <tr><td class="k">高度（上下看）</td><td>仰角 elevation</td><td><code>minTheta</code> / <code>maxTheta</code>（<code>Theta = 90° − 仰角</code>，自 +Y 轴量起）</td></tr>
+        <tr><td class="k">半径（远近）</td><td>相机到目标的距离</td><td><code>minRadius</code> / <code>maxRadius</code></td></tr>
+      </tbody>
+    </table>
+
+    <h4>为什么方位角需要"循环补偿"</h4>
+    <p>方位角是周期量，表示上取模到 (−180°, 180°]。采集轨迹一旦跨过 ±180° 这条分支线，相邻两帧的原始角度值会从 +179° 突跳为 −179°，相差约 358°，而相机实际只转过了约 2°。若直接对原始值取区间，会把一次正常的跨越统计成"覆盖了将近一整圈"，约束范围因此失真。</p>
+    <p>补偿做法是按帧序展开：每帧先计算相对上一帧的增量，把增量归一到 (−180°, 180°] 后累加，得到连续的方位角序列，再在展开后的序列上取区间。这样跨分支、慢速小步长、绕行多圈等情形都能得到正确结果。另需注意：若实际跨度已接近整圈，应判定为"整圈覆盖"而非给出一条闭合区间。</p>
+
+    <h4>约束范围给多宽才合适</h4>
+    <p>约束的目的是"允许用户在采集覆盖范围内游走"。因此取值原则是：<strong>贴着实测区间给一点点余量</strong> —— 小于实际采集范围会限制正常浏览，宽出太多则会暴露没有采集到的区域而不自知。三轴各自独立给余量，便于排查具体是哪一轴给宽了。</p>
+
+    <h4>验证为什么可以"看图即验"</h4>
+    <p>因为约束是一组明确的几何区间，把相机轨迹与约束范围画在同一张图上，二者是否匹配可以直接读出来（相机是否全部落在约束壳内、有无越界角度被漏掉）。这一步不依赖播放器，也就不必先封装、再上机。</p>
+
+    <h4>为什么还要做反向解封装校验</h4>
+    <p>封装工具链存在版本差异，部分字段可能不会被写入成品。反向把成品解回参数、与目标区间逐项比对，可以确认约束<strong>确实写进去了、且数值没有被改写</strong> —— 这是"结果可量化核对"的落地方式。</p>
+  </div>
+</details>
+
+</div>
+</body>
+</html>
