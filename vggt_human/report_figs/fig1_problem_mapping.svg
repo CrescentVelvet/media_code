@@ -2,18 +2,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" role="img" aria-label="视角越界导致观感劣化的问题定位图"><style><![CDATA[
 
   :root{
-    --ink:#111827; --ink-soft:#374151; --muted:#4B5563; --faint:#6B7280;
-    --line:#DCE1E8; --line-soft:#EEF1F5; --bg:#F6F8FA; --card:#FFFFFF;
-    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
-    --indigo:#3730A3; --indigo-2:#4F46E5; --indigo-soft:#EEF2FF;
-    --cyan:#0E7490; --cyan-2:#0891B2; --cyan-soft:#ECFEFF;
-    --amber:#B45309; --amber-2:#D97706; --amber-soft:#FFFBEB;
-    --red:#B91C1C; --red-soft:#FEF2F2;
-    --green:#047857; --green-soft:#ECFDF5;
-    --violet:#5B21B6; --violet-soft:#F5F3FF;
+    --ink:#0F172A; --ink-soft:#334155; --muted:#64748B; --faint:#94A3B8;
+    --line:#CBD5E1; --line-soft:#E8EDF4; --bg:#E8EDF4; --card:#FFFFFF;
+    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明/反馈 */
+    --indigo:#3730A3; --indigo-2:#818CF8; --indigo-soft:#EEF2FF;
+    --teal:#0F766E; --teal-2:#0D9488; --teal-soft:#F6FFFD; --teal-mid:#99F6E4;
+    --amber:#92400E; --amber-2:#F59E0B; --amber-soft:#FFFBEB; --amber-deep:#B45309;
+    --red:#B91C1C; --red-2:#DC2626; --red-soft:#FFF8F7; --red-mid:#FEE2E2;
+    --tip:#1E3A8A; --tip-line:#93C5FD; --tip-soft:#EFF6FF;
+    --cyan:#0F766E; --cyan-2:#0D9488; --cyan-soft:#F6FFFD;
+    --green:#0F766E; --green-soft:#99F6E4;
+    --violet:#4F46E5; --violet-soft:#EEF2FF;
     /* 旧变量名转发到新色板，正文样式随之同步 */
-    --blue:var(--indigo); --blue-2:var(--indigo-2); --blue-soft:var(--indigo-soft);
-    --teal:var(--cyan); --teal-soft:var(--cyan-soft);
+    --blue:var(--teal); --blue-2:var(--teal-2); --blue-soft:var(--tip-soft);
   }
   *{box-sizing:border-box}
   body{
@@ -54,10 +55,10 @@
   .cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px}
   .card{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:16px 16px 14px;
         position:relative; overflow:hidden}
-  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--blue-2)}
-  .card.t::before{background:var(--teal)}
-  .card.a::before{background:var(--amber)}
-  .card.v::before{background:var(--violet)}
+  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--teal-2)}
+  .card.t::before{background:#4F46E5}
+  .card.a::before{background:var(--amber-2)}
+  .card.v::before{background:var(--red-2)}
   .card .t1{font-size:13px; color:var(--muted); margin:0 0 6px}
   .card .t2{font-size:15px; font-weight:600; line-height:1.5; margin:0; color:var(--ink)}
 
@@ -78,16 +79,16 @@
   td.k{color:var(--muted); width:150px}
   .pill{display:inline-block; font-size:12.5px; padding:1px 9px; border-radius:20px;
         border:1px solid currentColor; line-height:1.7; white-space:nowrap}
-  .pill.bad{color:var(--red); background:var(--red-soft)}
+  .pill.bad{color:var(--red); background:var(--red-mid)}
   .pill.ok{color:var(--green); background:var(--green-soft)}
   .pill.mid{color:var(--amber); background:var(--amber-soft)}
 
   /* ── 引用条 ── */
-  .quote{margin:18px 0; padding:14px 18px; border-left:3px solid var(--blue-2);
-         background:var(--blue-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--ink-soft)}
-  .quote b{color:var(--blue)}
+  .quote{margin:18px 0; padding:14px 18px; border-left:4px solid var(--tip-line);
+         background:var(--tip-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--tip)}
+  .quote b{color:var(--tip)}
   .note{margin:18px 0 0; padding:13px 16px; border:2px dashed var(--amber-2); border-radius:8px;
-        background:var(--amber-soft); font-size:13.5px; color:var(--ink-soft)}
+        background:var(--amber-soft); font-size:13.5px; color:var(--amber)}
   .note strong{color:var(--amber)}
 
   /* ── 附录 ── */
@@ -112,33 +113,39 @@
   }
 
   /* ══════ 图内样式（按 PPT 投影加固：文字加深、描边加粗、填充提浓）══════ */
-  .f-t{font-size:14.5px; font-weight:700; fill:#111827}
-  .f-t2{font-size:13px; font-weight:700; fill:#1F2937}
-  .f-s{font-size:12px; fill:#374151}
-  .f-xs{font-size:11px; fill:#4B5563}
-  .f-lbl{font-size:11px; font-weight:700; fill:#6B7280; letter-spacing:.1em}
+  .f-t{font-size:14.5px; font-weight:700; fill:#0F172A}
+  .f-t2{font-size:13px; font-weight:700; fill:#1E293B}
+  .f-s{font-size:12px; fill:#334155}
+  .f-xs{font-size:11px; fill:#64748B}
+  .f-lbl{font-size:11px; font-weight:700; fill:#64748B; letter-spacing:.1em}
   .f-w{font-size:12.5px; fill:#FFFFFF; font-weight:600}
   .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:700}
-  .fig-bg{fill:#FFFFFF; stroke:#DCE1E8; stroke-width:1.4}
+  .fig-bg{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
   .ln{stroke:#CBD5E1; stroke-width:1.6; fill:none}
-  .ar{stroke:#64748B; stroke-width:1.8; fill:none}
-  .ln-d{stroke:#64748B; stroke-width:1.6; fill:none; stroke-dasharray:6 4}
-  .ln-r{stroke:#B91C1C; stroke-width:2; fill:none; stroke-dasharray:7 4}
+  .ar{stroke:#475569; stroke-width:2.2; fill:none}
+  .ln-d{stroke:#64748B; stroke-width:1.2; fill:none; stroke-dasharray:4 3}
 
-  /* 语义框 / 线：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
-  .k-data{fill:#EEF2FF; stroke:#4338CA; stroke-width:2}
-  .k-data-2{fill:#E0E7FF; stroke:#3730A3; stroke-width:2.2}
-  .k-out{fill:#3730A3; stroke:#312E81; stroke-width:2}
-  .k-core{fill:#ECFEFF; stroke:#0891B2; stroke-width:3}
-  .k-note{fill:#FFFBEB; stroke:#D97706; stroke-width:2; stroke-dasharray:8 5}
-  .k-issue{fill:#FEF2F2; stroke:#DC2626; stroke-width:1.9}
-  .ln-note{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:8 5}
-  .ln-data{stroke:#4338CA; stroke-width:2.2; fill:none}
-  .ln-core{stroke:#0891B2; stroke-width:2.6; fill:none}
-  .ln-core-d{stroke:#0891B2; stroke-width:2.4; fill:none; stroke-dasharray:9 6}
-  .dot-data{fill:#4338CA}
-  .dot-core{fill:#0891B2}
-  .dot-note{fill:#D97706}
+  /* 节点：普通 / 数据文件 / 核心 / 最终产出 / 附加说明 / 问题 / 改进后 / 强调提示 */
+  .k-node{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
+  .k-data{fill:#EEF2FF; stroke:#818CF8; stroke-width:1.6}
+  .k-core{fill:#F6FFFD; stroke:#0D9488; stroke-width:2.5}
+  .k-out{fill:#0D9488; stroke:#0F766E; stroke-width:2.5}
+  .k-note{fill:#FFFBEB; stroke:#F59E0B; stroke-width:2.5; stroke-dasharray:6 5}
+  .k-issue{fill:#FFF8F7; stroke:#DC2626; stroke-width:1.6}
+  .k-issue-2{fill:#FEE2E2; stroke:#DC2626; stroke-width:2.5}
+  .k-after{fill:#99F6E4; stroke:#0D9488; stroke-width:2.5}
+  .k-tip{fill:#EFF6FF; stroke:#93C5FD; stroke-width:1.6}
+
+  /* 连线：流程箭头 / 核心 / 反馈闭环 / 附加说明 / 问题 */
+  .ln-data{stroke:#475569; stroke-width:2.2; fill:none}
+  .ln-core{stroke:#0D9488; stroke-width:2.5; fill:none}
+  .ln-core-d{stroke:#0D9488; stroke-width:2.5; fill:none; stroke-dasharray:6 5}
+  .ln-fb{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
+  .ln-issue{stroke:#DC2626; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
+
+  .dot-data{fill:#4F46E5}
+  .dot-core{fill:#0D9488}
+  .dot-note{fill:#F59E0B}
   .dot-issue{fill:#DC2626}
 
 
@@ -150,20 +157,20 @@
       <text class="f-t" x="56" y="76">可观看视角 ≠ 重建质量良好视角</text>
 
       <!-- 覆盖扇区（靛蓝 = 采集到的数据充分区）：方位角 a ∈ [-140°, 140°] -->
-      <path d="M 295,320 L 195.3,438.7 A 155,155 0 1 1 394.7,438.7 Z" style="fill:#4338CA;fill-opacity:0.24"/>
+      <path d="M 295,320 L 195.3,438.7 A 155,155 0 1 1 394.7,438.7 Z" style="fill:#818CF8;fill-opacity:0.34"/>
       <!-- 越界扇区（红 = 数据不支撑）：a ∈ [140°, 220°] -->
       <path d="M 295,320 L 394.7,438.7 A 155,155 0 0 1 195.3,438.7 Z" style="fill:#DC2626;fill-opacity:0.24"/>
 
       <!-- 采集半径环 -->
-      <circle cx="295" cy="320" r="155" style="fill:none;stroke:#4338CA;stroke-width:2.2;stroke-dasharray:7 5"/>
+      <circle cx="295" cy="320" r="155" style="fill:none;stroke:#818CF8;stroke-width:4;stroke-dasharray:4 3"/>
       <!-- 扇区边界（两条都是覆盖区边界，故同色） -->
-      <line x1="295" y1="320" x2="195.3" y2="438.7" style="stroke:#3730A3;stroke-width:2.4"/>
-      <line x1="295" y1="320" x2="394.7" y2="438.7" style="stroke:#3730A3;stroke-width:2.4"/>
+      <line x1="295" y1="320" x2="195.3" y2="438.7" style="stroke:#4F46E5;stroke-width:4"/>
+      <line x1="295" y1="320" x2="394.7" y2="438.7" style="stroke:#4F46E5;stroke-width:4"/>
       <!-- 越界扇区的外弧 -->
-      <path d="M 394.7,438.7 A 155,155 0 0 1 195.3,438.7" style="fill:none;stroke:#DC2626;stroke-width:2.4;stroke-dasharray:7 5"/>
+      <path d="M 394.7,438.7 A 155,155 0 0 1 195.3,438.7" style="fill:none;stroke:#DC2626;stroke-width:4;stroke-dasharray:7 6"/>
 
       <!-- 采集相机位姿 + 视线（8 个位姿均落在覆盖区内） -->
-      <g style="stroke:#4338CA;stroke-width:1.6;stroke-opacity:0.7">
+      <g style="stroke:#4F46E5;stroke-width:1.2;stroke-opacity:0.9">
         <line x1="295" y1="320" x2="176.3" y2="419.7"/>
         <line x1="295" y1="320" x2="140.6" y2="333.5"/>
         <line x1="295" y1="320" x2="160.8" y2="242.5"/>
@@ -173,7 +180,7 @@
         <line x1="295" y1="320" x2="447.7" y2="293.0"/>
         <line x1="295" y1="320" x2="435.4" y2="385.6"/>
       </g>
-      <g style="fill:#3730A3">
+      <g style="fill:#4F46E5">
         <circle cx="176.3" cy="419.7" r="5"/><circle cx="140.6" cy="333.5" r="5"/>
         <circle cx="160.8" cy="242.5" r="5"/><circle cx="229.4" cy="179.6" r="5"/>
         <circle cx="322.0" cy="167.3" r="5"/><circle cx="404.6" cy="210.4" r="5"/>
@@ -181,22 +188,22 @@
       </g>
 
       <!-- 越界视角（红） -->
-      <line x1="295" y1="320" x2="295" y2="475" style="stroke:#DC2626;stroke-width:2.4;stroke-dasharray:8 5"/>
+      <line x1="295" y1="320" x2="295" y2="475" style="stroke:#DC2626;stroke-width:4;stroke-dasharray:4 3"/>
       <circle cx="295" cy="475" r="5.5" style="fill:#DC2626"/>
 
       <!-- 重建主体 -->
-      <circle cx="295" cy="320" r="34" style="fill:#312E81;fill-opacity:0.18;stroke:#312E81;stroke-width:2.4"/>
-      <circle cx="295" cy="320" r="5" style="fill:#312E81"/>
-      <text class="f-s" x="295" y="274" text-anchor="middle" font-weight="700" style="fill:#312E81;stroke:#FFFFFF;stroke-width:3.5;paint-order:stroke">重建主体</text>
+      <circle cx="295" cy="320" r="34" style="fill:#4F46E5;fill-opacity:0.22;stroke:#4F46E5;stroke-width:6"/>
+      <circle cx="295" cy="320" r="5" style="fill:#3730A3"/>
+      <text class="f-s" x="295" y="274" text-anchor="middle" font-weight="700" style="fill:#3730A3;stroke:#FFFFFF;stroke-width:3.5;paint-order:stroke">重建主体</text>
 
       <!-- 图例（放在圆外，避免压住弧线） -->
-      <rect x="46" y="94" width="11" height="11" rx="2" style="fill:#4338CA;fill-opacity:0.3;stroke:#4338CA;stroke-width:1.6"/>
-      <text class="f-s" x="66" y="105" font-weight="700" style="fill:#3730A3">采集覆盖区 · 数据充分，重建质量良好</text>
-      <circle cx="51.5" cy="128" r="5" style="fill:#3730A3"/>
-      <text class="f-s" x="66" y="133" font-weight="700" style="fill:#3730A3">采集相机位姿（8 个视角）</text>
-      <circle cx="51.5" cy="156" r="5" style="fill:#DC2626"/>
-      <text class="f-s" x="66" y="161" font-weight="700" style="fill:#DC2626">越界区 · 模糊 / 伪影 / 穿模</text>
-      <text class="f-xs" x="66" y="184">约束范围应落在靛蓝覆盖区内</text>
+      <rect x="46" y="99" width="22" height="3" rx="1.5" style="fill:#818CF8"/>
+      <text class="f-s" x="78" y="105" font-weight="700" style="fill:#3730A3">采集覆盖区 · 数据充分，重建质量良好</text>
+      <line x1="46" y1="130" x2="68" y2="130" style="stroke:#4F46E5;stroke-width:3"/>
+      <text class="f-s" x="78" y="134" font-weight="700" style="fill:#3730A3">采集相机位姿（8 个视角）</text>
+      <rect x="46" y="159" width="22" height="3" rx="1.5" style="fill:#DC2626"/>
+      <text class="f-s" x="78" y="165" font-weight="700" style="fill:#B91C1C">越界区 · 模糊 / 伪影 / 穿模</text>
+      <text class="f-xs" x="46" y="192">约束范围应落在靛蓝覆盖区内</text>
       <text class="f-xs" x="46" y="474">俯视示意（+Y 向上，重力对齐）</text>
 
       <!-- ── 右：三类症状 ── -->
@@ -223,7 +230,7 @@
 
       <!-- 结论条（附加说明：琥珀虚线） -->
       <rect class="k-note" x="616" y="410" width="508" height="58" rx="9"/>
-      <text class="f-s" x="640" y="435" font-weight="700" style="fill:#B45309">结论</text>
+      <text class="f-s" x="640" y="435" font-weight="700" style="fill:#92400E">结论</text>
       <text class="f-s" x="688" y="435">可观看视角必须收敛到重建质量良好区间，观感才可控。</text>
-      <text class="f-xs" x="640" y="456" style="fill:#B45309">单纯靠后期或用户自觉无法解决，需要工具级约束。</text>
+      <text class="f-xs" x="640" y="456" style="fill:#92400E">单纯靠后期或用户自觉无法解决，需要工具级约束。</text>
     </svg>

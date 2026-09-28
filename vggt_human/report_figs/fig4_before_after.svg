@@ -2,18 +2,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" role="img" aria-label="改进前后验证链路对比图"><style><![CDATA[
 
   :root{
-    --ink:#111827; --ink-soft:#374151; --muted:#4B5563; --faint:#6B7280;
-    --line:#DCE1E8; --line-soft:#EEF1F5; --bg:#F6F8FA; --card:#FFFFFF;
-    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
-    --indigo:#3730A3; --indigo-2:#4F46E5; --indigo-soft:#EEF2FF;
-    --cyan:#0E7490; --cyan-2:#0891B2; --cyan-soft:#ECFEFF;
-    --amber:#B45309; --amber-2:#D97706; --amber-soft:#FFFBEB;
-    --red:#B91C1C; --red-soft:#FEF2F2;
-    --green:#047857; --green-soft:#ECFDF5;
-    --violet:#5B21B6; --violet-soft:#F5F3FF;
+    --ink:#0F172A; --ink-soft:#334155; --muted:#64748B; --faint:#94A3B8;
+    --line:#CBD5E1; --line-soft:#E8EDF4; --bg:#E8EDF4; --card:#FFFFFF;
+    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明/反馈 */
+    --indigo:#3730A3; --indigo-2:#818CF8; --indigo-soft:#EEF2FF;
+    --teal:#0F766E; --teal-2:#0D9488; --teal-soft:#F6FFFD; --teal-mid:#99F6E4;
+    --amber:#92400E; --amber-2:#F59E0B; --amber-soft:#FFFBEB; --amber-deep:#B45309;
+    --red:#B91C1C; --red-2:#DC2626; --red-soft:#FFF8F7; --red-mid:#FEE2E2;
+    --tip:#1E3A8A; --tip-line:#93C5FD; --tip-soft:#EFF6FF;
+    --cyan:#0F766E; --cyan-2:#0D9488; --cyan-soft:#F6FFFD;
+    --green:#0F766E; --green-soft:#99F6E4;
+    --violet:#4F46E5; --violet-soft:#EEF2FF;
     /* 旧变量名转发到新色板，正文样式随之同步 */
-    --blue:var(--indigo); --blue-2:var(--indigo-2); --blue-soft:var(--indigo-soft);
-    --teal:var(--cyan); --teal-soft:var(--cyan-soft);
+    --blue:var(--teal); --blue-2:var(--teal-2); --blue-soft:var(--tip-soft);
   }
   *{box-sizing:border-box}
   body{
@@ -54,10 +55,10 @@
   .cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px}
   .card{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:16px 16px 14px;
         position:relative; overflow:hidden}
-  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--blue-2)}
-  .card.t::before{background:var(--teal)}
-  .card.a::before{background:var(--amber)}
-  .card.v::before{background:var(--violet)}
+  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--teal-2)}
+  .card.t::before{background:#4F46E5}
+  .card.a::before{background:var(--amber-2)}
+  .card.v::before{background:var(--red-2)}
   .card .t1{font-size:13px; color:var(--muted); margin:0 0 6px}
   .card .t2{font-size:15px; font-weight:600; line-height:1.5; margin:0; color:var(--ink)}
 
@@ -78,16 +79,16 @@
   td.k{color:var(--muted); width:150px}
   .pill{display:inline-block; font-size:12.5px; padding:1px 9px; border-radius:20px;
         border:1px solid currentColor; line-height:1.7; white-space:nowrap}
-  .pill.bad{color:var(--red); background:var(--red-soft)}
+  .pill.bad{color:var(--red); background:var(--red-mid)}
   .pill.ok{color:var(--green); background:var(--green-soft)}
   .pill.mid{color:var(--amber); background:var(--amber-soft)}
 
   /* ── 引用条 ── */
-  .quote{margin:18px 0; padding:14px 18px; border-left:3px solid var(--blue-2);
-         background:var(--blue-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--ink-soft)}
-  .quote b{color:var(--blue)}
+  .quote{margin:18px 0; padding:14px 18px; border-left:4px solid var(--tip-line);
+         background:var(--tip-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--tip)}
+  .quote b{color:var(--tip)}
   .note{margin:18px 0 0; padding:13px 16px; border:2px dashed var(--amber-2); border-radius:8px;
-        background:var(--amber-soft); font-size:13.5px; color:var(--ink-soft)}
+        background:var(--amber-soft); font-size:13.5px; color:var(--amber)}
   .note strong{color:var(--amber)}
 
   /* ── 附录 ── */
@@ -112,33 +113,39 @@
   }
 
   /* ══════ 图内样式（按 PPT 投影加固：文字加深、描边加粗、填充提浓）══════ */
-  .f-t{font-size:14.5px; font-weight:700; fill:#111827}
-  .f-t2{font-size:13px; font-weight:700; fill:#1F2937}
-  .f-s{font-size:12px; fill:#374151}
-  .f-xs{font-size:11px; fill:#4B5563}
-  .f-lbl{font-size:11px; font-weight:700; fill:#6B7280; letter-spacing:.1em}
+  .f-t{font-size:14.5px; font-weight:700; fill:#0F172A}
+  .f-t2{font-size:13px; font-weight:700; fill:#1E293B}
+  .f-s{font-size:12px; fill:#334155}
+  .f-xs{font-size:11px; fill:#64748B}
+  .f-lbl{font-size:11px; font-weight:700; fill:#64748B; letter-spacing:.1em}
   .f-w{font-size:12.5px; fill:#FFFFFF; font-weight:600}
   .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:700}
-  .fig-bg{fill:#FFFFFF; stroke:#DCE1E8; stroke-width:1.4}
+  .fig-bg{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
   .ln{stroke:#CBD5E1; stroke-width:1.6; fill:none}
-  .ar{stroke:#64748B; stroke-width:1.8; fill:none}
-  .ln-d{stroke:#64748B; stroke-width:1.6; fill:none; stroke-dasharray:6 4}
-  .ln-r{stroke:#B91C1C; stroke-width:2; fill:none; stroke-dasharray:7 4}
+  .ar{stroke:#475569; stroke-width:2.2; fill:none}
+  .ln-d{stroke:#64748B; stroke-width:1.2; fill:none; stroke-dasharray:4 3}
 
-  /* 语义框 / 线：靛蓝=数据 · 青=核心 · 琥珀=附加说明 */
-  .k-data{fill:#EEF2FF; stroke:#4338CA; stroke-width:2}
-  .k-data-2{fill:#E0E7FF; stroke:#3730A3; stroke-width:2.2}
-  .k-out{fill:#3730A3; stroke:#312E81; stroke-width:2}
-  .k-core{fill:#ECFEFF; stroke:#0891B2; stroke-width:3}
-  .k-note{fill:#FFFBEB; stroke:#D97706; stroke-width:2; stroke-dasharray:8 5}
-  .k-issue{fill:#FEF2F2; stroke:#DC2626; stroke-width:1.9}
-  .ln-note{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:8 5}
-  .ln-data{stroke:#4338CA; stroke-width:2.2; fill:none}
-  .ln-core{stroke:#0891B2; stroke-width:2.6; fill:none}
-  .ln-core-d{stroke:#0891B2; stroke-width:2.4; fill:none; stroke-dasharray:9 6}
-  .dot-data{fill:#4338CA}
-  .dot-core{fill:#0891B2}
-  .dot-note{fill:#D97706}
+  /* 节点：普通 / 数据文件 / 核心 / 最终产出 / 附加说明 / 问题 / 改进后 / 强调提示 */
+  .k-node{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
+  .k-data{fill:#EEF2FF; stroke:#818CF8; stroke-width:1.6}
+  .k-core{fill:#F6FFFD; stroke:#0D9488; stroke-width:2.5}
+  .k-out{fill:#0D9488; stroke:#0F766E; stroke-width:2.5}
+  .k-note{fill:#FFFBEB; stroke:#F59E0B; stroke-width:2.5; stroke-dasharray:6 5}
+  .k-issue{fill:#FFF8F7; stroke:#DC2626; stroke-width:1.6}
+  .k-issue-2{fill:#FEE2E2; stroke:#DC2626; stroke-width:2.5}
+  .k-after{fill:#99F6E4; stroke:#0D9488; stroke-width:2.5}
+  .k-tip{fill:#EFF6FF; stroke:#93C5FD; stroke-width:1.6}
+
+  /* 连线：流程箭头 / 核心 / 反馈闭环 / 附加说明 / 问题 */
+  .ln-data{stroke:#475569; stroke-width:2.2; fill:none}
+  .ln-core{stroke:#0D9488; stroke-width:2.5; fill:none}
+  .ln-core-d{stroke:#0D9488; stroke-width:2.5; fill:none; stroke-dasharray:6 5}
+  .ln-fb{stroke:#D97706; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
+  .ln-issue{stroke:#DC2626; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
+
+  .dot-data{fill:#4F46E5}
+  .dot-core{fill:#0D9488}
+  .dot-note{fill:#F59E0B}
   .dot-issue{fill:#DC2626}
 
 
@@ -146,99 +153,86 @@
       <text class="f-lbl" x="30" y="30">图 4 ｜ BEFORE / AFTER</text>
 
       <!-- ── 上：改进前（红 = 问题） ── -->
-      <rect x="30" y="46" width="1120" height="228" rx="11" style="fill:#FEF2F2;stroke:#FCA5A5;stroke-width:2"/>
+      <rect x="30" y="46" width="1120" height="228" rx="11" style="fill:#FFF8F7;stroke:#DC2626;stroke-width:2.5;stroke-dasharray:7 6"/>
       <text class="f-t2" x="52" y="78" style="fill:#B91C1C">改进前 · 第一版约束脚本</text>
 
       <g>
-        <rect x="52" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
-        <text class="f-s" x="152" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">单一维度调参</text>
+        <rect x="52" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#DC2626;stroke-width:1.6"/>
+        <text class="f-s" x="152" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">单一维度调参</text>
         <text class="f-xs" x="152" y="144" text-anchor="middle" style="fill:#B91C1C">改一维牵动其他维度</text>
       </g>
       <line class="ar" x1="254" y1="128" x2="276" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="279" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
-        <text class="f-s" x="379" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">封装 MP4</text>
+        <rect x="279" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#DC2626;stroke-width:1.6"/>
+        <text class="f-s" x="379" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">封装 MP4</text>
         <text class="f-xs" x="379" y="144" text-anchor="middle" style="fill:#B91C1C">必须完成整轮封装</text>
       </g>
       <line class="ar" x1="481" y1="128" x2="503" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="506" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
-        <text class="f-s" x="606" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">导入手机</text>
+        <rect x="506" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#DC2626;stroke-width:1.6"/>
+        <text class="f-s" x="606" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">导入手机</text>
         <text class="f-xs" x="606" y="144" text-anchor="middle" style="fill:#B91C1C">文件传输 + 上机安装</text>
       </g>
       <line class="ar" x1="708" y1="128" x2="730" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="733" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#F87171;stroke-width:1.9"/>
-        <text class="f-s" x="833" y="123" text-anchor="middle" font-weight="700" style="fill:#991B1B">上机观看判断</text>
+        <rect x="733" y="92" width="200" height="72" rx="8" style="fill:#FFFFFF;stroke:#DC2626;stroke-width:1.6"/>
+        <text class="f-s" x="833" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">上机观看判断</text>
         <text class="f-xs" x="833" y="144" text-anchor="middle" style="fill:#B91C1C">手动转动逐个角度确认</text>
       </g>
       <line class="ar" x1="935" y1="128" x2="957" y2="128" marker-end="url(#ah3)"/>
       <g>
-        <rect x="960" y="92" width="168" height="72" rx="8" style="fill:#FEE2E2;stroke:#DC2626;stroke-width:2"/>
+        <rect class="k-issue-2" x="960" y="92" width="168" height="72" rx="8"/>
         <text class="f-s" x="1044" y="123" text-anchor="middle" font-weight="700" style="fill:#B91C1C">不满意 → 回炉</text>
         <text class="f-xs" x="1044" y="144" text-anchor="middle" style="fill:#B91C1C">从第一步重来</text>
       </g>
 
       <!-- 回流弧 -->
-      <path d="M 1044,166 C 1044,246 152,246 152,166" style="fill:none;stroke:#DC2626;stroke-width:2.4;stroke-dasharray:8 5"/>
-      <path d="M 152,166 L 145,179 L 159,179 Z" style="fill:#DC2626"/>
+      <path d="M 1044,166 C 1044,246 152,246 152,166" style="fill:none;stroke:#DC2626;stroke-width:2.2;stroke-dasharray:6 5"/>
+      <path d="M 152,166 L 147.5,175 L 156.5,175 Z" style="fill:#DC2626"/>
       <text class="f-xs" x="598" y="244" text-anchor="middle" font-weight="700" style="fill:#B91C1C">每验证一轮，都要重走完整条链路</text>
 
       <!-- ── 下：改进后（青 = 工具核心，靛蓝 = 数据产物） ── -->
-      <rect x="30" y="296" width="1120" height="212" rx="11" style="fill:#ECFEFF;stroke:#67E8F9;stroke-width:2"/>
-      <text class="f-t2" x="52" y="328" style="fill:#0E7490">改进后 · 标准化调整工具</text>
+      <rect x="30" y="296" width="1120" height="212" rx="11" style="fill:#F6FFFD;stroke:#0D9488;stroke-width:2.5;stroke-dasharray:7 6"/>
+      <text class="f-t2" x="52" y="328" style="fill:#0F766E">改进后 · 标准化调整工具</text>
 
       <g>
-        <rect x="52" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0891B2;stroke-width:2"/>
-        <text class="f-s" x="167" y="367" text-anchor="middle" font-weight="700" style="fill:#0E7490">GUI 填写参数</text>
-        <text class="f-xs" x="167" y="389" text-anchor="middle" style="fill:#155E75">main.py · 三轴独立调整</text>
+        <rect x="52" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0D9488;stroke-width:2.5"/>
+        <text class="f-s" x="167" y="367" text-anchor="middle" font-weight="700" style="fill:#0F766E">GUI 填写参数</text>
+        <text class="f-xs" x="167" y="389" text-anchor="middle" style="fill:#334155">main.py · 三轴独立调整</text>
       </g>
       <line class="ar" x1="284" y1="374" x2="311" y2="374" marker-end="url(#ah3)"/>
       <g>
-        <rect x="314" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0891B2;stroke-width:2"/>
-        <text class="f-s" x="429" y="367" text-anchor="middle" font-weight="700" style="fill:#0E7490">看图即验</text>
-        <text class="f-xs" x="429" y="389" text-anchor="middle" style="fill:#155E75">visualize_cameras.py · 300 dpi</text>
+        <rect x="314" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0D9488;stroke-width:2.5"/>
+        <text class="f-s" x="429" y="367" text-anchor="middle" font-weight="700" style="fill:#0F766E">看图即验</text>
+        <text class="f-xs" x="429" y="389" text-anchor="middle" style="fill:#334155">visualize_cameras.py · 300 dpi</text>
       </g>
       <line class="ar" x1="546" y1="374" x2="573" y2="374" marker-end="url(#ah3)"/>
       <g>
-        <rect x="576" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#4338CA;stroke-width:2"/>
-        <text class="f-s" x="691" y="367" text-anchor="middle" font-weight="700" style="fill:#3730A3">一键生成 UWA 格式</text>
-        <text class="f-xs" x="691" y="389" text-anchor="middle" style="fill:#4338CA">generate_camera_files.py</text>
+        <rect x="576" y="336" width="230" height="76" rx="8" style="fill:#FFFFFF;stroke:#0D9488;stroke-width:2.5"/>
+        <text class="f-s" x="691" y="367" text-anchor="middle" font-weight="700" style="fill:#0F766E">一键生成 UWA 格式</text>
+        <text class="f-xs" x="691" y="389" text-anchor="middle" style="fill:#334155">generate_camera_files.py</text>
       </g>
       <line class="ar" x1="808" y1="374" x2="835" y2="374" marker-end="url(#ah3)"/>
       <g>
         <rect class="k-out" x="838" y="336" width="200" height="76" rx="8"/>
         <text class="f-s" x="938" y="367" text-anchor="middle" font-weight="700" style="fill:#FFFFFF">编码封装</text>
-        <text class="f-xs" x="938" y="389" text-anchor="middle" style="fill:#C7D2FE">3DGS 壁纸产出</text>
+        <text class="f-xs" x="938" y="389" text-anchor="middle" style="fill:#CCFBF1">3DGS 壁纸产出</text>
       </g>
 
       <!-- 调参闭环：看图验证 → 调整参数（核心机制：青色粗虚线 + 光晕） -->
-      <path class="ln-core-d" d="M 429,414 C 429,436 167,436 167,414" filter="url(#glow4)"/>
-      <path d="M 167,414 L 160,427 L 174,427 Z" style="fill:#0891B2"/>
-      <text class="f-xs" x="298" y="468" text-anchor="middle" font-weight="700" style="fill:#0E7490">调参闭环：看图验证 → 调整参数</text>
-      <rect class="k-data" x="1056" y="336" width="78" height="76" rx="8"/>
-      <text class="f-xs" x="1095" y="363" text-anchor="middle" font-weight="700" style="fill:#3730A3">单文件</text>
-      <text class="f-xs" x="1095" y="379" text-anchor="middle" font-weight="700" style="fill:#3730A3">exe</text>
-      <text class="f-xs" x="1095" y="398" text-anchor="middle" style="fill:#4338CA">点击即用</text>
+      <path class="ln-fb" d="M 429,414 C 429,436 167,436 167,414"/>
+      <path d="M 167,414 L 162.5,423 L 171.5,423 Z" style="fill:#D97706"/>
+      <text class="f-xs" x="298" y="468" text-anchor="middle" font-weight="700" style="fill:#B45309">调参闭环：看图验证 → 调整参数</text>
+      <rect class="k-after" x="1056" y="336" width="78" height="76" rx="8"/>
+      <text class="f-xs" x="1095" y="363" text-anchor="middle" font-weight="700" style="fill:#0F766E">单文件</text>
+      <text class="f-xs" x="1095" y="379" text-anchor="middle" font-weight="700" style="fill:#0F766E">exe</text>
+      <text class="f-xs" x="1095" y="398" text-anchor="middle" style="fill:#0F766E">点击即用</text>
 
-      <text class="f-xs" x="52" y="490" style="fill:#374151">对比要点：反馈回路从"封装—传输—上机"缩短为"看图确认"；工具不再依赖开发者本人操作。</text>
+      <text class="f-xs" x="52" y="490" style="fill:#334155">对比要点：反馈回路从"封装—传输—上机"缩短为"看图确认"；工具不再依赖开发者本人操作。</text>
 
       <defs>
-        <marker id="ah3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" style="fill:#64748B"/>
+        <marker id="ah3" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 Z" style="fill:#475569"/>
         </marker>
-        <filter id="glow4" x="-20%" y="-200%" width="140%" height="500%">
-          <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="b1"/>
-          <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="b2"/>
-          <feFlood flood-color="#67E8F9" result="c1"/>
-          <feFlood flood-color="#0891B2" result="c2"/>
-          <feComposite in="c1" in2="b1" operator="in" result="g1"/>
-          <feComposite in="c2" in2="b2" operator="in" result="g2"/>
-          <feMerge>
-            <feMergeNode in="g1"/><feMergeNode in="g1"/>
-            <feMergeNode in="g2"/><feMergeNode in="g2"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
       </defs>
     </svg>

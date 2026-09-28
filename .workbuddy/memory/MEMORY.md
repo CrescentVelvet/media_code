@@ -38,3 +38,21 @@
 - GPU：RTX 3090 24 GB，驱动 595.95，driver CUDA 13.2。
 - conda：`/home/velvet/miniconda3`，env 有 4danyone / flame_human / minimax_h3 / osediff / sam3 / sharp / vggt_human。
   哪个 env 装了什么（py/torch/transformers/diffusers）见当日 memory log，新任务优先新建独立 env，别污染现有 env。
+
+## 服务器侧「3DGS 相机位姿调整工具」工具链（2026-09-28 峰哥提供；本机无此工具）
+- 四模块 + 一个反向入口：
+  `crop_camera_by_angle.py`（核心算法：**视线交汇最小二乘求目标点** + ±180° 方位角循环补偿 +
+  角度/高度/半径多维调整）｜`visualize_cameras.py`（3D 空间分布 + 极坐标角度分布，裁剪前后自动
+  对比，输出 300 dpi PNG）｜`generate_camera_files.py`（自动生成 cameras_init.json /
+  cameras_out.json / view_params.json，含角度范围·包围盒·半径）｜`main.py`（Tkinter GUI +
+  PyInstaller 单文件 exe，**调参闭环：看图验证 → 调整参数**）｜MP4 解封装标签页（反向提取
+  3DGS 模型与相机数据）
+- 数据流：UWA 高斯模型（camera.json / camera_crop.json）+ COLMAP·实拍 → crop → 调整后相机 →
+  generate → 三件套 json → 编码 & 封装 → 3DGS 壁纸产出
+- 与本机同族能力对照：正向封装 ≈ 99b、反向解封装 ≈ 99e、轨迹与视角约束可视化 ≈ 99g、
+  视角区间收窄回灌 ≈ 99c。术语与算法口径一致，可用 99g/99c 的实现作论据。
+- 汇报页（峰哥汇报用，部门技术评审口径）：`vggt_human/camera_pose_tool_report.html`，
+  配套图面素材 `vggt_human/report_figs/`（4 组同名 svg + 3× png，3540 px 宽）。
+  **图面配色 / 线宽口径已于 2026-09-28 由峰哥定版**（靛蓝 = 数据 · 青 = 核心 · 琥珀 = 附加说明/反馈），
+  速查表见 `.workbuddy/memory/2026-09-28.md`；改这四张图前先读该 HTML 的 `:root` 与
+  「图内样式」两个 CSS 块，按既定口径取色，不要自创色值。
