@@ -766,6 +766,11 @@ VL_EL_PAD = float(os.environ.get("VL_EL_PAD", "3.0"))    # 仰角两侧余量（
 VL_R_PAD = float(os.environ.get("VL_R_PAD", "0.08"))     # 半径两侧余量（比例）
 # 方位角跨度超过这个值就按「整圈」处理（原版是 1.8π≈324°，这里收紧到 300°）
 VL_FULL_AZ = float(os.environ.get("VL_FULL_AZ", "300.0"))
+# 四联图右列专用：约束区间在「画出来/标出来」时两端各收掉这么大比例的跨度，
+# 但两端都不许越过 frame 0 的实测角 —— 否则用户一开场就落在约束外，会穿帮。
+# 只作用于右列约束层的绘制与标注，**不改取景**：取景仍用完整区间，否则四块共用的
+# 取景会把左下 ③ 等轴测一起缩掉，左列就不再是「原始采集轨迹」原图了。设 0 关闭。
+VL_TRIM = float(os.environ.get("VL_TRIM", "0.2"))
 # 可选：把视角约束叠进 combo 风格的俯视图（band/edges/angle/rings/hull），
 # 或叠进等轴测面板（shell）。留空 = 完全不叠，combo 行为与旧版一致。
 VLIMIT_MODE = os.environ.get("VLIMIT_MODE", "")
@@ -991,6 +996,8 @@ def compute_view_limit(ctx, target_mode=None):
         "delta": delta, "delta_along": along, "delta_perp": perp,
         "fit": sight_fit(ctx, target),
         "fit_alt": sight_fit(ctx, alt),
+        # frame 0 的实测角：右列做贴身裁剪（trim_view_limit）时，区间两端都不许越过它。
+        "init_az": azu[0], "init_el": el[0],
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az,
         "el_lo": el_lo, "el_hi": el_hi,
         "rho_lo": rho_lo, "rho_hi": rho_hi, "r_lo": r_lo, "r_hi": r_hi,
@@ -1002,6 +1009,44 @@ def compute_view_limit(ctx, target_mode=None):
                 "radius": (min(rr), max(rr))},
         "pos_az": azu, "pos_el": el, "pos_rho": rho,
     }
+
+
+def trim_view_limit(vl, ratio=None):
+    """贴身裁剪：az / el 区间两端各收 ratio×跨度，但两端都不越过 frame 0 的实测角。
+
+    为什么要有这一步：约束是给「用户在采集范围内游走」用的。区间照实测 min/max ± 余量给，
+    在图上会显得比实际采集松散；收一点更贴身，**但收过头会穿帮** —— 用户一开场（frame 0）
+    就落在约束外。所以两端各收 ratio×跨度，再用 min(lo + span·k, init) /
+    max(hi − span·k, init) 把 init 兜住。init 本来就在带宽内（lo = min − pad ≤ el[0] ≤ hi），
+    所以 hi_new ≥ init ≥ lo_new 恒成立，区间不会翻转。
+
+    ⚠️ 返回的是**浅拷贝**，只覆盖主角度字段，原 vl 不动。这不是洁癖 —— 四联图四块共用取景，
+    而等轴测取景（_limit_iso_extent）正是拿 az/el 的 8 个角点撑出来的。主字段直接变窄的话，
+    左下 ③ 会跟着缩比例尺，左列就不再是「原始采集轨迹」原图了。所以约定：
+        取景传原 vl，右列约束层传本函数的结果。
+
+    整圈（full_az）不裁 az：360° 收 20% 会变成 288°，语义从「整圈」滑向「扇块」，
+    而 full_az 标志还留着，图上自相矛盾。el 照裁。
+    """
+    k = VL_TRIM if ratio is None else ratio
+    if k <= 0.0:
+        return vl
+    out = dict(vl)
+    pairs = [("el_lo", "el_hi", vl["init_el"])]
+    if not vl["full_az"]:
+        pairs.insert(0, ("az_lo", "az_hi", vl["init_az"]))
+    for lo_k, hi_k, ini in pairs:
+        lo, hi = vl[lo_k], vl[hi_k]
+        span = hi - lo
+        if span <= 0.0:
+            continue
+        out[lo_k] = min(lo + span * k, ini)
+        out[hi_k] = max(hi - span * k, ini)
+    # 裁剪前区间留一份：图例要同时讲清「从哪收到哪」
+    out["trim"] = {"ratio": k, "az": (vl["az_lo"], vl["az_hi"]),
+                   "el": (vl["el_lo"], vl["el_hi"]),
+                   "init_az": vl["init_az"], "init_el": vl["init_el"]}
+    return out
 
 
 def _arc_pts(cx, cy, rad_px, a0, a1, step=2.0):
@@ -2000,6 +2045,9 @@ def style_quad(ctx):
     # 右列的球心用**最小二乘视线汇聚中心**（完全不使用 anchor_point）；左列是原始采集
     # 轨迹图，参考点仍是 anchor_point——两列本来就不是同一件事，不需要统一。
     vl = compute_view_limit(ctx, target_mode="sight")
+    # 取景一律用 vl（完整区间）；右列画出来/标出来的约束用 vt（两端各收 VL_TRIM，不越 frame 0）。
+    # 刻意分成两个对象：共用取景若跟着变窄，左下 ③ 等轴测会一起缩比例尺，左列就不是原图了。
+    vt = trim_view_limit(vl)
     sid = ctx["id"][:8]
 
     # ── 共用取景：相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围 ∪ 对照球心 ──
@@ -2067,13 +2115,13 @@ def style_quad(ctx):
     out.append(head(X_R, TOP_Y, "②", "俯视图 · 视角约束范围（球心 = 最小二乘视线汇聚中心）"))
     out.append(panel(X_R, TOP_Y))
     out.append(clipped(f"clip_{sid}_q2", X_R, TOP_Y,
-                       _lim_angle(ctx, vl, v_top_r, ink=QUAD_INK, rho_text=False,
+                       _lim_angle(ctx, vt, v_top_r, ink=QUAD_INK, rho_text=False,
                                   span_text=False)))
     out.append(draw_top_geometry(ctx, v_top_r, f"clip_{sid}_q2b", ramp=RAMP_LIGHT,
                                  cloud_screen=cloud_screen_for(v_top_r, ctx),
                                  clip_rect=(X_R, TOP_Y, PW, PH), origin=True, ring=False,
                                  anchor_pt=None))
-    out.append(_target_marks(ctx, vl, v_top_r, QUAD_INK))
+    out.append(_target_marks(ctx, vt, v_top_r, QUAD_INK))
     out.append(axis_hints(v_top_r, PAL_LIGHT["axis"], flip=True))
     out.append(scale_bar(X_R + 16, TOP_Y + PH - 44, 0.5, v_top_r, color=MUTED))
 
@@ -2091,13 +2139,13 @@ def style_quad(ctx):
     out.append(head(X_R, ROW2_Y, "④", "等轴测视图 · 视角约束范围（球心 = 最小二乘视线汇聚中心）"))
     out.append(panel(X_R, ROW2_Y))
     out.append(clipped(f"clip_{sid}_q4", X_R, ROW2_Y,
-                       _lim_shell(ctx, vl, v_iso_r, ink=QUAD_INK, fill=QUAD_FILL)))
+                       _lim_shell(ctx, vt, v_iso_r, ink=QUAD_INK, fill=QUAD_FILL)))
     geom_r, _ = draw_iso_geometry(ctx, v_iso_r, f"clip_{sid}_q4b",
                                   clip_rect=(X_R, ROW2_Y, PW, PH),
                                   cloud_screen=cloud_screen_for(v_iso_r, ctx, proj=iso_proj_pt),
                                   origin=True, anchor_pt=None)
     out.append(geom_r)
-    out.append(_target_marks(ctx, vl, v_iso_r, QUAD_INK, iso=True))
+    out.append(_target_marks(ctx, vt, v_iso_r, QUAD_INK, iso=True))
     out.append(scale_bar(X_R + 16, ROW2_Y + PH - 44, 0.5, v_iso_r, color=MUTED))
 
     # ── 图例带：左列沿用 combo 的原排法，右列给约束数值 ──
@@ -2114,8 +2162,11 @@ def style_quad(ctx):
     out.append(f'<text x="{X_L + 250}" y="{ly + 66}" font-size="12" fill="#9CA3AF">'
                f'点云 pcd.ply（背景，超出绘图区已裁）｜ 世界 +Y 向上 ｜ 等比例尺 {v_top_l.s:.1f} px/m</text>')
 
-    az_txt = ("整圈 360°" if vl["full_az"]
-              else f'{vl["az_lo"]:.1f}°→{vl["az_hi"]:.1f}°（跨度 {vl["az_hi"] - vl["az_lo"]:.1f}°）')
+    az_txt = ("整圈 360°" if vt["full_az"]
+              else f'{vt["az_lo"]:.1f}°→{vt["az_hi"]:.1f}°')
+    trim_txt = (f'，az/el 两端各收 {VL_TRIM * 100:g}%（不越 frame 0）'
+                if VL_TRIM > 0 and not vt["full_az"] else
+                (f'，el 两端各收 {VL_TRIM * 100:g}%（不越 frame 0）' if VL_TRIM > 0 else ''))
     t_, a_ = vl["target"], vl["target_alt"]
     out.append(f'<text x="{X_R}" y="{ly}" font-size="12.5" fill="{QUAD_INK}">'
                f'球心 = 最小二乘视线汇聚中心 ({t_[0]:.2f}, {t_[1]:.2f}, {t_[2]:.2f})'
@@ -2126,10 +2177,10 @@ def style_quad(ctx):
     out.append(f'<text x="{X_R}" y="{ly + 22}" font-size="12" fill="{ALT_INK}">'
                f'{esc(_fit_note(vl))}</text>')
     out.append(f'<text x="{X_R}" y="{ly + 44}" font-size="12" fill="{QUAD_INK}">'
-               f'区间 = 各帧实测 min/max ± 余量 {VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}% ｜ '
-               f'az {az_txt} ｜ el {vl["el_lo"]:.1f}°→{vl["el_hi"]:.1f}° ｜ '
-               f'ρ {vl["rho_lo"]:.2f}→{vl["rho_hi"]:.2f} m ｜ '
-               f'R {vl["r_lo"]:.2f}→{vl["r_hi"]:.2f} m</text>')
+               f'区间 = 实测 ±{VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%{trim_txt} ｜ '
+               f'az {az_txt} ｜ el {vt["el_lo"]:.1f}°→{vt["el_hi"]:.1f}° ｜ '
+               f'ρ {vt["rho_lo"]:.2f}→{vt["rho_hi"]:.2f} m ｜ '
+               f'R {vt["r_lo"]:.2f}→{vt["r_hi"]:.2f} m</text>')
     row, cx = legend_row([("ring", "球心（最小二乘）", QUAD_INK),
                           ("dot", "anchor_point（对照）", ALT_INK),
                           ("dash", "约束边界", QUAD_INK),

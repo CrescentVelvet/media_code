@@ -414,12 +414,22 @@ VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python vggt_human/99g_plot_capture_tr
 # ④ 回到 anchor_point 口径 / 关掉对照点标记
 VL_TARGET=anchor python vggt_human/99g_plot_capture_trajectory.py
 VL_MARK_ALT=0    python vggt_human/99g_plot_capture_trajectory.py
+
+# ⑤ 关掉右列的贴身裁剪（回到实测 min/max ± 余量的完整区间）
+VL_TRIM=0 python vggt_human/99g_plot_capture_trajectory.py
 ```
 
 画法：`lim_band`（扇环填充）/ `lim_edges`（四条边界虚线，对轨迹影响最小）/ `lim_angle`
 （边界 + 角度/半径数值标注）/ `lim_rings`（米制同心环 + 方位刻度）/ `lim_hull`
 （对照组：相机水平位置凸包外扩，不假设环绕）/ `lim_shell`（等轴测 3D 球壳扇块）。
 余量可用 `VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` 覆盖，整圈判定阈值用 `VL_FULL_AZ`。
+
+**四联图右列的贴身裁剪**（`VL_TRIM`，默认 `0.2`；只有 `STYLE=quad` 的右列吃这个参数）：
+右列画出来/标出来的 az/el 区间在「实测 ± 余量」之上两端各再收 20% 跨度，但两端都不越过
+frame 0 的实测角（`min(lo+span·k, init)` / `max(hi−span·k, init)`），免得用户一开场就落在
+约束外。**只作用于右列约束层、不改取景** —— 四块共用取景，取景若跟着变窄会把左下 ③
+等轴测一起缩掉，左列就不是原图了。整圈（`VL_FULL_AZ`）时 az 不裁。`VL_TRIM=0` 关闭。
+副作用：el 跨度收到 8° 以下时球壳不填色（既有阈值），④ 会退化成细网格带。
 
 图上会同时画出**球心**（实心圆 + 十字）与**对照球心**（另一个候选点，空心叉 + 虚线 + Δ 距离），
 标题行给出两者的拟合质量对照（垂距 RMS / 视线夹角 / 正规矩阵条件数）。实测 10 个样本
