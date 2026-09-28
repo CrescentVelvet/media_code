@@ -57,7 +57,10 @@ def main():
     NUM_INFERENCE_STEPS = int(os.environ.get("NUM_INFERENCE_STEPS", "4"))
     VIDEO_SHIFT = float(os.environ.get("VIDEO_SHIFT", "6.0"))   # 768p 4-step 用 6；544p 用 12
     AUDIO_SHIFT = float(os.environ.get("AUDIO_SHIFT", "3.0"))
-    LORA_ALPHA = int(os.environ.get("LORA_ALPHA", "128"))       # 768p 4-step v1.0 训练用 128；544p 用 8
+    # lora_alpha="auto"：按 checkpoint 的 __metadata__['alpha'] 推导（推荐，规则见 _turbo_lora.py）；
+    # 显式给数字才覆盖。⚠️ 各 checkpoint 的 alpha 不同（768p 4step=128、8step=8、v0.1 无记录），
+    # 历史上这里写死 128 会让 8-step 文件被放大 16× → 出噪点。
+    LORA_ALPHA = os.environ.get("LORA_ALPHA", "auto").strip() or "auto"
     LORA_SCALE = float(os.environ.get("LORA_SCALE", "1.0"))
     FUSE_LORA = os.environ.get("FUSE_LORA", "0") == "1"
 

@@ -52,9 +52,28 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 > **单 3090 选哪个**：要快用 **06d**（int8+Turbo 4 步），要稳/不折腾用 **06c**（int8 50 步原版）。
 > 06b 在 3090 需 `.wslconfig` `swap≥96GB` 才跑得动（bf16 全量 ~124GB 靠 swap 撑，慢）；06d 用 int8 把权重压到 ~62GB 直接塞 56GB RAM。
 >
-> ⚠️ **当前 06b/06c/06d 都出噪点**（彩色方块，根因待查）。已排除 int8/LoRA/配方/scheduler/VAE/权重损坏/key 映射——疑似模型↔pipeline 兼容问题，排查中，暂无可用生成路径。
+> ⚠️ **当前 06b/06c/06d 都出噪点**（彩色方块）。已确认的具体 bug 见下条；根因尚未完全收敛。
 > 06d 的 int8+LoRA 组合是把 06c 的加载与 06b 的 4 步蒸馏拼起来——LoRA 的 A/B 是新增 bf16 参数，
 > 与 int8 量化权重不冲突（独立计算支路）。若运行时 `add_adapter` 与 int8 有兼容问题，退回 06c。
+>
+> ✅ **已定位并修复：`LORA_ALPHA` 被写死为 128**（06b/06d 的 `.sh` + `.py`，旧版一律硬编码）。
+> PEFT 实际缩放是 `alpha / rank`（rank 均为 128），不是 alpha 本身。各 checkpoint 存盘元数据不同：
+> `4step_v1.0_768p` / `v1.1_768p` 记 alpha=128（scale 1.0，写死 128 恰好对），
+> 但 `4step_v1.2_768p` 与 `8step_v1.0_768p` 记 **alpha=8（scale 0.0625）——写死 128 会放大 16×**；
+> `v0.1`（544p）无该字段（按 `alpha==rank` → scale 1.0），写死 128 反而缩小 16×。
+> 现默认改为 `LORA_ALPHA=auto`（读文件元数据，缺失则回退 rank），启动日志打印实际 alpha 与 scale，务必核对那行。
+> ⚠️ 但 768p 系列元数据自相矛盾：v1.0/v1.1 记 128、v1.2/8step 记 8，而实测 `||B@A||` 两者只差 0.46–0.65×
+> 而非 16×，**至少有一条记录是错的** → 标 ⚠️ 的两支要 A/B（`auto` vs `128`）。
+>
+> ✅ **pipeline 本身已排除嫌疑**：用官方 tiny fixture（`hf-internal-testing/tiny-minimax-h3-modular-pipe`，
+> 603 张量）在本机 diffusers 0.40.0 + transformers 5.15.1 + torch 2.6.0+cu124 上端到端跑通，
+> `vae.decode` 输入 `z.shape=(1,4,37,2,2) mean=+0.0067 std=1.188 nan=0`、输出 `(1,3,124,32,32)`
+> `mean=-0.0016 std=0.594 min=-2.33 max=+2.19`，124 帧 → 37 latent 帧符合预期。
+> 即版本组合与 modular pipeline 代码路径没问题。
+> ❓ **仍未解释**：09b（纯 bf16、无 LoRA、无 int8、50 步、最小画布）同样出零结构噪声。
+> LoRA alpha 解释不了它。剩余嫌疑集中在 **offload 路径本身**（VAE `leaf_level` offload vs 官方
+> `pipe.vae.to("cuda")`；疑似 tensor 生命周期 / storage 提前复用，参照 SGLang #37965 的"彩色噪声"
+> 症状）。待做实验：纯 bf16 + VAE 常驻（不 offload）的对照。
 
 ## 与服务器版的核心差异
 
@@ -191,6 +210,8 @@ HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 
 # 6d) int8 + Turbo 常驻服务（⚠️ 3090 推荐路径——06c 的 int8 加载 + 06b 的 4 步蒸馏，又快又省）
 #   （v1.1 / 8-step 同理换文件名；配方见 README.md「Turbo LoRA (06b)」checkpoint 表）
+#   ⚠️ 别设 LORA_ALPHA，留默认 auto。尤其换 8-step / v1.2 时：那两个文件记 alpha=8，
+#      写死 128 会放大 16× → 出噪点。启动日志有一行「LoRA alpha = ... → PEFT scale = ...」，核对它。
 # 8-step
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
@@ -245,7 +266,8 @@ curl -X POST http://localhost:8000/shutdown
 
 # ⚠️ 3090 跑 768p(1344x768) 可能 VAE 解码 OOM；降 NUM_FRAMES=81，或换 544p checkpoint：
 #   LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
-#   VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
+#   VIDEO_SHIFT=12 MAX_PIXELS=522240 ... bash 06d_int8_turbo_serve.sh
+#   （LORA_ALPHA 仍留 auto：v0.1 无 alpha 字段 → 回退 rank → scale 1.0，正是它要的配方）
 
 ```
 
@@ -328,7 +350,18 @@ MAX_PIXELS=522240 \
 LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors \
   ... bash minimax_h3/06b_turbo_lora_inference.sh
 ```
-> ⚠️ 544p checkpoint 配方不同：`VIDEO_SHIFT=12 LORA_ALPHA=8`（不是 768p 的 `6/128`）。脚本默认按 768p；跑 544p 要同时设 `VIDEO_SHIFT=12 LORA_ALPHA=8`。详见 [`README.md` Turbo LoRA 参数表](README.md#turbo-lora-06b)。
+> ⚠️ 544p checkpoint 配方不同：`VIDEO_SHIFT=12`（不是 768p 的 `6`），`MAX_PIXELS=522240`。
+> `LORA_ALPHA` **不用设**，留默认 `auto` 即可：544p 的 v0.1 文件没记 alpha → 回退 `alpha==rank` → scale 1.0，正是它要的。
+> 详见 [`README.md` Turbo LoRA 参数表](README.md#turbo-lora-06b)。
+
+**2b. 出彩色噪点/马赛克（06b/06c/06d 都中）**
+先核对启动日志里 `🏋️ LoRA alpha = ... → PEFT scale = ...` 那行：
+- 若你在命令行显式设了 `LORA_ALPHA=128` 而日志提示「与文件 `__metadata__['alpha']` 不一致」→ **立刻去掉这个环境变量**。
+  `4step_v1.2_768p` / `8step_v1.0_768p` 记的是 alpha=8，写死 128 等于把 LoRA 放大 16×。
+- 若日志显示的 scale 与你预期不符，用 `LORA_ALPHA=auto` 与 `LORA_ALPHA=128` 对同一 prompt/seed 各跑一次做 A/B
+  （768p 系列元数据自相矛盾，只能实验定）。
+- 纯 bf16 路径（06b，无 LoRA/无 int8）也出噪点的话，不是 alpha 问题 —— 见 `09d_analyze_latent.py`
+  的「零结构噪声」判据（相邻帧相关 0.038 vs 正常 >0.95，正确基线 `RMS(latents_std)=1.925` 而非 std≈1）。
 
 **3. `06b` 跑得极慢（10-30 分钟一段）**
 正常——auto CPU offload 在 24GB 卡上搬运 60GB 权重，每步去噪都过一次。要快：

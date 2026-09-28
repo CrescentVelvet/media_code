@@ -16,8 +16,10 @@
   POST /shutdown
 
 Turbo 配方（启动时固定，见 06b.sh 注释的 checkpoint 表）：
-  默认 768p 4-step v1.0：NFE=4 VIDEO_SHIFT=6 LORA_ALPHA=128 MAX_PIXELS=1032192(1344x768)
-  544p 4-step v0.1   ：NFE=4 VIDEO_SHIFT=12 LORA_ALPHA=8 MAX_PIXELS=522240(960x544)
+  默认 768p 4-step v1.0：NFE=4 VIDEO_SHIFT=6 LORA_ALPHA=auto(→128) MAX_PIXELS=1032192(1344x768)
+  544p 4-step v0.1    ：NFE=4 VIDEO_SHIFT=12 LORA_ALPHA=auto(→rank) MAX_PIXELS=522240(960x544)
+  ⚠️ LORA_ALPHA 别写死：v1.2 / 8step_768p 的文件 alpha=8（scale 0.0625），写死 128 会放大 16×。
+     auto 会读 checkpoint 的 __metadata__['alpha'] 并打印实际 scale，务必核对启动日志那行。
 
 Env vars:
   MODEL_PATH, PORT, DEVICE, OUTPUT_DIR, MAX_PIXELS, FPS, NUM_FRAMES,
@@ -33,7 +35,7 @@ PORT = int(os.environ.get("PORT", "8000"))
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 OUTPUT_DIR = os.path.abspath(os.environ.get(
     "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/results_int8turbo"))
-DEFAULT_MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(512 * 768)))
+DEFAULT_MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(1344 * 768)))  # 与 06d.sh 默认一致；直跑 .py 时别悄悄变小画布
 DEFAULT_FPS = int(os.environ.get("FPS", "24"))
 DEFAULT_NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))
 # Turbo 蒸馏参数（默认 768p 4-step v1.0 配方；与 06b 同源）
@@ -41,7 +43,10 @@ LORA_PATH = os.environ.get("LORA_PATH", "")
 DEFAULT_NUM_INFERENCE_STEPS = int(os.environ.get("NUM_INFERENCE_STEPS", "4"))
 VIDEO_SHIFT = float(os.environ.get("VIDEO_SHIFT", "6.0"))   # 768p 4-step 用 6；544p 用 12
 AUDIO_SHIFT = float(os.environ.get("AUDIO_SHIFT", "3.0"))
-LORA_ALPHA = int(os.environ.get("LORA_ALPHA", "128"))       # 768p 4-step v1.0 训练用 128；544p 用 8
+# lora_alpha="auto"：按 checkpoint 的 __metadata__['alpha'] 推导（推荐，规则见 _turbo_lora.py）；
+# 显式给数字才覆盖。⚠️ 各 checkpoint 的 alpha 不同（768p 4step=128、8step=8、v0.1 无记录），
+# 历史上这里写死 128 会让 8-step 文件被放大 16× → 出噪点。
+LORA_ALPHA = os.environ.get("LORA_ALPHA", "auto").strip() or "auto"
 LORA_SCALE = float(os.environ.get("LORA_SCALE", "1.0"))
 FUSE_LORA = os.environ.get("FUSE_LORA", "0") == "1"
 
