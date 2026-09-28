@@ -17,21 +17,25 @@
 
 用法:
     python vggt_human/99g_plot_capture_trajectory.py
-    STYLE=all python ...   # 一次出全部风格（<ID>__<style>.html），便于挑图
-    STYLE=combo python ...   # 只出一种（<ID>.html）
+        # 默认 STYLE=quad：四联对照图 2×2（左列＝原始采集轨迹俯视/等轴测，
+        # 右列＝同取景下的视角约束：俯视角度标注 + 等轴测 3D 球壳）
+    STYLE=combo python ...   # 只要原始双联图（无约束层）
+    STYLE=all python ...     # 一次出全部风格（<ID>__<style>.html），便于挑图
     SRC_ROOT=... DST_ROOT=... python ...
         # 本机测试数据集在 D:/dataset/测试数据sample（脚本默认值是服务器路径）：
-        # STYLE=vlimit SRC_ROOT=D:/dataset/测试数据sample python vggt_human/99g_plot_capture_trajectory.py
+        # SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=C:/code/output/xxx python vggt_human/99g_plot_capture_trajectory.py
 
     # 视角约束范围（view limit）：先看六种画法的总览再定稿
     STYLE=vlimit SRC_ROOT=... python ...
     # 定稿后只出一种、单独出大图 + 独立 .svg
     STYLE=lim_edges SRC_ROOT=... python ...
+    # 把某一种约束叠进 combo 的俯视图（shell 叠进等轴测面板）
+    VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python ...
 
     # 可选：只画其中几个 ID
     IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
 
-路径与默认风格写在下方 main() 里。
+路径与默认风格写在下方 main() 里。每张图旁会落一份同名独立 .svg（矢量原图，可拖进 PPT）。
 """
 from __future__ import annotations
 
@@ -51,10 +55,11 @@ PLY_MAX_POINTS = 300000
 # 视野被放大时落在视野内的点只剩百分之几，点云会稀到看不见。
 PLY_DRAW_POINTS = 30000
 
-STYLES = ("combo", "minimal", "darkspace", "fov", "iso",
+STYLES = ("quad", "combo", "minimal", "darkspace", "fov", "iso",
           "vlimit", "lim_band", "lim_edges", "lim_angle", "lim_rings", "lim_hull", "lim_shell")
 
 STYLE_LABELS = {
+    "quad": "四联对照图 2×2（左列原始采集轨迹 / 右列视角约束，共用取景）",
     "combo": "俯视 + 等轴测双联图（上下排列，俯视轨迹按帧序时间渐变）",
     "minimal": "浅色极简 · 轨迹 + 视线 + 均值半径环",
     "darkspace": "深色网格 · 按时间渐变的轨迹",
@@ -321,26 +326,38 @@ def scale_bar(x, y, meters, view, color="#4B5563", fs=12, label=None):
     ])
 
 
-def axis_hints(view, color, fs=12):
+def axis_hints(view, color, fs=12, flip=False):
     """在绘图区外侧标出世界 X / Z 的正方向（俯视图约定：X 右、Z 下）。
 
     位置贴着数据框外侧而不是框内：数据框本身只有数据那么宽，框内左下角常常正好被
     轨迹压住；框外紧邻位置是白边，放轴指示既清楚又不遮数据。
+
+    flip=True：改成画在数据框**内侧**。四联图右列的面板右边距只剩画布边距（40px），
+    框外的 +X 标签会飘到画布外 —— 这一列必须用内侧版本。
     """
     rx0, ry0, rw, rh = view.rect()
     out = []
     # 左侧：Z 向下
-    ax, ay = rx0 - 30, ry0 + rh - 200
+    ax, ay = (rx0 + 14 if flip else rx0 - 30), ry0 + rh - 200
     out.append(f'<line x1="{ax}" y1="{ay}" x2="{ax}" y2="{ay + 34}" stroke="{color}" stroke-width="1.4"/>')
     out.append(f'<path d="M{ax - 4},{ay + 28} L{ax},{ay + 34} L{ax + 4},{ay + 28}" fill="none" stroke="{color}" '
                f'stroke-width="1.4" stroke-linecap="round"/>')
     out.append(f'<text x="{ax + 9}" y="{ay + 34}" font-size="{fs}" fill="{color}">+Z</text>')
     # 右侧：X 向右
-    bx, by = rx0 + rw + 12, ry0 + rh - 26
-    out.append(f'<line x1="{bx}" y1="{by}" x2="{bx + 34}" y2="{by}" stroke="{color}" stroke-width="1.4"/>')
-    out.append(f'<path d="M{bx + 28},{by - 4} L{bx + 34},{by} L{bx + 28},{by + 4}" fill="none" stroke="{color}" '
-               f'stroke-width="1.4" stroke-linecap="round"/>')
-    out.append(f'<text x="{bx + 40}" y="{by + 4}" font-size="{fs}" fill="{color}">+X</text>')
+    if flip:
+        # 内侧版：箭头贴框右下角，标签挪到箭头上方（右边真的一格都不剩）
+        bx, by = rx0 + rw - 48, ry0 + rh - 20
+        out.append(f'<line x1="{bx}" y1="{by}" x2="{bx + 34}" y2="{by}" stroke="{color}" stroke-width="1.4"/>')
+        out.append(f'<path d="M{bx + 28},{by - 4} L{bx + 34},{by} L{bx + 28},{by + 4}" fill="none" '
+                   f'stroke="{color}" stroke-width="1.4" stroke-linecap="round"/>')
+        out.append(f'<text x="{bx + 34}" y="{by - 8}" font-size="{fs}" fill="{color}" '
+                   f'text-anchor="end">+X</text>')
+    else:
+        bx, by = rx0 + rw + 12, ry0 + rh - 26
+        out.append(f'<line x1="{bx}" y1="{by}" x2="{bx + 34}" y2="{by}" stroke="{color}" stroke-width="1.4"/>')
+        out.append(f'<path d="M{bx + 28},{by - 4} L{bx + 34},{by} L{bx + 28},{by + 4}" fill="none" '
+                   f'stroke="{color}" stroke-width="1.4" stroke-linecap="round"/>')
+        out.append(f'<text x="{bx + 40}" y="{by + 4}" font-size="{fs}" fill="{color}">+X</text>')
     return "\n".join(out)
 
 
@@ -919,53 +936,61 @@ def _lim_band(ctx, vl, view):
     ])
 
 
-def _lim_edges(ctx, vl, view):
+def _lim_edges(ctx, vl, view, ink=LIM_INK):
     tx, ty = view.p(vl["target"][0], vl["target"][2])
     r0, r1 = vl["rho_lo"] * view.s, vl["rho_hi"] * view.s
     out = [
         f'<polyline points="{_arc_pts(tx, ty, r1, vl["az_lo"], vl["az_hi"])}" fill="none" '
-        f'stroke="{LIM_INK}" stroke-width="1.3" stroke-dasharray="7 5" opacity="0.62"/>',
+        f'stroke="{ink}" stroke-width="1.3" stroke-dasharray="7 5" opacity="0.62"/>',
         f'<polyline points="{_arc_pts(tx, ty, r0, vl["az_lo"], vl["az_hi"])}" fill="none" '
-        f'stroke="{LIM_INK}" stroke-width="1.2" stroke-dasharray="5 5" opacity="0.45"/>',
+        f'stroke="{ink}" stroke-width="1.2" stroke-dasharray="5 5" opacity="0.45"/>',
     ]
     for a in (vl["az_lo"], vl["az_hi"]):
         ar = math.radians(a)
         out.append(f'<line x1="{tx:.1f}" y1="{ty:.1f}" x2="{tx + r1 * math.sin(ar):.1f}" '
-                   f'y2="{ty + r1 * math.cos(ar):.1f}" stroke="{LIM_INK}" stroke-width="1.2" '
+                   f'y2="{ty + r1 * math.cos(ar):.1f}" stroke="{ink}" stroke-width="1.2" '
                    f'stroke-dasharray="6 5" opacity="0.5"/>')
     return "\n".join(out)
 
 
-def _lim_angle(ctx, vl, view):
+def _lim_angle(ctx, vl, view, ink=LIM_INK, rho_text=True):
     """边界虚线 + 在边与外弧旁标注区间数值（信息最全的一种）。
 
     数值一律加底色描边（_limit_txt）：这些字注定要压在轨迹或锚点旁边，
     不描边就变成一团糊字。
+
+    rho_text=False 时省掉 ρ 的数值文字（标尺线保留）。四联图右列用它：
+    那个位置的底图标签（anchor_point / frame 0 / 世界原点）已经很密，
+    再叠一行 ρ 数值就糊了，而面板下方的数值行本来就写着 ρ 区间。
     """
-    out = [_lim_edges(ctx, vl, view)]
+    out = [_lim_edges(ctx, vl, view, ink)]
     tx, ty = view.p(vl["target"][0], vl["target"][2])
     r0, r1 = vl["rho_lo"] * view.s, vl["rho_hi"] * view.s
 
-    for a in (vl["az_lo"], vl["az_hi"]):   # 两个方位边界值贴在弧端点外侧
-        ar = math.radians(a)
-        ex, ey = tx + (r1 + 16) * math.sin(ar), ty + (r1 + 16) * math.cos(ar)
-        an = "middle" if abs(math.cos(ar)) > 0.5 else ("start" if math.sin(ar) > 0 else "end")
-        out.append(_limit_txt(ex, ey + 4, f"{a:.1f}°", 12.5, LIM_INK, an))
+    if not vl["full_az"]:
+        for a in (vl["az_lo"], vl["az_hi"]):   # 两个方位边界值贴在弧端点外侧
+            ar = math.radians(a)
+            ex, ey = tx + (r1 + 16) * math.sin(ar), ty + (r1 + 16) * math.cos(ar)
+            an = "middle" if abs(math.cos(ar)) > 0.5 else ("start" if math.sin(ar) > 0 else "end")
+            out.append(_limit_txt(ex, ey + 4, f"{a:.1f}°", 12.5, ink, an))
+    # 整圈时 az_lo/az_hi 是解缠后的原始值（可以是 447.3° 这种），标出来只会误导：
+    # 起终点重合、区间无意义，改成一个「整圈 360°」说明放在外弧右侧。
 
     # 半径区间：沿 az 中线画一条带端点的径向标尺，数值甩到外弧之外
     am = math.radians((vl["az_lo"] + vl["az_hi"]) / 2.0)
     sx, sy = tx + r0 * math.sin(am), ty + r0 * math.cos(am)
     ex, ey = tx + r1 * math.sin(am), ty + r1 * math.cos(am)
-    out.append(f'<line x1="{sx:.1f}" y1="{sy:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{LIM_INK}" '
+    out.append(f'<line x1="{sx:.1f}" y1="{sy:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{ink}" '
                f'stroke-width="1.6" opacity="0.7"/>')
     for px_, py_ in ((sx, sy), (ex, ey)):
-        out.append(f'<circle cx="{px_:.1f}" cy="{py_:.1f}" r="3" fill="{LIM_INK}" opacity="0.8"/>')
-    lx, ly = tx + (r1 + 26) * math.sin(am), ty + (r1 + 26) * math.cos(am)
-    out.append(_limit_txt(lx, ly + 4, f"ρ {vl['rho_lo']:.2f} – {vl['rho_hi']:.2f} m", 12.5, LIM_INK))
+        out.append(f'<circle cx="{px_:.1f}" cy="{py_:.1f}" r="3" fill="{ink}" opacity="0.8"/>')
+    if rho_text:
+        lx, ly = tx + (r1 + 26) * math.sin(am), ty + (r1 + 26) * math.cos(am)
+        out.append(_limit_txt(lx, ly + 4, f"ρ {vl['rho_lo']:.2f} – {vl['rho_hi']:.2f} m", 12.5, ink))
 
     # 张角：标在外弧中点之外
     mx, my = tx + (r1 + 16) * math.sin(am), ty + (r1 + 16) * math.cos(am) - 18
-    out.append(_limit_txt(mx, my, f"张角 {vl['az_hi'] - vl['az_lo']:.1f}°", 12.5, LIM_INK, "middle"))
+    out.append(_limit_txt(mx, my, f"张角 {vl['az_hi'] - vl['az_lo']:.1f}°", 12.5, ink, "middle"))
     return "\n".join(out)
 
 
@@ -1020,7 +1045,7 @@ def _lim_hull(ctx, vl, view):
     ])
 
 
-def _lim_shell(ctx, vl, view):
+def _lim_shell(ctx, vl, view, ink=LIM_INK, fill=LIM_FILL):
     """等轴测里的 3D 球壳扇块：内外两层球面片网格 + 4 条径向棱 + 淡填充。
 
     填充不能用「四条边界围一个闭合多边形」——az 跨度大（这里能到 270°）时，等轴测
@@ -1047,25 +1072,28 @@ def _lim_shell(ctx, vl, view):
         for k in range(az_n - 1):
             quad = [world(vl["r_hi"], azs[k], vl["el_lo"]), world(vl["r_hi"], azs[k + 1], vl["el_lo"]),
                     world(vl["r_hi"], azs[k + 1], vl["el_hi"]), world(vl["r_hi"], azs[k], vl["el_hi"])]
-            out.append('<polygon points="%s" fill="%s" opacity="0.07"/>'
-                       % (" ".join("%.1f,%.1f" % view.p(*q) for q in quad), LIM_FILL))
+            # 同色细描边：相邻片共享边，抗锯齿各画一半会留一道更浅的缝，
+            # 叠 24 片就成了一把「扇骨」。描边把缝填掉，整块看起来才是连续曲面。
+            out.append('<polygon points="%s" fill="%s" fill-opacity="0.07" stroke="%s" '
+                       'stroke-width="0.8" stroke-opacity="0.07"/>'
+                       % (" ".join("%.1f,%.1f" % view.p(*q) for q in quad), fill, fill))
 
     for r in (vl["r_hi"], vl["r_lo"]):   # 内外两层网格
         op = 0.34 if r == vl["r_hi"] else 0.2
         for e in els:
             pts = " ".join("%.1f,%.1f" % view.p(*world(r, a, e)) for a in azs)
-            out.append(f'<polyline points="{pts}" fill="none" stroke="{LIM_INK}" '
+            out.append(f'<polyline points="{pts}" fill="none" stroke="{ink}" '
                        f'stroke-width="0.7" opacity="{op}"/>')
         for a in azs:
             pts = " ".join("%.1f,%.1f" % view.p(*world(r, a, e)) for e in els)
-            out.append(f'<polyline points="{pts}" fill="none" stroke="{LIM_INK}" '
+            out.append(f'<polyline points="{pts}" fill="none" stroke="{ink}" '
                        f'stroke-width="0.7" opacity="{op}"/>')
 
     for a in (vl["az_lo"], vl["az_hi"]):        # 4 条径向棱
         for e in (vl["el_lo"], vl["el_hi"]):
             p1, p2 = view.p(*world(vl["r_lo"], a, e)), view.p(*world(vl["r_hi"], a, e))
             out.append(f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" '
-                       f'stroke="{LIM_INK}" stroke-width="1.3" opacity="0.55"/>')
+                       f'stroke="{ink}" stroke-width="1.3" opacity="0.55"/>')
     return "\n".join(out)
 
 
@@ -1092,18 +1120,22 @@ def _limit_iso_extent(ctx, vl):
     return min(u0, min(us)), max(u1, max(us)), min(v0, min(vs)), max(v1, max(vs)), floor
 
 
-def _fit_view(u0, u1, v0, v1, panel, pad=0.07):
+def _fit_view(u0, u1, v0, v1, panel_xywh, pad=0.07):
     """按面板长宽比扩张较短的一维，让内容填满预留框。
 
-    不这么做的话 View 是「等比例尺 + 居中」，数据总是窄于 780×372 的长宽比，
+    不这么做的话 View 是「等比例尺 + 居中」，数据总是窄于面板的长宽比，
     于是 view.rect() 只覆盖中间一小条 —— 沿外弧甩出去的数值标注会被裁到框外
     （这正是第一版 angle 图里「张角 269.5°」被切掉的原因）。
 
+    ⚠️ panel_xywh 是 **(x, y, w, h)**，与 LIMIT_PANEL / clip_rect 同构，
+    **不是 (x0, y0, x1, y1)**。传错的话 a/b 长宽比会在两个调用点得到不同值
+    （w/h 被当成 x1/y1），同一份数据在左右两列被扩张成不同的比例尺 ——
+    四联图里表现为右列内容莫名放大两倍且偏位。
+
     注意 pad 只加在 View 内部，所以这里只要让**原始**跨度比等于面板比即可：
     View 两轴同比例加 pad，比值得以保持。
-    panel 用 (x, y, w, h)（与 LIMIT_PANEL 一致）。
     """
-    x0, y0, w, h = panel
+    x0, y0, w, h = panel_xywh
     target = w / h
     du, dv = (u1 - u0) or 1.0, (v1 - v0) or 1.0
     if du / dv < target:
@@ -1688,7 +1720,195 @@ def style_combo(ctx):
     return "\n".join(out), H
 
 
+# ── 四联对照图（2×2）的排版常量 ──
+QUAD_PW, QUAD_PH = 800.0, 450.0      # 单块绘图区预留框（与 combo 同尺寸，便于沿用原有排法）
+QUAD_M = 40.0                        # 画布边距
+QUAD_GAP = 72.0                      # 列间距
+QUAD_LEG = 112.0                     # 每行面板下方图例带高度
+QUAD_ROW_GAP = 56.0                  # 行间距（含第二行的小标题）
+QUAD_TOP_Y = 120.0
+# 四联图的约束层配色：**不用** vlimit 的紫（LIM_INK）。左列轨迹是按帧序的蓝→紫→玫红渐变，
+# 其中段正好也是紫，紫虚线约束压上去会和轨迹糊成一片、分不清哪条是轨迹。改用青绿，
+# 与渐变三色 + 灰点云 + 琥珀锚点全都分得开。
+QUAD_INK = "#0F766E"
+QUAD_FILL = "#14B8A6"
+
+
+def style_quad(ctx):
+    """四联对照图（2×2）：左列＝原始采集轨迹（俯视 / 等轴测），右列＝同一轨迹上的视角约束。
+
+    排版约定（2026-09-28）：
+    · 四块绘图区统一 800×450 预留框，2×2 严格对齐（行高 = 面板 + 图例带）。
+    · **四张图共用同一取景与比例尺**。这张图存在的意义就是对照「约束落在轨迹的哪一段」，
+      左右各自取景会让同一段轨迹在两张俯视图里大小不同，对照反而失真。代价是左列比
+      combo 单看时小一圈（约束范围通常是相机范围的 1.2–1.9 倍）。
+    · 右列只比左列多一层约束，并省掉「均值半径环」——两者都是 target 周围的参考圈，
+      同时画既冗余又互相干扰（约束外缘 ρ_hi 与均值半径常只差几个像素）。
+    · 约束层画在底图**之下**：轨迹与点云照旧压在最上层，对原有轨迹的观感影响最小。
+    """
+    INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
+    PW, PH, M, GAP, LEG = QUAD_PW, QUAD_PH, QUAD_M, QUAD_GAP, QUAD_LEG
+    X_L = M
+    X_R = X_L + PW + GAP
+    W = X_R + PW + M
+    TOP_Y = QUAD_TOP_Y
+    ROW2_Y = TOP_Y + PH + LEG + QUAD_ROW_GAP
+    H = ROW2_Y + PH + LEG + 28.0
+
+    vl = compute_view_limit(ctx)
+    sid = ctx["id"][:8]
+
+    # ── 共用取景：相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围 ──
+    x_lo, x_hi = ctx["range"]["x"]
+    z_lo, z_hi = ctx["range"]["z"]
+    if ctx["anchor"]:
+        ax_, az_, r_ = ctx["anchor"][0], ctx["anchor"][2], ctx["dist_mean"]
+        x_lo, x_hi = min(x_lo, ax_ - r_), max(x_hi, ax_ + r_)
+        z_lo, z_hi = min(z_lo, az_ - r_), max(z_hi, az_ + r_)
+    tx_, tz_, rp_ = vl["target"][0], vl["target"][2], vl["rho_hi"]
+    top_box = (min(x_lo, tx_ - rp_), max(x_hi, tx_ + rp_),
+               min(z_lo, tz_ - rp_), max(z_hi, tz_ + rp_))
+    u0, u1, v0, v1, floor = _limit_iso_extent(ctx, vl)
+    iso_box = (u0, u1, v0, v1)
+
+    def vw(box, x, y):
+        """同一数据范围 → 指定像素框的等效 View（两列得到严格相同的比例尺）。
+
+        面板必须按 (x, y, w, h) 传 —— 见 _fit_view 的 ⚠️。
+        """
+        return _fit_view(box[0], box[1], box[2], box[3], (x, y, PW, PH))
+
+    v_top_l, v_top_r = vw(top_box, X_L, TOP_Y), vw(top_box, X_R, TOP_Y)
+    v_iso_l, v_iso_r = vw(iso_box, X_L, ROW2_Y), vw(iso_box, X_R, ROW2_Y)
+
+    def panel(x, y):
+        return (f'<rect x="{x}" y="{y}" width="{PW}" height="{PH}" rx="10" '
+                f'fill="#FAFAF9" stroke="{LINE}"/>')
+
+    def clipped(cid, x, y, body):
+        return (f'<clipPath id="{cid}"><rect x="{x}" y="{y}" width="{PW}" height="{PH}" '
+                f'rx="10"/></clipPath>\n<g clip-path="url(#{cid})">{body}</g>')
+
+    def head(x, y, num, txt):
+        return (f'<text x="{x}" y="{y - 12:.0f}" font-size="13" font-weight="500" fill="{INK}">'
+                f'{num} {esc(txt)}</text>')
+
+    out = [svg_open(W, 100, "#FFFFFF")]
+    out.append(f'<text x="{M}" y="42" font-size="21" font-weight="500" fill="{INK}">'
+               f'{esc(ctx["id"])} · 采集轨迹 × 视角约束对照图（2×2）</text>')
+    out.append(caption(ctx, M, 66, MUTED))
+    out.append(f'<text x="{M}" y="88" font-size="12" fill="#9CA3AF">'
+               f'左列＝原始采集轨迹 ｜ 右列＝视角约束范围（{esc(LIMIT_LABELS["angle"])} / '
+               f'{esc(LIMIT_LABELS["shell"])}）｜ 四张图共用同一取景与比例尺 '
+               f'{v_top_l.s:.1f} px/m，可逐点对照 ｜ 约束层画在轨迹下层 ｜ '
+               f'约束用青绿以区分轨迹的蓝→紫→玫红渐变</text>')
+
+    # ── ① 左上：俯视轨迹（与原 combo 完全一致）──
+    out.append(head(X_L, TOP_Y, "①", "俯视图 · 采集轨迹（世界系 XZ · 轨迹按帧序时间渐变）"))
+    out.append(panel(X_L, TOP_Y))
+    out.append(draw_top_geometry(ctx, v_top_l, f"clip_{sid}_q1", ramp=RAMP_LIGHT,
+                                 cloud_screen=cloud_screen_for(v_top_l, ctx),
+                                 clip_rect=(X_L, TOP_Y, PW, PH), origin=True))
+    out.append(axis_hints(v_top_l, PAL_LIGHT["axis"]))
+    out.append(scale_bar(X_L + 16, TOP_Y + PH - 44, 0.5, v_top_l, color=MUTED))
+
+    # ── ② 右上：俯视图 + 角度标注 ──
+    out.append(head(X_R, TOP_Y, "②", "俯视图 · 视角约束范围（角度标注）"))
+    out.append(panel(X_R, TOP_Y))
+    out.append(clipped(f"clip_{sid}_q2", X_R, TOP_Y,
+                       _lim_angle(ctx, vl, v_top_r, ink=QUAD_INK, rho_text=False)))
+    out.append(draw_top_geometry(ctx, v_top_r, f"clip_{sid}_q2b", ramp=RAMP_LIGHT,
+                                 cloud_screen=cloud_screen_for(v_top_r, ctx),
+                                 clip_rect=(X_R, TOP_Y, PW, PH), origin=True, ring=False))
+    out.append(axis_hints(v_top_r, PAL_LIGHT["axis"], flip=True))
+    out.append(scale_bar(X_R + 16, TOP_Y + PH - 44, 0.5, v_top_r, color=MUTED))
+
+    # ── ③ 左下：等轴测轨迹（与原 combo 完全一致）──
+    out.append(head(X_L, ROW2_Y, "③", "等轴测视图 · 采集轨迹（含世界 Y 高度）"))
+    out.append(panel(X_L, ROW2_Y))
+    geom_l, _ = draw_iso_geometry(ctx, v_iso_l, f"clip_{sid}_q3",
+                                  clip_rect=(X_L, ROW2_Y, PW, PH),
+                                  cloud_screen=cloud_screen_for(v_iso_l, ctx, proj=iso_proj_pt),
+                                  origin=True)
+    out.append(geom_l)
+    out.append(scale_bar(X_L + 16, ROW2_Y + PH - 44, 0.5, v_iso_l, color=MUTED))
+
+    # ── ④ 右下：等轴测 + 3D 球壳扇块 ──
+    out.append(head(X_R, ROW2_Y, "④", "等轴测视图 · 视角约束范围（3D 球壳扇块）"))
+    out.append(panel(X_R, ROW2_Y))
+    out.append(clipped(f"clip_{sid}_q4", X_R, ROW2_Y,
+                       _lim_shell(ctx, vl, v_iso_r, ink=QUAD_INK, fill=QUAD_FILL)))
+    geom_r, _ = draw_iso_geometry(ctx, v_iso_r, f"clip_{sid}_q4b",
+                                  clip_rect=(X_R, ROW2_Y, PW, PH),
+                                  cloud_screen=cloud_screen_for(v_iso_r, ctx, proj=iso_proj_pt),
+                                  origin=True)
+    out.append(geom_r)
+    out.append(scale_bar(X_R + 16, ROW2_Y + PH - 44, 0.5, v_iso_r, color=MUTED))
+
+    # ── 图例带：左列沿用 combo 的原排法，右列给约束数值 ──
+    u = vl["uwa"]
+    ly = TOP_Y + PH + 40
+    out.append(legend_grid([
+        ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
+        ("arrow", "视线方向", PAL_LIGHT["arrow"]),
+        ("ring", f"均值半径 {ctx['dist_mean']:.2f} m", PAL_LIGHT["ring"]),
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
+    ], X_L, ly, PW / 5, 5, color_var=MUTED))
+    out.append(ramp_bar(X_L, ly + 54, 200, 12, RAMP_LIGHT, "轨迹颜色 = 帧序", MUTED, fs=12))
+    out.append(f'<text x="{X_L + 250}" y="{ly + 66}" font-size="12" fill="#9CA3AF">'
+               f'点云 pcd.ply（背景，超出绘图区已裁）｜ 世界 +Y 向上 ｜ 等比例尺 {v_top_l.s:.1f} px/m</text>')
+
+    az_txt = ("整圈 360°" if vl["full_az"]
+              else f'{vl["az_lo"]:.1f}°→{vl["az_hi"]:.1f}°（跨度 {vl["az_hi"] - vl["az_lo"]:.1f}°）')
+    out.append(f'<text x="{X_R}" y="{ly}" font-size="12.5" fill="{QUAD_INK}">'
+               f'视角约束范围（{esc(LIMIT_LABELS["angle"])}）· {esc(LIMIT_NOTES["angle"][0])} · '
+               f'区间 = 各帧实测 min/max ± 余量 {VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%'
+               f'{" ｜ ⚠️ 方位角近似整圈" if vl["full_az"] else ""}</text>')
+    out.append(f'<text x="{X_R}" y="{ly + 24}" font-size="12" fill="{QUAD_INK}">'
+               f'az {az_txt} ｜ el {vl["el_lo"]:.1f}°→{vl["el_hi"]:.1f}° ｜ '
+               f'ρ {vl["rho_lo"]:.2f}→{vl["rho_hi"]:.2f} m ｜ '
+               f'R {vl["r_lo"]:.2f}→{vl["r_hi"]:.2f} m</text>')
+    row, cx = legend_row([("ring", "target", "#B45309"),
+                          ("dash", "约束边界", QUAD_INK),
+                          ("line", "相机轨迹", PAL_LIGHT["track"])],
+                         X_R, ly + 54, fs=12, gap=22, color_var=MUTED)
+    out.append(row)
+    out.append(scale_bar(cx + 16, ly + 54, 0.5, v_top_r, color=MUTED))
+
+    ly2 = ROW2_Y + PH + 40
+    out.append(legend_grid([
+        ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
+        ("dot", "点云 pcd.ply（背景）", PAL_LIGHT["cloud"]),
+        ("ring", "anchor_point", PAL_LIGHT["anc"]),
+        ("dash", "地面投影线", "#CBD5E1"),
+        ("dot", "起点 frame 0", PAL_LIGHT["start"]),
+        ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
+    ], X_L, ly2, PW / 3, 3, color_var=MUTED))
+    out.append(f'<text x="{X_L}" y="{ly2 + 66}" font-size="12" fill="#9CA3AF">'
+               f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
+
+    out.append(f'<text x="{X_R}" y="{ly2}" font-size="12.5" fill="{QUAD_INK}">'
+               f'视角约束范围（{esc(LIMIT_LABELS["shell"])}）· {esc(LIMIT_NOTES["shell"][0])} · '
+               f'内层球面 R {vl["r_lo"]:.2f} m / 外层球面 R {vl["r_hi"]:.2f} m</text>')
+    out.append(f'<text x="{X_R}" y="{ly2 + 24}" font-size="12" fill="#9CA3AF">'
+               f'UWA view_limits 对照（实测值，未加余量）：Phi {u["phi"][0]:.1f}°→{u["phi"][1]:.1f}° ｜ '
+               f'Theta {u["theta"][0]:.1f}°→{u["theta"][1]:.1f}° ｜ '
+               f'Radius {u["radius"][0]:.3f}→{u["radius"][1]:.3f} m</text>')
+    row2, cx2 = legend_row([("ring", "target（球壳中心）", "#B45309"),
+                            ("dash", "3D 球壳扇块", QUAD_INK),
+                            ("line", "相机轨迹", PAL_LIGHT["track"])],
+                           X_R, ly2 + 54, fs=12, gap=22, color_var=MUTED)
+    out.append(row2)
+    out.append(scale_bar(cx2 + 16, ly2 + 54, 0.5, v_iso_r, color=MUTED))
+
+    out[0] = svg_open(W, H, "#FFFFFF")
+    out.append("</svg>")
+    return "\n".join(out), H
+
+
 RENDERERS = {
+    "quad": style_quad,
     "combo": style_combo,
     "minimal": style_minimal,
     "darkspace": style_darkspace,
@@ -1743,7 +1963,7 @@ PAGE_CSS = """
 body{margin:0;padding:28px 24px 40px;background:var(--bg);color:var(--ink);
      font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif}
 .wrap{max-width:980px;margin:0 auto}
-.wrap.wide{max-width:1240px}
+.wrap.wide{max-width:1820px}
 .figrow{display:flex;gap:16px;align-items:flex-start}
 .figrow .fig{flex:1 1 auto;min-width:0}
 .figrow .side{flex:0 0 296px;display:flex;flex-direction:column;gap:8px}
@@ -1768,8 +1988,9 @@ tr:last-child td{border-bottom:none}
 
 def render_html(ctx, style, svg) -> str:
     title = f'{ctx["id"]} · {STYLE_LABELS[style]}'
-    # 双联图更宽，容器跟着放宽，否则整张图被缩到 980px 宽、字变小
-    wrap_cls = "wrap wide" if style == "combo" else "wrap"
+    # combo（880 宽）与 quad（1752 宽）都比默认容器宽，容器跟着放宽，
+    # 否则整张图被缩到 980px 宽、字变小。SVG 自身是固定宽度，不会反过来被拉伸。
+    wrap_cls = "wrap wide" if style in ("combo", "quad") else "wrap"
     cards = stat_cards(ctx)
     # combo：图在左、统计卡片竖排在右侧；其它风格沿用下方卡片网格
     if style == "combo":
@@ -1899,10 +2120,11 @@ def main():
     # 输出目录（HTML 很小，放哪儿都行）
     RESULTS_ROOT = Path(os.environ.get("RESULTS_ROOT", "../../output/recon_human_results"))
     DST_ROOT = Path(os.environ.get("DST_ROOT", str(RESULTS_ROOT / SRC_ROOT.resolve().name / "html")))
-    # 风格：combo（等轴测+俯视双联）/ minimal / darkspace / fov / iso /
+    # 风格：quad（**默认**：四联对照图 2×2，左列原始采集轨迹、右列视角约束）/
+    #       combo（俯视+等轴测双联，无约束）/ minimal / darkspace / fov / iso /
     #       vlimit（视角约束六种画法总览）/ lim_band / lim_edges / lim_angle /
     #       lim_rings / lim_hull / lim_shell / all
-    STYLE = os.environ.get("STYLE", "combo")
+    STYLE = os.environ.get("STYLE", "quad")
     # 只画指定 ID（逗号分隔，留空 = 全部）
     IDS = [s for s in os.environ.get("IDS", "").split(",") if s.strip()]
     # ===========================

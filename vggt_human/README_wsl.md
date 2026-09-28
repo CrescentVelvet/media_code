@@ -338,7 +338,7 @@ bash vggt_human/08_move_output.sh
 每个风格同时落一份独立 `.svg`（矢量原图，可直接拖进 PPT / 报告排版）。
 
 ```bash
-# 默认：combo 风格（等轴测 + 俯视双联图）
+# 默认：quad 风格（四联对照图 2×2）
 # ⚠️ 脚本里的 SRC_ROOT 默认值是**服务器路径**，本机测试必须显式覆盖成本机的 D:/dataset/测试数据sample
 SRC_ROOT=D:/dataset/测试数据sample python vggt_human/99g_plot_capture_trajectory.py
 
@@ -347,18 +347,44 @@ SRC_ROOT=D:/dataset/测试数据sample \
 DST_ROOT=../../output/remy_traj_html \
 STYLE=all python vggt_human/99g_plot_capture_trajectory.py
 
-# 只画指定 ID（逗号分隔）
+# 只要原始双联图（无约束层）
 SRC_ROOT=D:/dataset/测试数据sample \
 IDS=13a8ecadfeb448e890db319ac828befe \
 STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 ```
 
-风格可选 `combo`（**默认**：上「俯视图 XZ」+ 下「等轴测含 Y 高度」上下排列，两块绘图区统一
-800×450 预留框、图例都铺在各自绘图区下方占满整幅宽度，俯视轨迹按帧序做蓝→紫→玫红渐变，
-统计卡片竖排在右栏）/ `minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）
-/ `fov`（视锥扇形 + 点云底图）/ `iso`（等轴测单图），或 `all`。纯标准库实现
-（json/math/struct），不需要 conda env，**兼容 Python ≥ 3.8**。
+风格可选 `quad`（**默认**：四联对照图 2×2 —— 左列是原始采集轨迹（俯视 XZ / 等轴测含 Y 高度），
+右列是**同一取景下**的视角约束（俯视角度标注 / 等轴测 3D 球壳），见下节）/ `combo`
+（上「俯视图 XZ」+ 下「等轴测含 Y 高度」上下排列，两块绘图区统一 800×450 预留框、图例都铺在
+各自绘图区下方占满整幅宽度，俯视轨迹按帧序做蓝→紫→玫红渐变，统计卡片竖排在右栏）/
+`minimal`（浅色极简）/ `darkspace`（深色网格 + 时间渐变）/ `fov`（视锥扇形 + 点云底图）
+/ `iso`（等轴测单图），或 `all`。纯标准库实现（json/math/struct），不需要 conda env，
+**兼容 Python ≥ 3.8**。
 输入的 `transforms.json` 字段含义与四条易踩的坐标系坑见 [NOTES.md](NOTES.md)「Remy 采集包」。
+
+### 四联对照图（quad · 默认风格）
+
+一张图里 2×2 四块面板，绘图区统一 800×450、左右两列严格对齐：
+
+| | 左列（原始采集轨迹） | 右列（视角约束） |
+|---|---|---|
+| 上行 | ① 俯视图（世界系 XZ，帧序渐变） | ② 俯视图 + 角度标注（`lim_angle`） |
+| 下行 | ③ 等轴测（含世界 Y 高度） | ④ 等轴测 + 3D 球壳扇块（`lim_shell`） |
+
+```bash
+SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=../../output/remy_quad_html \
+STYLE=quad IDS=<id1>,<id2> python vggt_human/99g_plot_capture_trajectory.py
+```
+
+三条约定（改这个风格前先看 [NOTES.md](NOTES.md)「四联对照图」）：
+
+- **四张图共用同一取景与比例尺**（= 相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围）。这是这张图
+  存在的意义：左右逐点对照「约束落在轨迹的哪一段」。代价是左列比 combo 单看时小一圈
+  （约束范围通常是相机范围的 1.2–1.9 倍）。
+- **右列的约束层用青绿**（`QUAD_INK`/`QUAD_FILL`），不用 vlimit 的紫 —— 左列轨迹是按帧序的
+  蓝→紫→玫红渐变，紫约束压上去会和轨迹糊成一片。`vlimit` 系列风格仍用原紫色。
+- **右列省掉两样**：均值半径环（与约束区间圈冗余）和 ρ 的图内数值文字（面板下方数值行已有，
+  图内那个位置被 anchor_point / frame 0 / 世界原点 三个底图标签占着）。
 
 ### 视角约束范围（view limit）叠加
 
