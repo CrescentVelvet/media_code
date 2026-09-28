@@ -7,7 +7,9 @@
     · transform_matrix 是 camera-to-world：前 3 列 = 相机三轴在世界系的单位向量，
       第 4 列 = 相机光心（米）。世界系 +Y 向上（重力对齐），相机前向 = -Z（OpenGL 约定，
       注意 camera_model:"OPENCV" 只描述畸变参数集，不决定外参轴向）。
-    · anchor_point = 环绕轴心；实测各帧到它的水平距离近似恒定 → 图里画成均值半径环。
+    · anchor_point = 采集包自带的标称锚点；实测各帧到它的水平距离近似恒定 → 图里画成均值半径环。
+      但它**不是**视线汇聚中心：实测各帧视线到它的垂距 RMS 0.205 m、夹角 9.54°，明显差于
+      最小二乘交汇点（0.081 m / 3.46°，10 个样本 10:0）。详见 NOTES.md「球心取哪个点」。
 
 只依赖标准库（json/math/struct），服务器与 WSL 都免装包。
 
@@ -31,6 +33,10 @@
     STYLE=lim_edges SRC_ROOT=... python ...
     # 把某一种约束叠进 combo 的俯视图（shell 叠进等轴测面板）
     VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python ...
+
+    # 约束球心取哪个点（默认 sight = 最小二乘视线汇聚中心，不使用 anchor_point）
+    VL_TARGET=anchor python ...    # 回到 anchor_point 口径
+    VL_MARK_ALT=0    python ...    # 不画对照球心
 
     # 可选：只画其中几个 ID
     IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
@@ -76,6 +82,18 @@ STYLE_LABELS = {
 
 # 等轴测投用的视角因子
 ISO_COS, ISO_SIN = math.cos(math.radians(30)), math.sin(math.radians(30))
+
+# 视角约束球心取哪个点：anchor（transforms.json 自带）| sight（最小二乘视线交汇点）。
+# 默认 sight：实测 10 个样本，sight 的视线垂距 RMS 0.081 m / 夹角 3.46°，明显优于
+# anchor_point 的 0.205 m / 9.54°（anchor 主要是采集包自带的标称点，并不严格是视线汇聚处）。
+# VL_TARGET=anchor 可回到旧口径。
+VL_TARGET = os.environ.get("VL_TARGET", "sight").strip().lower()
+# 约束球心的对照点标记：1 = 画出另一个候选点并标出两点距离（看准不准用），0 = 不画
+VL_MARK_ALT = os.environ.get("VL_MARK_ALT", "1").strip().lower() not in ("0", "false", "no")
+
+# 哨兵：表示「该函数的参考点沿用 ctx['anchor']」。传 None 才是「不画」。
+# 用 None 当默认值会让「不画」和「用 ctx 的」混成一个值，所以单独造一个。
+_CTX_ANCHOR = object()
 
 FONT = "system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif"
 MONO = "ui-monospace,Consolas,'Courier New',monospace"
@@ -526,15 +544,18 @@ def draw_world_origin(ctx, view, proj, panel, ink, muted, blocked=(), fs=12):
 def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
                       arrows_every=20, dots_every=10, arrow_len=0.26,
                       arrow_color=None, ring=True, cloud_screen=None, track_width=2.0,
-                      clip_rect=None, origin=False):
+                      clip_rect=None, origin=False, anchor_pt=_CTX_ANCHOR):
     """把俯视图的几何画进给定 view。
 
     ramp=None → 轨迹用 pal['track'] 单色；否则传 [(pos,(r,g,b)),...] 按帧序做时间渐变。
     clip_rect 给定时按它裁剪（用于「绘图区预留框比数据框宽」的场合：点云/半径环裁到
     预留框，把两侧的空档填满）；不给则按数据框 view.rect() 裁。
     cloud_screen = 已投影到画布的 [(x, y)]（cloud_screen_for 的返回值），None 则不画点云。
+    anchor_pt 覆盖参考点：默认沿用 ctx['anchor']，传 None 表示这一层不画参考点标记
+    （quad 右列改用最小二乘球心时，把底图的 anchor 让出来、由 _target_marks 统一画对照）。
     锚点与起终点标记不裁剪（避免贴边被切掉）。
     """
+    anc = ctx["anchor"] if anchor_pt is _CTX_ANCHOR else anchor_pt
     out = []
     x0, y0, bw, bh = clip_rect if clip_rect is not None else view.rect()
     out.append(f'<clipPath id="{clip}"><rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" '
@@ -545,8 +566,8 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
         out.append("".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1" fill="{pal["cloud"]}" opacity="0.5"/>'
                            for x, y in cloud_screen))
 
-    if ring and ctx["anchor"]:
-        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+    if ring and anc:
+        ax, ay = view.p(anc[0], anc[2])
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="{ctx["dist_mean"] * view.s:.1f}" fill="none" '
                    f'stroke="{pal["ring"]}" stroke-width="1.2" stroke-dasharray="5 5" opacity="0.55"/>')
 
@@ -582,8 +603,8 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
 
     if origin:   # 世界原点：框内画标记、框外画边缘指示；放在锚点之前，锚点压在上层
         blocked = []
-        if ctx["anchor"]:
-            ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+        if anc:
+            ax, ay = view.p(anc[0], anc[2])
             blocked.append(label_box(ax + 16, ay - 8, "anchor_point", 12, "start"))
         if ctx["pos"]:
             sx, sy = view.p(ctx["pos"][0][0], ctx["pos"][0][2])
@@ -593,8 +614,8 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
         out.append(draw_world_origin(ctx, view, lambda x, y, z: (x, z), (x0, y0, bw, bh),
                                      pal["ink"], pal["muted"], blocked=blocked))
 
-    if ctx["anchor"]:
-        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+    if anc:
+        ax, ay = view.p(anc[0], anc[2])
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="8" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
         out.append(f'<line x1="{ax - 12:.1f}" y1="{ay:.1f}" x2="{ax + 12:.1f}" y2="{ay:.1f}" stroke="{pal["anc"]}" stroke-width="1"/>')
         out.append(f'<line x1="{ax:.1f}" y1="{ay - 12:.1f}" x2="{ax:.1f}" y2="{ay + 12:.1f}" stroke="{pal["anc"]}" stroke-width="1"/>')
@@ -603,8 +624,8 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
     # 起终点标签：默认放在点右侧，若压到 anchor_point 标签就换到左/上/下。
     # 不避让时 frame 0 离锚点近的样本会印成「anchor_poinrame 0」（实测多例）。
     anc_box = None
-    if ctx["anchor"]:
-        ax, ay = view.p(ctx["anchor"][0], ctx["anchor"][2])
+    if anc:
+        ax, ay = view.p(anc[0], anc[2])
         anc_box = label_box(ax + 16, ay - 8, "anchor_point", 12, "start")
 
     def _edge_label(kind, i, color):
@@ -628,11 +649,14 @@ def draw_top_geometry(ctx, view, clip, pal=PAL_LIGHT, ramp=None, *,
 
 
 def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid=True, drop_every=5,
-                      dots_every=10, floor=None, clip_rect=None, origin=False, drop_lines=True):
+                      dots_every=10, floor=None, clip_rect=None, origin=False, drop_lines=True,
+                      anchor_pt=_CTX_ANCHOR):
     """把等轴测视图的几何（地面网格 / 点云 / 相机与垂线 / 轨迹 / 轴三叉）画进给定 view。
 
     cloud_screen = 已投影到画布的 [(x, y)]，None 则不画点云。
+    anchor_pt 覆盖参考点标记：默认沿用 ctx['anchor']，传 None 表示不画（见 draw_top_geometry）。
     """
+    anc = ctx["anchor"] if anchor_pt is _CTX_ANCHOR else anchor_pt
     out = []
     x0, y0, bw, bh = clip_rect if clip_rect is not None else view.rect()
     if floor is None:
@@ -692,14 +716,14 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid
 
     if origin:   # 世界原点：框内画标记、框外画边缘指示
         blocked = []
-        if ctx["anchor"]:
-            ax, ay = view.p(*iso_proj(*ctx["anchor"]))
+        if anc:
+            ax, ay = view.p(*iso_proj(*anc))
             blocked.append(label_box(ax + 14, ay - 10, "anchor_point", 12, "start"))
         out.append(draw_world_origin(ctx, view, iso_proj, (x0, y0, bw, bh), pal["ink"], pal["muted"],
                                      blocked=blocked))
 
-    if ctx["anchor"]:
-        ax, ay = view.p(*iso_proj(*ctx["anchor"]))
+    if anc:
+        ax, ay = view.p(*iso_proj(*anc))
         out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="7" fill="none" stroke="{pal["anc"]}" stroke-width="2"/>')
         out.append(f'<text x="{ax + 14:.1f}" y="{ay - 10:.1f}" font-size="12" fill="{pal["anc"]}">anchor_point</text>')
 
@@ -751,6 +775,9 @@ VLIMIT_MODE = os.environ.get("VLIMIT_MODE", "")
 LIM_INK = "#6D28D9"
 LIM_FILL = "#8B5CF6"
 LIM_ALT = "#0D9488"
+# 对照球心（另一个候选点）用的中性色：不参与约束层配色，只做「另一个点在哪」的参照。
+# 别用更浅的灰（#94A3B8 试过）——压在同为灰色的点云上几乎看不见，实测在 quad 里直接消失。
+ALT_INK = "#475569"
 
 # 绘图区预留框 (x, y, w, h)：六种画法共用同一块，便于并排比对。
 # 注意是 (x, y, w, h) 而**不是** (x0, y0, x1, y1) —— 与 draw_top_geometry /
@@ -798,12 +825,35 @@ def _solve3(A, b):
     return [M[i][3] / M[i][i] for i in range(3)]
 
 
-def sight_center(ctx):
-    """最小二乘求所有视线的最近公共点，仅在没有 anchor_point 时当回退。
+def _eig3_sym(M):
+    """3×3 实对称矩阵的特征值（降序）。循环 Jacobi 旋转，纯标准库。
 
-    最小化 Σ‖(I − dᵢdᵢᵀ)(m − cᵢ)‖²（dᵢ = 第 i 帧视线单位向量、cᵢ = 光心），
-    正规方程 Σ(I − dᵢdᵢᵀ)·m = Σ(I − dᵢdᵢᵀ)·cᵢ 是一个 3×3 系统，直接解即可
-    （原版把 λᵢ 也塞进未知数凑 (3n)×(3+n) 的大矩阵，等价但没必要）。
+    只用于判断正规方程良不良态，不求特征向量，所以迭代到非对角元足够小即可。
+    """
+    a = [list(row) for row in M]
+    for _ in range(60):
+        off = abs(a[0][1]) + abs(a[0][2]) + abs(a[1][2])
+        if off < 1e-15:
+            break
+        for p, q in ((0, 1), (0, 2), (1, 2)):
+            if abs(a[p][q]) < 1e-18:
+                continue
+            th = 0.5 * math.atan2(2.0 * a[p][q], a[q][q] - a[p][p])
+            c, s = math.cos(th), math.sin(th)
+            for k in range(3):
+                akp, akq = a[k][p], a[k][q]
+                a[k][p], a[k][q] = c * akp - s * akq, s * akp + c * akq
+            for k in range(3):
+                apk, aqk = a[p][k], a[q][k]
+                a[p][k], a[q][k] = c * apk - s * aqk, s * apk + c * aqk
+    return sorted((a[i][i] for i in range(3)), reverse=True)
+
+
+def _sight_normal(ctx):
+    """视线正交距离最小二乘的正规方程 (A, b)，A = Σ(I − dᵢdᵢᵀ)、b = Σ(I − dᵢdᵢᵀ)cᵢ。
+
+    A 是「视线方向的散布张量」：某个方向上的特征值越小，说明视线越少横向指向它。
+    所有视线几乎平行时，沿视线方向的特征值 → 0，A 奇异、深度不可解。
     """
     A = [[0.0] * 3 for _ in range(3)]
     b = [0.0] * 3
@@ -813,6 +863,26 @@ def sight_center(ctx):
             for j in range(3):
                 A[i][j] += P[i][j]
             b[i] += sum(P[i][j] * c[j] for j in range(3))
+    return A, b
+
+
+def sight_center(ctx):
+    """最小二乘求所有视线的最近公共点（也即「视线汇聚中心」）。
+
+    最小化 Σ‖(I − dᵢdᵢᵀ)(m − cᵢ)‖²（dᵢ = 第 i 帧视线单位向量、cᵢ = 光心）——就是到各帧
+    视线**直线**的正交距离平方和。正规方程 Σ(I − dᵢdᵢᵀ)·m = Σ(I − dᵢdᵢᵀ)·cᵢ 是 3×3 小系统。
+
+    与常见的 (3n)×(3+n) 大矩阵写法等价：把每帧的射线参数 λᵢ 也当未知数、最小化
+    ‖m − cᵢ − λᵢdᵢ‖²，对 λᵢ 取最优即得 cᵢ + (dᵢdᵢᵀ)(m − cᵢ)，代回后与上式逐位相同
+    （实测 10 个样本两种实现结果差 < 1e-9）。小系统的好处是不需要 numpy，也不会
+    因为 n 大而把 3+n 阶矩阵的条件数问题放大。
+
+    注意：正交距离对 dᵢ 的**符号不敏感**，所以相机前向取 +Z 还是 −Z 对解毫无影响；
+    真正决定对错的是 c2w / w2c 的方向（Remy 的 transform_matrix 已是 c2w，第 3 列即
+    相机 +Z 轴，前向 = 取负；若误当成 w2c 又转置一次，残差会从 0.20 m 劣化到 0.78 m
+    却不报错，只是悄悄算偏）。
+    """
+    A, b = _sight_normal(ctx)
     m = _solve3(A, b)
     if m is None:   # 视线几乎共线（矩阵奇异）→ 退回相机质心，总比崩掉好
         n = len(ctx["pos"]) or 1
@@ -820,20 +890,61 @@ def sight_center(ctx):
     return (m[0], m[1], m[2])
 
 
-def compute_view_limit(ctx):
+def sight_fit(ctx, t):
+    """候选球心 t 的拟合质量：垂距 RMS(m)、夹角均值/最大(°)、正规矩阵条件数。
+
+    resid / ang 衡量「这个点有多贴合视线束」——越小越贴合，是判断「准不准」的直接依据。
+    cond = λmax/λmin（视线散布张量）衡量「这个最小二乘解可不可信」：λmin 小 = 视线方向
+    分布太窄 = 沿某个方向的深度几乎无约束，此时残差再小也不能当准。
+    """
+    if t is None:
+        return None
+    acc = 0.0
+    angs = []
+    for c, d in zip(ctx["pos"], ctx["look"]):
+        e = [t[i] - c[i] for i in range(3)]
+        dot = sum(e[i] * d[i] for i in range(3))
+        acc += sum((e[i] - dot * d[i]) ** 2 for i in range(3))
+        L = math.sqrt(sum(v * v for v in e)) or 1e-9
+        angs.append(math.degrees(math.acos(max(-1.0, min(1.0, dot / L)))))
+    A, _ = _sight_normal(ctx)
+    ev = _eig3_sym(A)
+    return {
+        "resid": math.sqrt(acc / max(1, len(ctx["pos"]))),
+        "ang_mean": sum(angs) / len(angs),
+        "ang_max": max(angs),
+        "cond": (ev[0] / ev[2]) if ev[2] > 1e-12 else float("inf"),
+        "lam_min": ev[2],
+    }
+
+
+def compute_view_limit(ctx, target_mode=None):
     """算出视角约束区间（球壳扇块）。纯数据驱动：实测 min/max ± VL_*_PAD。
+
+    target_mode 决定球壳中心取哪个点（缺省读环境变量 VL_TARGET）：
+      "anchor" ＝ transforms.json 自带的 anchor_point
+      "sight"  ＝ 最小二乘视线汇聚中心，完全不使用 anchor_point
+    两个候选点都会算出来：选中的进 target，另一个进 target_alt 供图上对照
+    （「算得准不准」就靠 fit / fit_alt 这两组指标 + 两点距离）。
 
     返回 dict，其中：
       az/el/rho/r_*  = 本脚本绘图与判断用的量（az 自 +Z 轴起、朝 +X 为正；el 自水平面起）
       rho            = 相机位置到 target 的**水平投影**半径（俯视图里能画的就只有它）
       r              = 相机到 target 的 3D 距离（= UWA 的 Radius）
       uwa            = 换算成 Phi/Theta/Radius 的对照值（未加余量，方便与 view_limits.json 比）
+      fit/fit_alt    = 两个候选点各自的拟合质量（垂距 RMS、夹角、正规矩阵条件数）
     """
-    target = ctx["anchor"]
-    src = "anchor_point"
-    if target is None:
-        target = sight_center(ctx)
-        src = "sight_center（无 anchor_point，最小二乘回退）"
+    anchor = ctx["anchor"]
+    sc = sight_center(ctx)
+    if anchor is None:
+        target, src = sc, "sight_center（transforms.json 无 anchor_point，自动回退）"
+        alt, alt_src = None, "anchor_point"
+    elif (target_mode or VL_TARGET) == "sight":
+        target, src = sc, "sight_center（最小二乘视线汇聚中心）"
+        alt, alt_src = anchor, "anchor_point"
+    else:
+        target, src = anchor, "anchor_point"
+        alt, alt_src = sc, "sight_center（最小二乘视线汇聚中心）"
 
     az, el, rho, rr = [], [], [], []
     for p in ctx["pos"]:
@@ -863,8 +974,23 @@ def compute_view_limit(ctx):
     r_lo = max(0.0, min(rr) * (1.0 - VL_R_PAD))
     r_hi = max(rr) * (1.0 + VL_R_PAD)
 
+    # 两个候选球心的差异：分解为「沿平均视线」与「垂直视线」两个分量。
+    # 垂直分量影响方位/仰角区间，沿视分量只影响半径——图上要讲清差在哪。
+    delta = along = perp = 0.0
+    if alt is not None:
+        dv = [target[i] - alt[i] for i in range(3)]
+        delta = math.sqrt(sum(v * v for v in dv))
+        md = [sum(d[i] for d in ctx["look"]) / len(ctx["look"]) for i in range(3)]
+        mL = math.sqrt(sum(v * v for v in md)) or 1e-9
+        along = sum(dv[i] * md[i] for i in range(3)) / mL
+        perp = math.sqrt(max(0.0, delta * delta - along * along))
+
     return {
         "target": target, "target_src": src,
+        "target_alt": alt, "target_alt_src": alt_src,
+        "delta": delta, "delta_along": along, "delta_perp": perp,
+        "fit": sight_fit(ctx, target),
+        "fit_alt": sight_fit(ctx, alt),
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az,
         "el_lo": el_lo, "el_hi": el_hi,
         "rho_lo": rho_lo, "rho_hi": rho_hi, "r_lo": r_lo, "r_hi": r_hi,
@@ -953,7 +1079,7 @@ def _lim_edges(ctx, vl, view, ink=LIM_INK):
     return "\n".join(out)
 
 
-def _lim_angle(ctx, vl, view, ink=LIM_INK, rho_text=True):
+def _lim_angle(ctx, vl, view, ink=LIM_INK, rho_text=True, span_text=True):
     """边界虚线 + 在边与外弧旁标注区间数值（信息最全的一种）。
 
     数值一律加底色描边（_limit_txt）：这些字注定要压在轨迹或锚点旁边，
@@ -962,6 +1088,7 @@ def _lim_angle(ctx, vl, view, ink=LIM_INK, rho_text=True):
     rho_text=False 时省掉 ρ 的数值文字（标尺线保留）。四联图右列用它：
     那个位置的底图标签（anchor_point / frame 0 / 世界原点）已经很密，
     再叠一行 ρ 数值就糊了，而面板下方的数值行本来就写着 ρ 区间。
+    span_text=False 时省掉外弧处的「张角」——它常撞轨迹起点的 frame 0 标签。
     """
     out = [_lim_edges(ctx, vl, view, ink)]
     tx, ty = view.p(vl["target"][0], vl["target"][2])
@@ -988,9 +1115,11 @@ def _lim_angle(ctx, vl, view, ink=LIM_INK, rho_text=True):
         lx, ly = tx + (r1 + 26) * math.sin(am), ty + (r1 + 26) * math.cos(am)
         out.append(_limit_txt(lx, ly + 4, f"ρ {vl['rho_lo']:.2f} – {vl['rho_hi']:.2f} m", 12.5, ink))
 
-    # 张角：标在外弧中点之外
-    mx, my = tx + (r1 + 16) * math.sin(am), ty + (r1 + 16) * math.cos(am) - 18
-    out.append(_limit_txt(mx, my, f"张角 {vl['az_hi'] - vl['az_lo']:.1f}°", 12.5, ink, "middle"))
+    # 张角：标在外弧中点之外。span_text=False 时省掉——四联图右列里这个位置
+    # 常常正撞轨迹起点的「frame 0」标签（实测多个样本），而面板下方已有「跨度」数值。
+    if span_text:
+        mx, my = tx + (r1 + 16) * math.sin(am), ty + (r1 + 16) * math.cos(am) - 18
+        out.append(_limit_txt(mx, my, f"张角 {vl['az_hi'] - vl['az_lo']:.1f}°", 12.5, ink, "middle"))
     return "\n".join(out)
 
 
@@ -1170,10 +1299,12 @@ def _limit_head(ctx, vl, mode):
     ]
     t = vl["target"]
     tgt = f'({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f})'
+    alt_txt = ""
+    if vl["target_alt"] is not None:
+        alt_txt = (f' ｜ 与 {esc(vl["target_alt_src"].split("（")[0])} 相距 {vl["delta"]:.3f} m'
+                   f'（沿视线 {vl["delta_along"]:+.3f} / 垂直 {vl["delta_perp"]:.3f}）')
     out.append(f'<text x="40" y="92" font-size="12.5" fill="{MUTED}">'
-               f'target = {esc(vl["target_src"])} {esc(tgt)} ｜ 区间 = 各帧实测 min/max ± '
-               f'余量（方位 {VL_AZ_PAD:g}° · 仰角 {VL_EL_PAD:g}° · 半径 {VL_R_PAD * 100:g}%）'
-               f'{" ｜ ⚠️ 方位角近似整圈，按 360° 处理" if vl["full_az"] else ""}</text>')
+               f'球心 = {esc(vl["target_src"])} {esc(tgt)}{alt_txt}</text>')
     if vl["full_az"]:
         az_txt = "整圈 360°（不设限）"
     else:
@@ -1182,10 +1313,12 @@ def _limit_head(ctx, vl, mode):
     out.append(f'<text x="40" y="112" font-size="12.5" fill="{LIM_INK}">'
                f'方位角 az {az_txt} ｜ 仰角 el {vl["el_lo"]:.1f}° → '
                f'{vl["el_hi"]:.1f}° ｜ 水平半径 ρ {vl["rho_lo"]:.2f} → {vl["rho_hi"]:.2f} m ｜ '
-               f'3D 距离 R {vl["r_lo"]:.2f} → {vl["r_hi"]:.2f} m</text>')
+               f'3D 距离 R {vl["r_lo"]:.2f} → {vl["r_hi"]:.2f} m'
+               f'{" ｜ ⚠️ 方位角近似整圈" if vl["full_az"] else ""}</text>')
     u = vl["uwa"]
     out.append(f'<text x="40" y="132" font-size="12" fill="#9CA3AF">'
-               f'UWA view_limits 对照（实测值，未加余量）：Phi {u["phi"][0]:.1f}° → '
+               f'区间 = 各帧实测 min/max ± 余量（{VL_AZ_PAD:g}° / {VL_EL_PAD:g}° / '
+               f'{VL_R_PAD * 100:g}%） ｜ UWA 对照（未加余量）：Phi {u["phi"][0]:.1f}° → '
                f'{u["phi"][1]:.1f}° ｜ Theta {u["theta"][0]:.1f}° → {u["theta"][1]:.1f}° ｜ '
                f'Radius {u["radius"][0]:.3f} → {u["radius"][1]:.3f} m</text>')
     return "\n".join(out)
@@ -1198,28 +1331,126 @@ def _limit_txt(x, y, s, fs, color, anchor="start"):
             f'stroke-width="3.5" stroke-linejoin="round">{esc(s)}</text>')
 
 
+def _target_marks(ctx, vl, view, ink, *, iso=False, fs=12):
+    """画出约束球心与对照球心，并标出两点距离。
+
+    球心（实心圆 + 十字）＝本图用来定约束的那个点；对照点（空心叉）＝另一个候选点
+    （anchor_point ↔ 最小二乘视线汇聚中心）。二者之间的虚线与 Δ 值就是「换个点算差多少」，
+    不用回日志对数字。VL_MARK_ALT=0 可关掉对照点。
+    """
+    def prj(p):
+        return view.p(*iso_proj(*p)) if iso else view.p(p[0], p[2])
+
+    t = vl["target"]
+    tx, ty = prj(t)
+    out = []
+    alt = vl["target_alt"]
+    if alt is not None and VL_MARK_ALT and vl["delta"] > 1e-3:
+        ax, ay = prj(alt)
+        out.append(f'<line x1="{tx:.1f}" y1="{ty:.1f}" x2="{ax:.1f}" y2="{ay:.1f}" '
+                   f'stroke="{ALT_INK}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.9"/>')
+        out.append(f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="8" fill="#FAFAF9" stroke="{ALT_INK}" '
+                   f'stroke-width="1.6"/>')
+        for sx_, sy_ in ((-1, -1), (-1, 1)):
+            out.append(f'<line x1="{ax + 4.6 * sx_:.1f}" y1="{ay + 4.6 * sy_:.1f}" '
+                       f'x2="{ax - 4.6 * sx_:.1f}" y2="{ay - 4.6 * sy_:.1f}" stroke="{ALT_INK}" '
+                       f'stroke-width="1.3"/>')
+        out.append(_limit_txt((tx + ax) / 2.0 + 9, (ty + ay) / 2.0 - 7,
+                              f"Δ {vl['delta']:.2f} m", fs - 1, ALT_INK, "start"))
+        delta_box = label_box((tx + ax) / 2.0 + 9, (ty + ay) / 2.0 - 7,
+                              f"Δ {vl['delta']:.2f} m", fs - 1, "start")
+    else:
+        delta_box = None
+    # 两个标签各自挑一个不撞对方的位置。固定「主点右上 / 对照点左下」在两点只差几十像素时
+    # 必然叠在一起（实测 Δ=0.52 m、比例尺 110 px/m → 相距才 56 px，两个标签印成一团）。
+    t_name = vl["target_src"].split("（")[0]
+    alt_name = vl["target_alt_src"].split("（")[0]
+    draw_alt = alt is not None and VL_MARK_ALT and vl["delta"] > 1e-3
+
+    def _pick(cx, cy, text, color, avoid):
+        """在四个方位里挑一个不压住 avoid 的位置（都撞就退回右上）。"""
+        cands = [(cx + 14, cy - 12, "start"), (cx - 14, cy - 12, "end"),
+                 (cx + 14, cy + 22, "start"), (cx - 14, cy + 22, "end")]
+        for c in cands:
+            b = label_box(c[0], c[1], text, fs, c[2])
+            if not any(boxes_hit(b, o) for o in avoid):
+                out.append(_limit_txt(c[0], c[1], text, fs, color, c[2]))
+                return b
+        c = cands[0]
+        out.append(_limit_txt(c[0], c[1], text, fs, color, c[2]))
+        return label_box(c[0], c[1], text, fs, c[2])
+
+    # Δ 文字也进避让表：两点靠近时它正好夹在两个标记中间，标签不去避它就会被压住
+    # （实测 lim_angle 印成「Δ sight_center」）。
+    base_avoid = [b for b in (delta_box,) if b is not None]
+    alt_box = (_pick(ax, ay, alt_name, ALT_INK, base_avoid + [(tx - 10, ty - 10, 20, 20)])
+               if draw_alt else None)
+    avoid = base_avoid + ([(ax - 10, ay - 10, 20, 20), alt_box] if draw_alt else [])
+    _pick(tx, ty, t_name, ink, [b for b in avoid if b is not None])
+
+    out.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="8" fill="#FAFAF9" stroke="{ink}" '
+               f'stroke-width="2.2"/>')
+    out.append(f'<line x1="{tx - 12:.1f}" y1="{ty:.1f}" x2="{tx + 12:.1f}" y2="{ty:.1f}" '
+               f'stroke="{ink}" stroke-width="1"/>')
+    out.append(f'<line x1="{tx:.1f}" y1="{ty - 12:.1f}" x2="{tx:.1f}" y2="{ty + 12:.1f}" '
+               f'stroke="{ink}" stroke-width="1"/>')
+    out.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="2.4" fill="{ink}"/>')
+    return "\n".join(out)
+
+
+def _fit_note(vl):
+    """一行拟合质量对照：「球心 vs 对照点」的垂距 RMS 与夹角均值。
+
+    这是判断「算得准不准」的直接依据：垂距/夹角越小，说明该点越贴合实际视线束。
+    """
+    f, fa = vl["fit"], vl["fit_alt"]
+    if f is None:
+        return ""
+    s = (f'拟合：垂距 RMS {f["resid"]:.3f} m ｜ 视线夹角均 {f["ang_mean"]:.2f}°'
+         f'（max {f["ang_max"]:.1f}°）')
+    if fa is not None:
+        s += (f' ｜ 对照 {vl["target_alt_src"].split("（")[0]}：'
+              f'{fa["resid"]:.3f} m / {fa["ang_mean"]:.2f}°')
+    if f["cond"] < 1e6:
+        s += f' ｜ 正规矩阵条件数 {f["cond"]:.1f}'
+    else:
+        s += f' ｜ ⚠️ 正规矩阵近奇异（cond {f["cond"]:.1e}），解不可信'
+    return s
+
+
 def _limit_foot(ctx, vl, mode, view, y_note):
     """说明行 + 图例 + 比例尺 + 右下角脚注。"""
     MUTED = "#4B5563"
     rate, note = LIMIT_NOTES[mode]
     out = [f'<text x="40" y="{y_note}" font-size="13" fill="{LIM_INK}">'
            f'{esc(rate)} · {esc(note)}</text>']
-    items = [("ring", "target（球壳中心）", "#B45309"),
+    tname = vl["target_src"].split("（")[0]
+    aname = (vl["target_alt_src"].split("（")[0]
+             if (vl["target_alt"] is not None and VL_MARK_ALT) else None)
+    items = [("ring", f"球心 = {tname}", LIM_INK),
              ("dash", "视角约束边界", LIM_INK),
              ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"])]
+    if aname:   # 对照球心（另一个候选点）
+        items.insert(1, ("dot", f"{aname}（对照）", ALT_INK))
     if mode == "band":
         items.insert(1, ("wedge", "允许范围（弧带）", LIM_FILL))
     elif mode == "hull":
-        items = [("ring", "target（球壳中心）", "#B45309"),
+        items = [("ring", f"球心 = {tname}", LIM_INK),
                  ("dash", f"采集包络（凸包外扩 {VL_R_PAD * 100:g}%）", LIM_ALT),
                  ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"])]
     elif mode == "shell":
-        items = [("ring", "target（球壳中心）", "#B45309"),
+        items = [("ring", f"球心 = {tname}", LIM_INK),
                  ("dash", "3D 球壳扇块（内外两层球面片）", LIM_INK),
                  ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"])]
-    row, cx = legend_row(items, 40, y_note + 34, fs=12.5, gap=24, color_var=MUTED)
+        if aname:
+            items.insert(1, ("dot", f"{aname}（对照）", ALT_INK))
+    row, cx = legend_row(items, 40, y_note + 44, fs=12.5, gap=24, color_var=MUTED)
     out.append(row)
-    out.append(scale_bar(cx + 16, y_note + 34, 0.5, view, color=MUTED))
+    out.append(scale_bar(cx + 16, y_note + 44, 0.5, view, color=MUTED))
+    fit = _fit_note(vl)
+    if fit:
+        out.append(f'<text x="40" y="{y_note + 21}" font-size="11.5" fill="{ALT_INK}">'
+                   f'{esc(fit)}</text>')
     return "\n".join(out)
 
 
@@ -1238,11 +1469,11 @@ def _limit_svg(ctx, vl, mode):
         # 三套线叠在一起会糊成一片，看不出球壳形状。
         base, _ = draw_iso_geometry(ctx, view, f"clip_{ctx['id'][:8]}_vls_{mode}",
                                     pal=dict(PAL_LIGHT, grid="#F1F5F9"), floor=floor,
-                                    clip_rect=LIMIT_PANEL, drop_lines=False)
+                                    clip_rect=LIMIT_PANEL, drop_lines=False, anchor_pt=None)
     else:
         view = _limit_top_view(ctx, vl)
         base = draw_top_geometry(ctx, view, f"clip_{ctx['id'][:8]}_vlt_{mode}", ring=False,
-                                 origin=False, clip_rect=LIMIT_PANEL)
+                                 origin=False, clip_rect=LIMIT_PANEL, anchor_pt=None)
 
     # 约束层画在底图**下面**：轨迹永远压在最上层，这是「不影响原有轨迹」的关键。
     # 面板 rect / 裁剪框都用预留框（不是 view.rect()）：View 是等比例尺 + 居中，
@@ -1262,18 +1493,15 @@ def _limit_svg(ctx, vl, mode):
                f'fill="#FAFAF9" stroke="{LINE}"/>')
     out.append("\n".join(layer))
     out.append(base)
-    # target 标记：底图（draw_top_geometry / draw_iso_geometry）只画 anchor_point，
-    # 所以仅当 target 走了 fallback（无 anchor_point）时才补画，免得叠出双圈
-    if vl["target_src"].startswith("sight_center"):
-        tx, ty = (view.p(*iso_proj(*vl["target"])) if iso else view.p(vl["target"][0], vl["target"][2]))
-        out.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="7" fill="none" stroke="#B45309" stroke-width="2"/>')
-        out.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="2" fill="#B45309"/>')
-        out.append(f'<text x="{tx + 12:.1f}" y="{ty - 10:.1f}" font-size="12" fill="#B45309">target</text>')
+    # 球心标记：底图统一不画参考点（anchor_pt=None），由这里一次画齐「球心 + 对照点」，
+    # 免得叠出双圈、也免得两个来源各画各的标签互相压字。
+    out.append(_target_marks(ctx, vl, view, LIM_INK, iso=iso))
     out.append(_limit_foot(ctx, vl, mode, view, 556))
-    out.append(f'<text x="860" y="626" font-size="12" fill="#9CA3AF" text-anchor="end">'
+    # 脚注改左对齐：右下角那个位置留给 _limit_foot 的比例尺（拟合行插入后图例整体下移
+    # 10px，右对齐的长脚注会和比例尺叠在一起，实测「0.5 m」压着「Theta = 90 − pitch」）。
+    out.append(f'<text x="40" y="626" font-size="12" fill="#9CA3AF">'
                f'{"等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y" if iso else "俯视图（+X 向右、+Z 向下）"}'
-               f' ｜ 等比例尺 {view.s:.1f} px/m ｜ '
-               f'UWA 换算见 99c：Phi = atan2(−x, z)、Theta = 90 − pitch</text>')
+               f' ｜ 等比例尺 {view.s:.1f} px/m ｜ UWA 换算见 99c</text>')
     out.append("</svg>")
     return "\n".join(out)
 
@@ -1629,6 +1857,10 @@ def style_combo(ctx):
         ax_, az_ = vl_combo["target"][0], vl_combo["target"][2]
         x_lo, x_hi = min(x_lo, ax_ - r_), max(x_hi, ax_ + r_)
         z_lo, z_hi = min(z_lo, az_ - r_), max(z_hi, az_ + r_)
+    if vl_combo is not None and vl_combo["target_alt"] is not None:
+        aax, aaz = vl_combo["target_alt"][0], vl_combo["target_alt"][2]
+        x_lo, x_hi = min(x_lo, aax), max(x_hi, aax)
+        z_lo, z_hi = min(z_lo, aaz), max(z_hi, aaz)
     view_top = View(x_lo, x_hi, z_lo, z_hi, BOX_L, TOP_Y, BOX_R, TOP_Y + PANEL_H)
 
     # 等轴测：视野由 iso_extent() 决定（只按相机活动范围，点云作背景）
@@ -1659,10 +1891,14 @@ def style_combo(ctx):
     out.append(draw_top_geometry(ctx, view_top, f"clip_{ctx['id'][:8]}_ct", ramp=RAMP_LIGHT,
                                  cloud_screen=cloud_screen_for(view_top, ctx), clip_rect=panel_top,
                                  origin=True,
-                                 ring=vl_combo is None))
+                                 ring=vl_combo is None,
+                                 anchor_pt=None if vl_combo is not None else _CTX_ANCHOR))
+    if vl_combo is not None:   # 球心 + 对照点统一由 _target_marks 画（底图已交出参考点）
+        out.append(_target_marks(ctx, vl_combo, view_top, LIM_INK))
     if VLIMIT_MODE in LIMIT_MODES:
+        _tgt = vl_combo["target_src"].split("（")[0]
         out.append(f'<text x="{BOX_R}" y="{TOP_Y + PANEL_H - 14:.0f}" font-size="12" fill="{LIM_INK}" '
-                   f'text-anchor="end">视角约束范围（{esc(LIMIT_LABELS[VLIMIT_MODE])}·'
+                   f'text-anchor="end">视角约束范围（{esc(LIMIT_LABELS[VLIMIT_MODE])}·球心 {_tgt}·'
                    f'实测区间 ±{VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%）</text>')
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
     out.append(scale_bar(BOX_L + 16, TOP_Y + PANEL_H - 44, 0.5, view_top, color=MUTED))
@@ -1697,8 +1933,13 @@ def style_combo(ctx):
                    f'{LIMIT_DRAWS["shell"](ctx, vl_combo, view_iso)}</g>')
     geom, floor = draw_iso_geometry(ctx, view_iso, f"clip_{ctx['id'][:8]}_ci", clip_rect=panel_iso,
                                     cloud_screen=cloud_screen_for(view_iso, ctx, proj=iso_proj_pt),
-                                    origin=True)
+                                    origin=True,
+                                    # 只有 shell 模式才把参考点交给 _target_marks；edges/band 等
+                                    # 只叠俯视图，等轴测面板要保持原样（含它自己的 anchor_point）
+                                    anchor_pt=None if VLIMIT_MODE == "shell" else _CTX_ANCHOR)
     out.append(geom)
+    if vl_combo is not None and VLIMIT_MODE == "shell":
+        out.append(_target_marks(ctx, vl_combo, view_iso, LIM_INK, iso=True))
     out.append(scale_bar(BOX_L + 16, iso_y + PANEL_H - 44, 0.5, view_iso, color=MUTED))
 
     # 等轴测图例：同样铺在绘图区下方（2 行 × 3 列）
@@ -1706,7 +1947,8 @@ def style_combo(ctx):
     out.append(legend_grid([
         ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"]),
         ("dot", "点云 pcd.ply（背景）", PAL_LIGHT["cloud"]),
-        ("ring", "anchor_point", PAL_LIGHT["anc"]),
+        (("ring", "球心（最小二乘）", LIM_INK) if VLIMIT_MODE == "shell"
+         else ("ring", "anchor_point", PAL_LIGHT["anc"])),
         ("dash", "地面投影线", "#CBD5E1"),
         ("dot", "起点 frame 0", PAL_LIGHT["start"]),
         ("dot", f"末帧 frame {ctx['n'] - 1}", PAL_LIGHT["end"]),
@@ -1755,10 +1997,12 @@ def style_quad(ctx):
     ROW2_Y = TOP_Y + PH + LEG + QUAD_ROW_GAP
     H = ROW2_Y + PH + LEG + 28.0
 
-    vl = compute_view_limit(ctx)
+    # 右列的球心用**最小二乘视线汇聚中心**（完全不使用 anchor_point）；左列是原始采集
+    # 轨迹图，参考点仍是 anchor_point——两列本来就不是同一件事，不需要统一。
+    vl = compute_view_limit(ctx, target_mode="sight")
     sid = ctx["id"][:8]
 
-    # ── 共用取景：相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围 ──
+    # ── 共用取景：相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围 ∪ 对照球心 ──
     x_lo, x_hi = ctx["range"]["x"]
     z_lo, z_hi = ctx["range"]["z"]
     if ctx["anchor"]:
@@ -1768,7 +2012,14 @@ def style_quad(ctx):
     tx_, tz_, rp_ = vl["target"][0], vl["target"][2], vl["rho_hi"]
     top_box = (min(x_lo, tx_ - rp_), max(x_hi, tx_ + rp_),
                min(z_lo, tz_ - rp_), max(z_hi, tz_ + rp_))
+    if vl["target_alt"] is not None:   # 对照点也要入框，否则 Δ 连线被裁掉一半
+        aax, aaz = vl["target_alt"][0], vl["target_alt"][2]
+        top_box = (min(top_box[0], aax), max(top_box[1], aax),
+                   min(top_box[2], aaz), max(top_box[3], aaz))
     u0, u1, v0, v1, floor = _limit_iso_extent(ctx, vl)
+    if vl["target_alt"] is not None:
+        au, av = iso_proj(*vl["target_alt"])
+        u0, u1, v0, v1 = min(u0, au), max(u1, au), min(v0, av), max(v1, av)
     iso_box = (u0, u1, v0, v1)
 
     def vw(box, x, y):
@@ -1798,10 +2049,10 @@ def style_quad(ctx):
                f'{esc(ctx["id"])} · 采集轨迹 × 视角约束对照图（2×2）</text>')
     out.append(caption(ctx, M, 66, MUTED))
     out.append(f'<text x="{M}" y="88" font-size="12" fill="#9CA3AF">'
-               f'左列＝原始采集轨迹 ｜ 右列＝视角约束范围（{esc(LIMIT_LABELS["angle"])} / '
-               f'{esc(LIMIT_LABELS["shell"])}）｜ 四张图共用同一取景与比例尺 '
-               f'{v_top_l.s:.1f} px/m，可逐点对照 ｜ 约束层画在轨迹下层 ｜ '
-               f'约束用青绿以区分轨迹的蓝→紫→玫红渐变</text>')
+               f'左列＝原始采集轨迹（参考点 anchor_point）｜ 右列＝视角约束范围，球心改用'
+               f'最小二乘视线汇聚中心（不使用 anchor_point；anchor_point 只作对照标记）｜ '
+               f'四张图共用同一取景与比例尺 {v_top_l.s:.1f} px/m，可逐点对照 ｜ '
+               f'约束层画在轨迹下层 ｜ 约束用青绿以区分轨迹的蓝→紫→玫红渐变</text>')
 
     # ── ① 左上：俯视轨迹（与原 combo 完全一致）──
     out.append(head(X_L, TOP_Y, "①", "俯视图 · 采集轨迹（世界系 XZ · 轨迹按帧序时间渐变）"))
@@ -1812,14 +2063,17 @@ def style_quad(ctx):
     out.append(axis_hints(v_top_l, PAL_LIGHT["axis"]))
     out.append(scale_bar(X_L + 16, TOP_Y + PH - 44, 0.5, v_top_l, color=MUTED))
 
-    # ── ② 右上：俯视图 + 角度标注 ──
-    out.append(head(X_R, TOP_Y, "②", "俯视图 · 视角约束范围（角度标注）"))
+    # ── ② 右上：俯视图 + 角度标注（球心 = 最小二乘视线汇聚中心）──
+    out.append(head(X_R, TOP_Y, "②", "俯视图 · 视角约束范围（球心 = 最小二乘视线汇聚中心）"))
     out.append(panel(X_R, TOP_Y))
     out.append(clipped(f"clip_{sid}_q2", X_R, TOP_Y,
-                       _lim_angle(ctx, vl, v_top_r, ink=QUAD_INK, rho_text=False)))
+                       _lim_angle(ctx, vl, v_top_r, ink=QUAD_INK, rho_text=False,
+                                  span_text=False)))
     out.append(draw_top_geometry(ctx, v_top_r, f"clip_{sid}_q2b", ramp=RAMP_LIGHT,
                                  cloud_screen=cloud_screen_for(v_top_r, ctx),
-                                 clip_rect=(X_R, TOP_Y, PW, PH), origin=True, ring=False))
+                                 clip_rect=(X_R, TOP_Y, PW, PH), origin=True, ring=False,
+                                 anchor_pt=None))
+    out.append(_target_marks(ctx, vl, v_top_r, QUAD_INK))
     out.append(axis_hints(v_top_r, PAL_LIGHT["axis"], flip=True))
     out.append(scale_bar(X_R + 16, TOP_Y + PH - 44, 0.5, v_top_r, color=MUTED))
 
@@ -1833,16 +2087,17 @@ def style_quad(ctx):
     out.append(geom_l)
     out.append(scale_bar(X_L + 16, ROW2_Y + PH - 44, 0.5, v_iso_l, color=MUTED))
 
-    # ── ④ 右下：等轴测 + 3D 球壳扇块 ──
-    out.append(head(X_R, ROW2_Y, "④", "等轴测视图 · 视角约束范围（3D 球壳扇块）"))
+    # ── ④ 右下：等轴测 + 3D 球壳扇块（球心同上）──
+    out.append(head(X_R, ROW2_Y, "④", "等轴测视图 · 视角约束范围（球心 = 最小二乘视线汇聚中心）"))
     out.append(panel(X_R, ROW2_Y))
     out.append(clipped(f"clip_{sid}_q4", X_R, ROW2_Y,
                        _lim_shell(ctx, vl, v_iso_r, ink=QUAD_INK, fill=QUAD_FILL)))
     geom_r, _ = draw_iso_geometry(ctx, v_iso_r, f"clip_{sid}_q4b",
                                   clip_rect=(X_R, ROW2_Y, PW, PH),
                                   cloud_screen=cloud_screen_for(v_iso_r, ctx, proj=iso_proj_pt),
-                                  origin=True)
+                                  origin=True, anchor_pt=None)
     out.append(geom_r)
+    out.append(_target_marks(ctx, vl, v_iso_r, QUAD_INK, iso=True))
     out.append(scale_bar(X_R + 16, ROW2_Y + PH - 44, 0.5, v_iso_r, color=MUTED))
 
     # ── 图例带：左列沿用 combo 的原排法，右列给约束数值 ──
@@ -1861,20 +2116,27 @@ def style_quad(ctx):
 
     az_txt = ("整圈 360°" if vl["full_az"]
               else f'{vl["az_lo"]:.1f}°→{vl["az_hi"]:.1f}°（跨度 {vl["az_hi"] - vl["az_lo"]:.1f}°）')
+    t_, a_ = vl["target"], vl["target_alt"]
     out.append(f'<text x="{X_R}" y="{ly}" font-size="12.5" fill="{QUAD_INK}">'
-               f'视角约束范围（{esc(LIMIT_LABELS["angle"])}）· {esc(LIMIT_NOTES["angle"][0])} · '
-               f'区间 = 各帧实测 min/max ± 余量 {VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%'
-               f'{" ｜ ⚠️ 方位角近似整圈" if vl["full_az"] else ""}</text>')
-    out.append(f'<text x="{X_R}" y="{ly + 24}" font-size="12" fill="{QUAD_INK}">'
+               f'球心 = 最小二乘视线汇聚中心 ({t_[0]:.2f}, {t_[1]:.2f}, {t_[2]:.2f})'
+               + (f' ｜ 与 anchor_point 相距 {vl["delta"]:.3f} m'
+                  f'（沿视线 {vl["delta_along"]:+.3f} / 垂直 {vl["delta_perp"]:.3f}）'
+                  if a_ is not None else '')
+               + f'{" ｜ ⚠️ 方位角近似整圈" if vl["full_az"] else ""}</text>')
+    out.append(f'<text x="{X_R}" y="{ly + 22}" font-size="12" fill="{ALT_INK}">'
+               f'{esc(_fit_note(vl))}</text>')
+    out.append(f'<text x="{X_R}" y="{ly + 44}" font-size="12" fill="{QUAD_INK}">'
+               f'区间 = 各帧实测 min/max ± 余量 {VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}% ｜ '
                f'az {az_txt} ｜ el {vl["el_lo"]:.1f}°→{vl["el_hi"]:.1f}° ｜ '
                f'ρ {vl["rho_lo"]:.2f}→{vl["rho_hi"]:.2f} m ｜ '
                f'R {vl["r_lo"]:.2f}→{vl["r_hi"]:.2f} m</text>')
-    row, cx = legend_row([("ring", "target", "#B45309"),
+    row, cx = legend_row([("ring", "球心（最小二乘）", QUAD_INK),
+                          ("dot", "anchor_point（对照）", ALT_INK),
                           ("dash", "约束边界", QUAD_INK),
                           ("line", "相机轨迹", PAL_LIGHT["track"])],
-                         X_R, ly + 54, fs=12, gap=22, color_var=MUTED)
+                         X_R, ly + 68, fs=12, gap=22, color_var=MUTED)
     out.append(row)
-    out.append(scale_bar(cx + 16, ly + 54, 0.5, v_top_r, color=MUTED))
+    out.append(scale_bar(cx + 16, ly + 68, 0.5, v_top_r, color=MUTED))
 
     ly2 = ROW2_Y + PH + 40
     out.append(legend_grid([
@@ -1889,18 +2151,23 @@ def style_quad(ctx):
                f'等轴测投影：(X−Z)·cos30°, (X+Z)·sin30° − Y ｜ 地面 Y = {floor:.2f} m</text>')
 
     out.append(f'<text x="{X_R}" y="{ly2}" font-size="12.5" fill="{QUAD_INK}">'
-               f'视角约束范围（{esc(LIMIT_LABELS["shell"])}）· {esc(LIMIT_NOTES["shell"][0])} · '
-               f'内层球面 R {vl["r_lo"]:.2f} m / 外层球面 R {vl["r_hi"]:.2f} m</text>')
-    out.append(f'<text x="{X_R}" y="{ly2 + 24}" font-size="12" fill="#9CA3AF">'
+               f'球壳球心 = 最小二乘视线汇聚中心 ({t_[0]:.2f}, {t_[1]:.2f}, {t_[2]:.2f}) ｜ '
+               f'内层球面 R {vl["r_lo"]:.2f} m / 外层球面 R {vl["r_hi"]:.2f} m'
+               + (f' ｜ 与 anchor_point 相距 {vl["delta"]:.3f} m' if a_ is not None else '')
+               + '</text>')
+    out.append(f'<text x="{X_R}" y="{ly2 + 22}" font-size="12" fill="#9CA3AF">'
                f'UWA view_limits 对照（实测值，未加余量）：Phi {u["phi"][0]:.1f}°→{u["phi"][1]:.1f}° ｜ '
                f'Theta {u["theta"][0]:.1f}°→{u["theta"][1]:.1f}° ｜ '
                f'Radius {u["radius"][0]:.3f}→{u["radius"][1]:.3f} m</text>')
-    row2, cx2 = legend_row([("ring", "target（球壳中心）", "#B45309"),
+    out.append(f'<text x="{X_R}" y="{ly2 + 44}" font-size="12" fill="{ALT_INK}">'
+               f'{esc(_fit_note(vl))}</text>')
+    row2, cx2 = legend_row([("ring", "球心（最小二乘）", QUAD_INK),
+                            ("dot", "anchor_point（对照）", ALT_INK),
                             ("dash", "3D 球壳扇块", QUAD_INK),
                             ("line", "相机轨迹", PAL_LIGHT["track"])],
-                           X_R, ly2 + 54, fs=12, gap=22, color_var=MUTED)
+                           X_R, ly2 + 68, fs=12, gap=22, color_var=MUTED)
     out.append(row2)
-    out.append(scale_bar(cx2 + 16, ly2 + 54, 0.5, v_iso_r, color=MUTED))
+    out.append(scale_bar(cx2 + 16, ly2 + 68, 0.5, v_iso_r, color=MUTED))
 
     out[0] = svg_open(W, H, "#FFFFFF")
     out.append("</svg>")

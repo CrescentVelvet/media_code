@@ -376,10 +376,12 @@ SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=../../output/remy_quad_html \
 STYLE=quad IDS=<id1>,<id2> python vggt_human/99g_plot_capture_trajectory.py
 ```
 
-三条约定（改这个风格前先看 [NOTES.md](NOTES.md)「四联对照图」）：
+四条约定（改这个风格前先看 [NOTES.md](NOTES.md)「四联对照图」）：
 
-- **四张图共用同一取景与比例尺**（= 相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围）。这是这张图
-  存在的意义：左右逐点对照「约束落在轨迹的哪一段」。代价是左列比 combo 单看时小一圈
+- **右列的球心改用「最小二乘视线汇聚中心」，不使用 `anchor_point`**（见下节）。左列是原始
+  采集轨迹，参考点仍是 `anchor_point`——两列本来就不是同一件事，不需要统一。
+- **四张图共用同一取景与比例尺**（= 相机活动范围 ∪ 锚点±均值半径 ∪ 约束范围 ∪ 对照球心）。
+  这是这张图存在的意义：左右逐点对照「约束落在轨迹的哪一段」。代价是左列比 combo 单看时小一圈
   （约束范围通常是相机范围的 1.2–1.9 倍）。
 - **右列的约束层用青绿**（`QUAD_INK`/`QUAD_FILL`），不用 vlimit 的紫 —— 左列轨迹是按帧序的
   蓝→紫→玫红渐变，紫约束压上去会和轨迹糊成一片。`vlimit` 系列风格仍用原紫色。
@@ -388,8 +390,15 @@ STYLE=quad IDS=<id1>,<id2> python vggt_human/99g_plot_capture_trajectory.py
 
 ### 视角约束范围（view limit）叠加
 
-把「以 target 为心、方位角/仰角/半径三区间围成的球壳扇块」画进轨迹图。区间由各帧实测
+把「以球心为心、方位角/仰角/半径三区间围成的球壳扇块」画进轨迹图。区间由各帧实测
 min/max ± 余量推出（不照抄外部那版 C++ 移植代码，四点问题见 NOTES.md）。
+
+**球心取哪个点**由 `VL_TARGET` 决定，默认 `sight`：
+
+| 取值 | 含义 |
+|---|---|
+| `sight`（**默认**） | 最小二乘视线汇聚中心——最小化各帧视线到该点的正交距离平方和，**完全不使用 `anchor_point`** |
+| `anchor` | 用 `transforms.json` 自带的 `anchor_point`（旧口径） |
 
 ```bash
 # ① 选型：六种画法内联在同一张 HTML 里竖向排开，一页看完再定
@@ -401,12 +410,21 @@ STYLE=lim_edges SRC_ROOT=... python vggt_human/99g_plot_capture_trajectory.py
 
 # ③ 直接把约束叠进 combo 的俯视图（叠 shell 则进等轴测面板）
 VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python vggt_human/99g_plot_capture_trajectory.py
+
+# ④ 回到 anchor_point 口径 / 关掉对照点标记
+VL_TARGET=anchor python vggt_human/99g_plot_capture_trajectory.py
+VL_MARK_ALT=0    python vggt_human/99g_plot_capture_trajectory.py
 ```
 
 画法：`lim_band`（扇环填充）/ `lim_edges`（四条边界虚线，对轨迹影响最小）/ `lim_angle`
 （边界 + 角度/半径数值标注）/ `lim_rings`（米制同心环 + 方位刻度）/ `lim_hull`
 （对照组：相机水平位置凸包外扩，不假设环绕）/ `lim_shell`（等轴测 3D 球壳扇块）。
 余量可用 `VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` 覆盖，整圈判定阈值用 `VL_FULL_AZ`。
+
+图上会同时画出**球心**（实心圆 + 十字）与**对照球心**（另一个候选点，空心叉 + 虚线 + Δ 距离），
+标题行给出两者的拟合质量对照（垂距 RMS / 视线夹角 / 正规矩阵条件数）。实测 10 个样本
+（见 NOTES.md「球心取哪个点」）：`sight` 垂距 RMS 0.081 m、夹角 3.46°，`anchor_point`
+0.205 m、9.54° —— 10/10 个样本都是 `sight` 更贴合视线。
 
 ### ⚠️ 提交前跑一次语法兼容检查（99h）
 
