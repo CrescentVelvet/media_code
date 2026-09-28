@@ -1,280 +1,149 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620" role="img" aria-label="相机位姿调整工具改进方案架构图"><style><![CDATA[
-
-  :root{
-    --ink:#0F172A; --ink-soft:#334155; --muted:#64748B; --faint:#94A3B8;
-    --line:#CBD5E1; --line-soft:#E8EDF4; --bg:#E8EDF4; --card:#FFFFFF;
-    /* 语义色板：靛蓝=数据 · 青=核心 · 琥珀=附加说明/反馈 */
-    --indigo:#3730A3; --indigo-2:#818CF8; --indigo-soft:#EEF2FF;
-    --teal:#0F766E; --teal-2:#0D9488; --teal-soft:#F6FFFD; --teal-mid:#99F6E4;
-    --amber:#92400E; --amber-2:#F59E0B; --amber-soft:#FFFBEB; --amber-deep:#B45309;
-    --red:#B91C1C; --red-2:#DC2626; --red-soft:#FFF8F7; --red-mid:#FEE2E2;
-    --tip:#1E3A8A; --tip-line:#93C5FD; --tip-soft:#EFF6FF;
-    --cyan:#0F766E; --cyan-2:#0D9488; --cyan-soft:#F6FFFD;
-    --green:#0F766E; --green-soft:#99F6E4;
-    --violet:#4F46E5; --violet-soft:#EEF2FF;
-    /* 旧变量名转发到新色板，正文样式随之同步 */
-    --blue:var(--teal); --blue-2:var(--teal-2); --blue-soft:var(--tip-soft);
-  }
-  *{box-sizing:border-box}
-  body{
-    margin:0; background:var(--bg); color:var(--ink);
-    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
-    font-size:15.5px; line-height:1.75; -webkit-font-smoothing:antialiased;
-  }
-  .page{max-width:1180px; margin:0 auto; padding:0 0 72px}
-  .sheet{background:var(--card); border:1px solid var(--line); border-radius:14px;
-         padding:34px 40px 30px; margin:22px 0; }
-  .lead{box-shadow:0 1px 2px rgba(16,24,40,.04)}
-
-  /* ── 页头 ── */
-  .top{border-top:4px solid var(--blue); border-radius:14px 14px 14px 14px}
-  .kicker{font-size:12.5px; letter-spacing:.14em; color:var(--blue);
-          font-weight:600; text-transform:uppercase; margin:0 0 10px}
-  h1{font-size:29px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em}
-  .sub{color:var(--muted); font-size:14.5px; margin:0}
-  .meta{margin-top:20px; padding-top:16px; border-top:1px dashed var(--line);
-        display:flex; gap:28px; flex-wrap:wrap; font-size:13px; color:var(--muted)}
-  .meta b{color:var(--ink-soft); font-weight:600}
-
-  /* ── 章节 ── */
-  h2{font-size:20px; margin:0 0 6px; display:flex; align-items:baseline; gap:12px; letter-spacing:-.005em}
-  h2 .num{font-size:13px; font-weight:700; color:#fff; background:var(--blue);
-          border-radius:6px; padding:2px 9px; letter-spacing:.04em; position:relative; top:-2px}
-  h3{font-size:16px; margin:26px 0 8px; color:var(--ink)}
-  .sec-desc{color:var(--muted); font-size:14px; margin:0 0 20px}
-  p{margin:0 0 12px}
-  ul{margin:0 0 12px; padding-left:20px}
-  li{margin:5px 0}
-  li::marker{color:var(--faint)}
-  code{font-family:ui-monospace,Consolas,"Courier New",monospace; font-size:.88em;
-       background:var(--line-soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
-  .hl{background:linear-gradient(transparent 58%, #FDE68A 58%); font-weight:600}
-
-  /* ── 结论卡片 ── */
-  .cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px}
-  .card{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:16px 16px 14px;
-        position:relative; overflow:hidden}
-  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--teal-2)}
-  .card.t::before{background:#4F46E5}
-  .card.a::before{background:var(--amber-2)}
-  .card.v::before{background:var(--red-2)}
-  .card .t1{font-size:13px; color:var(--muted); margin:0 0 6px}
-  .card .t2{font-size:15px; font-weight:600; line-height:1.5; margin:0; color:var(--ink)}
-
-  /* ── 图卡 ── */
-  figure{margin:22px 0 8px; border:1px solid var(--line); border-radius:12px;
-         background:#FFFFFF; padding:18px 18px 10px; overflow:hidden}
-  figure svg{display:block; width:100%; height:auto}
-  figcaption{font-size:13px; color:var(--muted); text-align:center;
-             padding:10px 0 6px; border-top:1px solid var(--line-soft); margin-top:12px}
-  figcaption b{color:var(--ink-soft)}
-
-  /* ── 表格 ── */
-  table{width:100%; border-collapse:collapse; margin:14px 0 6px; font-size:14.5px}
-  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
-  thead th{background:#F9FAFB; color:var(--ink-soft); font-weight:600; font-size:13.5px;
-           border-bottom:1px solid var(--line)}
-  tbody tr:last-child td{border-bottom:1px solid var(--line)}
-  td.k{color:var(--muted); width:150px}
-  .pill{display:inline-block; font-size:12.5px; padding:1px 9px; border-radius:20px;
-        border:1px solid currentColor; line-height:1.7; white-space:nowrap}
-  .pill.bad{color:var(--red); background:var(--red-mid)}
-  .pill.ok{color:var(--green); background:var(--green-soft)}
-  .pill.mid{color:var(--amber); background:var(--amber-soft)}
-
-  /* ── 引用条 ── */
-  .quote{margin:18px 0; padding:14px 18px; border-left:4px solid var(--tip-line);
-         background:var(--tip-soft); border-radius:0 8px 8px 0; font-size:14.5px; color:var(--tip)}
-  .quote b{color:var(--tip)}
-  .note{margin:18px 0 0; padding:13px 16px; border:2px dashed var(--amber-2); border-radius:8px;
-        background:var(--amber-soft); font-size:13.5px; color:var(--amber)}
-  .note strong{color:var(--amber)}
-
-  /* ── 附录 ── */
-  details{border:1px solid var(--line); border-radius:12px; background:var(--card); margin:22px 0}
-  summary{cursor:pointer; padding:16px 22px; font-weight:600; font-size:15px; color:var(--blue);
-          list-style:none; display:flex; align-items:center; gap:10px}
-  summary::-webkit-details-marker{display:none}
-  summary::before{content:"▸"; color:var(--faint); transition:transform .15s}
-  details[open] summary::before{transform:rotate(90deg)}
-  details[open] summary{border-bottom:1px solid var(--line)}
-  .dt-body{padding:8px 22px 20px}
-  .dt-body h4{font-size:14.5px; margin:18px 0 6px; color:var(--ink)}
-
-  @media print{
-    body{background:#fff} .page{max-width:none} .sheet{break-inside:avoid; border:none; padding:0 0 18px}
-    figure{break-inside:avoid} details{display:none}
-  }
-  @media (max-width:900px){
-    .cards{grid-template-columns:repeat(2,1fr)}
-    .sheet{padding:24px 20px}
-    h1{font-size:23px}
-  }
-
-  /* ══════ 图内样式（按 PPT 投影加固：文字加深、描边加粗、填充提浓）══════ */
-  .f-t{font-size:14.5px; font-weight:700; fill:#0F172A}
-  .f-t2{font-size:13px; font-weight:700; fill:#1E293B}
-  .f-s{font-size:12px; fill:#334155}
-  .f-xs{font-size:11px; fill:#64748B}
-  .f-lbl{font-size:12px; font-weight:700; fill:#475569; letter-spacing:.12em}
-  .f-w{font-size:12.5px; fill:#FFFFFF; font-weight:600}
-  .f-num{font-family:ui-monospace,Consolas,monospace; font-size:11.5px; font-weight:700}
-  .fig-bg{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
-  .ln{stroke:#CBD5E1; stroke-width:1.6; fill:none}
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="800" viewBox="0 0 880 800" role="img" aria-label="相机位姿调整工具改进方案架构图"><style><![CDATA[
+  /* 图内样式（PPT 投影口径：字号 / 画布宽 ≥ 1.5%，投影等效 ≥ 14pt） */
+  .f-t{font-size:19px; font-weight:700; fill:#0F172A}
+  .f-t2{font-size:17px; font-weight:700; fill:#1E293B}
+  .f-s{font-size:14px; fill:#334155}
+  .f-xs{font-size:13px; fill:#64748B}
+  .f-lbl{font-size:15px; font-weight:700; fill:#475569; letter-spacing:.12em}
+  .f-num{font-family:ui-monospace,Consolas,monospace; font-size:15px; font-weight:700}
+  .f-mono{font-family:ui-monospace,Consolas,monospace; font-size:14px; font-weight:700}
   .ar{stroke:#475569; stroke-width:2.6; fill:none}
-  .ln-d{stroke:#64748B; stroke-width:1.2; fill:none; stroke-dasharray:4 3}
-
-  /* 节点：普通 / 数据文件 / 核心 / 最终产出 / 附加说明 / 问题 / 改进后 / 强调提示 */
-  .k-node{fill:#FFFFFF; stroke:#CBD5E1; stroke-width:1.6}
   .k-data{fill:#EEF2FF; stroke:#818CF8; stroke-width:1.6}
   .k-core{fill:#F6FFFD; stroke:#0D9488; stroke-width:2.5}
   .k-out{fill:#CCFBF1; stroke:#0D9488; stroke-width:2.5}
-  .k-note{fill:#FFFBEB; stroke:#F59E0B; stroke-width:2.5; stroke-dasharray:6 5}
-  .k-issue{fill:#FFF8F7; stroke:#DC2626; stroke-width:1.6}
-  .k-issue-2{fill:#FEE2E2; stroke:#DC2626; stroke-width:2.5}
-  .k-after{fill:#99F6E4; stroke:#0D9488; stroke-width:2.5}
-  .k-tip{fill:#EFF6FF; stroke:#93C5FD; stroke-width:1.6}
-
-  /* 连线：流程箭头 / 核心 / 反馈闭环 / 附加说明 / 问题 */
   .ln-data{stroke:#475569; stroke-width:2.6; fill:none}
   .ln-core{stroke:#0D9488; stroke-width:2.5; fill:none}
-  .ln-core-d{stroke:#0D9488; stroke-width:2.5; fill:none; stroke-dasharray:6 5}
-  .ln-fb{stroke:#D97706; stroke-width:2.6; fill:none; stroke-dasharray:6 5}
-  .ln-issue{stroke:#DC2626; stroke-width:2.2; fill:none; stroke-dasharray:6 5}
-
-  .dot-data{fill:#4F46E5}
-  .dot-core{fill:#0D9488}
-  .dot-note{fill:#F59E0B}
-  .dot-issue{fill:#DC2626}
-
-
 ]]></style>
-      <text class="f-lbl" x="30" y="30">图 2 ｜ SOLUTION ARCHITECTURE</text>
+  <!-- 底色画在 SVG 内部（不用 body 规则），避免嵌入 HTML 时污染页面背景 -->
+  <rect width="880" height="800" fill="#E8EDF4"/>
 
-      <!-- 输入层（靛蓝 = 数据） -->
-      <text class="f-lbl" x="30" y="66">INPUT ｜ 输入数据</text>
-      <rect class="k-data" x="30" y="80" width="545" height="72" rx="9"/>
-      <text class="f-t2" x="52" y="110" style="fill:#3730A3">UWA 高斯模型</text>
-      <text class="f-s" x="52" y="132">camera.json ／ camera_crop.json（待调整的相机位姿）</text>
-      <rect class="k-data" x="605" y="80" width="545" height="72" rx="9"/>
-      <text class="f-t2" x="627" y="110" style="fill:#3730A3">COLMAP ／ 实拍产出</text>
-      <text class="f-s" x="627" y="132">重建得到的相机位姿与采集覆盖角度分布</text>
+  <text class="f-lbl" x="30" y="32">图 2 ｜ SOLUTION ARCHITECTURE</text>
 
-      <!-- 汇流 -->
-      <path class="ln-data" d="M 302.5,152 L 302.5,180 L 877.5,180 L 877.5,152"/>
-      <line class="ar" x1="590" y1="180" x2="590" y2="206" marker-end="url(#ah)"/>
+  <!-- ── 输入层（靛蓝 = 数据） ── -->
+  <text class="f-lbl" x="30" y="72">INPUT ｜ 输入数据</text>
+  <rect class="k-data" x="30" y="86" width="395" height="78" rx="10"/>
+  <text class="f-t2" x="52" y="118" style="fill:#3730A3">UWA 高斯模型</text>
+  <text class="f-s" x="52" y="147">camera.json ／ camera_crop.json</text>
+  <rect class="k-data" x="455" y="86" width="395" height="78" rx="10"/>
+  <text class="f-t2" x="477" y="118" style="fill:#3730A3">COLMAP ／ 实拍产出</text>
+  <text class="f-s" x="477" y="147">重建相机位姿与采集角度分布</text>
 
-      <!-- 内核层：四个模块按「算 → 看 → 生成 → 用」递进（青=工具核心，靛蓝=数据产出） -->
-      <text class="f-lbl" x="30" y="228">MODULES ｜ 工具链模块</text>
-      <text class="f-xs" x="214" y="228" style="fill:#94A3B8">算得准 → 看得见 → 生成得出 → 用得起来</text>
-      <rect x="22" y="234" width="1140" height="200" rx="14"
-            style="fill:#F8FAFC;fill-opacity:0.9;stroke:#DFE5EC;stroke-width:1.4;stroke-dasharray:5 4"/>
+  <!-- ── 汇流 ── -->
+  <path class="ln-data" d="M 227.5,164 L 227.5,190 L 652.5,190 L 652.5,164"/>
+  <line class="ar" x1="440" y1="190" x2="440" y2="216" marker-end="url(#ah)"/>
 
-      <!-- 01 核心算法 -->
-      <g filter="url(#glow2)">
-        <rect class="k-core" x="30" y="242" width="255" height="180" rx="10"/>
-      </g>
-      <text class="f-num" x="52" y="274" style="fill:#14B8A6">01</text>
-      <text class="f-t2" x="82" y="274" style="fill:#0F766E">核心算法</text>
-      <text class="f-num" x="52" y="298" style="fill:#0F766E">crop_camera_by_angle.py</text>
-      <line x1="52" y1="318" x2="263" y2="318" style="stroke:#99F6E4;stroke-width:1.6"/>
-      <circle cx="57" cy="344" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="68" y="348" style="fill:#334155">视线交汇最小二乘求目标点</text>
-      <circle cx="57" cy="366" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="68" y="370" style="fill:#334155">±180° 方位角循环补偿</text>
-      <circle cx="57" cy="388" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="68" y="392" style="fill:#334155">角度 / 高度 / 半径多维调整</text>
+  <!-- ── 内核层：四模块按「算 → 看 → 生成 → 用」递进（2×2 阶梯流，青=核心，靛蓝=数据） ── -->
+  <text class="f-lbl" x="30" y="228">MODULES ｜ 工具链模块</text>
+  <text class="f-xs" x="258" y="228" style="fill:#94A3B8">算得准 → 看得见 → 生成得出 → 用得起来</text>
+  <rect x="22" y="238" width="836" height="380" rx="14"
+        style="fill:#F8FAFC;fill-opacity:0.9;stroke:#DFE5EC;stroke-width:1.4;stroke-dasharray:5 4"/>
 
-      <line class="ln-core" x1="292" y1="332" x2="313" y2="332" marker-end="url(#ah-s)"/>
+  <!-- 01 核心算法 -->
+  <g filter="url(#glow2)">
+    <rect class="k-core" x="30" y="246" width="395" height="172" rx="10"/>
+  </g>
+  <text class="f-num" x="52" y="278" style="fill:#14B8A6">01</text>
+  <text class="f-t2" x="80" y="278" style="fill:#0F766E">核心算法</text>
+  <text class="f-mono" x="52" y="304" style="fill:#0F766E">crop_camera_by_angle.py</text>
+  <line x1="52" y1="322" x2="403" y2="322" style="stroke:#99F6E4;stroke-width:1.6"/>
+  <circle cx="58" cy="349" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="72" y="354">视线交汇最小二乘求目标点</text>
+  <circle cx="58" cy="375" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="72" y="380">±180° 方位角循环补偿</text>
+  <circle cx="58" cy="401" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="72" y="406">角度 / 高度 / 半径多维调整</text>
 
-      <!-- 02 可视化验证 -->
-      <g filter="url(#glow2)">
-        <rect class="k-core" x="320" y="242" width="255" height="180" rx="10"/>
-      </g>
-      <text class="f-num" x="342" y="274" style="fill:#14B8A6">02</text>
-      <text class="f-t2" x="372" y="274" style="fill:#0F766E">可视化验证</text>
-      <text class="f-num" x="342" y="298" style="fill:#0F766E">visualize_cameras.py</text>
-      <line x1="342" y1="318" x2="553" y2="318" style="stroke:#99F6E4;stroke-width:1.6"/>
-      <circle cx="347" cy="344" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="358" y="348" style="fill:#334155">3D 空间分布 + 极坐标角度分布</text>
-      <circle cx="347" cy="366" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="358" y="370" style="fill:#334155">裁剪前后自动对比</text>
-      <circle cx="347" cy="388" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="358" y="392" style="fill:#334155">输出 300 dpi PNG</text>
+  <line class="ln-core" x1="429" y1="332" x2="453" y2="332" marker-end="url(#ah-s)"/>
 
-      <line class="ln-core" x1="582" y1="332" x2="603" y2="332" marker-end="url(#ah-s)"/>
+  <!-- 02 可视化验证 -->
+  <g filter="url(#glow2)">
+    <rect class="k-core" x="455" y="246" width="395" height="172" rx="10"/>
+  </g>
+  <text class="f-num" x="477" y="278" style="fill:#14B8A6">02</text>
+  <text class="f-t2" x="505" y="278" style="fill:#0F766E">可视化验证</text>
+  <text class="f-mono" x="477" y="304" style="fill:#0F766E">visualize_cameras.py</text>
+  <line x1="477" y1="322" x2="828" y2="322" style="stroke:#99F6E4;stroke-width:1.6"/>
+  <circle cx="483" cy="349" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="354">3D 空间分布 + 极坐标角度分布</text>
+  <circle cx="483" cy="375" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="380">裁剪前后自动对比</text>
+  <circle cx="483" cy="401" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="406">输出 300 dpi PNG</text>
 
-      <!-- 03 UWA 格式生成 -->
-      <rect class="k-data" x="610" y="242" width="255" height="180" rx="10"/>
-      <text class="f-num" x="632" y="274" style="fill:#4F46E5">03</text>
-      <text class="f-t2" x="662" y="274" style="fill:#3730A3">UWA 格式生成</text>
-      <text class="f-num" x="632" y="298" style="fill:#3730A3">generate_camera_files.py</text>
-      <line x1="632" y1="318" x2="843" y2="318" style="stroke:#C7D2FE;stroke-width:1.6"/>
-      <circle cx="637" cy="344" r="2.6" style="fill:#4F46E5"/>
-      <text class="f-xs" x="648" y="348" style="fill:#334155">cameras_init.json ／ cameras_out.json</text>
-      <circle cx="637" cy="366" r="2.6" style="fill:#4F46E5"/>
-      <text class="f-xs" x="648" y="370" style="fill:#334155">view_params.json</text>
-      <circle cx="637" cy="388" r="2.6" style="fill:#4F46E5"/>
-      <text class="f-xs" x="648" y="392" style="fill:#334155">角度范围 / 包围盒 / 半径 自动计算</text>
+  <!-- 02 → 03：阶梯折下 -->
+  <line class="ln-core" x1="652.5" y1="419" x2="652.5" y2="431" marker-end="url(#ah-s)"/>
 
-      <line class="ln-core" x1="872" y1="332" x2="893" y2="332" marker-end="url(#ah-s)"/>
+  <!-- 03 UWA 格式生成 -->
+  <rect class="k-data" x="30" y="434" width="395" height="172" rx="10"/>
+  <text class="f-num" x="52" y="466" style="fill:#4F46E5">03</text>
+  <text class="f-t2" x="80" y="466" style="fill:#3730A3">UWA 格式生成</text>
+  <text class="f-mono" x="52" y="492" style="fill:#3730A3">generate_camera_files.py</text>
+  <line x1="52" y1="510" x2="403" y2="510" style="stroke:#C7D2FE;stroke-width:1.6"/>
+  <circle cx="58" cy="537" r="3" style="fill:#4F46E5"/>
+  <text class="f-s" x="72" y="542">cameras_init.json ／ cameras_out.json</text>
+  <circle cx="58" cy="563" r="3" style="fill:#4F46E5"/>
+  <text class="f-s" x="72" y="568">view_params.json</text>
+  <circle cx="58" cy="589" r="3" style="fill:#4F46E5"/>
+  <text class="f-s" x="72" y="594">角度范围 / 包围盒 / 半径 自动计算</text>
 
-      <!-- 04 桌面图形工具 -->
-      <g filter="url(#glow2)">
-        <rect class="k-core" x="900" y="242" width="255" height="180" rx="10"/>
-      </g>
-      <text class="f-num" x="922" y="274" style="fill:#14B8A6">04</text>
-      <text class="f-t2" x="952" y="274" style="fill:#0F766E">桌面图形工具</text>
-      <text class="f-num" x="922" y="298" style="fill:#0F766E">main.py</text>
-      <line x1="922" y1="318" x2="1133" y2="318" style="stroke:#99F6E4;stroke-width:1.6"/>
-      <circle cx="927" cy="344" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="938" y="348" style="fill:#334155">Tkinter GUI，参数界面化填写</text>
-      <circle cx="927" cy="366" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="938" y="370" style="fill:#334155">PyInstaller 打包单文件 exe</text>
-      <circle cx="927" cy="388" r="2.6" style="fill:#14B8A6"/>
-      <text class="f-xs" x="938" y="392" style="fill:#334155">调参闭环：看图验证 → 调整参数</text>
+  <line class="ln-core" x1="429" y1="520" x2="453" y2="520" marker-end="url(#ah-s)"/>
 
-      <!-- 汇流 -->
-      <path class="ln-data" d="M 157.5,422 L 157.5,446 L 1027.5,446 L 1027.5,422"/>
-      <line class="ar" x1="590" y1="446" x2="590" y2="472" marker-end="url(#ah)"/>
+  <!-- 04 桌面图形工具 -->
+  <g filter="url(#glow2)">
+    <rect class="k-core" x="455" y="434" width="395" height="172" rx="10"/>
+  </g>
+  <text class="f-num" x="477" y="466" style="fill:#14B8A6">04</text>
+  <text class="f-t2" x="505" y="466" style="fill:#0F766E">桌面图形工具</text>
+  <text class="f-mono" x="477" y="492" style="fill:#0F766E">main.py</text>
+  <line x1="477" y1="510" x2="828" y2="510" style="stroke:#99F6E4;stroke-width:1.6"/>
+  <circle cx="483" cy="537" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="542">Tkinter GUI，参数界面化填写</text>
+  <circle cx="483" cy="563" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="568">PyInstaller 打包单文件 exe</text>
+  <circle cx="483" cy="589" r="3" style="fill:#14B8A6"/>
+  <text class="f-s" x="497" y="594">调参闭环：看图验证 → 调整参数</text>
 
-      <!-- 输出层（靛蓝 = 数据产物，青 = 最终成品） -->
-      <text class="f-lbl" x="30" y="494">OUTPUT ｜ 输出与交付</text>
-      <rect class="k-data" x="30" y="508" width="355" height="86" rx="10"/>
-      <text class="f-t2" x="52" y="541" style="fill:#3730A3">调整后相机</text>
-      <text class="f-s" x="52" y="565">角度 / 高度 / 半径调整完毕的位姿</text>
-      <line class="ar" x1="390" y1="551" x2="409" y2="551" marker-end="url(#ah)"/>
+  <!-- ── 汇流 ── -->
+  <path class="ln-data" d="M 227.5,618 L 227.5,644 L 652.5,644 L 652.5,618"/>
+  <line class="ar" x1="440" y1="644" x2="440" y2="670" marker-end="url(#ah)"/>
 
-      <rect class="k-data" x="412" y="508" width="355" height="86" rx="10"/>
-      <text class="f-t2" x="434" y="541" style="fill:#3730A3">编码 &amp; 封装</text>
-      <text class="f-s" x="434" y="565">UWA 编码格式转换与 MP4 封装</text>
-      <line class="ar" x1="772" y1="551" x2="791" y2="551" marker-end="url(#ah)"/>
+  <!-- ── 输出层（靛蓝 = 数据产物，青 = 最终成品） ── -->
+  <text class="f-lbl" x="30" y="686">OUTPUT ｜ 输出与交付</text>
+  <rect class="k-data" x="30" y="700" width="253" height="84" rx="10"/>
+  <text class="f-t2" x="52" y="732" style="fill:#3730A3">调整后相机</text>
+  <text class="f-s" x="52" y="761">角度 / 高度 / 半径已调好</text>
+  <line class="ar" x1="285" y1="742" x2="309" y2="742" marker-end="url(#ah)"/>
 
-      <rect class="k-out" x="794" y="508" width="355" height="86" rx="10"/>
-      <text class="f-t2" x="816" y="541" style="fill:#0F766E">3DGS 壁纸产出</text>
-      <text class="f-s" x="816" y="565" style="fill:#115E59">约束已内嵌，直接可用的成品</text>
+  <rect class="k-data" x="313" y="700" width="253" height="84" rx="10"/>
+  <text class="f-t2" x="335" y="732" style="fill:#3730A3">编码 &amp; 封装</text>
+  <text class="f-s" x="335" y="761">UWA 编码转换与 MP4 封装</text>
+  <line class="ar" x1="568" y1="742" x2="592" y2="742" marker-end="url(#ah)"/>
 
-      <defs>
-        <marker id="ah" markerWidth="11" markerHeight="11" refX="8.5" refY="5.5" orient="auto">
-          <path d="M0,0 L9,4.5 L0,9 Z" style="fill:#475569"/>
-        </marker>
-        <!-- 同层内递进用的固定尺寸小箭头（userSpaceOnUse，不随 stroke-width 放大） -->
-        <marker id="ah-s" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto"
-                markerUnits="userSpaceOnUse">
-          <path d="M0,0 L9,6 L0,12 Z" style="fill:#0D9488"/>
-        </marker>
-        <filter id="glow2" x="-20%" y="-60%" width="140%" height="220%">
-          <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="b1"/>
-          <feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="b2"/>
-          <feFlood flood-color="#5EEAD4" flood-opacity="0.30" result="c1"/>
-          <feFlood flood-color="#0D9488" flood-opacity="0.20" result="c2"/>
-          <feComposite in="c1" in2="b1" operator="in" result="g1"/>
-          <feComposite in="c2" in2="b2" operator="in" result="g2"/>
-          <feMerge>
-            <feMergeNode in="g1"/><feMergeNode in="g2"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-    </svg>
+  <rect class="k-out" x="596" y="700" width="253" height="84" rx="10"/>
+  <text class="f-t2" x="618" y="732" style="fill:#0F766E">3DGS 壁纸产出</text>
+  <text class="f-s" x="618" y="761" style="fill:#115E59">约束已内嵌，开箱即用</text>
+
+  <defs>
+    <marker id="ah" markerWidth="11" markerHeight="11" refX="8.5" refY="5.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" style="fill:#475569"/>
+    </marker>
+    <!-- 同层递进用固定尺寸小箭头（userSpaceOnUse，不随 stroke-width 放大） -->
+    <marker id="ah-s" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto"
+            markerUnits="userSpaceOnUse">
+      <path d="M0,0 L9,6 L0,12 Z" style="fill:#0D9488"/>
+    </marker>
+    <filter id="glow2" x="-20%" y="-60%" width="140%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="b1"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="b2"/>
+      <feFlood flood-color="#5EEAD4" flood-opacity="0.30" result="c1"/>
+      <feFlood flood-color="#0D9488" flood-opacity="0.20" result="c2"/>
+      <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+      <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+      <feMerge>
+        <feMergeNode in="g1"/><feMergeNode in="g2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+</svg>
