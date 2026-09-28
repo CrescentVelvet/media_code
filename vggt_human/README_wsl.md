@@ -338,16 +338,17 @@ bash vggt_human/08_move_output.sh
 每个风格同时落一份独立 `.svg`（矢量原图，可直接拖进 PPT / 报告排版）。
 
 ```bash
-# 默认：combo 风格（等轴测 + 俯视双联图），源 = /mnt/d/dataset/测试数据sample
-python vggt_human/99g_plot_capture_trajectory.py
+# 默认：combo 风格（等轴测 + 俯视双联图）
+# ⚠️ 脚本里的 SRC_ROOT 默认值是**服务器路径**，本机测试必须显式覆盖成本机的 D:/dataset/测试数据sample
+SRC_ROOT=D:/dataset/测试数据sample python vggt_human/99g_plot_capture_trajectory.py
 
-# 一次出全部 5 种风格（挑图用）+ 额外生成 index.html 总览页
-SRC_ROOT=/mnt/d/dataset/测试数据sample \
+# 一次出全部风格（挑图用）+ 额外生成 index.html 总览页
+SRC_ROOT=D:/dataset/测试数据sample \
 DST_ROOT=../../output/remy_traj_html \
 STYLE=all python vggt_human/99g_plot_capture_trajectory.py
 
 # 只画指定 ID（逗号分隔）
-SRC_ROOT=/mnt/d/dataset/测试数据sample \
+SRC_ROOT=D:/dataset/测试数据sample \
 IDS=13a8ecadfeb448e890db319ac828befe \
 STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 ```
@@ -358,6 +359,28 @@ STYLE=combo python vggt_human/99g_plot_capture_trajectory.py
 / `fov`（视锥扇形 + 点云底图）/ `iso`（等轴测单图），或 `all`。纯标准库实现
 （json/math/struct），不需要 conda env，**兼容 Python ≥ 3.8**。
 输入的 `transforms.json` 字段含义与四条易踩的坐标系坑见 [NOTES.md](NOTES.md)「Remy 采集包」。
+
+### 视角约束范围（view limit）叠加
+
+把「以 target 为心、方位角/仰角/半径三区间围成的球壳扇块」画进轨迹图。区间由各帧实测
+min/max ± 余量推出（不照抄外部那版 C++ 移植代码，四点问题见 NOTES.md）。
+
+```bash
+# ① 选型：六种画法内联在同一张 HTML 里竖向排开，一页看完再定
+SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=../../output/remy_vlimit_html \
+STYLE=vlimit IDS=<id1>,<id2> python vggt_human/99g_plot_capture_trajectory.py
+
+# ② 定稿后单独出一种（落 <ID>__lim_<mode>.html + 独立 .svg）
+STYLE=lim_edges SRC_ROOT=... python vggt_human/99g_plot_capture_trajectory.py
+
+# ③ 直接把约束叠进 combo 的俯视图（叠 shell 则进等轴测面板）
+VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python vggt_human/99g_plot_capture_trajectory.py
+```
+
+画法：`lim_band`（扇环填充）/ `lim_edges`（四条边界虚线，对轨迹影响最小）/ `lim_angle`
+（边界 + 角度/半径数值标注）/ `lim_rings`（米制同心环 + 方位刻度）/ `lim_hull`
+（对照组：相机水平位置凸包外扩，不假设环绕）/ `lim_shell`（等轴测 3D 球壳扇块）。
+余量可用 `VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` 覆盖，整圈判定阈值用 `VL_FULL_AZ`。
 
 ### ⚠️ 提交前跑一次语法兼容检查（99h）
 
@@ -370,7 +393,9 @@ python vggt_human/99h_check_py_syntax.py a.py b/    # 也可指定文件/目录
 ```
 
 需要 Python ≥ 3.12 运行该检查（tokenize 的 FSTRING_* token）；判定规则都是在 3.10.20 上
-逐条实测过的，不是照文档猜的。
+逐条实测过的，不是照文档猜的。检查分两道：先 `ast.parse` 拦普通语法错误，再用 tokenize
+查「本机能过、3.10 过不了」的 f-string 写法。**不能只做后者** —— tokenize 是纯词法分析，
+像 `f()    f()`（两条语句撞在一行）这种它一路通过（2026-09-28 实测漏报过一次）。
 
 ## 详细文档
 

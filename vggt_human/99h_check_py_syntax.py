@@ -33,6 +33,7 @@
 
 退出码：0 = 干净，1 = 有命中。需 Python ≥ 3.12 运行本检查（低版本不会产出 FSTRING_* token）。
 """
+import ast
 import io
 import sys
 import tokenize
@@ -53,6 +54,16 @@ def delim_of(text: str):
 def scan_file(path: Path):
     """返回 [(行号, 行内容, 原因)]。"""
     src = path.read_text(encoding="utf-8", errors="replace")
+
+    # 先做语法检查：tokenize 只做词法分析，像 `f()    f()`（两条语句撞在一行）这种
+    # 纯语法错误它能一路通过（实测漏报过），必须先 ast.parse 拦一道。
+    try:
+        ast.parse(src)
+    except SyntaxError as e:
+        lines = src.splitlines()
+        frag = lines[e.lineno - 1].strip()[:160] if 0 < e.lineno <= len(lines) else ""
+        return [(e.lineno or -1, frag, f"语法错误：{e.msg}")]
+
     try:
         toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError) as e:
@@ -128,8 +139,11 @@ def main():
             print(f"❌ {f}")
             for ln, frag, why in hits:
                 print(f"     L{ln}: {frag}")
-                print(f"        → {why}：3.12 才合法，3.10 会 SyntaxError。"
-                      f"先把值取到局部变量再拼，或内外改用不同引号。")
+                if why.startswith("语法错误") or why.startswith("⚠️"):
+                    print(f"        → {why}")
+                else:
+                    print(f"        → {why}：3.12 才合法，3.10 会 SyntaxError。"
+                          f"先把值取到局部变量再拼，或内外改用不同引号。")
 
     print()
     if bad:
