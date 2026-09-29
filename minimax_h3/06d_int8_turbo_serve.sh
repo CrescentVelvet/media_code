@@ -7,23 +7,22 @@
 # 06d 取两者之长：int8 压 RAM + Turbo 4 步省算力。
 #
 # LoRA checkpoint 配方（同 06b.sh，详见 https://huggingface.co/lightx2v/Minimax-h3-Turbo）：
-#   checkpoint                              NFE  VIDEO_SHIFT  alpha(文件)  PEFT scale   MAX_PIXELS
+#   checkpoint                              NFE  VIDEO_SHIFT  alpha       PEFT scale   MAX_PIXELS
 #   ────────────────────────────────────────────────────────────────────────────────────────────────
 #   fl2v_turbo_4step_v1.0_768p_bf16          4    6            128         1.0          1032192 (1344x768) ← 默认
 #   fl2v_turbo_4step_v1.1_768p_bf16          4    6            128         1.0          1032192 (1344x768)
-#   fl2v_turbo_4step_v1.2_768p_bf16          4    6            8 ⚠️        0.0625 ⚠️    1032192 (1344x768) 新版(2026-09-06，音频更干净)
-#   fl2v_turbo_8step_v1.0_768p_bf16          8    6            8 ⚠️        0.0625 ⚠️    1032192 (1344x768)  质量优先（比 4 步慢 2×）
-#   fl2v_turbo_4step_v0.1                    4    12           无记录      1.0          522240  (960x544)  ← 3090 OOM 兜底
-#   fl2v_turbo_8step_v1.0_bf16               8    12           无记录      1.0          522240  (960x544)
-#   ref2v_turbo_4step_v0.1_bf16              4    12           无记录      1.0          522240  (Ref2VA，06d 不支持，用 06b)
+#   fl2v_turbo_4step_v1.2_768p_bf16          4    6            8           0.0625       1032192 (1344x768) 新版(2026-09-06，音频更干净)
+#   fl2v_turbo_8step_v1.0_768p_bf16          8    6            8           0.0625       1032192 (1344x768)  质量优先（官方 Studio 在用）
+#   fl2v_turbo_4step_v0.1                    4    12           8*          0.0625       522240  (960x544)  ← 3090 OOM 兜底
+#   fl2v_turbo_8step_v1.0_bf16               8    12           8*          0.0625       522240  (960x544)
+#   ref2v_turbo_4step_v0.1_bf16              4    12           8*          0.0625       522240  (Ref2VA，06d 不支持，用 06b)
+# * 文件无 alpha 字段，回退官方默认 8。
 #
-# ⚠️ LORA_ALPHA 默认 auto：按 checkpoint 自身的 __metadata__['alpha'] 推导 PEFT scale
-#    = alpha/rank（rank 均为 128）。规则照 diffusers 0.40 的 MiniMaxH3LoraLoaderMixin：
-#    有该字段用它、没有则按 alpha==rank（scale 1.0）。
-#    ⚠️ 但 768p 系列 metadata 自相矛盾（v1.0/v1.1=128，v1.2/8step=8，而实测 ||B@A||
-#    幅度同量级，不是 16×），**至少一个记录是错的**。标 ⚠️ 的两支必须 A/B：
-#    LORA_ALPHA=auto（按记录 0.0625） vs LORA_ALPHA=128（scale 1.0）。
-#    另：旧版本脚本在这里写死 128，会把 8-step / v1.2 放大 16×、把 544p v0.1 缩小 16×。
+# ⚠️ LORA_ALPHA 默认 auto：文件有 __metadata__['alpha'] 用它，没有回退 8。
+#    PEFT scale = alpha/rank（rank 均为 128）。权威依据 = 官方推理脚本
+#    ModelTC/Minimax-H3-Turbo/inference_minimax_h3.py：DEFAULT_LORA_ALPHA=8，
+#    仅 4step_v1.0_768p 的官方示例显式 --lora-alpha 128。
+#    旧版脚本在这里写死 128 → 8step / v1.2 / 544p 全被放大 16×。
 # ⚠️ shift 与 checkpoint 绑定，换 checkpoint 必须同步改 VIDEO_SHIFT/MAX_PIXELS。
 # ⚠️ 768p LoRA 在远低于 1344x768 的分辨率上跑会掉质（蒸馏是分辨率敏感的）；3090 若 768p VAE
 #    解码 OOM，降 NUM_FRAMES 或换 544p checkpoint（VIDEO_SHIFT=12 MAX_PIXELS=522240）。
@@ -102,7 +101,7 @@ export NUM_FRAMES="${NUM_FRAMES:-124}"
 export NUM_INFERENCE_STEPS="${NUM_INFERENCE_STEPS:-4}"
 export VIDEO_SHIFT="${VIDEO_SHIFT:-6.0}"             # 768p 用 6；544p 用 12
 export AUDIO_SHIFT="${AUDIO_SHIFT:-3.0}"
-export LORA_ALPHA="${LORA_ALPHA:-auto}"              # auto=按 checkpoint 元数据；768p v1.0/v1.1 → 128，v1.2/8step → 8
+export LORA_ALPHA="${LORA_ALPHA:-auto}"              # auto=按 checkpoint 元数据，缺省回退官方 8；768p v1.0/v1.1 → 128，其余 → 8
 export LORA_SCALE="${LORA_SCALE:-1.0}"
 export FUSE_LORA="${FUSE_LORA:-0}"                   # int8 不支持 fuse（融不进量化权重），保持 0
 

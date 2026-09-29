@@ -87,8 +87,8 @@ bash minimax_h3/06d_int8_turbo_serve.sh
 # 用 lightx2v/Minimax-h3-Turbo 蒸馏的 LoRA，把 50 步压到 4 步，推理快 ~10×。
 # bf16 不量化 + ComponentsManager auto CPU offload（单卡 80GB 可跑）。
 # ⚠️ 768p checkpoint 必须用 VIDEO_SHIFT=6（训练 shift=6，不是 12）。
-# ⚠️ LORA_ALPHA 别写死，留默认 auto（读 checkpoint 的 __metadata__['alpha']，打印实际 scale = alpha/rank）。
-#    768p 系列元数据自相矛盾：v1.0/v1.1 记 128，v1.2/8step_768p 记 8，二者必有一错 —— 标 ⚠️ 的两支要 A/B。
+# ⚠️ LORA_ALPHA 别写死，留默认 auto（读 checkpoint 的 __metadata__['alpha']，缺省回退官方 8，
+#    打印实际 scale = alpha/rank）。官方 DEFAULT_LORA_ALPHA=8，仅 v1.0_768p 显式 128。
 # 先下 LoRA：
 #   hf download lightx2v/Minimax-h3-Turbo \
 #     minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
@@ -568,7 +568,7 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 | `NUM_INFERENCE_STEPS` | `4` | NFE（去噪步数）；传 scheduler 时自动 +1（grid 含末尾零点） |
 | `VIDEO_SHIFT` | `6.0` | 视频 sigma shift；**768p 4-step 用 6**，544p 各版用 `12` |
 | `AUDIO_SHIFT` | `3.0` | 音频 sigma shift |
-| `LORA_ALPHA` | `auto` | LoRA alpha；`auto`=读 checkpoint 的 `__metadata__['alpha']`（缺失则按 `alpha==rank`，rank 均为 128）。实际缩放 = `alpha/rank`，启动日志会打印。**别写死**：v1.2 / 8step_768p 的文件 alpha=8（scale 0.0625），写死 128 会放大 16× |
+| `LORA_ALPHA` | `auto` | LoRA alpha；`auto`=读 checkpoint 的 `__metadata__['alpha']`，缺失回退**官方默认 8**。实际缩放 = `alpha/rank`（rank 均为 128），启动日志会打印。权威依据 = 官方推理脚本 `DEFAULT_LORA_ALPHA=8`，仅 `4step_v1.0_768p` 官方示例显式 `--lora-alpha 128` |
 | `LORA_SCALE` | `1.0` | LoRA 运行时缩放（叠在 alpha/rank 之上） |
 | `FUSE_LORA` | `0` | `1`=烘焙 LoRA 进权重（同卡多次跑省开销；int8 路径不支持，保持 0） |
 | `MODEL_PATH` | `../../model/MiniMax-H3` | 原版 HF 权重（bf16，不量化） |
@@ -582,21 +582,20 @@ find minimax_h3 -name '*.sh' -exec sed -i 's/\r$//' {} +    # 一次性修所有
 
 各 checkpoint 参数对应（详见 `.sh` 顶部注释）：
 
-| checkpoint | NFE | VIDEO_SHIFT | alpha(文件) | PEFT scale | MAX_PIXELS |
+| checkpoint | NFE | VIDEO_SHIFT | alpha | PEFT scale | MAX_PIXELS |
 |---|---|---|---|---|---|
 | `minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16` | 4 | 6 | 128 | 1.0 | 1032192 (1344×768) ← 06b/06d 默认 |
 | `minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16` | 4 | 6 | 128 | 1.0 | 1032192 (1344×768) v1.1 质量改进版 |
-| `minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16` | 4 | 6 | 8 ⚠️ | 0.0625 ⚠️ | 1032192 (1344×768) 新版（2026-09-06，音频更干净） |
-| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 8 | 6 | 8 ⚠️ | 0.0625 ⚠️ | 1032192 (1344×768) 质量优先（官方 Studio 用，比 4 步慢 2×） |
-| `minimax_h3_fl2v_turbo_4step_v0.1` | 4 | 12 | 无记录 | 1.0 | 522240 (960×544) |
-| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 8 | 12 | 无记录 | 1.0 | 522240 (960×544) |
-| `minimax_h3_ref2v_turbo_4step_v0.1_bf16` | 4 | 12 | 无记录 | 1.0 | 522240 (Ref2VA，需 `TASK=ref2va`) |
+| `minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16` | 4 | 6 | 8 | 0.0625 | 1032192 (1344×768) 新版（2026-09-06，音频更干净） |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 8 | 6 | 8 | 0.0625 | 1032192 (1344×768) 质量优先（官方 Studio 在用，比 4 步慢 2×） |
+| `minimax_h3_fl2v_turbo_4step_v0.1` | 4 | 12 | 8* | 0.0625 | 522240 (960×544) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 8 | 12 | 8* | 0.0625 | 522240 (960×544) |
+| `minimax_h3_ref2v_turbo_4step_v0.1_bf16` | 4 | 12 | 8* | 0.0625 | 522240 (Ref2VA，需 `TASK=ref2va`) |
 
-⚠️ **768p 系列的 alpha 元数据自相矛盾**：v1.0/v1.1 记 128，v1.2 / 8step_v1.0_768p 记 8。
-但实测 `||B@A||`（rank-128 全秩因子积，已含 alpha）两者幅度同量级（比值 0.46–0.65），
-**不是 16×**；而 alpha 只影响推理缩放、不改变存盘的 A/B 幅值 —— 所以至少有一条记录是错的。
-→ 标 ⚠️ 的两支必须 A/B：`LORA_ALPHA=auto`（按记录 0.0625）vs `LORA_ALPHA=128`（scale 1.0），
-同 prompt/seed 各跑一遍再定。v1.0/v1.1 768p 的 128 与官方 `--lora-alpha 128` 一致，无歧义。
+\* 文件无 alpha 字段，`auto` 回退官方默认 8（`inference_minimax_h3.py` 的 `DEFAULT_LORA_ALPHA=8`）。
+旧版脚本写死 128 → 8step / v1.2 / 544p 全被放大 16×。
+⚠️ 注意：这个 alpha bug 与本机马赛克**无关** —— 历史出噪点的运行用的 checkpoint 其 alpha
+恰好全是对的（v1.0_768p=128、v0.1=8、或无 LoRA）；噪点根因另查（见 README_wsl.md 状态条）。
 
 ### FlashVSR SR (07)
 | var | default | note |
