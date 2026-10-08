@@ -58,10 +58,14 @@ if [ -n "${GPU:-}" ]; then
 fi
 
 # 5. 路径（都用 ${VAR:-default} 允许外部覆盖；WSL 上由 proxy.env 覆盖）
+# WSL 路径纪律（README_wsl.md）：官方仓与训练输出必须在 Linux fs（~/repos、~/output），
+# /mnt/c 只读代码、/mnt/d 只放最终产物。proxy.env 用项目专属变量覆盖默认：
+#   DEFORMABLE_HUMAN_RESULTS_DIR → $HOME/output/deformable_human_results
+#   DG_DIR                       → $HOME/repos/Deformable-3D-Gaussians（通用名，与
+#                                  deformable_gaussians 共用同一官方仓）
 MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model}"
-RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../deformable_human_results}"
-# Deformable-3D-Gaussians 官方仓（00a 会把它写进 proxy.env；WSL 必须在 Linux fs ~/repos/）
-DG_DIR="${DG_DIR:-$REPO_DIR/../Deformable-3D-Gaussians}"
+RESULTS_DIR="${RESULTS_DIR:-${DEFORMABLE_HUMAN_RESULTS_DIR:-$REPO_DIR/../deformable_human_results}}"
+DG_DIR="${DG_DIR:-$HOME/repos/Deformable-3D-Gaussians}"
 # Stage A 复用的兄弟编排目录（只读调用，不复制代码）
 VGGT_HUMAN_DIR="${VGGT_HUMAN_DIR:-$REPO_DIR/vggt_human}"
 DG_ORCH_DIR="${DG_ORCH_DIR:-$REPO_DIR/deformable_gaussians}"
