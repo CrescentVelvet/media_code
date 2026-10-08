@@ -49,8 +49,15 @@ fi
 
 if [ -d "$DST" ] && [ "$(ls -A "$DST" 2>/dev/null)" ]; then
     echo "⚠️  目标目录非空: $DST（rsync 会合并/覆盖同名文件）"
-    echo "  继续请按 Enter，取消请 Ctrl+C"
-    [ "${DRY_RUN:-0}" != "1" ] && read -r _ < /dev/tty
+    if [ "${FORCE:-0}" = "1" ]; then
+        echo "  FORCE=1，直接合并"
+    elif [ -t 0 ]; then
+        echo "  继续请按 Enter，取消请 Ctrl+C"
+        read -r _ < /dev/tty || true
+    else
+        echo "❌ ERROR: 非交互模式且目标非空，需显式 FORCE=1 确认合并" >&2
+        exit 1
+    fi
 fi
 
 if [ "${DRY_RUN:-0}" = "1" ]; then
