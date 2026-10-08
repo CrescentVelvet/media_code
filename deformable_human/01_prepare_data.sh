@@ -48,13 +48,22 @@ echo "  📐 video_fps:  $VIDEO_FPS   blur_gate: $BLUR_THRESHOLD"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
-if [ -z "$VIDEO_PATH" ]; then
-    echo "❌ ERROR: VIDEO_PATH 未设置（单目视频文件路径）" >&2
-    exit 1
+# VIDEO_PATH 与「预置帧」二选一：$FRAMES_DIR/image/ 已有帧时跳过抽帧（复用既有采集），
+# 此时 VIDEO_PATH 可以不传。
+if [ -d "$FRAMES_DIR/image" ] && [ "$(ls -A "$FRAMES_DIR/image" 2>/dev/null | wc -l)" -gt 0 ]; then
+    PRESEEDED=1
+else
+    PRESEEDED=0
 fi
-if [ ! -f "$VIDEO_PATH" ]; then
-    echo "❌ ERROR: 视频不存在: $VIDEO_PATH" >&2
-    exit 1
+if [ "$PRESEEDED" = "0" ]; then
+    if [ -z "$VIDEO_PATH" ]; then
+        echo "❌ ERROR: VIDEO_PATH 未设置（单目视频文件路径；或预置帧到 $FRAMES_DIR/image/）" >&2
+        exit 1
+    fi
+    if [ ! -f "$VIDEO_PATH" ]; then
+        echo "❌ ERROR: 视频不存在: $VIDEO_PATH" >&2
+        exit 1
+    fi
 fi
 if [ ! -f "$VGGT_HUMAN_DIR/01a_video_to_frames.sh" ]; then
     echo "❌ ERROR: 找不到 $VGGT_HUMAN_DIR/01a_video_to_frames.sh（VGGT_HUMAN_DIR 可覆盖）" >&2
@@ -66,8 +75,8 @@ if [ ! -f "$DG_ORCH_DIR/03_colmap_pose.sh" ]; then
 fi
 
 # ── 1) 视频 → 帧（委托 vggt_human/01a，它自己 source 自己的 env）─────────────
-if [ -d "$FRAMES_DIR/image" ] && [ "$(ls -A "$FRAMES_DIR/image" 2>/dev/null | wc -l)" -gt 0 ]; then
-    echo "⏭️  [1] $FRAMES_DIR/image/ 已有帧，跳过抽帧（删除后重跑可强制）"
+if [ "$PRESEEDED" = "1" ]; then
+    echo "⏭️  [1] $FRAMES_DIR/image/ 已有预置帧（$(ls -A "$FRAMES_DIR/image" | wc -l) 张），跳过抽帧"
 else
     echo "🎬 [1] 抽帧: 调 vggt_human/01a_video_to_frames.sh"
     INPUT_DIR="$VIDEO_PATH" \
