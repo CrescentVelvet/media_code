@@ -173,6 +173,32 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
 残余手部模糊的剩余路线：①per-frame latent / 更大 deform MLP（容量）；
 ②输入侧利用源数据自带 transforms.json 位姿（免 COLMAP，位姿更准）。
 
+### 位姿来源消融（2026-10-09 晚，同配方 10k+warm1000，hand_motion）
+
+| 位姿来源 | 初始化点数 | 官方 test PSNR | train PSNR | 结论 |
+|---|---|---|---|---|
+| **COLMAP BA**（01 默认） | ~10k | **29.14**（mask 版）/ 29.26（无 mask） | ~29 | ✅ 主链路 |
+| 手机 VI 位姿（01e，transforms.json） | 178k（pcd.ply 稠密） | 25.14 | 28.84 | ❌ -4dB |
+| 手机 VI + POSE_REFINE | 178k | 14.78 | 14.61 | ❌ 发散 |
+| VGGT-Omega 前馈（vggt_human 02/03 链路） | 5.4k（voxel 下采样偏狠） | 23.85 | 25.74 | ❌ -5.3dB |
+
+要点：
+- **COLMAP BA 明显不可替代**：VI 位姿重投影目检完美、无系统偏移（±8px 网格搜索验证），
+  但逐帧亚像素级噪声在全场景一致地压指标（train→test 泛化缺口 3.7dB，远大于 COLMAP）。
+- 手机位姿 + 可学精化（POSE_REFINE）**发散**：drift rot mean 1.48°/trans mean 0.12m，
+  warm-up 期几何未成形时位姿被垃圾梯度拖走，自我强化进坏局部最优。
+  代码数学核对无 bug——是策略问题，要救需 BARF 式课程调度，成本远超省下的 COLMAP 时间。
+- VGGT-Omega 前馈位姿（38.5s 出 135 帧）重投影目检同样对齐，但预测内参与真实
+  固定内参有系统差（fx median 1397.6 vs 手机标定 1380.8，且逐帧浮动 MAD 6px），
+  联合 pose+intrinsic 误差使其垫底。
+- 稠密初始化救不了位姿误差：手机版带着 178k 稠密 pcd 初始化仍 -4dB——
+  瓶颈是位姿/内参精度而非初始化点数（VGGT 版 5.4k 稀疏 init 的额外劣势无法从
+  本组实验剥离，如需精确归因可加大 TARGET_POINTS 重训，但即便追回 1-2dB
+  也不改变排序结论）。
+- 副产物保留：01e（手机位姿转换管线）可在 **COLMAP 彻底失败**（弱纹理/重复纹理场景）
+  时作降级 fallback，质量预期 -4dB。
+- π³x 未试：与 VGGT 同属前馈类，证据强度不足以改变结论；如需补测成本 ~1h。
+
 ## Notes
 - **先 vanilla 后锚定**：02 不加任何人体先验，先看 canonical+形变把重影消到几成，
   残差（单目欠定的背面/遮挡）再决定 Phase 2 的 MHR 锚定形态。锚定导出在 01 里是
