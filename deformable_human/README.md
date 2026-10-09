@@ -37,7 +37,7 @@ GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
 # 2) vanilla Deformable-GS 训练（canonical + 形变 MLP，NeRF-DS 模式）
 #    可选：USE_POSE_REFINE=1 联合精炼位姿（可学四元数+平移，内参不学）
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
-  ITERATIONS=20000 \
+  ITERATIONS=10000 \
   bash deformable_human/02_train.sh
 # 3) 渲染 + PSNR/SSIM/LPIPS（看运动区域是否还有拖影：MODE=original）
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
@@ -68,7 +68,7 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `VIDEO_FPS` | `6` | 抽帧 fps（动态序列要比静态的 2 密） |
 | `BLUR_THRESHOLD` | `100` | 拉普拉斯模糊门，0=关（透传 vggt_human/01a） |
 | `USE_GPU` | `1` | COLMAP SIFT 用 GPU（conda-forge colmap 3.11.1 实测带 CUDA） |
-| `ITERATIONS` | `20000` | NeRF-DS 真实序列标配 |
+| `ITERATIONS` | `10000` | 快速迭代默认；最终出片 `20000`（消融见「实验记录」） |
 | `IS_6DOF` | `0` | 1=6DoF 形变变体（略准、更慢） |
 | `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
 | `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
@@ -90,6 +90,22 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
         ├── model/                    # 02 形变模型 + 03 渲染产物
         └── model_static/             # （可选）静态 3DGS 基线（A/B 对比用）
 ```
+
+## 实验记录
+**迭代数消融**（2026-10-09，同一次训练的中间 checkpoint 渲染评测，test split 17 帧）：
+
+| 场景 | 迭代 | PSNR ↑ | Δ vs 20k | SSIM ↑ | LPIPS ↓ |
+|---|---|---|---|---|---|
+| hand_motion（135 帧，含手部动作） | 7000 | 28.05 | **-1.47** | 0.9014 | 0.0989 |
+| | 10000 | 28.85 | -0.67 | 0.9107 | 0.0879 |
+| | 20000 | 29.52 | — | 0.9187 | 0.0778 |
+| vggt_source（125 帧，微动） | 7000 | 30.42 | **-2.08** | 0.9297 | 0.1475 |
+| | 10000 | 31.53 | -0.98 | 0.9402 | 0.1328 |
+| | 20000 | 32.51 | — | 0.9475 | 0.1164 |
+
+结论：**7k 不可取**——形变 MLP 比高斯本体收敛慢，7k 时形变没学到位，
+vggt_source 的 30.42dB 几乎跌回静态 baseline（30.14dB），+2.37dB 形变收益被吃光。
+**默认定为 10000**（省一半时间，代价 <1dB），最终出片 `ITERATIONS=20000` 手动覆盖。
 
 ## Notes
 - **先 vanilla 后锚定**：02 不加任何人体先验，先看 canonical+形变把重影消到几成，

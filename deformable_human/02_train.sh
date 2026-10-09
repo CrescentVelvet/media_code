@@ -17,7 +17,9 @@
 #   SCENE_NAME=human_seq
 #   SOURCE_PATH=           # 默认 $RESULTS_DIR/$SCENE_NAME/colmap_scene
 #   MODEL_PATH=            # 默认 $RESULTS_DIR/$SCENE_NAME/model
-#   ITERATIONS=20000       # NeRF-DS 真实序列标配（D-NeRF 才用 40000）
+#   ITERATIONS=10000       # 快速迭代默认；最终出片用 20000。
+#                          # 消融（hand_motion/vggt_source）：7k 掉 1.5~2dB
+#                          # （形变 MLP 未收敛，收益被吃光），10k 只掉 0.7~1dB
 #   IS_6DOF=0              # 1=6DoF 变体（指标略高、更慢）
 #   WHITE_BG=0             # 1=白底（输入做了分割抠图时开）
 #   EVAL=1                 # 1=划分 train/test（llffhold=8；要指标必须开）
@@ -38,7 +40,7 @@ source "$SCRIPT_DIR/_env.sh"
 SCENE_NAME="${SCENE_NAME:-human_seq}"
 SOURCE_PATH="${SOURCE_PATH:-$RESULTS_DIR/$SCENE_NAME/colmap_scene}"
 MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/$SCENE_NAME/model}"
-ITERATIONS="${ITERATIONS:-20000}"
+ITERATIONS="${ITERATIONS:-10000}"
 IS_6DOF="${IS_6DOF:-0}"
 WHITE_BG="${WHITE_BG:-0}"
 EVAL="${EVAL:-1}"
