@@ -10,16 +10,21 @@
 # 输出：MODEL_PATH/
 #         point_cloud/iteration_<N>/point_cloud.ply   canonical 高斯
 #         deform/                                     形变 MLP 权重
+#         pose_refine.json                            USE_POSE_REFINE=1 时的精炼位姿
 #         cfg_args / cameras.json / input.ply / TensorBoard events
 #
 # Env (all optional, defaults shown):
 #   SCENE_NAME=human_seq
-#   SOURCE_PATH=           # 默认 $RESULTS_DIR/datasets/$SCENE_NAME/colmap_scene
-#   MODEL_PATH=            # 默认 $RESULTS_DIR/train/$SCENE_NAME
+#   SOURCE_PATH=           # 默认 $RESULTS_DIR/$SCENE_NAME/colmap_scene
+#   MODEL_PATH=            # 默认 $RESULTS_DIR/$SCENE_NAME/model
 #   ITERATIONS=20000       # NeRF-DS 真实序列标配（D-NeRF 才用 40000）
 #   IS_6DOF=0              # 1=6DoF 变体（指标略高、更慢）
 #   WHITE_BG=0             # 1=白底（输入做了分割抠图时开）
 #   EVAL=1                 # 1=划分 train/test（llffhold=8；要指标必须开）
+#   USE_POSE_REFINE=0      # 1=训练中联合精炼位姿（可学四元数+平移，见
+#                          #   train_pose_refine.py；内参不学——stock 光栅化器
+#                          #   对 projmatrix 无梯度，见 README_wsl.md）
+#   POSE_REFINE_WEIGHT=0.01  POSE_REFINE_LR_Q=1e-3  POSE_REFINE_LR_T=1e-3
 #   TEST_ITERATIONS=       # 覆盖评测步（默认 train.py 自带）
 #   SAVE_ITERATIONS=       # 覆盖存盘步
 #   SKIP_VERIFY=0          # 1=跳过 CUDA 扩展 import 校验
@@ -31,12 +36,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 SCENE_NAME="${SCENE_NAME:-human_seq}"
-SOURCE_PATH="${SOURCE_PATH:-$RESULTS_DIR/datasets/$SCENE_NAME/colmap_scene}"
-MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/train/$SCENE_NAME}"
+SOURCE_PATH="${SOURCE_PATH:-$RESULTS_DIR/$SCENE_NAME/colmap_scene}"
+MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/$SCENE_NAME/model}"
 ITERATIONS="${ITERATIONS:-20000}"
 IS_6DOF="${IS_6DOF:-0}"
 WHITE_BG="${WHITE_BG:-0}"
 EVAL="${EVAL:-1}"
+USE_POSE_REFINE="${USE_POSE_REFINE:-0}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
@@ -86,7 +92,15 @@ echo "    (warm_up 前 3000 步变形量=0；前 15000 步致密化；每 3000 �
 echo ""
 
 # train.py 用相对 import → 必须在 $DG_DIR 里跑
-( cd "$DG_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+if [ "$USE_POSE_REFINE" = "1" ]; then
+    # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
+    export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T DG_DIR
+    echo "🧭 using train_pose_refine.py（可学四元数+平移，"
+    echo "    w=${POSE_REFINE_WEIGHT:-0.01} lr_q=${POSE_REFINE_LR_Q:-1e-3} lr_t=${POSE_REFINE_LR_T:-1e-3}）"
+    ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_pose_refine.py" "${TRAIN_FLAGS[@]}" )
+else
+    ( cd "$DG_DIR" && python train.py "${TRAIN_FLAGS[@]}" )
+fi
 if [ $? -ne 0 ]; then
     echo "❌ FAILED: train.py 没跑完。常见原因:" >&2
     echo "    - OOM: 减 ITERATIONS / 01 里 NUM_IMAGES_MAX 截帧" >&2

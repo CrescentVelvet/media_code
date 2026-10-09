@@ -6,6 +6,8 @@
 #   GPU=0 VIDEO_PATH=/mnt/d/dataset/xxx.mp4 SCENE_NAME=human_seq \
 #     bash deformable_human/run_all.sh
 # 各步 env var（VIDEO_FPS / ITERATIONS / MODE 等）原样透传，见各脚本头部注释。
+# 可选插入步骤（不在一键流程内）：01c_pose_adjust.sh（POSE_ADJUST 位姿规整）、
+#   02 的 USE_POSE_REFINE=1（联合位姿精炼）——需要时单独跑，见 README_wsl.md。
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

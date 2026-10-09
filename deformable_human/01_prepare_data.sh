@@ -13,18 +13,20 @@
 #   导出 anchors/。⚠️ 尚未实现，当前只打印提示不执行。
 #
 # 输入：VIDEO_PATH=/path/to/xxx.mp4（单目、人物有动作）
-# 输出：$DATA_ROOT/$SCENE_NAME/
+# 输出：$RESULTS_DIR/$SCENE_NAME/
 #         frames/image/         抽帧（模糊帧已剔除）
 #         colmap_scene/         images/ + sparse/0/{cameras,images,points3D}.bin
+#         pose_adjuster.json    POSE_ADJUST=1 时的变换记录（用于反变换）
 #
 # Env (all optional, defaults shown):
-#   VIDEO_PATH=            # 单目视频文件（必填）
-#   SCENE_NAME=human_seq   # 场景名（决定输出子目录）
-#   DATA_ROOT=             # 数据集根（默认 $RESULTS_DIR/datasets）
+#   VIDEO_PATH=            # 单目视频文件（预置帧模式下可省略）
+#   SCENE_NAME=human_seq   # 场景名（决定输出子目录，一个输入数据一个文件夹）
+#   SCENE_ROOT=            # 场景根（默认 $RESULTS_DIR/$SCENE_NAME）
 #   VIDEO_FPS=6            # 抽帧 fps（动态序列要比 vggt_human 默认的 2 密）
 #   BLUR_THRESHOLD=100     # 模糊门（0=关；透传给 01a）
 #   FORCE_RECOLMAP=0       # 1=COLMAP 场景已存在也强制重跑
 #   USE_GPU=1              # COLMAP SIFT 用 GPU（conda-forge colmap 是 CPU 版→设 0）
+#   POSE_ADJUST=1          # 1=COLMAP 后跑 01c（居中+重力对齐+尺度归一化）
 #   ANCHOR_EXPORT=0        # 1=Phase 2 锚定导出（未实现，占位）
 set -o pipefail
 
@@ -34,17 +36,18 @@ source "$SCRIPT_DIR/_env.sh"
 
 VIDEO_PATH="${VIDEO_PATH:-}"
 SCENE_NAME="${SCENE_NAME:-human_seq}"
-DATA_ROOT="${DATA_ROOT:-$RESULTS_DIR/datasets}"
-FRAMES_DIR="$DATA_ROOT/$SCENE_NAME/frames"
-SCENE_DIR="$DATA_ROOT/$SCENE_NAME/colmap_scene"
+SCENE_ROOT="${SCENE_ROOT:-$RESULTS_DIR/$SCENE_NAME}"
+FRAMES_DIR="$SCENE_ROOT/frames"
+SCENE_DIR="$SCENE_ROOT/colmap_scene"
 VIDEO_FPS="${VIDEO_FPS:-6}"
 BLUR_THRESHOLD="${BLUR_THRESHOLD:-100}"
 USE_GPU="${USE_GPU:-1}"
+POSE_ADJUST="${POSE_ADJUST:-1}"
 
 echo "🚀 [01] Stage A: 单目视频 → COLMAP 场景"
-echo "  🎬 视频:       $VIDEO_PATH"
-echo "  💾 输出:       $DATA_ROOT/$SCENE_NAME/"
-echo "  📐 video_fps:  $VIDEO_FPS   blur_gate: $BLUR_THRESHOLD"
+echo "  🎬 视频:       ${VIDEO_PATH:-（预置帧模式）}"
+echo "  💾 输出:       $SCENE_ROOT/"
+echo "  📐 video_fps:  $VIDEO_FPS   blur_gate: $BLUR_THRESHOLD   pose_adjust: $POSE_ADJUST"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -106,12 +109,27 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# ── 2.5) POSE_ADJUST：居中 + 重力对齐 + 尺度归一化（委托 01c）───────────────
+# 世界系重参数化，对训练是纯增益（canonical 空间条件数变好、重力方向对齐后
+# 形变场学起来更稳）；原始 sparse 备份在 sparse/0_raw，反变换记录在
+# pose_adjuster.json。默认开；POSE_ADJUST=0 跳过。
+if [ "$POSE_ADJUST" = "1" ]; then
+    echo "🧭 [2.5] POSE_ADJUST: 调 01c_pose_adjust.sh"
+    SCENE_DIR="$SCENE_DIR" bash "$SCRIPT_DIR/01c_pose_adjust.sh"
+    if [ $? -ne 0 ]; then
+        echo "❌ [2.5] FAILED: 位姿调整失败（sparse/0 未动，可 POSE_ADJUST=0 重跑 01）" >&2
+        exit 1
+    fi
+else
+    echo "⏭️  [2.5] POSE_ADJUST=0，跳过位姿调整"
+fi
+
 # ── 3) Phase 2 锚定导出（占位，未实现）─────────────────────────────────────
 if [ "${ANCHOR_EXPORT:-0}" = "1" ]; then
     echo ""
     echo "⚠️  [3] ANCHOR_EXPORT=1：MHR 锚定导出尚未实现（Phase 2）。"
     echo "    计划：适配 vggt_human 的 03e_detect_landmarks / 03f_fit_head_3dmm，"
-    echo "    对单目逐帧导出 MHR 参数 + 657 landmarks → $DATA_ROOT/$SCENE_NAME/anchors/。"
+    echo "    对单目逐帧导出 MHR 参数 + 657 landmarks → $SCENE_ROOT/anchors/。"
     echo "    当前跳过，不影响 vanilla baseline。"
 fi
 

@@ -31,13 +31,16 @@ GPU=0 VIDEO_PATH=/data_3d/<uid>/data/xxx.mp4 SCENE_NAME=human_seq \
   VIDEO_FPS=6 BLUR_THRESHOLD=100 \
   RESULTS_DIR=../deformable_human_results \
   bash deformable_human/01_prepare_data.sh
+# 1c)（可选）位姿规整：主体居中 + 重力对齐 + 尺度归一化
+GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
+  bash deformable_human/01c_pose_adjust.sh
 # 2) vanilla Deformable-GS 训练（canonical + 形变 MLP，NeRF-DS 模式）
-GPU=0 SOURCE_PATH=../deformable_human_results/datasets/human_seq/colmap_scene \
-  MODEL_PATH=../deformable_human_results/train/human_seq \
+#    可选：USE_POSE_REFINE=1 联合精炼位姿（可学四元数+平移，内参不学）
+GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   ITERATIONS=20000 \
   bash deformable_human/02_train.sh
 # 3) 渲染 + PSNR/SSIM/LPIPS（看运动区域是否还有拖影：MODE=original）
-GPU=0 MODEL_PATH=../deformable_human_results/train/human_seq \
+GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   MODE=render RUN_METRICS=1 \
   bash deformable_human/03_render.sh
 ```
@@ -64,9 +67,12 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `SCENE_NAME` | `human_seq` | 场景名，贯穿 01/02/03 默认路径 |
 | `VIDEO_FPS` | `6` | 抽帧 fps（动态序列要比静态的 2 密） |
 | `BLUR_THRESHOLD` | `100` | 拉普拉斯模糊门，0=关（透传 vggt_human/01a） |
-| `USE_GPU` | `1` | COLMAP SIFT 用 GPU；conda-forge colmap 是 CPU 版设 0 |
+| `USE_GPU` | `1` | COLMAP SIFT 用 GPU（conda-forge colmap 3.11.1 实测带 CUDA） |
 | `ITERATIONS` | `20000` | NeRF-DS 真实序列标配 |
 | `IS_6DOF` | `0` | 1=6DoF 形变变体（略准、更慢） |
+| `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
+| `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
+| `POSE_ADJUST` | — | 01c：位姿规整开关（居中+重力对齐+尺度归一化） |
 | `WHITE_BG` | `0` | 1=白底训练（输入抠图后开） |
 | `MODE` | `render` | render/time/all/view/pose/original |
 | `DG_DIR` | `../Deformable-3D-Gaussians` | 官方仓位置（WSL 由 proxy.env 覆盖为 ~/repos/） |
@@ -78,9 +84,11 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 ├── media_code/deformable_human/      # 本目录（编排脚本）
 ├── Deformable-3D-Gaussians/          # 官方仓（sibling；WSL 在 ~/repos/）
 └── deformable_human_results/         # 输出（sibling；WSL 在 ~/output/）
-    ├── datasets/<scene>/frames/      # 01 抽帧（模糊帧已剔除）
-    ├── datasets/<scene>/colmap_scene/# 01 COLMAP 场景（images/ + sparse/0/）
-    └── train/<scene>/                # 02/03 训练与渲染产物
+    └── <scene>/                      # 每个输入数据一个文件夹
+        ├── frames/                   # 01 抽帧（模糊帧已剔除）
+        ├── colmap_scene/             # 01 COLMAP 场景（images/ + sparse/0/）
+        ├── model/                    # 02 形变模型 + 03 渲染产物
+        └── model_static/             # （可选）静态 3DGS 基线（A/B 对比用）
 ```
 
 ## Notes

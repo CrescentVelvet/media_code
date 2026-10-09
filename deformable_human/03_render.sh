@@ -15,7 +15,7 @@
 #
 # Env (all optional, defaults shown):
 #   SCENE_NAME=human_seq
-#   MODEL_PATH=            # 默认 $RESULTS_DIR/train/$SCENE_NAME（02 的输出）
+#   MODEL_PATH=            # 默认 $RESULTS_DIR/$SCENE_NAME/model（02 的输出）
 #   ITERATION=-1           # 渲染哪个 checkpoint（-1=最新）
 #   MODE=render            # render/time/all/view/pose/original
 #   SKIP_TRAIN=1           # 1=--skip_train（省时间；0=连 train 视角一起渲）
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 SCENE_NAME="${SCENE_NAME:-human_seq}"
-MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/train/$SCENE_NAME}"
+MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/$SCENE_NAME/model}"
 ITERATION="${ITERATION:--1}"
 MODE="${MODE:-render}"
 SKIP_TRAIN="${SKIP_TRAIN:-1}"

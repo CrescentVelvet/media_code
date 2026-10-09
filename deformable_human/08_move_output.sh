@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# 08_move_output.sh —【WSL 专用】把训练/渲染结果从 Linux fs 剪切到 Windows D: 盘。
+# 08_move_output.sh —【WSL 专用】把**单个场景**的全部产物从 Linux fs 剪切到 D: 盘。
 #
-# 与 vggt_human/08 同一模式：跨文件系统 mv = copy + delete，用 rsync 保证安全：
-# 全部复制成功才删源，任一失败保留源。
+# 目录约定（2026-10-08 起）：一个输入数据一个文件夹，训练/渲染/数据集全部收在
+#   $RESULTS_DIR/<scene>/            （Linux fs，训练期间）
+#   /mnt/d/output/deformable_human_results/<scene>/   （归档后）
+#
+# ⚠️ 有任务正在读写该场景目录时禁止执行（08 会移走输入数据集 colmap_scene）。
 #
 # 用法：
-#   bash deformable_human/08_move_output.sh
-#   SRC=~/output/deformable_human_results DST=/mnt/d/output/deformable_human_results \
-#     bash deformable_human/08_move_output.sh
-#   DRY_RUN=1 bash deformable_human/08_move_output.sh   # 预览
+#   SCENE_NAME=hand_motion bash deformable_human/08_move_output.sh
+#   SCENE_NAME=hand_motion FORCE=1 bash deformable_human/08_move_output.sh  # 目标非空时合并
+#   SCENE_NAME=hand_motion DRY_RUN=1 bash deformable_human/08_move_output.sh  # 预览
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-SRC="${SRC:-$RESULTS_DIR}"
-DST="${DST:-/mnt/d/output/deformable_human_results}"
+SCENE_NAME="${SCENE_NAME:?❌ ERROR: 必须指定 SCENE_NAME（按场景搬运）}"
+SRC="${SRC:-$RESULTS_DIR/$SCENE_NAME}"
+DST="${DST:-/mnt/d/output/deformable_human_results/$SCENE_NAME}"
 
 echo "📦 [08] 搬运结果到 Windows D: 盘"
 echo "  📁 源:   $SRC"
