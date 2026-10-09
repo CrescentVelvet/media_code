@@ -32,6 +32,8 @@
 #                          #   前景权重向人倾斜，稠密化随梯度自然向人集中。
 #   MASK_DIR=              # 默认 $SOURCE_PATH/masks（01d 的输出）
 #   FG_WEIGHT=1.0  BG_WEIGHT=0.2
+#   BG_DEFORM_LAMBDA=0     # >0 时启用背景点变形量趋零软正则（warm_up 后生效，
+#                          #   建议 0.1；梯度只作用 deform MLP，见 train_mask.py）
 #   ※ USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）
 #   POSE_REFINE_WEIGHT=0.01  POSE_REFINE_LR_Q=1e-3  POSE_REFINE_LR_T=1e-3
 #   TEST_ITERATIONS=       # 覆盖评测步（默认 train.py 自带）
@@ -57,6 +59,7 @@ USE_MASK_LOSS="${USE_MASK_LOSS:-0}"
 MASK_DIR="${MASK_DIR:-$SOURCE_PATH/masks}"
 FG_WEIGHT="${FG_WEIGHT:-1.0}"
 BG_WEIGHT="${BG_WEIGHT:-0.2}"
+BG_DEFORM_LAMBDA="${BG_DEFORM_LAMBDA:-0}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
@@ -115,8 +118,10 @@ if [ "$USE_MASK_LOSS" = "1" ]; then
     [ -d "$MASK_DIR" ] || { echo "❌ ERROR: mask 目录不存在: $MASK_DIR（先跑 01d_fg_masks.sh）" >&2; exit 1; }
     export DG_DIR
     echo "🎭 using train_mask.py（前景加权 L1，fg=$FG_WEIGHT bg=$BG_WEIGHT，mask: $MASK_DIR）"
+    [ "$BG_DEFORM_LAMBDA" != "0" ] && echo "   + 背景变形软正则 λ=$BG_DEFORM_LAMBDA（warm_up 后生效）"
     ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_mask.py" "${TRAIN_FLAGS[@]}" \
-        --mask_dir "$MASK_DIR" --fg_weight "$FG_WEIGHT" --bg_weight "$BG_WEIGHT" )
+        --mask_dir "$MASK_DIR" --fg_weight "$FG_WEIGHT" --bg_weight "$BG_WEIGHT" \
+        --bg_deform_lambda "$BG_DEFORM_LAMBDA" )
 elif [ "$USE_POSE_REFINE" = "1" ]; then
     # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
     export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T DG_DIR

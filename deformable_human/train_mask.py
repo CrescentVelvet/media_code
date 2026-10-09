@@ -95,6 +95,29 @@ class MaskWeightCache:
         w = self.bg + (self.fg - self.bg) * t[0, 0]  # (H,W)
         return w.to(device)
 
+    def sample_fg_prob(self, image_name, xyz_def, cam):
+        """BG-DEFORM：把变形后高斯中心投影到当前相机，采样 mask 得逐点 fg 概率。
+        纯几何操作（输入已 detach），返回 (N,) float [0,1]，越界/相机背后=0。
+        投影约定经 qc_proj_fg.py 验证：grid_y = -ndc_y（OpenGL→image）。"""
+        t = self.cache.get(image_name)
+        if t is None:  # 触发懒加载（尺寸随意，采样用原图分辨率即可）
+            self.get(image_name, 2, 2, "cpu")
+            t = self.cache[image_name]
+        mask_t = t.cuda()                                  # (1,1,Hm,Wm)
+        N = xyz_def.shape[0]
+        ones = torch.ones(N, 1, device=xyz_def.device, dtype=xyz_def.dtype)
+        pts_h = torch.cat([xyz_def, ones], dim=1)          # N,4
+        clip = pts_h @ cam.full_proj_transform.cuda()      # N,4（矩阵已转置，右乘约定）
+        w = clip[:, 3:4].clamp_min(1e-6)
+        ndc = clip[:, :3] / w
+        gx = ndc[:, 0]
+        gy = -ndc[:, 1]
+        valid = (clip[:, 3] > 0) & (gx.abs() <= 1) & (gy.abs() <= 1)
+        grid = torch.stack([gx, gy], dim=1).view(1, 1, N, 2)
+        p = F.grid_sample(mask_t, grid, mode="bilinear",
+                          padding_mode="zeros", align_corners=False).view(N)
+        return torch.where(valid, p, torch.zeros_like(p))
+
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
     tb_writer = prepare_output_and_logger(dataset)
@@ -107,6 +130,24 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
 
     # MASK-LOSS：前景权重缓存（mask 在 01d 生成，soft alpha 直接进权重）
     mask_weighter = MaskWeightCache(args.mask_dir, args.fg_weight, args.bg_weight)
+
+    # BG-DEFORM static：canonical 空间静态 fg/bg 标签（warm_up 结束时对 K 帧
+    # 投票一次，之后仅随 densify/prune 导致的点数变化重算）。
+    # 不用「变形后位置 vs 当前帧 mask」的动态判定——手部点变形大→投影甩出 mask→
+    # 被误判 bg→变形被压→更甩出去，自抑制循环（2026-10-09 A/B 实测负收益 -0.32dB）。
+    # canonical 里手点在躯干附近，标签稳定且手=fg，消除循环依赖。
+    bg_label_cache = {"n": -1, "p_fg": None}
+
+    def compute_static_labels():
+        """canonical xyz 投影到均匀抽样的 K 个训练相机，投票得逐点 fg 概率。"""
+        cams = scene.getTrainCameras()
+        K = min(12, len(cams))
+        picks = [cams[int(i)] for i in torch.linspace(0, len(cams) - 1, K).tolist()]
+        xyz_c = gaussians.get_xyz.detach().cuda()
+        votes = torch.zeros(xyz_c.shape[0], device="cuda")
+        for c in picks:
+            votes += mask_weighter.sample_fg_prob(c.image_name, xyz_c, c)
+        return (votes / K).detach()
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -179,6 +220,24 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
                               gt_image.shape[1], gt_image.shape[2], gt_image.device)
         Ll1 = (W.unsqueeze(0) * (image - gt_image).abs()).sum() / (3.0 * W.sum() + 1e-8)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        # BG-DEFORM：背景点变形量趋零软正则（warm_up 后启用）。
+        # 标签口径 static（canonical 投票，稳定）；dynamic（变形后投影）已实测否决。
+        # 标签与坐标全部 detach——梯度只经 ||d_xyz|| 流向 deform MLP。
+        if args.bg_deform_lambda > 0 and iteration >= opt.warm_up:
+            n_pts = gaussians.get_xyz.shape[0]
+            if bg_label_cache["n"] != n_pts:
+                bg_label_cache["p_fg"] = compute_static_labels()
+                bg_label_cache["n"] = n_pts
+                print("\n[BG-DEFORM] 静态标签重算: %d 点, fg占比=%.1f%%"
+                      % (n_pts, 100.0 * (bg_label_cache["p_fg"] > 0.5).float().mean().item()))
+            p_fg = bg_label_cache["p_fg"]
+            bg_reg = ((1.0 - p_fg) * d_xyz.norm(dim=-1)).mean()
+            loss = loss + args.bg_deform_lambda * bg_reg
+            if iteration % 500 == 0:
+                with torch.no_grad():
+                    print("\n[BG-DEFORM] iter %d  reg=%.5f  mean||d||=%.5f  fg占比=%.1f%%"
+                          % (iteration, bg_reg.item(), d_xyz.norm(dim=-1).mean().item(),
+                             100.0 * p_fg.mean().item()))
         loss.backward()
 
         iter_end.record()
@@ -332,6 +391,8 @@ if __name__ == "__main__":
                         help="01d 生成的前景软 mask 目录（{stem}.png，0-255）")
     parser.add_argument("--fg_weight", type=float, default=1.0)
     parser.add_argument("--bg_weight", type=float, default=0.2)
+    parser.add_argument("--bg_deform_lambda", type=float, default=0.0,
+                        help="背景点变形量趋零软正则权重（0=关；warm_up 后生效）")
     parser.add_argument("--test_iterations", nargs="+", type=int,
                         default=[5000, 6000, 7_000] + list(range(10000, 40001, 1000)))
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 10_000, 20_000, 30_000, 40000])
