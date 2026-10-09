@@ -69,6 +69,7 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `BLUR_THRESHOLD` | `100` | 拉普拉斯模糊门，0=关（透传 vggt_human/01a） |
 | `USE_GPU` | `1` | COLMAP SIFT 用 GPU（conda-forge colmap 3.11.1 实测带 CUDA） |
 | `ITERATIONS` | `10000` | 快速迭代默认；最终出片 `20000`（消融见「实验记录」） |
+| `WARM_UP` | `1000` | 前 N 步形变量=0 纯静态热身（官方默认 3000，配合 10k 短训缩短） |
 | `IS_6DOF` | `0` | 1=6DoF 形变变体（略准、更慢） |
 | `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
 | `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
@@ -106,6 +107,17 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 结论：**7k 不可取**——形变 MLP 比高斯本体收敛慢，7k 时形变没学到位，
 vggt_source 的 30.42dB 几乎跌回静态 baseline（30.14dB），+2.37dB 形变收益被吃光。
 **默认定为 10000**（省一半时间，代价 <1dB），最终出片 `ITERATIONS=20000` 手动覆盖。
+
+**warm_up 消融**（2026-10-09，hand_motion 独立重训 10k + `--warm_up 1000`）：
+
+| 配置 | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
+|---|---|---|---|
+| 旧 10k checkpoint（20k 训练中截取，warm_up=3000） | 28.85 | 0.9107 | 0.0879 |
+| **新默认：10k + warm_up=1000** | **29.26** | **0.9168** | **0.0828** |
+| 20k 参考（warm_up=3000） | 29.52 | 0.9187 | 0.0778 |
+
+新默认组合比旧 10k 快照还高 +0.40dB，距 20k 满训只差 0.26dB——
+缩短静态热身让形变 MLP 多学了 2000 步，收益实打实。训练耗时约 49 min（3090 单卡）。
 
 ## Notes
 - **先 vanilla 后锚定**：02 不加任何人体先验，先看 canonical+形变把重影消到几成，

@@ -20,6 +20,8 @@
 #   ITERATIONS=10000       # 快速迭代默认；最终出片用 20000。
 #                          # 消融（hand_motion/vggt_source）：7k 掉 1.5~2dB
 #                          # （形变 MLP 未收敛，收益被吃光），10k 只掉 0.7~1dB
+#   WARM_UP=1000           # 前 N 步形变量=0（纯静态热身，官方默认 3000；
+#                          # 配合 10k 短训等比缩短，让形变 MLP 更早开工）
 #   IS_6DOF=0              # 1=6DoF 变体（指标略高、更慢）
 #   WHITE_BG=0             # 1=白底（输入做了分割抠图时开）
 #   EVAL=1                 # 1=划分 train/test（llffhold=8；要指标必须开）
@@ -41,6 +43,7 @@ SCENE_NAME="${SCENE_NAME:-human_seq}"
 SOURCE_PATH="${SOURCE_PATH:-$RESULTS_DIR/$SCENE_NAME/colmap_scene}"
 MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/$SCENE_NAME/model}"
 ITERATIONS="${ITERATIONS:-10000}"
+WARM_UP="${WARM_UP:-1000}"
 IS_6DOF="${IS_6DOF:-0}"
 WHITE_BG="${WHITE_BG:-0}"
 EVAL="${EVAL:-1}"
@@ -77,6 +80,7 @@ TRAIN_FLAGS=(
     -s "$SOURCE_PATH"
     -m "$MODEL_PATH"
     --iterations "$ITERATIONS"
+    --warm_up "$WARM_UP"
     --port 0            # 关掉 GUI server（默认会卡住等连接）
 )
 [ "$EVAL" = "1" ] && TRAIN_FLAGS+=(--eval)
@@ -90,7 +94,7 @@ TRAIN_FLAGS=(
 [ -n "$EXTRA_TRAIN_ARGS" ] && TRAIN_FLAGS+=($EXTRA_TRAIN_ARGS)
 
 echo "🏋️ train.py ${TRAIN_FLAGS[*]}"
-echo "    (warm_up 前 3000 步变形量=0；前 15000 步致密化；每 3000 步 opacity 重置)"
+echo "    (warm_up 前 $WARM_UP 步变形量=0；致密化/opacity 重置节奏由 EXTRA_TRAIN_ARGS 或官方默认决定)"
 echo ""
 
 # train.py 用相对 import → 必须在 $DG_DIR 里跑
