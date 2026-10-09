@@ -28,6 +28,11 @@
 #   USE_POSE_REFINE=0      # 1=训练中联合精炼位姿（可学四元数+平移，见
 #                          #   train_pose_refine.py；内参不学——stock 光栅化器
 #                          #   对 projmatrix 无梯度，见 README_wsl.md）
+#   USE_MASK_LOSS=0        # 1=前景 mask 加权 L1（train_mask.py；先跑 01d）。
+#                          #   前景权重向人倾斜，稠密化随梯度自然向人集中。
+#   MASK_DIR=              # 默认 $SOURCE_PATH/masks（01d 的输出）
+#   FG_WEIGHT=1.0  BG_WEIGHT=0.2
+#   ※ USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）
 #   POSE_REFINE_WEIGHT=0.01  POSE_REFINE_LR_Q=1e-3  POSE_REFINE_LR_T=1e-3
 #   TEST_ITERATIONS=       # 覆盖评测步（默认 train.py 自带）
 #   SAVE_ITERATIONS=       # 覆盖存盘步
@@ -48,6 +53,10 @@ IS_6DOF="${IS_6DOF:-0}"
 WHITE_BG="${WHITE_BG:-0}"
 EVAL="${EVAL:-1}"
 USE_POSE_REFINE="${USE_POSE_REFINE:-0}"
+USE_MASK_LOSS="${USE_MASK_LOSS:-0}"
+MASK_DIR="${MASK_DIR:-$SOURCE_PATH/masks}"
+FG_WEIGHT="${FG_WEIGHT:-1.0}"
+BG_WEIGHT="${BG_WEIGHT:-0.2}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
@@ -98,7 +107,17 @@ echo "    (warm_up 前 $WARM_UP 步变形量=0；致密化/opacity 重置节奏�
 echo ""
 
 # train.py 用相对 import → 必须在 $DG_DIR 里跑
-if [ "$USE_POSE_REFINE" = "1" ]; then
+if [ "$USE_MASK_LOSS" = "1" ] && [ "$USE_POSE_REFINE" = "1" ]; then
+    echo "❌ ERROR: USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）" >&2
+    exit 1
+fi
+if [ "$USE_MASK_LOSS" = "1" ]; then
+    [ -d "$MASK_DIR" ] || { echo "❌ ERROR: mask 目录不存在: $MASK_DIR（先跑 01d_fg_masks.sh）" >&2; exit 1; }
+    export DG_DIR
+    echo "🎭 using train_mask.py（前景加权 L1，fg=$FG_WEIGHT bg=$BG_WEIGHT，mask: $MASK_DIR）"
+    ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_mask.py" "${TRAIN_FLAGS[@]}" \
+        --mask_dir "$MASK_DIR" --fg_weight "$FG_WEIGHT" --bg_weight "$BG_WEIGHT" )
+elif [ "$USE_POSE_REFINE" = "1" ]; then
     # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
     export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T DG_DIR
     echo "🧭 using train_pose_refine.py（可学四元数+平移，"

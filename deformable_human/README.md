@@ -34,6 +34,9 @@ GPU=0 VIDEO_PATH=/data_3d/<uid>/data/xxx.mp4 SCENE_NAME=human_seq \
 # 1c)（可选）位姿规整：主体居中 + 重力对齐 + 尺度归一化
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   bash deformable_human/01c_pose_adjust.sh
+# 1d)（可选）SAM3 前景 mask（person+持有物，复用 vggt_human 资产，需 sam3 env）
+SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
+  bash deformable_human/01d_fg_masks.sh
 # 2) vanilla Deformable-GS 训练（canonical + 形变 MLP，NeRF-DS 模式）
 #    可选：USE_POSE_REFINE=1 联合精炼位姿（可学四元数+平移，内参不学）
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
@@ -73,6 +76,9 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `IS_6DOF` | `0` | 1=6DoF 形变变体（略准、更慢） |
 | `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
 | `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
+| `USE_MASK_LOSS` | `0` | 1=前景 mask 加权 L1（train_mask.py；需先跑 01d；与 POSE_REFINE 互斥） |
+| `MASK_DIR` | `$SOURCE_PATH/masks` | 01d 的输出目录 |
+| `FG_WEIGHT` / `BG_WEIGHT` | `1.0` / `0.2` | 前景/背景像素 loss 权重（按有效像素均值归一化，不改变 loss 量级） |
 | `POSE_ADJUST` | — | 01c：位姿规整开关（居中+重力对齐+尺度归一化） |
 | `WHITE_BG` | `0` | 1=白底训练（输入抠图后开） |
 | `MODE` | `render` | render/time/all/view/pose/original |
@@ -88,6 +94,7 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
     └── <scene>/                      # 每个输入数据一个文件夹
         ├── frames/                   # 01 抽帧（模糊帧已剔除）
         ├── colmap_scene/             # 01 COLMAP 场景（images/ + sparse/0/）
+        │   └── masks/                # 01d SAM3 前景 mask（person+持有物，{stem}.png，01=前景）
         ├── model/                    # 02 形变模型 + 03 渲染产物
         └── model_static/             # （可选）静态 3DGS 基线（A/B 对比用）
 ```
@@ -118,6 +125,27 @@ vggt_source 的 30.42dB 几乎跌回静态 baseline（30.14dB），+2.37dB 形�
 
 新默认组合比旧 10k 快照还高 +0.40dB，距 20k 满训只差 0.26dB——
 缩短静态热身让形变 MLP 多学了 2000 步，收益实打实。训练耗时约 49 min（3090 单卡）。
+
+**mask 加权 loss 消融**（2026-10-09，hand_motion，同配方 10k + warm1000，
+fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」）：
+
+| 模型 | 官方 test 指标（17 视角） | eval_fg_psnr.py 前景专项 |
+|---|---|---|
+| baseline（无 mask） | 29.26 / 0.9168 / 0.0828 | 前景 PSNR 26.53 |
+| mask 加权 | 29.14 / 0.9154 / 0.0823 | 前景 PSNR **26.70（+0.17）** |
+
+逐视角前景 Δ 分布：17 个 test 视角中 11 个提升，大运动帧收益显著
+（00016 +1.04、00120 +0.62、00096 +0.56），个别帧小幅回退（00032 -0.81）。
+目视对比（`mask_ab_compare/cmp_*.jpg`，GT|baseline|mask 三联）：
+**手部重影明显收敛**——baseline 手指涂抹/重影的区域，mask 版手指根数可辨。
+
+结论与使用建议：
+- 方向验证成立：loss 加权把监督从静态背景（占像素 ~80%）重新分配给前景，
+  官方全图指标持平（-0.1dB 属噪声），前景专项 +0.17dB 且目视改善大于数字。
+- 残余模糊主要不是 loss 分配问题了——后续手段按优先级：
+  ①加密抽帧（VIDEO_FPS 6→10，补时序欠采样）；②bg 点变形量软正则（释放 MLP 容量）；
+  ③per-frame latent 或更大形变 MLP（拓扑/容量限制）。
+- 权重 fg/bg=5:1 是保守档，若前景改善不足可试 10:1（BG_WEIGHT=0.1）。
 
 ## Notes
 - **先 vanilla 后锚定**：02 不加任何人体先验，先看 canonical+形变把重影消到几成，
