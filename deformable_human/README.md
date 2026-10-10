@@ -82,6 +82,8 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `USE_MASK_LOSS` | `0` | 1=前景 mask 加权 L1（train_mask.py；需先跑 01d；与 POSE_REFINE 互斥） |
 | `MASK_DIR` | `$SOURCE_PATH/masks` | 01d 的输出目录 |
 | `FG_WEIGHT` / `BG_WEIGHT` | `1.0` / `0.2` | 前景/背景像素 loss 权重（按有效像素均值归一化，不改变 loss 量级） |
+| `C2F` | `0` | 1=coarse-to-fine 分辨率调度：前 30% 步 1/4 分辨率→30-70% 1/2→末段全分辨率（仅 mask 分支；评测仍按原生分辨率） |
+| `C2F_SCHEDULE` | — | 显式档位覆盖默认，如 `0:4,3000:2,7000:1`（start_iter:scale 升序） |
 | `POSE_ADJUST` | — | 01c：位姿规整开关（居中+重力对齐+尺度归一化） |
 | `WHITE_BG` | `0` | 1=白底训练（输入抠图后开） |
 | `MODE` | `render` | render/time/all/view/pose/original |
@@ -210,6 +212,10 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
 - π³x 未试：与 VGGT 同属前馈类，证据强度不足以改变结论；如需补测成本 ~1h。
 
 ## Notes
+- **C2F 与稠密化的交互**：`C2F=1` 时前 30% 步在 1/4 分辨率渲染，而当前配方的
+  densify 窗口（`densify_until_iter 2000`）完全落在低分辨率档内——viewspace 梯度
+  在更少像素上累积，稠密化节奏会偏移（偏保守方向）。A/B 时如需对齐，
+  可用 `C2F_SCHEDULE="0:4,1500:2,2500:1"` 让升档早于稠密化冻结。
 - **先 vanilla 后锚定**：02 不加任何人体先验，先看 canonical+形变把重影消到几成，
   残差（单目欠定的背面/遮挡）再决定 Phase 2 的 MHR 锚定形态。锚定导出在 01 里是
   `ANCHOR_EXPORT=1` 占位，尚未实现。

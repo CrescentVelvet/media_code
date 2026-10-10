@@ -8,7 +8,7 @@
   向 fg 倾斜；稠密化是梯度驱动的，loss 偏向 fg 后新高斯自然往人身上长，
   不需要改点云初始化。
 
-与官方 train.py 的差异（全部用「MASK-LOSS」注释标注）：
+与官方 train.py 的差异（全部用「MASK-LOSS」/「C2F」注释标注）：
   1. 新增 --mask_dir/--fg_weight/--bg_weight 三个参数。
   2. MaskWeightCache：按 viewpoint_cam.image_name 懒加载 {mask_dir}/{stem}.png，
      双线性 resize 到 gt 尺寸（mask 按原图分辨率存，相机侧 -r 降采样与它无关）。
@@ -18,6 +18,10 @@
      标定会变，mask 先验由 L1 承载即可。
   4. 评估（training_report）口径不变：test PSNR 仍是全图无加权，
      与 vanilla 基线直接可比。
+  5. C2F（--c2f/--res_schedule）：按 iteration 门控渲染分辨率
+     （前 30% 步 1/4 → 30-70% 1/2 → 末段全分辨率）。官方 Camera 的投影矩阵
+     与分辨率无关（cameras.py:57），故只需代理 image_width/height +
+     gt 同因子 area 下采样；评测仍走原生分辨率，指标口径不受影响。
 
 与 train_pose_refine.py 的关系：两个独立 fork，02_train.sh 里互斥
 （USE_MASK_LOSS 与 USE_POSE_REFINE 同时开会直接报错，需要时再合并）。
@@ -119,6 +123,66 @@ class MaskWeightCache:
         return torch.where(valid, p, torch.zeros_like(p))
 
 
+# ─── C2F ─────────────────────────────────────────────────────────────────────
+class ResScheduler:
+    """C2F（coarse-to-fine）分辨率调度：按 iteration 返回降采样因子（4 → 2 → 1）。
+
+    默认档位（相对总步数）：[0, 30%) 1/4 分辨率 → [30%, 70%) 1/2 → [70%, 100%] 全分辨率。
+    显式 spec 覆盖：--res_schedule "0:4,3000:2,7000:1"（start_iter:scale 对，升序）。
+
+    为什么安全：官方 Camera 的投影矩阵只由 FoV/znear/zfar 构成
+    （官方仓 scene/cameras.py:57，与分辨率无关），NDC→像素缩放在光栅化器内部
+    用 image_width/height + tanfov 完成。所以「降分辨率」= 只改 image 尺寸 +
+    gt 同因子 area 下采样，位姿矩阵原样复用，等价于 pinhole 低分辨率成像。
+    评测（training_report）仍走原生分辨率相机，指标与既有基线直接可比。
+
+    ⚠️ 已知交互：densify 阶段（densify_until_iter 之前）若处于低分辨率档，
+    viewspace 梯度在更少像素上累积，稠密化节奏会偏移（偏保守方向）。
+    如需严格对齐，可把第一档边界设到 densify_until_iter 附近后单独 A/B。
+    """
+
+    def __init__(self, enabled, spec, total_iters):
+        self.stages = []  # [(start_iter, scale)]，按 start 升序
+        if spec:
+            try:
+                pairs = [tuple(int(x) for x in p.split(":")) for p in spec.split(",")]
+            except ValueError:
+                sys.exit("❌ --res_schedule 格式错误，期望 '0:4,3000:2,7000:1'，收到: " + spec)
+            self.stages = sorted(pairs)
+            if self.stages[0][0] != 0:
+                sys.exit("❌ --res_schedule 第一档必须从 iter 0 开始: " + spec)
+        elif enabled:
+            b1, b2 = int(0.3 * total_iters), int(0.7 * total_iters)
+            self.stages = [(0, 4), (b1, 2), (b2, 1)]
+
+    @property
+    def enabled(self):
+        return bool(self.stages)
+
+    def scale(self, iteration):
+        s = 1
+        for start, k in self.stages:
+            if iteration >= start:
+                s = k
+            else:
+                break
+        return s
+
+
+class _LowResCam:
+    """C2F：相机代理 —— 共享原相机的一切（FoV/矩阵/fid/image_name），
+    只覆盖 image_width/image_height。render() 只消费这两个尺寸字段，
+    其余属性经 __getattr__ 透传（不做矩阵重算）。"""
+
+    def __init__(self, cam, scale):
+        self._cam = cam
+        self.image_width = max(1, cam.image_width // scale)
+        self.image_height = max(1, cam.image_height // scale)
+
+    def __getattr__(self, name):
+        return getattr(self._cam, name)
+
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -130,6 +194,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
 
     # MASK-LOSS：前景权重缓存（mask 在 01d 生成，soft alpha 直接进权重）
     mask_weighter = MaskWeightCache(args.mask_dir, args.fg_weight, args.bg_weight)
+
+    # C2F：分辨率调度（默认 0-30% 步 1/4 → 30-70% 1/2 → 末段全分辨率）
+    res_sched = ResScheduler(args.c2f, args.res_schedule, opt.iterations)
+    if res_sched.enabled:
+        print("[C2F] 分辨率调度启用: %s（总步数 %d）"
+              % (res_sched.stages, opt.iterations))
+    _c2f_last_scale = [None]  # 只在档位切换时打印一次（list 包一层以便闭包外可见语义一致）
 
     # BG-DEFORM static：canonical 空间静态 fg/bg 标签（warm_up 结束时对 K 帧
     # 投票一次，之后仅随 densify/prune 导致的点数变化重算）。
@@ -208,14 +279,27 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
             ast_noise = 0 if dataset.is_blender else torch.randn(1, 1, device='cuda').expand(N, -1) * time_interval * smooth_term(iteration)
             d_xyz, d_rotation, d_scaling = deform.step(gaussians.get_xyz.detach(), time_input + ast_noise)
 
+        # C2F：按当前档位决定渲染分辨率（矩阵共享，只换尺寸 + gt 同步下采样）
+        res_scale = res_sched.scale(iteration) if res_sched.enabled else 1
+        if res_scale != _c2f_last_scale[0]:
+            _c2f_last_scale[0] = res_scale
+            print("\n[C2F] iter %d: 降采样因子 → %d" % (iteration, res_scale))
+        cam_view = _LowResCam(viewpoint_cam, res_scale) if res_scale > 1 else viewpoint_cam
+
         # Render
-        render_pkg_re = render(viewpoint_cam, gaussians, pipe, background, d_xyz, d_rotation, d_scaling, dataset.is_6dof)
+        render_pkg_re = render(cam_view, gaussians, pipe, background, d_xyz, d_rotation, d_scaling, dataset.is_6dof)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg_re["render"], render_pkg_re[
             "viewspace_points"], render_pkg_re["visibility_filter"], render_pkg_re["radii"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
+        if res_scale > 1:
+            # C2F：gt 与渲染同分辨率（area 下采样=盒式积分，低频结构保真最好）
+            gt_image = F.interpolate(gt_image.unsqueeze(0),
+                                     size=(cam_view.image_height, cam_view.image_width),
+                                     mode="area").squeeze(0)
         # MASK-LOSS：逐像素加权 L1（fg 权重大），DSSIM 保持全图口径
+        #   （C2F 低档时「全图」= 当前档分辨率；mask 权重按 gt 尺寸自适应，无需特判）
         W = mask_weighter.get(viewpoint_cam.image_name,
                               gt_image.shape[1], gt_image.shape[2], gt_image.device)
         Ll1 = (W.unsqueeze(0) * (image - gt_image).abs()).sum() / (3.0 * W.sum() + 1e-8)
@@ -393,6 +477,12 @@ if __name__ == "__main__":
     parser.add_argument("--bg_weight", type=float, default=0.2)
     parser.add_argument("--bg_deform_lambda", type=float, default=0.0,
                         help="背景点变形量趋零软正则权重（0=关；warm_up 后生效）")
+    # C2F
+    parser.add_argument("--c2f", action="store_true", default=False,
+                        help="coarse-to-fine 分辨率调度：前 30%% 步 1/4 分辨率 → "
+                             "30-70%% 1/2 → 末段全分辨率（评测仍按原生分辨率）")
+    parser.add_argument("--res_schedule", type=str, default="",
+                        help="显式档位覆盖默认，格式 '0:4,3000:2,7000:1'（start_iter:scale 升序）")
     parser.add_argument("--test_iterations", nargs="+", type=int,
                         default=[5000, 6000, 7_000] + list(range(10000, 40001, 1000)))
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 10_000, 20_000, 30_000, 40000])

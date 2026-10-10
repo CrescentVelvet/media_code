@@ -37,6 +37,10 @@
 #   FG_WEIGHT=1.0  BG_WEIGHT=0.2
 #   BG_DEFORM_LAMBDA=0     # >0 时启用背景点变形量趋零软正则（warm_up 后生效，
 #                          #   建议 0.1；梯度只作用 deform MLP，见 train_mask.py）
+#   C2F=0                  # 1=coarse-to-fine 分辨率调度（train_mask.py）：
+#                          #   前 30% 步 1/4 分辨率 → 30-70% 1/2 → 末段全分辨率，
+#                          #   评测仍按原生分辨率。⚠️ 仅 USE_MASK_LOSS=1 分支可用
+#   C2F_SCHEDULE=          # 显式档位覆盖默认，如 "0:4,3000:2,7000:1"
 #   ※ USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）
 #   POSE_REFINE_WEIGHT=0.01  POSE_REFINE_LR_Q=1e-3  POSE_REFINE_LR_T=1e-3
 #   TEST_ITERATIONS=       # 覆盖评测步（默认 train.py 自带）
@@ -64,6 +68,8 @@ MASK_DIR="${MASK_DIR:-$SOURCE_PATH/masks}"
 FG_WEIGHT="${FG_WEIGHT:-1.0}"
 BG_WEIGHT="${BG_WEIGHT:-0.2}"
 BG_DEFORM_LAMBDA="${BG_DEFORM_LAMBDA:-0}"
+C2F="${C2F:-0}"
+C2F_SCHEDULE="${C2F_SCHEDULE:-}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
@@ -118,14 +124,26 @@ if [ "$USE_MASK_LOSS" = "1" ] && [ "$USE_POSE_REFINE" = "1" ]; then
     echo "❌ ERROR: USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）" >&2
     exit 1
 fi
+if [ "$C2F" = "1" ] && [ "$USE_MASK_LOSS" != "1" ]; then
+    echo "❌ ERROR: C2F 分辨率调度挂在 train_mask.py fork 里（官方 train.py 不改）。" >&2
+    echo "       请叠加 USE_MASK_LOSS=1；若想要无 mask 的 C2F，设 FG_WEIGHT=1 BG_WEIGHT=1" >&2
+    echo "       （此时加权 L1 数学上退化为普通 L1）。" >&2
+    exit 1
+fi
 if [ "$USE_MASK_LOSS" = "1" ]; then
     [ -d "$MASK_DIR" ] || { echo "❌ ERROR: mask 目录不存在: $MASK_DIR（先跑 01d_fg_masks.sh）" >&2; exit 1; }
     export DG_DIR
     echo "🎭 using train_mask.py（前景加权 L1，fg=$FG_WEIGHT bg=$BG_WEIGHT，mask: $MASK_DIR）"
     [ "$BG_DEFORM_LAMBDA" != "0" ] && echo "   + 背景变形软正则 λ=$BG_DEFORM_LAMBDA（warm_up 后生效）"
+    C2F_FLAGS=()
+    if [ "$C2F" = "1" ]; then
+        C2F_FLAGS+=(--c2f)
+        [ -n "$C2F_SCHEDULE" ] && C2F_FLAGS+=(--res_schedule "$C2F_SCHEDULE")
+        echo "   🔽 C2F 分辨率调度启用${C2F_SCHEDULE:+（档位: $C2F_SCHEDULE）}（默认 0-30% 1/4 → 30-70% 1/2 → 末段全分辨率）"
+    fi
     ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_mask.py" "${TRAIN_FLAGS[@]}" \
         --mask_dir "$MASK_DIR" --fg_weight "$FG_WEIGHT" --bg_weight "$BG_WEIGHT" \
-        --bg_deform_lambda "$BG_DEFORM_LAMBDA" )
+        --bg_deform_lambda "$BG_DEFORM_LAMBDA" "${C2F_FLAGS[@]}" )
 elif [ "$USE_POSE_REFINE" = "1" ]; then
     # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
     export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_START DG_DIR

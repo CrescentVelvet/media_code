@@ -64,7 +64,7 @@
 
 | 文件 | 角色 | 修改要点 |
 |---|---|---|
-| `train_mask.py` | **当前主训练入口**（USE_MASK_LOSS=1）。fork 官方 train.py | 与官方的差异全部用「MASK-LOSS」注释标注。`MaskWeightCache` 按 `image_name`（无扩展名 stem）懒加载 `{mask_dir}/{stem}.png`。L1 加权按均值归一化（不改 LR 语义）；**DSSIM 故意不加权**。加新 loss/正则就改这里 |
+| `train_mask.py` | **当前主训练入口**（USE_MASK_LOSS=1）。fork 官方 train.py | 与官方的差异全部用「MASK-LOSS」/「C2F」注释标注。`MaskWeightCache` 按 `image_name`（无扩展名 stem）懒加载 `{mask_dir}/{stem}.png`。L1 加权按均值归一化（不改 LR 语义）；**DSSIM 故意不加权**。`ResScheduler`+`_LowResCam` 实现 coarse-to-fine 分辨率调度（C2F=1）。加新 loss/正则就改这里 |
 | `02_train.sh` | 训练编排 + 所有开关的默认值 | 新开关在这里加 `${VAR:-default}` + 透传。三个训练分支的互斥检查也在这里 |
 | `train_pose_refine.py` | 位姿精炼 fork（与 mask 版互斥） | **已证伪于坏初值场景**（§6），保留作存档。改它前先读 pose_delta.py 头部数学推导 |
 | `pose_delta.py` | 场景侧位姿 delta 模块（被 train_pose_refine.py 引用） | 为什么不做相机侧：stock 光栅化器对 viewmatrix/projmatrix **无梯度**。数学等价推导在文件头注释，改动前必须读懂 |
@@ -155,6 +155,7 @@ hand_motion 基线数字（A/B 参照系）：
 ## 10. 一句话回答「我要改 X，去哪里」
 
 - 改 loss / 加正则 → `train_mask.py`（搜「MASK-LOSS」）
+- 改训练速度 / 分辨率调度 → `train_mask.py`（搜「C2F」；`02_train.sh` 的 C2F/C2F_SCHEDULE 开关）
 - 改训练超参默认 → `02_train.sh` 顶部
 - 改数据入口 → `01_prepare_data.sh` / 新增 `01x_*.sh` + 转换器 py
 - 改评测口径 → `eval_fg_psnr.py`（前景）/ `03_render.sh`（全图）
