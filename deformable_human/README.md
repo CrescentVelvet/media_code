@@ -1,5 +1,7 @@
 # deformable_human — 单目视频人体重建去模糊/重影（canonical + 形变场）
 
+> AI 接手请先读 [`AGENTS.md`](AGENTS.md)（代码地图：文件导航、不变量、已证伪路线、A/B 纪律）。
+
 针对的问题：**单目视频拍人，人物有动作 → 静态重建把多时刻几何平均，出现重影/拖影**。
 路线：canonical 高斯 + 形变 MLP 显式建模运动（[Deformable-3D-Gaussians](https://github.com/ingra14m/Deformable-3D-Gaussians)，
 CVPR 2024），先跑 vanilla baseline 量化去重影效果；Phase 2 再叠 MHR 3DMM 锚定
