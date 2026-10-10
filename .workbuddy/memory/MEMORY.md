@@ -26,10 +26,12 @@
 - **本机不走代理**。`proxy.env` 里没有 `http_proxy`/`https_proxy`，只有 `HF_ENDPOINT=https://hf-mirror.com`、
   `HF_TOKEN`、`PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`。
   → `AGENTS.md` 的 `_env.sh` 代理模板在本机是空转（不报错，但也不起作用）。
-- 可达性：`huggingface.co` ❌ 000｜`hf-mirror.com` ✅ 200（**下 HF 权重走这里**）｜
-  `modelscope.cn` ✅ 200（备份源）｜**`github.com` ❌ 000**｜gitee 的 huggingface 镜像 ❌ 无效｜
-  **`ghfast.top` ✅ 200 且 `git ls-remote` 可用（GitHub 唯一通道）**，另有 gh-proxy.com / ghproxy.net 备用。
-- 结论：**任何需要 clone GitHub 的步骤都要走 `ghfast.top` 前缀**，否则直连必失败。
+- 可达性（⚠️ 2026-10-11 复测，与 09-21 **相反**）：**`github.com` ✅ 200 直连可 clone（WSL/Win 均通）**｜
+  `huggingface.co` ❌ RST｜**`hf-mirror.com` ❌ 直连超时（原镜像已挂）**｜**`ghfast.top` ❌ SSL 自签名证书失效**｜
+  `raw.githubusercontent.com` ❌ 挂起（github.com 页面正常，raw 域名单独被墙）。
+- 09-21 旧结论（ghfast 是 GitHub 唯一通道、HF 走 hf-mirror）**已失效**，网络状态会漂移，动手前先 curl 复测。
+- 现行策略：**GitHub 直连 clone**；**HF 大文件走迅雷**（峰哥手动）；HF 小文件/API 可用 WebFetch（工具侧网络独立）。
+  pytorch.org / repo.anaconda.com / tuna pypi 一直 ✅。
 
 ## 本机 WSL 硬件与 conda（2026-09-21 实测）
 - WSL2，54 GiB 内存 / 128 GiB swap（`.wslconfig`：memory=56GB, swap=128GB, processors=8）；
