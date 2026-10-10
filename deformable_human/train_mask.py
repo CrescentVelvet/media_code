@@ -364,7 +364,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
+                    # C2F：低分辨率档梯度在 1/scale² 像素上累积，同一阈值会把
+                    # 大量本该稠密化的点挡在门外。剂量标定（hand_motion 10k 实测）：
+                    #   thr×1（不补偿）→ 328k 点（基线 921k，欠容量 -0.46dB）
+                    #   thr/4（1/scale）→ 估 ~1.7M 点（2.7it/s @1/4 档，过冲且
+                    #     全分辨率段有 24GB OOM 风险——基线爆炸点 1.3M，已中止）
+                    # 对数插值目标 ~921k → 补偿因子 1/sqrt(res_scale)。
+                    # res_scale=1（C2F 关或末段）时与原逻辑逐字节等价。
+                    densify_thr = opt.densify_grad_threshold
+                    if args.c2f_densify_comp and res_scale > 1:
+                        densify_thr = opt.densify_grad_threshold / res_scale ** 0.5
+                    gaussians.densify_and_prune(densify_thr, 0.005, scene.cameras_extent, size_threshold)
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
@@ -483,6 +493,10 @@ if __name__ == "__main__":
                              "30-70%% 1/2 → 末段全分辨率（评测仍按原生分辨率）")
     parser.add_argument("--res_schedule", type=str, default="",
                         help="显式档位覆盖默认，格式 '0:4,3000:2,7000:1'（start_iter:scale 升序）")
+    parser.add_argument("--c2f_densify_comp", type=int, default=1,
+                        help="C2F 低分辨率档按 1/sqrt(res_scale) 放宽 densify_grad_threshold"
+                             "（1=开，默认；0=关。补偿低档梯度像素数不足的容量损失，"
+                             "剂量标定见 densify 处注释）")
     parser.add_argument("--test_iterations", nargs="+", type=int,
                         default=[5000, 6000, 7_000] + list(range(10000, 40001, 1000)))
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 10_000, 20_000, 30_000, 40000])

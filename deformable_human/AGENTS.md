@@ -128,6 +128,8 @@
 ```
 ITERATIONS=10000  WARM_UP=1000  USE_MASK_LOSS=1  FG_WEIGHT=1.0  BG_WEIGHT=0.2 \
 EXTRA_TRAIN_ARGS="-r 2 --densify_grad_threshold 0.0004 --densify_until_iter 2000"
+# 提速变体（省 38% 时间，前景 -0.04dB 噪声带内）：加 C2F=1
+#   （coarse-to-fine 分辨率调度 + 低档 1/√scale 稠密化阈值补偿，三轮 A/B 见 README）
 ```
 hand_motion 基线数字（A/B 参照系）：
 - 全图 test：29.26 dB（无 mask）/ 29.14（mask 版，-0.12 属噪声）
