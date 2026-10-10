@@ -78,6 +78,7 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `IS_6DOF` | `0` | 1=6DoF 形变变体（略准、更慢） |
 | `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
 | `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
+| `POSE_REFINE_START` | `0` | >0 时延迟到第 N 步才启用位姿精炼（BARF 式课程；坏初值场景实测仍证伪，见「实验记录」） |
 | `USE_MASK_LOSS` | `0` | 1=前景 mask 加权 L1（train_mask.py；需先跑 01d；与 POSE_REFINE 互斥） |
 | `MASK_DIR` | `$SOURCE_PATH/masks` | 01d 的输出目录 |
 | `FG_WEIGHT` / `BG_WEIGHT` | `1.0` / `0.2` | 前景/背景像素 loss 权重（按有效像素均值归一化，不改变 loss 量级） |
@@ -182,6 +183,7 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
 | **COLMAP BA**（01 默认） | ~10k | **29.14**（mask 版）/ 29.26（无 mask） | ~29 | ✅ 主链路 |
 | 手机 VI 位姿（01e，transforms.json） | 178k（pcd.ply 稠密） | 25.14 | 28.84 | ❌ -4dB |
 | 手机 VI + POSE_REFINE | 178k | 14.78 | 14.61 | ❌ 发散 |
+| 手机 VI + POSE_REFINE（延迟 3000 启动） | 178k | 17.95（best@5000）→16.35@10000 | — | ❌ 延迟也救不活 |
 | VGGT-Omega 前馈（vggt_human 02/03 链路） | 5.4k（voxel 下采样偏狠） | 23.85 | 25.74 | ❌ -5.3dB |
 
 要点：
@@ -189,7 +191,13 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
   但逐帧亚像素级噪声在全场景一致地压指标（train→test 泛化缺口 3.7dB，远大于 COLMAP）。
 - 手机位姿 + 可学精化（POSE_REFINE）**发散**：drift rot mean 1.48°/trans mean 0.12m，
   warm-up 期几何未成形时位姿被垃圾梯度拖走，自我强化进坏局部最优。
-  代码数学核对无 bug——是策略问题，要救需 BARF 式课程调度，成本远超省下的 COLMAP 时间。
+  代码数学核对无 bug——是策略问题。
+- **BARF 式延迟启动（2026-10-10 补测，`POSE_REFINE_START=3000`）同样证伪**：
+  drift 前 3000 步严格为 0、准点启用，但启用后 rot 0.96°→1.07°、trans 爬至 0.066 不止；
+  test PSNR 17.95（best@5000）→16.35@10000，仍远劣于不精炼的 25.14。
+  评测用冻结原始位姿——说明位姿 delta 在启用窗口内已不可逆地烤坏高斯几何。
+  根因：手机位姿噪声下「动位姿」比「修几何」更易降 loss（118 个自由位姿当泄压阀），
+  延迟只推迟不解决。该开关保留默认 0，作负结果存档。
 - VGGT-Omega 前馈位姿（38.5s 出 135 帧）重投影目检同样对齐，但预测内参与真实
   固定内参有系统差（fx median 1397.6 vs 手机标定 1380.8，且逐帧浮动 MAD 6px），
   联合 pose+intrinsic 误差使其垫底。

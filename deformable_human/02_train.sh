@@ -28,6 +28,9 @@
 #   USE_POSE_REFINE=0      # 1=训练中联合精炼位姿（可学四元数+平移，见
 #                          #   train_pose_refine.py；内参不学——stock 光栅化器
 #                          #   对 projmatrix 无梯度，见 README_wsl.md）
+#   POSE_REFINE_START=0    # >0 时延迟到第 N 步才启用位姿精炼（BARF 式课程，
+#                          #   几何成型后启动防垃圾梯度拖走初值；坏初值场景
+#                          #   建议 WARM_UP+2000，见 README 实验记录）
 #   USE_MASK_LOSS=0        # 1=前景 mask 加权 L1（train_mask.py；先跑 01d）。
 #                          #   前景权重向人倾斜，稠密化随梯度自然向人集中。
 #   MASK_DIR=              # 默认 $SOURCE_PATH/masks（01d 的输出）
@@ -55,6 +58,7 @@ IS_6DOF="${IS_6DOF:-0}"
 WHITE_BG="${WHITE_BG:-0}"
 EVAL="${EVAL:-1}"
 USE_POSE_REFINE="${USE_POSE_REFINE:-0}"
+POSE_REFINE_START="${POSE_REFINE_START:-0}"
 USE_MASK_LOSS="${USE_MASK_LOSS:-0}"
 MASK_DIR="${MASK_DIR:-$SOURCE_PATH/masks}"
 FG_WEIGHT="${FG_WEIGHT:-1.0}"
@@ -124,9 +128,9 @@ if [ "$USE_MASK_LOSS" = "1" ]; then
         --bg_deform_lambda "$BG_DEFORM_LAMBDA" )
 elif [ "$USE_POSE_REFINE" = "1" ]; then
     # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
-    export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T DG_DIR
+    export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_START DG_DIR
     echo "🧭 using train_pose_refine.py（可学四元数+平移，"
-    echo "    w=${POSE_REFINE_WEIGHT:-0.01} lr_q=${POSE_REFINE_LR_Q:-1e-3} lr_t=${POSE_REFINE_LR_T:-1e-3}）"
+    echo "    w=${POSE_REFINE_WEIGHT:-0.01} lr_q=${POSE_REFINE_LR_Q:-1e-3} lr_t=${POSE_REFINE_LR_T:-1e-3} start=${POSE_REFINE_START}）"
     ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_pose_refine.py" "${TRAIN_FLAGS[@]}" )
 else
     ( cd "$DG_DIR" && python train.py "${TRAIN_FLAGS[@]}" )

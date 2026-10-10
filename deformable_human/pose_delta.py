@@ -25,6 +25,10 @@
   POSE_REFINE_WEIGHT (0.01)  位姿正则权重（L2 拉回初始 COLMAP 位姿）
   POSE_REFINE_LR_Q   (1e-3)  四元数学习率
   POSE_REFINE_LR_T   (1e-3)  平移学习率
+  POSE_REFINE_START  (0)     延迟启动步数：iteration < N 时不注入 delta
+                             （几何未成型期位姿会被垃圾梯度拖走——2026-10-09
+                             手机位姿+立即启动实测发散 rot 1.48°/trans 0.12m；
+                             BARF 式课程：warm_up 静态热身 + 稠密化冻结后再开）
 """
 import os
 import json
@@ -39,6 +43,7 @@ from utils.rigid_utils import from_homogenous, to_homogenous
 POSE_REFINE_WEIGHT = float(os.environ.get("POSE_REFINE_WEIGHT", "0.01"))
 POSE_REFINE_LR_Q = float(os.environ.get("POSE_REFINE_LR_Q", "1e-3"))
 POSE_REFINE_LR_T = float(os.environ.get("POSE_REFINE_LR_T", "1e-3"))
+POSE_REFINE_START = int(os.environ.get("POSE_REFINE_START", "0"))
 
 
 # ---------------------------------------------------------------------------

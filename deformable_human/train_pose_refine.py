@@ -9,6 +9,10 @@
   2. loss 增加位姿正则：把 delta 拉回 COLMAP 初值（权重 POSE_REFINE_WEIGHT）。
   3. 独立的位姿 Adam（POSE_REFINE_LR_Q / POSE_REFINE_LR_T）。
   4. 每 1000 步打印 drift 统计；训练结束保存 pose_refine.json。
+  4b. POSE_REFINE_START>0 时延迟启动（2026-10-10）：iteration < start 不注入
+     delta、不加正则。动机：立即启动在坏初值（手机 VI 位姿）上发散——
+     warm-up 期几何未成型，位姿被垃圾梯度拖走自我强化；BARF 式课程
+     等几何成型（warm_up + 稠密化冻结）后再开位姿优化。
   5. 评估（training_report）不带 store——test/train 抽样都用 COLMAP 原始位姿，
      与 vanilla 基线的评估口径一致（精炼位姿没有真值可对标）。
 
@@ -42,7 +46,8 @@ from scene import Scene, GaussianModel, DeformModel
 from utils.general_utils import safe_state, get_linear_noise_func
 
 # POSE-REFINE：可学位姿存储 + 带 delta 注入的渲染
-from pose_delta import PoseDeltaStore, render_pose_delta, POSE_REFINE_WEIGHT
+from pose_delta import (PoseDeltaStore, render_pose_delta,
+                        POSE_REFINE_WEIGHT, POSE_REFINE_START)
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -64,7 +69,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     pose_store = PoseDeltaStore(scene.getTrainCameras())
     pose_optimizer = pose_store.get_optimizer()
     print(f"[POSE-REFINE] {len(pose_store.uids)} 个训练相机参与位姿精炼, "
-          f"reg_weight={POSE_REFINE_WEIGHT}")
+          f"reg_weight={POSE_REFINE_WEIGHT}, start_iter={POSE_REFINE_START}"
+          + ("（延迟启动：之前走原始位姿）" if POSE_REFINE_START > 0 else "（立即启动）"))
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -127,10 +133,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             d_xyz, d_rotation, d_scaling = deform.step(gaussians.get_xyz.detach(), time_input + ast_noise)
 
         # Render
-        # POSE-REFINE：场景侧 delta 注入（梯度流向该相机的 delta_q/delta_t）
+        # POSE-REFINE：场景侧 delta 注入（梯度流向该相机的 delta_q/delta_t）。
+        # 延迟启动（BARF 式课程）：start 前不注入 delta——几何未成型期的
+        # 光度梯度对位姿是噪声，会把初值拖进坏局部最优（2026-10-09 实测发散）。
+        # store=None 时 render_pose_delta 走原始位姿路径，delta 参数无梯度，
+        # Adam 状态在启用步才惰性建立，天然干净。
+        pose_active = iteration >= POSE_REFINE_START
+        if pose_active and POSE_REFINE_START > 0 and iteration == POSE_REFINE_START:
+            print(f"\n[POSE-REFINE] iter {iteration}: 几何已成型，启用位姿精炼")
         render_pkg_re = render_pose_delta(viewpoint_cam, gaussians, pipe, background,
                                           d_xyz, d_rotation, d_scaling, dataset.is_6dof,
-                                          store=pose_store)
+                                          store=pose_store if pose_active else None)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg_re["render"], render_pkg_re[
             "viewspace_points"], render_pkg_re["visibility_filter"], render_pkg_re["radii"]
 
@@ -140,9 +153,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         # POSE-REFINE：位姿正则（把 delta 拉回 COLMAP 初值；只作用当前相机，
         # 与梯度流经路径一致——其他相机的 delta 本步无梯度）
-        cam_idx = pose_store.uid2idx.get(viewpoint_cam.uid)
-        if cam_idx is not None:
-            loss = loss + POSE_REFINE_WEIGHT * pose_store.reg_loss(cam_idx)
+        if pose_active:
+            cam_idx = pose_store.uid2idx.get(viewpoint_cam.uid)
+            if cam_idx is not None:
+                loss = loss + POSE_REFINE_WEIGHT * pose_store.reg_loss(cam_idx)
         loss.backward()
 
         iter_end.record()
