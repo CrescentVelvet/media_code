@@ -79,6 +79,27 @@ if [ -s "$UNIDEPTH_SNAP/pytorch_model.bin" ] && [ ! -s "$UNIDEPTH_REPO_CACHE/ref
     echo "🔧 补建 HF 缓存 refs/main -> local"
 fi
 
+# ── 2b. ResNet50 ImageNet 权重 → 种进 torch hub checkpoints 缓存 ─────────
+# models/encoder/resnet_encoder.py 用 torchvision ResNet50_Weights.IMAGENET1K_V2，
+# get_state_dict() 走 load_state_dict_from_url(download.pytorch.org/...)。
+# 该域名实测"通而不稳"：TCP 连得上但无数据返回，urllib 无超时直接挂死训练初始化
+# （2026-10-12 死代理法定位，栈在 torchvision/models/resnet.py:301）。
+# 种进 $TORCH_HOME/hub/checkpoints/ 后 torch 检测到文件存在即跳过下载（文件名含
+# sha256 前缀，check_hash=True 也能过）。注意是 hub/checkpoints/ 不是 checkpoints/。
+TORCH_CKPT_DIR="${TORCH_HOME:-$HOME/.cache/torch}/hub/checkpoints"
+RESNET_CKPT="$TORCH_CKPT_DIR/resnet50-11ad3fa6.pth"
+if [ -s "$RESNET_CKPT" ]; then
+    echo "⏭️  ResNet50 权重已在 torch 缓存"
+elif [ -s "$GAVS_STAGING_DIR/resnet50-11ad3fa6.pth" ]; then
+    echo "📦 种入 ResNet50 权重 -> torch 缓存 (~98MB)..."
+    mkdir -p "$TORCH_CKPT_DIR"
+    cp "$GAVS_STAGING_DIR/resnet50-11ad3fa6.pth" "$RESNET_CKPT"
+    echo "  ✅ done: $RESNET_CKPT"
+else
+    echo "❌ 缺 resnet50-11ad3fa6.pth（链接见 README_wsl.md）" >&2
+    _missing=1
+fi
+
 # ── 3. 场景数据解压 ───────────────────────────────────────────────────────
 if [ "${SKIP_UNZIP:-0}" != "1" ]; then
     shopt -s nullglob
@@ -131,6 +152,7 @@ echo ""
 echo "--- verification ---"
 [ -s "$CKPT" ] && echo "  ✅ Flash3D 权重" || echo "  [MISS] Flash3D 权重"
 [ -s "$UNIDEPTH_SNAP/pytorch_model.bin" ] && echo "  ✅ UniDepth 权重（HF 缓存）" || echo "  [MISS] UniDepth 权重"
+[ -s "$RESNET_CKPT" ] && echo "  ✅ ResNet50 权重（torch 缓存）" || echo "  [MISS] ResNet50 权重"
 ls -d "$GAVS_DATA_ROOT/dataset"/*/ 2>/dev/null | while read -r d; do
     echo "  ✅ 场景: $(basename "$d")"
 done

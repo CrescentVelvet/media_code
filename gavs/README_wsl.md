@@ -8,12 +8,17 @@
 以下文件用迅雷下载到 **`D:\wheel\gavs_ms\`**（WSL 路径 `/mnt/d/wheel/gavs_ms/`），
 然后跑 `01_download_models.sh` 自动归位。
 
-### 必需（2 个，共 ~2 GB）
+### 必需（3 个，共 ~2.1 GB）
 
-| 文件 | 大小 | 迅雷链接（huggingface.co 原始地址） | 下载后文件名要求 |
+| 文件 | 大小 | 迅雷链接 | 下载后文件名要求 |
 |---|---|---|---|
 | Flash3D 预训练权重（RealEstate10K） | 690 MB | `https://huggingface.co/datasets/sinoyou/gavs-data/resolve/main/re10k_v2_checkpoints/model_re10k_v2.pth` | `model_re10k_v2.pth`（放根目录） |
 | UniDepth v1 ViT-L14 权重 | ~1.3 GB | `https://huggingface.co/lpiccinelli/unidepth-v1-vitl14/resolve/main/pytorch_model.bin` | 改名 `unidepth-v1-vitl14-pytorch_model.bin`（放根目录）⚠️ |
+| ResNet50 ImageNet 权重（torchvision V2） | 98 MB | `https://download.pytorch.org/models/resnet50-11ad3fa6.pth` | `resnet50-11ad3fa6.pth`（放根目录，**不要改名**——文件名含 sha256 前缀，torch 要校验）⚠️ |
+
+> ResNet50 这一项官方 README 没提：`models/encoder/resnet_encoder.py` 构建 backbone 时
+> torchvision 会联网下载它，而 download.pytorch.org 在本机"通而不稳"（连接建立后无数据，
+> urllib 无超时直接挂死训练初始化，2026-10-12 实测卡死 8 分钟定位）。
 
 ### 场景数据（至少下 1 个；推荐先下 dynamic_dance）
 
@@ -49,8 +54,9 @@
 D:\wheel\gavs_ms\
 ├── model_re10k_v2.pth
 ├── unidepth-v1-vitl14-pytorch_model.bin
+├── resnet50-11ad3fa6.pth
 └── dataset\
-    └── dynamic_dance.zip   （+ 其他场景可选）
+    └── dynamic_dance.zip   （+ 其他场景可选；也接受已解压的 dynamic_dance\ 目录）
 ```
 
 ## 首次准备（一次性，~30 min 含下载）
