@@ -5,8 +5,8 @@
 服务器一次性准备（免 sudo，复制即用；不做也能跑——会回退为 .svg 并打印警告）：
     pip install cairosvg        # PNG 光栅化后端（需系统 libcairo2，Ubuntu 一般自带）
     mkdir -p ~/.local/share/fonts && cp /mnt/c/Windows/Fonts/msyh.ttc ~/.local/share/fonts/ && fc-cache -f
-                                # 上一行是 WSL 直接借 Windows 雅黑；纯 Linux 服务器改为
-                                # 下载任一 CJK 字体（如 Noto Sans SC）放同目录后 fc-cache -f
+    mkdir -p ~/.local/share/fonts && cp ../../test/Font/msyh.ttc ~/.local/share/fonts/ && fc-cache -f
+                                # WSL 直接借 Windows 雅黑；纯 Linux 服务器下载任一 CJK 字体放同目录后 fc-cache -f
 
 背景（2026-09-22 实测核对过，详见 NOTES.md）
     Remy 采集包每个 ID 目录下是 transforms.json + image/*.heic + pcd.ply。
