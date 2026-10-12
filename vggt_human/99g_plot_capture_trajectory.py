@@ -11,7 +11,9 @@
       但它**不是**视线汇聚中心：实测各帧视线到它的垂距 RMS 0.205 m、夹角 9.54°，明显差于
       最小二乘交汇点（0.081 m / 3.46°，10 个样本 10:0）。详见 NOTES.md「球心取哪个点」。
 
-只依赖标准库（json/math/struct），服务器与 WSL 都免装包。
+核心绘图只依赖标准库（json/math/struct），服务器与 WSL 都免装包。
+PNG 导出（默认开）是唯一的可选外部依赖：cairosvg（pip，需系统 libcairo2）或
+rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆腐块；都没有则回退为 .svg。
 
 ⚠️ 兼容 Python 3.8+（服务器 vggt_human env 是 3.10，本机是 3.13）。**别用 3.12+ 才合法的语法**，
 尤其 f-string 表达式段里复用同类引号——3.10 会直接 SyntaxError，本机 3.13 却看不出来。
@@ -29,7 +31,7 @@
 
     # 视角约束范围（view limit）：先看六种画法的总览再定稿
     STYLE=vlimit SRC_ROOT=... python ...
-    # 定稿后只出一种、单独出大图 + 独立 .svg
+    # 定稿后只出一种、单独出大图 + 独立 .png
     STYLE=lim_edges SRC_ROOT=... python ...
     # 把某一种约束叠进 combo 的俯视图（shell 叠进等轴测面板）
     VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python ...
@@ -41,14 +43,18 @@
     # 可选：只画其中几个 ID
     IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
 
-路径与默认风格写在下方 main() 里。每张图旁会落一份同名独立 .svg（矢量原图，可拖进 PPT）。
+路径与默认风格写在下方 main() 里。每张图旁默认落一份同名 .png（2× 宽度，可直接拖进 PPT；
+大体积 SVG 会被 PPT 拒载显示红叉）。要保留矢量原图：SAVE_SVG=1；要调清晰度：PNG_SCALE=3。
 """
 from __future__ import annotations
 
 import json
 import math
 import os
+import re
+import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,6 +66,16 @@ PLY_MAX_POINTS = 300000
 # 单块图最多画多少个点：先按「视野」过滤再限流。只做全局抽稀的话，
 # 视野被放大时落在视野内的点只剩百分之几，点云会稀到看不见。
 PLY_DRAW_POINTS = 30000
+
+# ── PNG 导出（2026-10-12：PPT 对大体积 SVG 拒载显示红叉，根因是点云数万元素）──
+# 默认只落 .png（2× 宽度，约 0.5–0.8 MB/张），不再落独立 .svg；矢量原图要留就 SAVE_SVG=1。
+# PNG 需要光栅化后端，按序探测：cairosvg（pip 包，需系统 libcairo2，Ubuntu 一般自带）
+# → rsvg-convert（librsvg2-bin）。都没有则警告并回退为写 .svg，不让成果丢失。
+# 服务器最小安装：pip install cairosvg；另需中文字体（apt 装 fonts-noto-cjk，
+# 或免 sudo：把 msyh.ttc 放到 ~/.local/share/fonts 后 fc-cache）。
+SAVE_PNG = os.environ.get("SAVE_PNG", "1") == "1"
+SAVE_SVG = os.environ.get("SAVE_SVG", "0") == "1"
+PNG_SCALE = float(os.environ.get("PNG_SCALE", "2"))  # PNG 宽度 = 画布宽 × 倍数
 
 STYLES = ("quad", "combo", "minimal", "darkspace", "fov", "iso",
           "vlimit", "lim_band", "lim_edges", "lim_angle", "lim_rings", "lim_hull", "lim_shell")
@@ -95,7 +111,9 @@ VL_MARK_ALT = os.environ.get("VL_MARK_ALT", "1").strip().lower() not in ("0", "f
 # 用 None 当默认值会让「不画」和「用 ctx 的」混成一个值，所以单独造一个。
 _CTX_ANCHOR = object()
 
-FONT = "system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif"
+# 字体栈带上 Linux CJK 备选：服务器光栅化 PNG 时若只有西文字体，中文会变豆腐块
+FONT = ("system-ui,-apple-system,'Segoe UI','Microsoft YaHei',"
+        "'Noto Sans CJK SC','WenQuanYi Micro Hei',sans-serif")
 MONO = "ui-monospace,Consolas,'Courier New',monospace"
 
 
@@ -291,6 +309,40 @@ def svg_open(w, h, bg=None) -> str:
     if bg:
         out.append(f'<rect x="0" y="0" width="{w}" height="{h}" fill="{bg}"/>')
     return "\n".join(out)
+
+
+_PNG_BACKEND = None
+_PNG_BACKEND_CHECKED = False
+
+
+def _detect_png_backend():
+    """按优先级探测 SVG→PNG 后端（只探测一次）：cairosvg（pip）→ rsvg-convert（librsvg）。"""
+    global _PNG_BACKEND, _PNG_BACKEND_CHECKED
+    if not _PNG_BACKEND_CHECKED:
+        try:
+            import cairosvg  # noqa: F401
+            _PNG_BACKEND = "cairosvg"
+        except Exception:
+            _PNG_BACKEND = "rsvg-convert" if shutil.which("rsvg-convert") else None
+        _PNG_BACKEND_CHECKED = True
+    return _PNG_BACKEND
+
+
+def svg_to_png(svg_text: str, dst: Path, scale: float = PNG_SCALE) -> bool:
+    """把 SVG 文本光栅化成 PNG（宽度 = 画布宽 × scale）。无可用后端返回 False。"""
+    backend = _detect_png_backend()
+    if backend is None:
+        return False
+    m = re.search(r'viewBox="0 0 ([\d.]+) ', svg_text[:300])
+    width = int(round(float(m.group(1)) * scale)) if m else int(880 * scale)
+    if backend == "cairosvg":
+        import cairosvg
+        cairosvg.svg2png(bytestring=svg_text.encode("utf-8"),
+                         write_to=str(dst), output_width=width)
+    else:  # rsvg-convert 从 stdin 读 SVG
+        subprocess.run(["rsvg-convert", "-w", str(width), "-o", str(dst)],
+                       input=svg_text.encode("utf-8"), check=True)
+    return True
 
 
 def text_w(s, fs):
@@ -2380,12 +2432,19 @@ def process_one(folder: Path, dst_root: Path, styles, suffix=""):
         svg, _ = RENDERERS[style](ctx)
         p = dst_root / f"{stem}.html"
         p.write_text(render_html(ctx, style, svg), encoding="utf-8")
-        # 同时落一份独立 .svg（矢量原图，可直接拖进 PPT / 报告排版）。
-        # vlimit 是「多张 SVG 拼在一页」的总览，落成单文件 .svg 会变成多个根元素（非法）→ 跳过。
+        # 默认落 PNG（2×，可直接拖进 PPT；大体积 SVG 会被 PPT 拒载显示红叉）。
+        # SAVE_SVG=1 才另外保留矢量原图。vlimit 是「多张 SVG 拼一页」的多根元素，
+        # 不能光栅化成单张 → 跳过。无 PNG 后端时回退为写 .svg，不让成果丢失。
+        extra = ""
         if style != "vlimit":
-            (dst_root / f"{stem}.svg").write_text(svg, encoding="utf-8")
+            png_ok = SAVE_PNG and svg_to_png(svg, dst_root / f"{stem}.png")
+            if png_ok:
+                extra = f" + {stem}.png"
+            if SAVE_SVG or not png_ok:
+                (dst_root / f"{stem}.svg").write_text(svg, encoding="utf-8")
+                extra += f" + {stem}.svg" + ("" if png_ok or not SAVE_PNG else "（回退）")
         out.append((style, p))
-        print(f"  ✅ {style:<10} {p.name}" + ("" if style == "vlimit" else f" + {stem}.svg"))
+        print(f"  ✅ {style:<10} {p.name}{extra}")
 
     summary = {
         "id": folder.name, "files": {style: p.name for style, p in out},
@@ -2410,6 +2469,13 @@ def run(src_root: Path, dst_root: Path, styles, ids=None):
     print(f"📁 源: {src_root}")
     print(f"📁 输出: {dst_root}")
     print(f"🎨 风格: {', '.join(styles)}")
+    if SAVE_PNG:
+        backend = _detect_png_backend()
+        if backend:
+            print(f"🖼️  PNG 导出: 后端 {backend} · 宽度 = 画布 ×{PNG_SCALE}")
+        else:
+            print("⚠️  找不到 PNG 后端（pip install cairosvg，或 apt 装 librsvg2-bin）；"
+                  "本轮回退为 .svg。中文不变豆腐块需系统装 CJK 字体（fonts-noto-cjk）")
     print()
 
     entries, done, skip = [], 0, 0
