@@ -5,12 +5,14 @@
 #   python train.py hydra.run.dir=./exp/<scene>/ +experiment=layered_gavs_overfit \
 #       dataset.data_path=./gavs-data/dataset/<scene>
 #
-# 机制说明（读源码确认，别乱改 cwd）：
-#   - train.py 不 chdir：checkpoints/、depth_scale.json、visualization/ 都落在 cwd；
+# 机制说明（读源码+实测确认，别乱改 cwd）：
+#   - train.py 不主动 chdir，但 hydra.run.dir=./exp/<scene>/ 会让 hydra 把工作目录
+#     切过去 —— checkpoints/、depth_scale.json、visualization/、train.log 实际都落在
+#     $GAVS_DIR/exp/<scene>/ 下（2026-10-12 实测，不是仓根）；
 #   - 训练结束后 train.py 用 os.system("python evaluate.py") 自动评估，
 #     该相对路径要求 cwd = 仓根 —— 所以本脚本固定 cd 到 $GAVS_DIR 运行；
-#   - 跑完把 checkpoints/visualization/depth_scale.json 搬到 $GAVS_RESULTS_DIR/<scene>/，
-#     防止下个场景误 resume（train.py 检测到 checkpoints/ 存在会续训）。
+#   - 跑完把 exp/<scene>/ 下的产物搬到 $GAVS_RESULTS_DIR/<scene>/，
+#     防止同场景重跑误 resume（train.py 检测到 exp/<scene>/checkpoints/ 存在会续训）。
 #
 # 用法：
 #   SCENE=dynamic_dance bash gavs/02_run_finetune.sh
@@ -35,13 +37,14 @@ echo "  💾 输出:   $OUT_DIR"
 [ -s "$CKPT_DIR/model_re10k_v2.pth" ] || { echo "❌ 预训练权重缺失（先跑 01）" >&2; exit 1; }
 [ -f "$GAVS_DIR/train.py" ] || { echo "❌ 官方仓不存在: $GAVS_DIR（先跑 00a）" >&2; exit 1; }
 
-# 防跨场景误 resume：checkpoints/ 在仓根，上一场没搬走就报警
-if [ -d "$GAVS_DIR/checkpoints" ]; then
+# 防同场景误 resume：checkpoints 在 exp/<scene>/ 下，上次没搬走就报警
+EXP_DIR="$GAVS_DIR/exp/$SCENE"
+if [ -d "$EXP_DIR/checkpoints" ]; then
     if [ "${FORCE:-0}" = "1" ]; then
-        echo "⚠️ FORCE=1，删除残留 checkpoints/（上个场景的微调结果将被丢弃）"
-        rm -rf "$GAVS_DIR/checkpoints"
+        echo "⚠️ FORCE=1，删除残留 $EXP_DIR/checkpoints（上次微调结果将被丢弃）"
+        rm -rf "$EXP_DIR/checkpoints"
     else
-        echo "❌ $GAVS_DIR/checkpoints 已存在（上个场景残留？）。" >&2
+        echo "❌ $EXP_DIR/checkpoints 已存在（上次残留？）。" >&2
         echo "   train.py 检测到它会续训而不是从头微调。确认无用后删除，或 FORCE=1 重跑。" >&2
         exit 1
     fi
@@ -67,12 +70,12 @@ if [ $_rc -ne 0 ]; then
     exit 1
 fi
 
-# 收尾搬运（checkpoints / visualization / depth_scale.json 都在仓根）
+# 收尾搬运（产物在 hydra run dir：exp/<scene>/，不是仓根）
 echo "📦 搬运产物 -> $OUT_DIR"
-for _item in checkpoints visualization depth_scale.json; do
-    if [ -e "$GAVS_DIR/$_item" ]; then
+for _item in checkpoints visualization depth_scale.json train.log evaluate.log; do
+    if [ -e "$EXP_DIR/$_item" ]; then
         rm -rf "${OUT_DIR:?}/$_item"
-        mv "$GAVS_DIR/$_item" "$OUT_DIR/"
+        mv "$EXP_DIR/$_item" "$OUT_DIR/"
         echo "  ✅ $_item"
     else
         echo "  ⚠️ 未找到 $_item" >&2
