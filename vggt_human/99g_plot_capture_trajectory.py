@@ -2433,7 +2433,8 @@ def main():
     # 默认值指向服务器路径；本机测试用 SRC_ROOT=D:/dataset/测试数据sample 覆盖即可。
     SRC_ROOT = Path(os.environ.get(
         "SRC_ROOT",
-        "../../code/Reconstruction/dataset/43例人像数据-增加佳佳版",
+        # "../../code/Reconstruction/dataset/43例人像数据-增加佳佳版",
+        "../../test/物体重建输入/scene_B004_0824_data",
     ))
     # 输出目录（HTML 很小，放哪儿都行）
     RESULTS_ROOT = Path(os.environ.get("RESULTS_ROOT", "../../output/recon_human_results"))
