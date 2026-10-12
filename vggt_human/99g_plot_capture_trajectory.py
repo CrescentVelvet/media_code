@@ -283,7 +283,10 @@ def ramp_color(t, stops):
 
 
 def svg_open(w, h, bg=None) -> str:
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="100%" '
+    # width/height 必须写绝对像素值，不能用百分比：PowerPoint 导入 SVG 时按固有尺寸
+    # 建立图元，width="100%" 会被判为尺寸无法确定 → 插入后只显示一个红叉。
+    # viewBox 保留，HTML 里由 CSS（max-width:100%）负责等比缩放，不受影响。
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
            f'font-family="{FONT}" role="img">']
     if bg:
         out.append(f'<rect x="0" y="0" width="{w}" height="{h}" fill="{bg}"/>')
@@ -2290,6 +2293,7 @@ body{margin:0;padding:28px 24px 40px;background:var(--bg);color:var(--ink);
 h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:.2px}
 .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
 .fig{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px 4px;overflow:hidden}
+.fig svg{display:block;max-width:100%;height:auto}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .card .k{font-size:12px;color:var(--muted);margin-bottom:4px}
