@@ -132,8 +132,39 @@ fi
 echo "📦 installing GaVS requirements..."
 pip install "${PIP_FLAGS[@]}" -r "$GAVS_DIR/requirements.txt" || \
     echo "  ⚠️ some deps failed（若关键包缺失后面 verify 会报）" >&2
+# requirements 里有未钉版本的包会把 numpy 带到 2.x —— torch 2.2.2 是按 numpy 1.x
+# 编译的，numpy 2.x 下 import torch 报 "_ARRAY_API not found" 且 tensor.numpy() 会炸。
+# 必须在 requirements 之后强制钉回（第二轮实测踩坑，2026-10-12）。
+pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps numpy==1.26.4
+python -c "import numpy, torch; assert numpy.__version__.startswith('1.'), numpy.__version__" || {
+    echo "❌ numpy 钉回 1.x 失败" >&2; exit 1; }
 
 # ── 7. 编译 diff-gaussian-rasterization-w-pose ────────────────────────────
+# 前置补丁：torch 2.2.2 捆绑的 pybind11 cast.h 与 nvcc 12.1 不兼容（nvcc 前端
+# 无法解析 `caster.operator typename ...::template cast_op_type<T>()`，报
+# "expected template-name before '<' token"）。torch 2.5.1 已按 pybind11
+# PR #4893 修复（先 using result_t 再调 operator result_t()）。此处把 env 内
+# torch 头文件打成同样写法；幂等，patch 后重跑自动跳过。
+python - <<'PYEOF'
+import pathlib, sys
+cast = pathlib.Path(sys.prefix) / "lib/python3.10/site-packages/torch/include/pybind11/cast.h"
+src = cast.read_text()
+if "PR #4893" in src:
+    print("  ⏭️  pybind11 cast.h already patched")
+else:
+    old1 = "    return caster.operator typename make_caster<T>::template cast_op_type<T>();"
+    new1 = ("    using result_t = typename make_caster<T>::template cast_op_type<T>; // See PR #4893\n"
+            "    return caster.operator result_t();")
+    old2 = ("    return std::move(caster).operator typename make_caster<T>::\n"
+            "        template cast_op_type<typename std::add_rvalue_reference<T>::type>();")
+    new2 = ("    using result_t = typename make_caster<T>::template cast_op_type<\n"
+            "        typename std::add_rvalue_reference<T>::type>; // See PR #4893\n"
+            "    return std::move(caster).operator result_t();")
+    assert src.count(old1) == 1 and src.count(old2) == 1, "cast.h pattern not found（torch 版本变了？）"
+    cast.write_text(src.replace(old1, new1).replace(old2, new2))
+    print("  🔧 patched torch pybind11 cast.h for nvcc 12.1 (PR #4893)")
+PYEOF
+
 export CUDA_HOME="${CUDA_HOME:-$CONDA_PREFIX}"
 export PATH="$CUDA_HOME/bin:$PATH"
 _gcc="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc"
