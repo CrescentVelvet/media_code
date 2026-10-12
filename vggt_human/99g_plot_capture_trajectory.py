@@ -3,10 +3,14 @@
 相机轨迹画成自包含 HTML（内联 SVG），图内标题与文件名都用「文件夹 ID」。
 
 服务器一次性准备（免 sudo，复制即用；不做也能跑——会回退为 .svg 并打印警告）：
-    pip install cairosvg        # PNG 光栅化后端（需系统 libcairo2，Ubuntu 一般自带）
-    mkdir -p ~/.local/share/fonts && cp /mnt/c/Windows/Fonts/msyh.ttc ~/.local/share/fonts/ && fc-cache -f
-    mkdir -p ~/.local/share/fonts && cp ../../test/Font/msyh.ttc ~/.local/share/fonts/ && fc-cache -f
-                                # WSL 直接借 Windows 雅黑；纯 Linux 服务器下载任一 CJK 字体放同目录后 fc-cache -f
+    pip install cairosvg pillow-heif
+                                # cairosvg = PNG 光栅化后端（需系统 libcairo2，Ubuntu 一般自带）
+                                # pillow-heif = 解码 image/*.heic，quad 左栏贴实拍首帧用
+                                # 若 tuna 源报 "from versions: none"（403，2026-10-12 本机实测），
+                                # 换源：pip install -i https://mirrors.aliyun.com/pypi/simple/ cairosvg pillow-heif
+    mkdir -p ~/.local/share/fonts && cp /mnt/c/Windows/Fonts/MSYH.TTC ~/.local/share/fonts/ && fc-cache -f
+    mkdir -p ~/.local/share/fonts && cp ../../model/Fonts/MSYH.TTC ~/.local/share/fonts/ && fc-cache -f
+                                # WSL 直接用微软雅黑 MSYH.TTC；纯 Linux 服务器下载任一 CJK 字体放同目录后 fc-cache -f
 
 背景（2026-09-22 实测核对过，详见 NOTES.md）
     Remy 采集包每个 ID 目录下是 transforms.json + image/*.heic + pcd.ply。
@@ -45,6 +49,7 @@ rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆
     # 约束球心取哪个点（默认 sight = 最小二乘视线汇聚中心，不使用 anchor_point）
     VL_TARGET=anchor python ...    # 回到 anchor_point 口径
     VL_MARK_ALT=0    python ...    # 不画对照球心
+    QUAD_PHOTO=0     python ...    # quad 左栏不贴实拍首帧（默认贴，解码 HEIC 需 pillow-heif）
 
     # 可选：只画其中几个 ID
     IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
@@ -54,6 +59,8 @@ rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 import math
 import os
@@ -78,16 +85,22 @@ PLY_DRAW_POINTS = 30000
 # PNG 需要光栅化后端，按序探测：cairosvg（pip 包，需系统 libcairo2，Ubuntu 一般自带）
 # → rsvg-convert（librsvg2-bin）。都没有则警告并回退为写 .svg，不让成果丢失。
 # 服务器最小安装：pip install cairosvg；另需中文字体（apt 装 fonts-noto-cjk，
-# 或免 sudo：把 msyh.ttc 放到 ~/.local/share/fonts 后 fc-cache）。
+# 或免 sudo：把 MSYH.TTC 放到 ~/.local/share/fonts 后 fc-cache）。
 SAVE_PNG = os.environ.get("SAVE_PNG", "1") == "1"
 SAVE_SVG = os.environ.get("SAVE_SVG", "0") == "1"
 PNG_SCALE = float(os.environ.get("PNG_SCALE", "2"))  # PNG 宽度 = 画布宽 × 倍数
+
+# ── quad 左栏实拍首帧贴图（2026-10-12 峰哥需求）──
+# image/ 里是 HEIC，标准库解不了 → 可选依赖 pillow-heif（pip 即装，wheel 自带 libheif）。
+# 解不了（无依赖 / 无 image 目录 / 解码失败）就不贴，quad 版面回退为无左栏的原样。
+QUAD_PHOTO = os.environ.get("QUAD_PHOTO", "1") == "1"
+QUAD_PHOTO_W = 340.0   # 左栏宽 px；照片面板与 ① 同高（450），竖拍 3:4 正好贴满
 
 STYLES = ("quad", "combo", "minimal", "darkspace", "fov", "iso",
           "vlimit", "lim_band", "lim_edges", "lim_angle", "lim_rings", "lim_hull", "lim_shell")
 
 STYLE_LABELS = {
-    "quad": "四联对照图 2×2（左列原始采集轨迹 / 右列视角约束，共用取景）",
+    "quad": "四联对照图 2×2（左栏实拍首帧+采集信息；左列原始采集轨迹 / 右列视角约束，共用取景）",
     "combo": "俯视 + 等轴测双联图（上下排列，俯视轨迹按帧序时间渐变）",
     "minimal": "浅色极简 · 轨迹 + 视线 + 均值半径环",
     "darkspace": "深色网格 · 按时间渐变的轨迹",
@@ -310,7 +323,10 @@ def svg_open(w, h, bg=None) -> str:
     # width/height 必须写绝对像素值，不能用百分比：PowerPoint 导入 SVG 时按固有尺寸
     # 建立图元，width="100%" 会被判为尺寸无法确定 → 插入后只显示一个红叉。
     # viewBox 保留，HTML 里由 CSS（max-width:100%）负责等比缩放，不受影响。
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
+    # xmlns:xlink 给 quad 左栏内嵌实拍图（<image xlink:href="data:...">）用，
+    # 兼容性比 SVG2 裸 href 好（librsvg / cairosvg / 旧浏览器通吃）。
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+           f'viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
            f'font-family="{FONT}" role="img">']
     if bg:
         out.append(f'<rect x="0" y="0" width="{w}" height="{h}" fill="{bg}"/>')
@@ -349,6 +365,68 @@ def svg_to_png(svg_text: str, dst: Path, scale: float = PNG_SCALE) -> bool:
         subprocess.run(["rsvg-convert", "-w", str(width), "-o", str(dst)],
                        input=svg_text.encode("utf-8"), check=True)
     return True
+
+
+def load_first_photo(img_dir: Path, box_w: int, box_h: int):
+    """读 image/ 里第一张实拍图，居中裁到 box_w×box_h 的 2 倍尺寸 JPEG，
+    返回 (data_uri, 文件名)；目录缺失 / 无 pillow-heif / 解码失败都返回 None（不贴图）。
+
+    内嵌成 base64 data URI：SVG/PNG 都是单文件自包含，外发不用带图床。
+    """
+    if not img_dir.is_dir():
+        return None
+    files = sorted(p for p in img_dir.iterdir()
+                   if p.suffix.lower() in (".heic", ".heif", ".jpg", ".jpeg", ".png"))
+    if not files:
+        return None
+    src = files[0]
+    try:
+        from PIL import Image, ImageOps
+        if src.suffix.lower() in (".heic", ".heif"):
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        im = Image.open(src)
+        im = ImageOps.exif_transpose(im)   # 应用 EXIF 方向，手机竖拍不会躺倒
+        im = im.convert("RGB")
+        tw, th = box_w * 2, box_h * 2      # 2×：高分屏与 PNG 导出（PNG_SCALE=2）都不糊
+        sw, sh = im.size
+        k = max(tw / sw, th / sh)          # 等比放大到盖满目标框再居中裁
+        im = im.resize((max(1, round(sw * k)), max(1, round(sh * k))), Image.LANCZOS)
+        cw, ch = im.size
+        im = im.crop(((cw - tw) // 2, (ch - th) // 2, (cw + tw) // 2, (ch + th) // 2))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=82)
+        return ("data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii"),
+                src.name)
+    except Exception:
+        return None
+
+
+def quad_info_rows(ctx):
+    """quad 左栏「采集信息」卡的行内容：stat_cards 的精简版，直接画进 SVG 本体。
+    独立 PNG/SVG 外发时没有 HTML 统计卡片，关键参数得在图里。"""
+    d = ctx["data"]
+    r = ctx["range"]
+    plat = (d.get("platform_version") or "").split("/")
+    dev = plat[5] if len(plat) > 5 else "?"
+    if ctx["anchor"]:
+        origin = f"距锚点 {math.dist(ctx['anchor'], (0.0, 0.0, 0.0)):.2f} m"
+    else:
+        pos = ctx["pos"]
+        cen = tuple(sum(p[i] for p in pos) / len(pos) for i in range(3))
+        origin = f"距相机质心 {math.dist(cen, (0.0, 0.0, 0.0)):.2f} m"
+    return [
+        ("帧数 · 时长", f"{ctx['n']} 帧 · {ctx['duration']:.1f} s · {ctx['fps']:.2f} fps"),
+        ("分辨率 · 等效焦距", f"{ctx['res'][0]}×{ctx['res'][1]} · {ctx['f_equiv']:.1f} mm"),
+        ("相机-锚点水平距离",
+         f"{ctx['dist_min']:.2f}–{ctx['dist_max']:.2f} m（均值 {ctx['dist_mean']:.2f}）"),
+        ("轨迹范围（X×Z）", f"{r['x'][1] - r['x'][0]:.2f} × {r['z'][1] - r['z'][0]:.2f} m"),
+        ("相机高度（Y）", f"{r['y'][0]:.2f}–{r['y'][1]:.2f} m"),
+        ("视线对准偏差", f"均值 {ctx['ang_mean']:.1f}° · 最大 {ctx['ang_max']:.1f}°"),
+        ("点云 pcd.ply", f"{ctx['ply_total']} 点"),
+        ("世界原点 (0,0,0)", origin),
+        ("采集端", f"{d.get('platform', '?')} · {dev} · mode {d.get('capture_mode', '?')}"),
+    ]
 
 
 def text_w(s, fs):
@@ -2096,7 +2174,12 @@ def style_quad(ctx):
     """
     INK, MUTED, LINE = "#111827", "#4B5563", "#D1D5DB"
     PW, PH, M, GAP, LEG = QUAD_PW, QUAD_PH, QUAD_M, QUAD_GAP, QUAD_LEG
-    X_L = M
+    # 有实拍首帧（image/ 第一张，process_one 已解码进 ctx["photo"]）就在左侧加一栏：
+    # 上＝实拍照片（与 ① 同高），下＝采集信息卡（与 ③ 同高），方便把轨迹和实景对照着看。
+    # 没照片时左栏宽为 0，版面与旧版完全一致。
+    photo = ctx.get("photo") if QUAD_PHOTO else None
+    photo_w = QUAD_PHOTO_W if photo else 0.0
+    X_L = M + (photo_w + GAP if photo else 0.0)
     X_R = X_L + PW + GAP
     W = X_R + PW + M
     TOP_Y = QUAD_TOP_Y
@@ -2162,6 +2245,33 @@ def style_quad(ctx):
                f'最小二乘视线汇聚中心（不使用 anchor_point；anchor_point 只作对照标记）｜ '
                f'四张图共用同一取景与比例尺 {v_top_l.s:.1f} px/m，可逐点对照 ｜ '
                f'约束层画在轨迹下层 ｜ 约束用青绿以区分轨迹的蓝→紫→玫红渐变</text>')
+
+    # ── ⓪ 左栏：实拍首帧 + 采集信息卡（有照片时才有此栏）──
+    if photo:
+        uri, fname = photo
+        px = M
+        out.append(f'<text x="{px}" y="{TOP_Y - 12:.0f}" font-size="13" font-weight="500" '
+                   f'fill="{INK}">⓪ 实拍首帧（image/{esc(fname)}）</text>')
+        out.append(f'<rect x="{px}" y="{TOP_Y}" width="{photo_w}" height="{PH}" rx="10" '
+                   f'fill="#F3F4F6" stroke="{LINE}"/>')
+        cid_p = f"clip_{sid}_photo"
+        out.append(f'<clipPath id="{cid_p}"><rect x="{px}" y="{TOP_Y}" width="{photo_w}" '
+                   f'height="{PH}" rx="10"/></clipPath>')
+        out.append(f'<g clip-path="url(#{cid_p})">'
+                   f'<image x="{px}" y="{TOP_Y}" width="{photo_w}" height="{PH}" '
+                   f'xlink:href="{uri}"/></g>')
+        iy = ROW2_Y
+        out.append(f'<text x="{px}" y="{iy - 12:.0f}" font-size="13" font-weight="500" '
+                   f'fill="{INK}">采集信息（同 HTML 统计卡片口径）</text>')
+        out.append(f'<rect x="{px}" y="{iy}" width="{photo_w}" height="{PH}" rx="10" '
+                   f'fill="#FFFFFF" stroke="{LINE}"/>')
+        ty = iy + 30.0
+        for k, v in quad_info_rows(ctx):
+            out.append(f'<text x="{px + 18}" y="{ty:.0f}" font-size="10.5" '
+                       f'fill="{MUTED}">{esc(k)}</text>')
+            out.append(f'<text x="{px + 18}" y="{ty + 16:.0f}" font-size="12.5" '
+                       f'font-weight="500" fill="{INK}">{esc(v)}</text>')
+            ty += 40.0
 
     # ── ① 左上：俯视轨迹（与原 combo 完全一致）──
     out.append(head(X_L, TOP_Y, "①", "俯视图 · 采集轨迹（世界系 XZ · 轨迹按帧序时间渐变）"))
@@ -2342,7 +2452,7 @@ PAGE_CSS = """
 body{margin:0;padding:28px 24px 40px;background:var(--bg);color:var(--ink);
      font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif}
 .wrap{max-width:980px;margin:0 auto}
-.wrap.wide{max-width:1820px}
+.wrap.wide{max-width:2280px}
 .figrow{display:flex;gap:16px;align-items:flex-start}
 .figrow .fig{flex:1 1 auto;min-width:0}
 .figrow .side{flex:0 0 296px;display:flex;flex-direction:column;gap:8px}
@@ -2431,6 +2541,10 @@ def process_one(folder: Path, dst_root: Path, styles, suffix=""):
     data = load_transforms(tj)
     points, total, pbbox = load_ply_points(folder / "pcd.ply")
     ctx = build_ctx(folder.name, data, points, total, point_bbox=pbbox)
+    # quad 左栏要贴 image/ 第一张实拍图（HEIC 需 pillow-heif，解不了返回 None 自动跳过）
+    if QUAD_PHOTO and "quad" in styles:
+        ctx["photo"] = load_first_photo(folder / "image",
+                                        int(QUAD_PHOTO_W), int(QUAD_PH))
 
     out = []
     for style in styles:
