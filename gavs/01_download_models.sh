@@ -51,7 +51,8 @@ fi
 #                             filename="pytorch_model.bin")
 # 离线模式下按 snapshots/* 扫描，目录名任意，这里用 "local"。
 HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
-UNIDEPTH_SNAP="$HF_CACHE/models--lpiccinelli--unidepth-v1-vitl14/snapshots/local"
+UNIDEPTH_REPO_CACHE="$HF_CACHE/models--lpiccinelli--unidepth-v1-vitl14"
+UNIDEPTH_SNAP="$UNIDEPTH_REPO_CACHE/snapshots/local"
 if [ -s "$UNIDEPTH_SNAP/pytorch_model.bin" ]; then
     echo "⏭️  UniDepth 权重已种入 HF 缓存"
 else
@@ -70,15 +71,31 @@ else
         _missing=1
     fi
 fi
+# hf_hub_download 离线解析需要 refs/main -> snapshots/local 指针（新版 huggingface_hub
+# 不再扫 snapshots 兜底，缺 refs 会报 LocalEntryNotFound；2026-10-12 实测踩坑）
+if [ -s "$UNIDEPTH_SNAP/pytorch_model.bin" ] && [ ! -s "$UNIDEPTH_REPO_CACHE/refs/main" ]; then
+    mkdir -p "$UNIDEPTH_REPO_CACHE/refs"
+    printf "local" > "$UNIDEPTH_REPO_CACHE/refs/main"
+    echo "🔧 补建 HF 缓存 refs/main -> local"
+fi
 
 # ── 3. 场景数据解压 ───────────────────────────────────────────────────────
 if [ "${SKIP_UNZIP:-0}" != "1" ]; then
     shopt -s nullglob
+    # 3a. staging 里已是解压目录的（峰哥手动解压过）：直接搬到 Linux fs
+    for _dir in "$GAVS_STAGING_DIR/dataset"/*/; do
+        _name="$(basename "$_dir")"
+        if [ -d "$GAVS_DATA_ROOT/dataset/$_name" ]; then
+            echo "⏭️  场景已在数据根: $_name"
+            continue
+        fi
+        echo "📦 搬运已解压场景 $_name (~$(du -sh "$_dir" | cut -f1)，走 9p 较慢)..."
+        mkdir -p "$GAVS_DATA_ROOT/dataset/$_name"
+        cp -r "$_dir". "$GAVS_DATA_ROOT/dataset/$_name/" && echo "  ✅ $_name" || {
+            echo "❌ copy failed: $_dir" >&2; _missing=1; }
+    done
+    # 3b. staging 里的 zip：解压归位
     _zips=("$GAVS_STAGING_DIR/dataset"/*.zip)
-    if [ ${#_zips[@]} -eq 0 ]; then
-        echo "⚠️ 暂存区没有场景 zip（$GAVS_STAGING_DIR/dataset/*.zip）" >&2
-        _missing=1
-    fi
     for _zip in "${_zips[@]}"; do
         _name="$(basename "$_zip" .zip)"
         if [ -d "$GAVS_DATA_ROOT/dataset/$_name" ]; then
@@ -101,6 +118,11 @@ if [ "${SKIP_UNZIP:-0}" != "1" ]; then
         fi
         echo "  ✅ $_name"
     done
+    # 3a/3b 都没产出任何场景 → 数据真的缺
+    if ! ls -d "$GAVS_DATA_ROOT/dataset"/*/ >/dev/null 2>&1; then
+        echo "⚠️ 暂存区没有场景数据（$GAVS_STAGING_DIR/dataset/ 下既无 zip 也无解压目录）" >&2
+        _missing=1
+    fi
     shopt -u nullglob
 fi
 
