@@ -13,6 +13,7 @@
 """
 import os
 import sys
+import math
 
 _DG_DIR = os.environ.get("DG_DIR")
 if not _DG_DIR or not os.path.isfile(os.path.join(_DG_DIR, "render.py")):
@@ -112,6 +113,53 @@ def interpolate_time(model_path, load2gpt_on_the_fly, is_6dof, name, iteration, 
     imageio.mimwrite(os.path.join(render_path, 'video.mp4'), renderings, fps=30, quality=8)
 
 
+def _mat_to_quat(R):
+    """numpy (3,3) 旋转矩阵 -> (4,) 四元数 (w,x,y,z)。Shepperd 方法，数值稳定。"""
+    m00, m01, m02 = R[0]
+    m10, m11, m12 = R[1]
+    m20, m21, m22 = R[2]
+    tr = m00 + m11 + m22
+    if tr > 0.0:
+        s = np.sqrt(tr + 1.0) * 2.0
+        return np.array([0.25 * s, (m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s])
+    if m00 > m11 and m00 > m22:
+        s = np.sqrt(1.0 + m00 - m11 - m22) * 2.0
+        return np.array([(m21 - m12) / s, 0.25 * s, (m01 + m10) / s, (m02 + m20) / s])
+    if m11 > m22:
+        s = np.sqrt(1.0 + m11 - m00 - m22) * 2.0
+        return np.array([(m02 - m20) / s, (m01 + m10) / s, 0.25 * s, (m12 + m21) / s])
+    s = np.sqrt(1.0 + m22 - m00 - m11) * 2.0
+    return np.array([(m10 - m01) / s, (m02 + m20) / s, (m12 + m21) / s, 0.25 * s])
+
+
+def _quat_to_mat(q):
+    """(4,) 四元数 (w,x,y,z) -> (3,3) 旋转矩阵。"""
+    w, x, y, z = q / np.linalg.norm(q)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def _slerp_mat(R0, R1, t):
+    """SOM 修复：旋转矩阵四元数球面插值（替代官方矩阵 lerp）。
+
+    官方 D-3DGS 对 R 直接线性插值，相邻相机角度差大时（如环绕采集）
+    插值矩阵失去正交性甚至奇异（double_wave 在 ~i=6xx 触发 LinAlgError）。
+    """
+    q0, q1 = _mat_to_quat(R0), _mat_to_quat(R1)
+    if float(np.dot(q0, q1)) < 0.0:
+        q1 = -q1  # 双重覆盖取短路径
+    dot = float(np.clip(np.dot(q0, q1), -1.0, 1.0))
+    if dot > 0.9995:
+        q = q0 + t * (q1 - q0)
+    else:
+        theta = math.acos(dot)
+        q = (np.sin((1.0 - t) * theta) * q0 + np.sin(t * theta) * q1) / np.sin(theta)
+    return _quat_to_mat(q)
+
+
 def interpolate_view_original(model_path, load2gpt_on_the_fly, is_6dof, name, iteration, views, gaussians, pipeline,
                               background, deform):
     """时间×视角组合渲染（目视检查重影/撕裂的标准工具）。"""
@@ -135,7 +183,7 @@ def interpolate_view_original(model_path, load2gpt_on_the_fly, is_6dof, name, it
         R_begin, R_end = views[begin_idx].R, views[end_idx].R
         t_begin, t_end = views[begin_idx].T, views[end_idx].T
         ratio = query_idx - begin_idx
-        R_cur = (1 - ratio) * R_begin + ratio * R_end
+        R_cur = _slerp_mat(R_begin, R_end, ratio)  # SOM 修复：SLERP 替代矩阵 lerp
         T_cur = (1 - ratio) * t_begin + ratio * t_end
         view.reset_extrinsic(R_cur, T_cur)
 
