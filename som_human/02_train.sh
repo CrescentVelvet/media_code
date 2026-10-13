@@ -53,6 +53,7 @@ SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 RES_SCHEDULE="${RES_SCHEDULE-}"             # 注意 ${VAR-}（无冒号）：默认关闭（实测零加速）
 RES_COMPENSATE_DENSIFY="${RES_COMPENSATE_DENSIFY:-0}"
+MAX_GAUSSIANS="${MAX_GAUSSIANS:-1500000}"    # 高斯数上限护栏（v2 爆炸事故后引入）
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -61,6 +62,7 @@ echo "  💾 输出:       $MODEL_PATH"
 echo "  📐 iterations: $ITERATIONS  white_bg: $WHITE_BG  eval: $EVAL"
 echo "  🧬 bases:      B=$NUM_BASES  smooth_w=$SMOOTH_WEIGHT  basis_lr=$BASIS_LR  coef_lr=$COEF_LR"
 echo "  🚀 res_sched:  ${RES_SCHEDULE:-（关闭，全程全分辨率）}  compensate_densify=$RES_COMPENSATE_DENSIFY"
+echo "  🛡️ max_gauss:  $MAX_GAUSSIANS（超过即停止 densify 只 prune）"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -103,7 +105,8 @@ echo ""
 
 export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
        SOM_BASIS_LR="$BASIS_LR" SOM_COEF_LR="$COEF_LR" \
-       SOM_RES_SCHEDULE="$RES_SCHEDULE" SOM_RES_COMPENSATE_DENSIFY="$RES_COMPENSATE_DENSIFY"
+       SOM_RES_SCHEDULE="$RES_SCHEDULE" SOM_RES_COMPENSATE_DENSIFY="$RES_COMPENSATE_DENSIFY" \
+       SOM_MAX_GAUSSIANS="$MAX_GAUSSIANS"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then

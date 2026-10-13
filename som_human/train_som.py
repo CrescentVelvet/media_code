@@ -65,6 +65,8 @@ SOM_COEF_LR = float(os.environ.get("SOM_COEF_LR", "1e-2"))
 # SOM-RES：分阶段分辨率（默认空串=关闭：实测零加速，见 res_scheduler.py 顶部结论）
 SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "")
 SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "0") == "1"
+# SOM：高斯数上限护栏（默认 150 万；v2 事故后引入，超过即停止 densify 只 prune）
+SOM_MAX_GAUSSIANS = int(os.environ.get("SOM_MAX_GAUSSIANS", "1500000"))
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -220,10 +222,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                     if res_sched.enabled and SOM_RES_COMPENSATE_DENSIFY:
                         dens_thr = res_sched.densify_threshold(dens_thr, cur_scale)
                     n_before = gaussians.get_xyz.shape[0]
-                    gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
-                    # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）
-                    print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {}".format(
-                        iteration, dens_thr, cur_scale, n_before, gaussians.get_xyz.shape[0]))
+                    if n_before >= SOM_MAX_GAUSSIANS:
+                        # SOM：点数上限护栏（v2 事故：thr 0.0002+窗口 10000 导致点数
+                        # 爆炸、步速掉 13 倍；超帽后只 prune 不 densify）
+                        if iteration % (opt.densification_interval * 10) == 0:
+                            print("[DENSIFY] iter {} CAP reached ({} >= {}), skip densify".format(
+                                iteration, n_before, SOM_MAX_GAUSSIANS), flush=True)
+                    else:
+                        gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
+                        # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）
+                        # flush=True：stdout 重定向到日志文件时是块缓冲，不 flush 会
+                        # 攒几小时才落盘（v2 排查时踩过）
+                        print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {}".format(
+                            iteration, dens_thr, cur_scale, n_before, gaussians.get_xyz.shape[0]),
+                            flush=True)
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
