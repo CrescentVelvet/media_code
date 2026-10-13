@@ -14,6 +14,14 @@
   - 09-05 训练输出写错位置：没读 README_wsl.md 路径策略就把 RESULTS_DIR 指向 /mnt/d（drvfs），违反"训练写 Linux fs"规范（已搬运修正）
 
 ## 关键文档索引（media_code）
+- **`deformable_human/BACKLOG.md`（2026-10-13 建立）**：Reconstruction 流水线八案
+  （A~H）评审台账——状态总览表 + 逐案原理/移植/验证 + 本地实验状态批注。
+  **动手做任何优化方案前先查它的状态总览**（C 已否决、D 已实现、B 方向优先级最高）。
+- **som_human 标准输入格式（峰哥 2026-10-13 定：今后输入统一为此）**＝华为手机
+  「Remy」采集包：`transforms.json`（逐帧内参 k1..k3/p1/p2 + **c2w/OpenGL** 4×4）+
+  `image/*.heic` + `pcd.ply`。位姿转换 `w2c = inv(M @ diag(1,-1,-1,1))`（实测判定，
+  勿凭直觉改）；转换入口 `som_human/01_convert_capture.sh`，规范全文在
+  `som_human/README.md`「输入数据格式」节。
 - `vggt_human/DESIGN_face_pipeline.md`（2026-09-08 建立）：人脸链路 v2 设计方案与决策记录
   （FLAME+DECA+468 点+重心绑定+表情驱动，八阶段全链路）。**讨论人脸链路前先读它**。
 - vggt_human 三文档分工：README=运行命令；NOTES=原理/排错；EXPERIMENTS=实验结论（按日期倒序追加）。
