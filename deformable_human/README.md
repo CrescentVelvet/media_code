@@ -52,6 +52,14 @@ GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   MODE=render RUN_METRICS=1 \
   bash deformable_human/03_render.sh
+# 3+) test 视角 GT|render 对比图（前景裁剪拼接，按运动量降序输出明细）
+SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
+  python deformable_human/eval_compare.py     # OUT_DIR 默认 /mnt/d/output/<scene>_compare
+
+# ── 批量（采集包目录）──
+# 目录下每个 <id>-<场景名>/ 采集包依次跑 01b→01d→02→03→对比图；
+# 幂等可断点续跑，单场景失败不阻塞，结尾打印汇总表
+SKIP_SCENES="双人招手" bash deformable_human/run_batch.sh
 ```
 
 ## 首次准备

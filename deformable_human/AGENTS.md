@@ -86,7 +86,14 @@
 |---|---|
 | `03_render.sh` | 渲染 + PSNR/SSIM/LPIPS。`ITERATION=<N>` 可评中间 checkpoint |
 | `eval_fg_psnr.py` | **前景专项 PSNR**（全图指标对 20% 占比的前景不敏感，A/B 必须看这个）+ 三联对比图导出 |
+| `eval_compare.py` | 单模型 GT\|render 对比图（前景裁剪拼接）+ 全图/前景 PSNR + 运动量降序明细；03 之后跑 |
 | `qc_proj_fg.py` | 高斯投影到 mask 的方向约定目检（改投影代码后必跑） |
+
+### 批量编排
+
+| 文件 | 角色 |
+|---|---|
+| `run_batch.sh` | 采集包目录批量处理（01b→01d→02→03→eval_compare 全链）。幂等：按产物检测跳过已完成步骤，中断重跑即续；单场景失败不阻塞。默认配方 `-r 4 --densify_grad_threshold 0.0008 --densify_until_iter 2000`（室外复杂场景安全档，见 §5 不变量 5） |
 
 ## 5. 关键不变量（改了就会坏）
 
@@ -102,6 +109,8 @@
 5. **稠密化爆炸防护**：复杂室内必须
    `EXTRA_TRAIN_ARGS="-r 2 --densify_grad_threshold 0.0004 --densify_until_iter 2000"`
    （背景杂物导致高斯复利爆炸到 130 万/24GB，必须在爆炸点前冻结）。
+   **室外街景再升一档**：`-r 4 --densify_grad_threshold 0.0008`（wave2p 实测：
+   用室内档 6000 步后 24GB 钉死挂停；升档后峰值 12.7GB 跑完）。
    ⚠️ 这是实验配方但**不是 02 的默认值**——跑 A/B 时显式传，别假设默认有。
 6. **stock 光栅化器对相机矩阵和内参都无梯度**——位姿只能场景侧 delta（pose_delta.py），
    内参要调只能在 01 阶段走 colmap bundle_adjuster。
