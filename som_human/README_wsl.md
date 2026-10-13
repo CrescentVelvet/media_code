@@ -18,17 +18,16 @@
 Linux fs，训练完跑 `08_move_output.sh` 搬到 `/mnt/d/output/som_human_results/`。
 
 ## 采集包（01_convert_capture.sh）备忘
-- 输入格式（峰哥 2026-10-13 样例，`/mnt/d/dataset/手部微动样例/`）：华为手机
-  「Remy」类 App 采集，`transforms.json`（逐帧内参 k1..k3/p1/p2 + c2w 矩阵）+
-  `image/*.heic` + `pcd.ply`。
-- **位姿约定 = c2w + OpenGL 相机系**（实测投影正深度率判定：c2w_opengl 99%，
-  其余三个候选全被否决）。转换 = `M_cv = M @ diag(1,-1,-1,1)` 再求逆得 w2c。
-- HEIC 解码用 env 里已有的 pillow_heif；畸变不建模（D-3DGS 只认 PINHOLE），
-  一律 cv2 去畸变 + ROI 裁剪，内参同步更新。
-- pcd.ply 有离群飞点（实测 z 到 -20 m），默认按「到相机中心距离」保留 90%
-  （KEEP_FRAC 可调）。
+格式规范（字段表 / 位姿约定 / 飞点过滤）已作为**标准输入格式**写进
+[README.md](README.md)「输入数据格式」一节，这里只留 WSL 实操坑：
+
+- 采集包在 `/mnt/d` 上**只读访问即可**，产物（PNG + sparse/0）落在
+  `~/output/som_human_results/<scene>/colmap_scene`（Linux fs，训练直接读）。
+- HEIC 解码用 env 里已有的 pillow_heif（1.5.0），不要给图片开新 env。
 - 图片重命名为 `%05d.png`（时间升序）——D-3DGS 用 `int(文件名)/(N-1)` 算 fid，
-  文件名必须纯数字。
+  文件名必须纯数字；`SCENE_NAME` 也必须纯 ASCII（做目录名）。
+- 脚本末尾的投影自检（8 帧抽样 depth>0 与画幅内占比）是**位姿约定的最后防线**，
+  自检不过会 exit 1——别绕过它进训练。
 
 ## 可能遇到的问题（WSL 专属）
 - **稠密化爆炸**：与 deformable_human 完全同因（渲染/稠密化基建没变）。

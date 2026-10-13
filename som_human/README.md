@@ -48,6 +48,40 @@ GPU=0 SCENE_NAME=human_seq MODE=original \
 SCENE_NAME=human_seq bash som_human/08_move_output.sh
 ```
 
+## 输入数据格式（标准约定，2026-10-13 起）
+
+今后的输入数据**统一为华为手机采集包**（Remy 类 App 导出，样例见
+`/mnt/d/dataset/手部微动样例/`）：
+
+```
+<采集包>/
+├── transforms.json   # 逐帧相机参数（meta 里带 platform=Harmony）
+├── image/*.heic      # 逐帧 HEIC 图片（文件名=时间戳，字典序即时间序）
+└── pcd.ply           # 场景点云（binary_little_endian，float xyz + uchar rgb）
+```
+
+`transforms.json` 逐帧字段：
+
+| 字段 | 含义 |
+|---|---|
+| `w, h` | 图像尺寸（实测 1440×1920 竖屏，HEIC 解码后一致、无 EXIF 旋转问题） |
+| `cx, cy, fl_x, fl_y` | 针孔内参（像素），**全序列一致**（单相机） |
+| `k1, k2, k3, p1, p2` | OpenCV 畸变系数 |
+| `file_path` | 指向 `image/` 的相对路径 |
+| `transform_matrix` | 4×4，**c2w + OpenGL 相机系**（y 上 z 朝后） |
+
+实测约定（投影正深度率四候选判定，勿凭直觉改）：
+
+- 位姿 = c2w OpenGL → OpenCV w2c 的转换式：**`w2c = inv(M @ diag(1,-1,-1,1))`**
+  （c2w_opengl 正深度率 99%，c2w_opencv / w2c_opencv / w2c_opengl 全被否决）
+- 点云含离群飞点（实测 z 到 -20 m），转换时按「到相机中心距离」分位过滤
+  （`KEEP_FRAC` 默认 0.90）
+- D-3DGS 光栅化不建模畸变（只认 PINHOLE），**cv2 去畸变 + ROI 裁剪是强制步骤**，
+  内参同步更新
+
+转换入口：`01_convert_capture.sh`（HEIC 解码 → 去畸变 → 整数重命名 →
+COLMAP txt 三件套 + 末尾投影自检，自检不过会直接退出）。
+
 ## 首次准备
 无新增安装。前置 = deformable_human 全流程已跑通（见其 README_wsl.md）。
 `00a_setup_env.sh` 只做体检：env 存在 / 官方仓在位 / fork 光栅化器可 import /
