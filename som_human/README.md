@@ -110,6 +110,38 @@ som_motion 自检。
 代码保留备查（`RES_SCHEDULE="0.3:4,0.7:2"` 手动开启），但**默认关闭**；
 真正的速度杠杆是控制高斯数增长（densify 阈值），不是分辨率。
 
+补充（2026-10-13 拿到对方完整文字描述后的口径对齐）：他们的实现与我们有三处
+不同——①GT 降采样用 `F.interpolate(mode="area")`（我们用 bilinear+antialias）；
+②补偿的是 **prune 阈值 ÷scale^0.5**（我们实测否决的是 grad 阈值 ÷scale，
+不是同一个东西）；③官方建议首选「稠密化窗口放在 scale≤2 段」而非阈值补偿。
+这些能改进实现质量，但**不改变零加速的物理原因**（渲染不占步时主导）。
+**重启条件**（满足其一时该方案值得重估）：(a) 上 `-r 1` 全分辨率训练（像素 ×4，
+光栅化份额翻转）；(b) 接入按像素计价的重 loss（如 mask 权重缓存）；(c) 方案 D
+压住高斯数后光栅化占比回升。重启时按 ①②③ 对齐实现。
+
+## 稠密化自动调度（方案 D 移植，`densify_sched.py`，默认关闭）
+
+治「densify 阈值/窗口跨场景靠人肉猜」的病（v1 饿死 216k、v2 爆炸 ETA 10.7h
+都是同一个根因）。机制（按对方文字描述忠实移植，不动官方仓）：
+
+1. **自适应软上限**：`max_n = init_n + momentum`，momentum 初始 = init_n × mult
+   （稀疏初始化 ×4 / 稠密 ×0.5；auto 规则 init_n ≥ 10 万判稠密）；
+2. **需求累计（只增不减）**：每稠密化周期 `momentum = max(momentum,
+   0.98×momentum + min(40000, 本轮超阈值候选数))`——需求再高也被衰减和
+   40k/轮封顶限制成渐进曲线；
+3. **topk 截断**：本轮目标增量 = 软上限 − 当前点数，候选（grad ≥ thr，口径与
+   官方一致）超目标时只保留梯度最大的前 target 个（预过滤 grads 后调官方
+   `densify_and_clone/split`，选择逻辑一字不改，`sched_densify_and_prune`）。
+
+与 `MAX_GAUSSIANS` 的关系：调度器是软的速率控制（也接受 MAX_GAUSSIANS 作为
+absolute_cap 输入），硬护栏独立兜底。**两者开启后，理论上任何场景裸跑
+`02_train.sh`（不带 EXTRA_TRAIN_ARGS 降载参数）点数曲线都受控**——这正是
+对方「手工配方从必须记的坑变成默认行为」的目标。
+
+验证状态（2026-10-13）：调度器数学单测 ✅；fork 的 topk 截断在真
+GaussianModel 上验证 ✅（不截断=官方行为、target=30 精确 +30、target=0 安全、
+截断保留的确实是梯度 top-k）。**端到端待 v4 冒烟**（GPU 被 v3 占用中）。
+
 ## 与 SoM 原版的有意差异（改动都有理由，勿当 bug 修）
 | 项 | SoM 原版 | 本实现 | 理由 |
 |---|---|---|---|
@@ -132,6 +164,9 @@ som_motion 自检。
 | BASIS_LR | 1.6e-4 | 基 rots/transls lr（SoM configs.py:23-26） |
 | COEF_LR | 1e-2 | 系数场 lr（SoM configs.py:5-11） |
 | RES_SCHEDULE | ""（关闭） | 分阶段分辨率；实测零加速（见上节负结果），备查 |
+| MAX_GAUSSIANS | 1500000 | 高斯数硬护栏（v2 爆炸事故后引入），超帽只 prune |
+| USE_DENSIFY_SCHED | 0 | 方案 D 自动调度（见上节）；开启后 thr/窗口不敏感 |
+| DENSIFY_MOMENTUM_MULT | auto | 调度器初始动量倍率（auto：init≥10万×0.5 否则×4） |
 | EXTRA_TRAIN_ARGS | （空） | ⚠️ 复杂背景必带降载参数（见下） |
 
 ## 目录布局
@@ -144,8 +179,9 @@ media_code/som_human/
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘
 ├── som_motion.py         # 核心：SE(3) 基凸组合运动模型（替换 DeformModel）
-├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine 加速）
-├── train_som.py          # fork 官方 train.py（SOM / SOM-RES 注释标注差异）
+├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine，实测否决备查）
+├── densify_sched.py      # 稠密化自动调度（方案 D：软上限+需求累计+topk 截断）
+├── train_som.py          # fork 官方 train.py（SOM / SOM-RES / SOM-DENSIFY 注释标注差异）
 ├── render_som.py         # fork 官方 render.py（render/time/original）
 └── README.md / README_wsl.md
 官方仓（共用）：~/repos/Deformable-3D-Gaussians

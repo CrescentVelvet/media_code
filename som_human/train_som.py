@@ -67,6 +67,9 @@ SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "")
 SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "0") == "1"
 # SOM：高斯数上限护栏（默认 150 万；v2 事故后引入，超过即停止 densify 只 prune）
 SOM_MAX_GAUSSIANS = int(os.environ.get("SOM_MAX_GAUSSIANS", "1500000"))
+# SOM-DENSIFY：稠密化自动调度（方案 D 移植，默认关；开后 thr/窗口不再靠人肉调）
+SOM_DENSIFY_SCHED = os.environ.get("SOM_DENSIFY_SCHED", "0") == "1"
+SOM_DENSIFY_MOMENTUM_MULT = os.environ.get("SOM_DENSIFY_MOMENTUM_MULT", "auto")
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -91,6 +94,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     if res_sched.enabled:
         print("[RES] schedule={} compensate_densify={}".format(
             SOM_RES_SCHEDULE, SOM_RES_COMPENSATE_DENSIFY))
+
+    # SOM-DENSIFY：稠密化自动调度器（方案 D）。init_n 在 Scene 加载 pcd 后确定；
+    # MAX_GAUSSIANS 同时作为调度器的 absolute_cap 喂入（硬护栏仍然独立生效）
+    densify_sched = None
+    if SOM_DENSIFY_SCHED:
+        from densify_sched import DensifyScheduler
+        _mult = SOM_DENSIFY_MOMENTUM_MULT
+        densify_sched = DensifyScheduler(
+            init_n=gaussians.get_xyz.shape[0],
+            mult=(float(_mult) if _mult != "auto" else "auto"),
+            absolute_cap=SOM_MAX_GAUSSIANS)
+        print("[DENSIFY-SCHED] init_n={} mult={} {}".format(
+            densify_sched.init_n, densify_sched.mult, densify_sched.state_str()),
+            flush=True)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -228,6 +245,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                         if iteration % (opt.densification_interval * 10) == 0:
                             print("[DENSIFY] iter {} CAP reached ({} >= {}), skip densify".format(
                                 iteration, n_before, SOM_MAX_GAUSSIANS), flush=True)
+                    elif densify_sched is not None:
+                        # SOM-DENSIFY：方案 D 自动调度——软上限内 topk 截断，
+                        # 截断前候选数作为需求信号回灌 momentum
+                        from densify_sched import sched_densify_and_prune
+                        target = densify_sched.target_add(n_before, cur_scale)
+                        n_cand = sched_densify_and_prune(
+                            gaussians, dens_thr, 0.005, scene.cameras_extent,
+                            size_threshold, target)
+                        densify_sched.update(n_cand)
+                        print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {} "
+                              "(cand={} target={} {})".format(
+                                  iteration, dens_thr, cur_scale, n_before,
+                                  gaussians.get_xyz.shape[0], n_cand, target,
+                                  densify_sched.state_str()), flush=True)
                     else:
                         gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
                         # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）
