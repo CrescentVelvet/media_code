@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# 02_train.sh — SoM 式运动基训练（canonical 高斯 + 逐帧 SE(3) 基凸组合）。
+#
+# 这是「手部微动方案」Phase 1 的核心验证：在 deformable_human 框架内把逐帧
+# 形变 MLP 换成低秩运动基，检验「持久身份 + 跨帧低秩约束」能否消除手部
+# 重影/撕裂（成因③）。数据准备完全复用 deformable_human/01_prepare_data.sh
+# 的产物（COLMAP 场景），本目录不重复建设。
+#
+# 输入：SOURCE_PATH/{images/, sparse/0/*.bin}（deformable_human 01 的输出）
+# 输出：MODEL_PATH/
+#         point_cloud/iteration_<N>/point_cloud.ply   canonical 高斯
+#         som_motion/iteration_<N>/som.pth            运动基 + 系数场权重
+#         cfg_args / cameras.json / TensorBoard events
+#
+# Env (all optional, defaults shown):
+#   SCENE_NAME=human_seq
+#   SOURCE_PATH=           # 默认 $DEFORMABLE_HUMAN_RESULTS_DIR/$SCENE_NAME/colmap_scene
+#                          # （回退 $HOME/output/deformable_human_results/$SCENE_NAME/colmap_scene）
+#   MODEL_PATH=            # 默认 $RESULTS_DIR/$SCENE_NAME/model
+#   ITERATIONS=10000       # 对齐 deformable_human 快速迭代口径；最终出片 20000
+#   WARM_UP=1000           # 前 N 步纯静态热身（基此时是 identity，天然等价）
+#   NUM_BASES=10           # SoM 全局基数量（Phase 1 扫 {8,12,16} 前先跑默认）
+#   SMOOTH_WEIGHT=0.1      # 基加速度时间平滑权重（SoM 0.1）
+#   BASIS_LR=1.6e-4        # 基 rots/transls lr（SoM configs.py:23-26）
+#   COEF_LR=1e-2           # 系数场 lr（SoM configs.py:5-11）
+#   WHITE_BG=0  EVAL=1
+#   EXTRA_TRAIN_ARGS=      # 透传。⚠️ 复杂背景必须带降载参数（deformable_human 实测）：
+#                          #   '-r 2 --densify_grad_threshold 0.0004 --densify_until_iter 2000'
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_env.sh"
+
+SCENE_NAME="${SCENE_NAME:-human_seq}"
+_DH_RESULTS="${DEFORMABLE_HUMAN_RESULTS_DIR:-$HOME/output/deformable_human_results}"
+SOURCE_PATH="${SOURCE_PATH:-$_DH_RESULTS/$SCENE_NAME/colmap_scene}"
+MODEL_PATH="${MODEL_PATH:-$RESULTS_DIR/$SCENE_NAME/model}"
+ITERATIONS="${ITERATIONS:-10000}"
+WARM_UP="${WARM_UP:-1000}"
+WHITE_BG="${WHITE_BG:-0}"
+EVAL="${EVAL:-1}"
+NUM_BASES="${NUM_BASES:-10}"
+SMOOTH_WEIGHT="${SMOOTH_WEIGHT:-0.1}"
+BASIS_LR="${BASIS_LR:-1.6e-4}"
+COEF_LR="${COEF_LR:-1e-2}"
+SKIP_VERIFY="${SKIP_VERIFY:-0}"
+EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
+
+echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
+echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
+echo "  📂 数据源:     $SOURCE_PATH"
+echo "  💾 输出:       $MODEL_PATH"
+echo "  📐 iterations: $ITERATIONS  white_bg: $WHITE_BG  eval: $EVAL"
+echo "  🧬 bases:      B=$NUM_BASES  smooth_w=$SMOOTH_WEIGHT  basis_lr=$BASIS_LR  coef_lr=$COEF_LR"
+echo ""
+
+# ── 前置检查 ───────────────────────────────────────────────────────────────
+if [ ! -f "$DG_DIR/train.py" ]; then
+    echo "❌ ERROR: 官方仓未就绪: $DG_DIR/train.py（先跑 00a_setup_env.sh）" >&2
+    exit 1
+fi
+if [ ! -d "$SOURCE_PATH/sparse/0" ] || [ ! -d "$SOURCE_PATH/images" ]; then
+    echo "❌ ERROR: COLMAP 场景不完整: $SOURCE_PATH" >&2
+    echo "       先跑 deformable_human/01_prepare_data.sh 产出场景（本目录复用其产物）" >&2
+    exit 1
+fi
+if [ "$SKIP_VERIFY" != "1" ]; then
+    if ! python -c "import diff_gaussian_rasterization, simple_knn" 2>/dev/null; then
+        echo "❌ ERROR: CUDA 扩展不可 import。bash som_human/00a_setup_env.sh 体检" >&2
+        exit 1
+    fi
+fi
+
+# ── 组装参数并训练 ──────────────────────────────────────────────────────────
+mkdir -p "$MODEL_PATH"
+TRAIN_FLAGS=(
+    -s "$SOURCE_PATH"
+    -m "$MODEL_PATH"
+    --iterations "$ITERATIONS"
+    --warm_up "$WARM_UP"
+    --port 0            # 关掉 GUI server（默认会卡住等连接）
+)
+[ "$EVAL" = "1" ] && TRAIN_FLAGS+=(--eval)
+[ "$WHITE_BG" = "1" ] && TRAIN_FLAGS+=(--white_background)
+# shellcheck disable=SC2206
+[ -n "${TEST_ITERATIONS:-}" ] && TRAIN_FLAGS+=(--test_iterations $TEST_ITERATIONS)
+# shellcheck disable=SC2206
+[ -n "${SAVE_ITERATIONS:-}" ] && TRAIN_FLAGS+=($SAVE_ITERATIONS)
+# shellcheck disable=SC2086
+[ -n "$EXTRA_TRAIN_ARGS" ] && TRAIN_FLAGS+=($EXTRA_TRAIN_ARGS)
+
+echo "🏋️ train_som.py ${TRAIN_FLAGS[*]}"
+echo ""
+
+export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
+       SOM_BASIS_LR="$BASIS_LR" SOM_COEF_LR="$COEF_LR"
+# train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
+( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
+if [ $? -ne 0 ]; then
+    echo "❌ FAILED: train_som.py 没跑完。常见原因:" >&2
+    echo "    - OOM: 减 ITERATIONS / 01 里 NUM_IMAGES_MAX 截帧 / 带降载 EXTRA_TRAIN_ARGS" >&2
+    echo "    - fid ValueError: 图像名不是纯数字（deformable_human 01 应已重命名）" >&2
+    echo "    - num_frames 断言: 渲染/训练场景相机数不一致（见 som_motion.load_weights）" >&2
+    exit 1
+fi
+
+LAST_ITER="$(ls -d "$MODEL_PATH/point_cloud/iteration_"* 2>/dev/null | sort -V | tail -1 | sed 's/.*iteration_//')"
+echo ""
+echo "🎉 [02] Done."
+echo "  🏋️ 高斯点云:  $MODEL_PATH/point_cloud/iteration_${LAST_ITER:-$ITERATIONS}/point_cloud.ply"
+echo "  🧬 运动基:     $MODEL_PATH/som_motion/iteration_${LAST_ITER:-$ITERATIONS}/som.pth"
+echo "  📊 TensorBoard: tensorboard --logdir $MODEL_PATH --port 6006"
+echo "  → 渲染评测: GPU=0 SCENE_NAME=$SCENE_NAME bash som_human/03_render.sh"
