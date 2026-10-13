@@ -41,7 +41,8 @@
 
 ```
 视频/图像序列
-  │  01_prepare_data.sh        → <scene>/frames/（抽帧+去模糊）
+  │  01b_capture_to_frames.sh   → （采集包输入）image/*.heic → <scene>/frames/image/
+  │  01_prepare_data.sh        → <scene>/frames/（抽帧+去模糊；有预置帧自动跳过）
   │  委托 01a + 03_colmap_pose → <scene>/colmap_scene/{images/, sparse/0/}
   │  01c（可选，位姿规整）      → 改写 sparse/0（备份到 sparse/0_raw）
   │  01d（可选，SAM3 前景mask） → colmap_scene/masks/{stem}.png
@@ -73,6 +74,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `01b_capture_to_frames.sh` | 手机采集包（image/*.heic [+ transforms.json/pcd.ply]）→ 预置帧（委托 vggt_human/01b 转换），RUN_PIPELINE=1 可直通 01 |
 | `01_prepare_data.sh` | 抽帧 + COLMAP 编排（委托兄弟目录，支持预置帧模式免 VIDEO_PATH） |
 | `01c_pose_adjust.sh` + `pose_adjust_colmap.py` | 位姿规整（主体居中/重力对齐/尺度归一化），经 colmap model_converter TXT 中转，幂等备份 |
 | `01d_fg_masks.sh` + `merge_fg_masks.py` | SAM3 前景 mask（person + 持有物两遍 prompt，extra 实例须与 person 重叠 ≥0.3 防误检）。输出软 mask 直接当 loss 权重 |
@@ -152,7 +154,14 @@ hand_motion 基线数字（A/B 参照系）：
 5. commit：`<项目名>: <一句话>`（仓根 AGENTS.md §8），**不 push**（用户手动）
 
 **长任务注意**：训练 ~40min，WorkBuddy 的 PowerShell 后台任务有 ~2min 超时会
-杀 WSL 进程树——训练必须用 `setsid nohup ... &` 脱离会话启动，再轮询日志文件。
+杀 WSL 进程树——训练必须脱离会话启动。**统一走 `wsl/wsl_run.ps1 -Background`**
+（封装 setsid nohup + 日志 + 存活验证；禁止 `wsl bash -lc "...复杂引号..."` 内联，
+三层转义必踩坑，详见 wsl/README.md 踩坑提醒第 0 条）。
+
+**显存注意（2026-10-13 踩坑）**：室外复杂背景场景（街景/楼宇/树木）用室内配方
+`-r 2 + densify 0.0004` 会把 24GB 显存打满并在 ~6k 步挂死（GPU util 100% 但
+零推进）。室外场景起步至少 `-r 4 + densify 0.0008`（wave2p 实测 12.7GB、5.6it/s）。
+另外 GPU 可能被其他任务占用，启动前先 nvidia-smi 看余量。
 
 ## 10. 一句话回答「我要改 X，去哪里」
 

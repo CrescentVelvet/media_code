@@ -28,7 +28,11 @@ GPU=0 VIDEO_PATH=/data_3d/<uid>/data/xxx.mp4 SCENE_NAME=human_seq \
   bash deformable_human/run_all.sh
 
 # ── 分步 ──
-# 1) 单目视频 → 帧（带模糊门）→ COLMAP 场景
+# 0)（采集包输入）手机采集包（image/*.heic + 可选 transforms.json/pcd.ply）→ 预置帧
+CAPTURE_DIR="/mnt/d/dataset/手部微动样例/xxx-双人招手" SCENE_NAME=wave2p \
+  RESULTS_DIR=../deformable_human_results \
+  bash deformable_human/01b_capture_to_frames.sh
+# 1) 单目视频 → 帧（带模糊门）→ COLMAP 场景（01b 产物就位后自动跳过抽帧）
 GPU=0 VIDEO_PATH=/data_3d/<uid>/data/xxx.mp4 SCENE_NAME=human_seq \
   VIDEO_FPS=6 BLUR_THRESHOLD=100 \
   RESULTS_DIR=../deformable_human_results \

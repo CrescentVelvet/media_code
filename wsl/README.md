@@ -240,6 +240,20 @@ exit
 
 ## ⚠️ 踩坑提醒
 
+0. **从 Windows 调 WSL 跑任务：一律走 `wsl_run.ps1`，禁止内联复杂命令**。
+   `wsl bash -lc "...复杂引号..."` 的引号会被 PowerShell → wsl.exe → bash 三层转义拆坏
+   （嵌套引号、`$变量`、`&&`/`{}`、中文路径全是雷区），且 wsl.exe 会把参数重新拼接
+   再过一层 shell 解析，行为不可预测。固化方案：
+   ```powershell
+   # 前台（exit code 透传）
+   powershell -ExecutionPolicy Bypass -File C:\code\media_code\wsl\wsl_run.ps1 .\task.sh
+   # 后台（setsid 脱离会话，长训练必须；打印日志路径与停止命令）
+   powershell -ExecutionPolicy Bypass -File C:\code\media_code\wsl\wsl_run.ps1 .\task.sh -Background
+   ```
+   原理：任务内容写进 `.sh` 文件，wrapper 经 WSLENV 传参（UTF 安全）、cp 到 /tmp
+   （避开 9p 执行）、去 CRLF、交给 `wslrun_launcher.sh` 执行；wsl.exe 命令行只剩
+   简单单词参数。后台模式自带 `sleep 1 + pgrep 验证`（没它有过 setsid 静默蒸发：
+   重定向建了 0 字节 log、进程没起来）。
 1. **数据集放 WSL 内部**（`~/data/`），**不要**放 `/mnt/d/`（机械盘挂载点），否则 DataLoader 慢到怀疑人生。机械盘只当仓库，需要时 `cp` 进 WSL。
 2. **原始大权重**归档到机械盘，复现前再拷到 `~/models/`。
 3. **`.wslconfig` 的 `vhdxSize` 是上限不是预分配**，实际占用按需增长，但不会超过 100GB。
