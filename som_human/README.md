@@ -19,8 +19,14 @@ cd /mnt/c/code/media_code
 # ── 0) 环境体检（不新建 env，复用 deformable_human）──
 bash som_human/00a_setup_env.sh
 
-# ── 1) 数据：复用 deformable_human 的 01 产物，本目录不重复 ──
+# ── 1a) 数据（复用）：deformable_human 的 01 产物 ──
 #    SOURCE_PATH 默认指向 ~/output/deformable_human_results/<scene>/colmap_scene
+
+# ── 1b) 数据（新采集包）：手机 App 采集（transforms.json + image/*.heic + pcd.ply）──
+#    自带位姿/内参/点云，免 COLMAP。位姿约定 = c2w OpenGL（脚本内投影自检把关）
+SCENE_NAME=double_wave \
+RAW_DIR="/mnt/d/dataset/手部微动样例/f5cf3ba0d4014ce79a82fcaf7ecae053-双人招手" \
+  bash som_human/01_convert_capture.sh
 
 # ── 2) SoM 运动基训练（Phase 1 核心）──
 GPU=0 \
@@ -75,6 +81,7 @@ som_motion 自检。
 media_code/som_human/
 ├── _env.sh               # 复用 deformable_human env + 共用 DG_DIR
 ├── 00a_setup_env.sh      # WSL 体检（不新建 env）
+├── 01_convert_capture.sh/.py  # 手机采集包（heic+位姿json+pcd）→ COLMAP 场景
 ├── 02_train.sh           # SoM 运动基训练
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘

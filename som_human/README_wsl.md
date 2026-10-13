@@ -8,7 +8,7 @@
 |---|---|---|
 | conda env | ✅ `deformable_human`（torch 2.5.1+cu121 + fork 光栅化器） | 无（隔离需要时 `CONDA_ENV=som_human` 覆盖再 clone） |
 | 官方仓 | ✅ `~/repos/Deformable-3D-Gaussians`（同一 DG_DIR） | 无 |
-| 数据准备 | ✅ `deformable_human/01_prepare_data.sh` 的 colmap_scene | 无 |
+| 数据准备 | ✅ `deformable_human/01_prepare_data.sh` 的 colmap_scene | `01_convert_capture.sh`：手机采集包（transforms.json + heic + pcd.ply）→ COLMAP 场景，免 SfM |
 | 运动模型 | ❌ 替换 | `som_motion.py`（SoM 式 SE(3) 基凸组合） |
 | 训练/渲染 | ❌ fork | `train_som.py` / `render_som.py` |
 | 输出目录 | — | `~/output/som_human_results/<scene>/`（与 deformable_human_results 分开，便于同场景对比） |
@@ -16,6 +16,19 @@
 ## 全流程命令
 见 [README.md](README.md)「常用命令」。WSL 下唯一注意：`$HOME/output/...` 在
 Linux fs，训练完跑 `08_move_output.sh` 搬到 `/mnt/d/output/som_human_results/`。
+
+## 采集包（01_convert_capture.sh）备忘
+- 输入格式（峰哥 2026-10-13 样例，`/mnt/d/dataset/手部微动样例/`）：华为手机
+  「Remy」类 App 采集，`transforms.json`（逐帧内参 k1..k3/p1/p2 + c2w 矩阵）+
+  `image/*.heic` + `pcd.ply`。
+- **位姿约定 = c2w + OpenGL 相机系**（实测投影正深度率判定：c2w_opengl 99%，
+  其余三个候选全被否决）。转换 = `M_cv = M @ diag(1,-1,-1,1)` 再求逆得 w2c。
+- HEIC 解码用 env 里已有的 pillow_heif；畸变不建模（D-3DGS 只认 PINHOLE），
+  一律 cv2 去畸变 + ROI 裁剪，内参同步更新。
+- pcd.ply 有离群飞点（实测 z 到 -20 m），默认按「到相机中心距离」保留 90%
+  （KEEP_FRAC 可调）。
+- 图片重命名为 `%05d.png`（时间升序）——D-3DGS 用 `int(文件名)/(N-1)` 算 fid，
+  文件名必须纯数字。
 
 ## 可能遇到的问题（WSL 专属）
 - **稠密化爆炸**：与 deformable_human 完全同因（渲染/稠密化基建没变）。
