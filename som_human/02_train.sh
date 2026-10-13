@@ -24,6 +24,9 @@
 #   BASIS_LR=1.6e-4        # 基 rots/transls lr（SoM configs.py:23-26）
 #   COEF_LR=1e-2           # 系数场 lr（SoM configs.py:5-11）
 #   WHITE_BG=0  EVAL=1
+#   RES_SCHEDULE="0.3:4,0.7:2"  # 分阶段分辨率（前 30% @1/4 → 中 40% @1/2 → 末 30% 全分辨率）
+#                                # 省 20~40% 训练时间；置空串 "" 关闭
+#   RES_COMPENSATE_DENSIFY=1     # 低分辨率下稠密化阈值同步除 scale（量纲补偿）
 #   EXTRA_TRAIN_ARGS=      # 透传。⚠️ 复杂背景必须带降载参数（deformable_human 实测）：
 #                          #   '-r 2 --densify_grad_threshold 0.0004 --densify_until_iter 2000'
 set -o pipefail
@@ -46,6 +49,8 @@ BASIS_LR="${BASIS_LR:-1.6e-4}"
 COEF_LR="${COEF_LR:-1e-2}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
+RES_SCHEDULE="${RES_SCHEDULE-0.3:4,0.7:2}"   # 注意 ${VAR-}（无冒号）：显式置空 = 关闭
+RES_COMPENSATE_DENSIFY="${RES_COMPENSATE_DENSIFY:-1}"
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -53,6 +58,7 @@ echo "  📂 数据源:     $SOURCE_PATH"
 echo "  💾 输出:       $MODEL_PATH"
 echo "  📐 iterations: $ITERATIONS  white_bg: $WHITE_BG  eval: $EVAL"
 echo "  🧬 bases:      B=$NUM_BASES  smooth_w=$SMOOTH_WEIGHT  basis_lr=$BASIS_LR  coef_lr=$COEF_LR"
+echo "  🚀 res_sched:  ${RES_SCHEDULE:-（关闭，全程全分辨率）}  compensate_densify=$RES_COMPENSATE_DENSIFY"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -94,7 +100,8 @@ echo "🏋️ train_som.py ${TRAIN_FLAGS[*]}"
 echo ""
 
 export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
-       SOM_BASIS_LR="$BASIS_LR" SOM_COEF_LR="$COEF_LR"
+       SOM_BASIS_LR="$BASIS_LR" SOM_COEF_LR="$COEF_LR" \
+       SOM_RES_SCHEDULE="$RES_SCHEDULE" SOM_RES_COMPENSATE_DENSIFY="$RES_COMPENSATE_DENSIFY"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then

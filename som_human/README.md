@@ -87,6 +87,23 @@ COLMAP txt 三件套 + 末尾投影自检，自检不过会直接退出）。
 `00a_setup_env.sh` 只做体检：env 存在 / 官方仓在位 / fork 光栅化器可 import /
 som_motion 自检。
 
+## 分阶段分辨率调度（coarse-to-fine，2026-10-13 加入）
+
+默认开启（`RES_SCHEDULE="0.3:4,0.7:2"`）：前 30% 迭代 @1/4 分辨率 → 中 40% @1/2
+→ 末 30% 全分辨率。光栅化成本 ∝ 像素数，参考服务器 ResolutionScheduler 的口径
+省 20~40% 训练时间。置 `RES_SCHEDULE=""` 关闭回退基线行为。
+
+实现要点与安全性（详见 `res_scheduler.py` docstring）：
+
+- D-3DGS 的投影矩阵与分辨率无关，rasterizer 每步读相机 `image_height/width`
+  → 就地改属性即可，渲染完立即还原；**评测/保存始终全分辨率，PSNR 与基线可比**。
+- GT 低分辨率版本在 `prepare()` 一次性下采样缓存（bilinear + antialias）。
+- 低分辨率下 screenspace 梯度模长 ≈1/scale，**稠密化阈值同步除 scale** 保持
+  稠密化判定不变（`RES_COMPENSATE_DENSIFY=1` 默认开；量纲推导启发式，未消融）。
+- 已知取舍：细节结构在 1/4 分辨率下梯度弱，稠密化偏低频——但我们本来就
+  `--densify_until_iter 2000` 早冻结防爆显存，影响有限；若验收发现手部细节
+  退化，第一个怀疑这里（届时可改 `"0.2:2,0.5:1"` 这类更保守的调度对照）。
+
 ## 与 SoM 原版的有意差异（改动都有理由，勿当 bug 修）
 | 项 | SoM 原版 | 本实现 | 理由 |
 |---|---|---|---|
@@ -108,6 +125,8 @@ som_motion 自检。
 | SMOOTH_WEIGHT | 0.1 | 基加速度平滑（SoM 0.1；rot:transl 内权 1:2） |
 | BASIS_LR | 1.6e-4 | 基 rots/transls lr（SoM configs.py:23-26） |
 | COEF_LR | 1e-2 | 系数场 lr（SoM configs.py:5-11） |
+| RES_SCHEDULE | "0.3:4,0.7:2" | 分阶段分辨率（见上节）；空串关闭 |
+| RES_COMPENSATE_DENSIFY | 1 | 低分辨率下稠密化阈值 ÷scale |
 | EXTRA_TRAIN_ARGS | （空） | ⚠️ 复杂背景必带降载参数（见下） |
 
 ## 目录布局
@@ -120,7 +139,8 @@ media_code/som_human/
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘
 ├── som_motion.py         # 核心：SE(3) 基凸组合运动模型（替换 DeformModel）
-├── train_som.py          # fork 官方 train.py（SOM 注释标注差异）
+├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine 加速）
+├── train_som.py          # fork 官方 train.py（SOM / SOM-RES 注释标注差异）
 ├── render_som.py         # fork 官方 render.py（render/time/original）
 └── README.md / README_wsl.md
 官方仓（共用）：~/repos/Deformable-3D-Gaussians

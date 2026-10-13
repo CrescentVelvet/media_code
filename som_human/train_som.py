@@ -14,6 +14,9 @@
      （round 后落回同一帧索引）。
   6. 权重存 model_path/som_motion/iteration_N/som.pth（不复用 deform/ 目录，
      避免与 vanilla 产物混淆）。
+  7. SOM-RES：分阶段分辨率调度（res_scheduler.py，默认 "0.3:4,0.7:2"）——
+     前段 1/4 → 中段 1/2 → 末段全分辨率，省 20~40% 训练时间。
+     置 SOM_RES_SCHEDULE="" 关闭。
 
 用法（由 02_train.sh 调用，CLI 参数与官方 train.py 全兼容；SOM 超参走 env，
 与仓内 train_pose_refine.py 的 POSE_REFINE_* 同一惯例）：
@@ -45,6 +48,8 @@ from utils.general_utils import safe_state
 
 # SOM：运动基模型替换形变 MLP
 from som_motion import SoMMotionModel
+# SOM-RES：分阶段分辨率调度
+from res_scheduler import ResolutionScheduler
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -57,6 +62,9 @@ SOM_NUM_BASES = int(os.environ.get("SOM_NUM_BASES", "10"))
 SOM_SMOOTH_WEIGHT = float(os.environ.get("SOM_SMOOTH_WEIGHT", "0.1"))
 SOM_BASIS_LR = float(os.environ.get("SOM_BASIS_LR", "1.6e-4"))
 SOM_COEF_LR = float(os.environ.get("SOM_COEF_LR", "1e-2"))
+# SOM-RES：分阶段分辨率（空串=关闭）；稠密化阈值补偿默认开（量纲推导，见 res_scheduler.py）
+SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "0.3:4,0.7:2")
+SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "1") == "1"
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -73,6 +81,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     deform.train_setting(opt, basis_lr=SOM_BASIS_LR, coef_lr=SOM_COEF_LR)
     print("[SOM] num_frames={}, num_bases={}, basis_lr={}, coef_lr={}, smooth_w={}".format(
         num_frames, SOM_NUM_BASES, SOM_BASIS_LR, SOM_COEF_LR, SOM_SMOOTH_WEIGHT))
+
+    # SOM-RES：分阶段分辨率调度（就地改相机 image_height/width + 预缓存低分辨率 GT；
+    # 评测走 original_image 全分辨率，指标与基线可比）
+    res_sched = ResolutionScheduler(SOM_RES_SCHEDULE, opt.iterations)
+    res_sched.prepare(scene.getTrainCameras())
+    if res_sched.enabled:
+        print("[RES] schedule={} compensate_densify={}".format(
+            SOM_RES_SCHEDULE, SOM_RES_COMPENSATE_DENSIFY))
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -117,6 +133,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             viewpoint_cam.load2device()
         fid = viewpoint_cam.fid
 
+        # SOM-RES：按 iteration 门控渲染分辨率（rasterizer 每步读相机
+        # image_height/width；投影矩阵与分辨率无关，故就地改属性是安全的）
+        cur_scale = res_sched.scale(iteration) if res_sched.enabled else 1
+        if res_sched.enabled:
+            res_sched.log_transition(iteration, cur_scale,
+                                     viewpoint_cam.image_height, viewpoint_cam.image_width)
+            res_sched.apply(viewpoint_cam, cur_scale)
+
         if iteration < opt.warm_up:
             d_xyz, d_rotation, d_scaling = 0.0, 0.0, 0.0
         else:
@@ -132,9 +156,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         render_pkg_re = render(viewpoint_cam, gaussians, pipe, background, d_xyz, d_rotation, d_scaling, dataset.is_6dof)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg_re["render"], render_pkg_re[
             "viewspace_points"], render_pkg_re["visibility_filter"], render_pkg_re["radii"]
+        # SOM-RES：渲染完立即还原全分辨率（training_report / cameras 导出都拿全分辨率）
+        if res_sched.enabled:
+            res_sched.restore(viewpoint_cam)
 
         # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
+        # SOM-RES：GT 从对应分辨率的缓存取（全分辨率时就是 original_image 本身）
+        if res_sched.enabled:
+            gt_image = res_sched.gt_image(viewpoint_cam, cur_scale).cuda()
+        else:
+            gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         # SOM：基加速度时间平滑（warm_up 后基才开始动，故只在之后计）
@@ -183,7 +214,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
+                    # SOM-RES：低分辨率下 screenspace 梯度模长 ≈1/scale，阈值同步除 scale
+                    # 保持稠密化判定不变（量纲推导启发式，见 res_scheduler.py）
+                    dens_thr = opt.densify_grad_threshold
+                    if res_sched.enabled and SOM_RES_COMPENSATE_DENSIFY:
+                        dens_thr = res_sched.densify_threshold(dens_thr, cur_scale)
+                    gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
