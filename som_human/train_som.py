@@ -14,9 +14,9 @@
      （round 后落回同一帧索引）。
   6. 权重存 model_path/som_motion/iteration_N/som.pth（不复用 deform/ 目录，
      避免与 vanilla 产物混淆）。
-  7. SOM-RES：分阶段分辨率调度（res_scheduler.py，默认 "0.3:4,0.7:2"）——
-     前段 1/4 → 中段 1/2 → 末段全分辨率，省 20~40% 训练时间。
-     置 SOM_RES_SCHEDULE="" 关闭。
+  7. SOM-RES：分阶段分辨率调度（res_scheduler.py，默认关闭）——
+     2026-10-13 A/B/C 实测在本链路零加速（瓶颈是随高斯数 N 增长的
+     非渲染开销，不是光栅化像素），阈值补偿有害。数据见 README 负结果节。
 
 用法（由 02_train.sh 调用，CLI 参数与官方 train.py 全兼容；SOM 超参走 env，
 与仓内 train_pose_refine.py 的 POSE_REFINE_* 同一惯例）：
@@ -62,9 +62,9 @@ SOM_NUM_BASES = int(os.environ.get("SOM_NUM_BASES", "10"))
 SOM_SMOOTH_WEIGHT = float(os.environ.get("SOM_SMOOTH_WEIGHT", "0.1"))
 SOM_BASIS_LR = float(os.environ.get("SOM_BASIS_LR", "1.6e-4"))
 SOM_COEF_LR = float(os.environ.get("SOM_COEF_LR", "1e-2"))
-# SOM-RES：分阶段分辨率（空串=关闭）；稠密化阈值补偿默认开（量纲推导，见 res_scheduler.py）
-SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "0.3:4,0.7:2")
-SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "1") == "1"
+# SOM-RES：分阶段分辨率（默认空串=关闭：实测零加速，见 res_scheduler.py 顶部结论）
+SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "")
+SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "0") == "1"
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -219,7 +219,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                     dens_thr = opt.densify_grad_threshold
                     if res_sched.enabled and SOM_RES_COMPENSATE_DENSIFY:
                         dens_thr = res_sched.densify_threshold(dens_thr, cur_scale)
+                    n_before = gaussians.get_xyz.shape[0]
                     gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
+                    # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）
+                    print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {}".format(
+                        iteration, dens_thr, cur_scale, n_before, gaussians.get_xyz.shape[0]))
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):

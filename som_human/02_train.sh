@@ -24,9 +24,11 @@
 #   BASIS_LR=1.6e-4        # 基 rots/transls lr（SoM configs.py:23-26）
 #   COEF_LR=1e-2           # 系数场 lr（SoM configs.py:5-11）
 #   WHITE_BG=0  EVAL=1
-#   RES_SCHEDULE="0.3:4,0.7:2"  # 分阶段分辨率（前 30% @1/4 → 中 40% @1/2 → 末 30% 全分辨率）
-#                                # 省 20~40% 训练时间；置空串 "" 关闭
-#   RES_COMPENSATE_DENSIFY=1     # 低分辨率下稠密化阈值同步除 scale（量纲补偿）
+#   RES_SCHEDULE=""           # 分阶段分辨率。⚠️ 2026-10-13 A/B/C 实测：本链路
+#                              # 瓶颈是随高斯数增长的非渲染开销（SoM 系数场/Adam/稠密化
+#                              # 记账均 ∝N），1/4 分辨率渲染省的时间≈0（6:48 vs 6:45），
+#                              # 阈值补偿反而多 29% 高斯拖慢 34%。默认关闭，代码保留备查。
+#   RES_COMPENSATE_DENSIFY=0   # 配合上条，实测有害（README 负结果节有数据）
 #   EXTRA_TRAIN_ARGS=      # 透传。⚠️ 复杂背景必须带降载参数（deformable_human 实测）：
 #                          #   '-r 2 --densify_grad_threshold 0.0004 --densify_until_iter 2000'
 set -o pipefail
@@ -49,8 +51,8 @@ BASIS_LR="${BASIS_LR:-1.6e-4}"
 COEF_LR="${COEF_LR:-1e-2}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
-RES_SCHEDULE="${RES_SCHEDULE-0.3:4,0.7:2}"   # 注意 ${VAR-}（无冒号）：显式置空 = 关闭
-RES_COMPENSATE_DENSIFY="${RES_COMPENSATE_DENSIFY:-1}"
+RES_SCHEDULE="${RES_SCHEDULE-}"             # 注意 ${VAR-}（无冒号）：默认关闭（实测零加速）
+RES_COMPENSATE_DENSIFY="${RES_COMPENSATE_DENSIFY:-0}"
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
