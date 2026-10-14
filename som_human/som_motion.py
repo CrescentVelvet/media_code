@@ -143,8 +143,19 @@ class SoMMotionModel:
 
         w = torch.softmax(self.coef_net(xyz), dim=-1)  # [N, B]
 
-        r6 = (w.unsqueeze(-1) * self.rot6d[t_idx]).sum(dim=1)   # [N, 6]
-        tr = (w.unsqueeze(-1) * self.transl[t_idx]).sum(dim=1)  # [N, 3]
+        # SOM-PERF（2026-10-14）：训练/渲染每步所有 N 个高斯共享同一帧 t_idx，
+        # 原 gather 写法 (w.unsqueeze(-1) * self.rot6d[t_idx]).sum(1) 会产生
+        # N×B×6 中间张量（1.5M 点 = 360MB/步）且反向是全部原子加回同 B×6 地址的
+        # scatter-add（严重串行）。t_idx 唯一时数学上就是 matmul：w @ rot6d[t]，
+        # 严格等价（bench_step_matmul.py 验证，旧路径 495ms → 新路径 1.4ms @216k）。
+        t0 = t_idx[0]
+        if bool((t_idx == t0).all()):
+            r6 = w @ self.rot6d[t0]     # [N, 6]
+            tr = w @ self.transl[t0]    # [N, 3]
+        else:
+            # 兜底：非同帧混合输入（当前链路不会出现），保持原语义
+            r6 = (w.unsqueeze(-1) * self.rot6d[t_idx]).sum(dim=1)
+            tr = (w.unsqueeze(-1) * self.transl[t_idx]).sum(dim=1)
         R = rot6d_to_matrix(r6)                                  # [N, 3, 3]
 
         x_warp = torch.bmm(R, xyz.unsqueeze(-1)).squeeze(-1) + tr
