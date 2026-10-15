@@ -102,7 +102,15 @@ class MaskWeightCache:
     def sample_fg_prob(self, image_name, xyz_def, cam):
         """BG-DEFORM：把变形后高斯中心投影到当前相机，采样 mask 得逐点 fg 概率。
         纯几何操作（输入已 detach），返回 (N,) float [0,1]，越界/相机背后=0。
-        投影约定经 qc_proj_fg.py 验证：grid_y = -ndc_y（OpenGL→image）。"""
+        投影约定：grid_y = +ndc_y（**不取负**：本 fork 视图矩阵 y 轴朝下、投影
+        矩阵 P[1][1]>0 不翻转，ndc_y>0 即画面下半部，grid_sample y=+1 也是底部）。
+        ⚠️ 2026-10-16 更正：此处原来是 gy=-ndc_y 且注释称「qc_proj_fg.py 验证过」，
+        实为垂直镜像 bug。那条 QC 无效：qc_proj_fg.py 把叠加点画在与采样同一
+        （可能翻转的）坐标系里，点色=落点处 mask 值，任何符号下都「红点在 fg 上」，
+        对符号不敏感。铁证：用光栅化器自渲染深度逐点核对，gy=+ndc_y 时
+        corr(z_view, rendered_depth)=+0.62~+0.88（4 个测试视角），取负则全负。
+        （本函数只在 bg_deform_lambda>0 时调用，该功能默认关 → 未影响既有实验；
+        被照抄到 som_human/depth_prior.py 后造成 E 案深度损失静默失效，已同步修。）"""
         t = self.cache.get(image_name)
         if t is None:  # 触发懒加载（尺寸随意，采样用原图分辨率即可）
             self.get(image_name, 2, 2, "cpu")
@@ -115,7 +123,7 @@ class MaskWeightCache:
         w = clip[:, 3:4].clamp_min(1e-6)
         ndc = clip[:, :3] / w
         gx = ndc[:, 0]
-        gy = -ndc[:, 1]
+        gy = ndc[:, 1]   # 2026-10-16 修正：不取负（原为 -ndc[:,1]，镜像 bug，见 docstring）
         valid = (clip[:, 3] > 0) & (gx.abs() <= 1) & (gy.abs() <= 1)
         grid = torch.stack([gx, gy], dim=1).view(1, 1, N, 2)
         p = F.grid_sample(mask_t, grid, mode="bilinear",

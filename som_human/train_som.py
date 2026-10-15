@@ -290,6 +290,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 loss = loss + SOM_DEPTH_LAMBDA * d_loss
                 if iteration % 200 == 0:
                     print("[DEPTH] iter {} {}".format(iteration, d_info), flush=True)
+            elif iteration % 200 == 0:
+                # ⚠️ 失败也要可见（2026-10-16 教训：gy 镜像 bug 让 a<0 门限把损失
+                # 静默跳过 10k 步，只在成功时打印根本发现不了）
+                print("[DEPTH] iter {} SKIP ({})".format(iteration, d_info), flush=True)
         # SOM：基加速度时间平滑（warm_up 后基才开始动，故只在之后计）
         if iteration >= opt.warm_up and SOM_SMOOTH_WEIGHT > 0:
             loss = loss + SOM_SMOOTH_WEIGHT * deform.smooth_loss()
