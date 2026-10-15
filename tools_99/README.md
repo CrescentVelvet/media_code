@@ -1,21 +1,23 @@
-# tools_99 — 重建产物的封装收尾、数据集体检与汇报图面工具集
+# tools_99 — 重建产物的封装收尾、采集包预处理、数据集体检与汇报图面工具集
 
 2026-10-15 从 `vggt_human/` 迁出（`git mv`，保留提交历史）。本目录原属于
 vggt_human 的下游「99 系列」，但它们的服务对象已超出人脸重建本身：既有对
 UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 3DGS 相机位姿工具的
 汇报图面。脚本文件名一律未改（保留 99 前缀的连续性）。
 
-## 三个族
+## 四个族
 
 | 族 | 脚本 | 用途 | 运行依赖 |
 |---|---|---|---|
 | **A. 打包/收尾链** | 99a 99b 99c 99d 99e 99f | 重建产物 ↔ 手机可播放 MP4 的双向封装 | UWA 工具链 + ffmpeg + conda env |
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具 + 汇报图面** | 99h 99i 99j | 语法兼容自查 / SVG→PNG / 汇报页内联同步 | 99h 需 Python ≥ 3.12；99i 需 node + Edge |
+| **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params_final.json` | **纯标准库**，Python ≥ 3.10 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import；族 C 的三个脚本共同服务本目录的 `camera_pose_tool_report.html` +
-`report_figs/`。
+`report_figs/`。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
+余量常量同源，改一处务必同步另一处。
 
 ---
 
@@ -255,6 +257,48 @@ python tools_99/99j_sync_report_figs.py
 
 ---
 
+## D. 采集包主体居中 → 相机参数（99k）
+
+```bash
+python tools_99/99k_make_gs_params.py                    # 跑 main() 里预设的批次根
+SRC=D:/dataset/手部微动样例/01e954…-佳佳抱枕 python tools_99/99k_make_gs_params.py
+DRY_RUN=1 python tools_99/99k_make_gs_params.py          # 只算不落盘
+ONLY=<task_a>,<task_b> python tools_99/99k_make_gs_params.py
+```
+
+**为什么需要**：Remy 采集包的世界原点是手机开机点附近，主体（视线汇聚点）实测离它
+1.3–2.9 m；而 UWA 侧 `view_limits` 的 `target` 被 99b 写死成 `[0,0,0]`
+（`99b_pack_ply_to_mp4.py:435`）。不居中 → 手机端环绕中心整个偏离主体。
+
+**三步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`VL_TARGET=anchor`
+切到采集包自带 `anchor_point`）→ ② 以球心为原点逐帧算 az / el / r 并取 min/max + 余量
+（解缠 / 整圈 / 余量常量全部沿用 99g）→ ③ 落盘。
+
+**产物**（`<OUT_ROOT>/<task>/`，默认 `<RESULTS_ROOT>/<批次名>/centered`）：
+
+| 文件 | 用途 |
+|---|---|
+| `gs_camera_params_final.json` | 99b 的 COLMAP 模式直接消费（`setting.pitch_min/max`、`yaw_min/max`、`pitch_init` + `scene.radius`） |
+| `transforms.json` | 居中后位姿（同名 drop-in），世界原点 = 主体中心 |
+| `pcd.ply` | 居中后点云（按属性偏移平移 xyz，其它属性原样） |
+| `image/` | 源图硬链接（跨卷退软链接，都失败给手工命令） |
+| `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
+
+居中包可直接喂 `som_human/01_convert_capture.py --raw_dir <该目录>`，训练出的 ply
+与相机天然以主体为原点，99b 的 `target=[0,0,0]` 才对得上。
+
+**关键 env**：`VL_TARGET`（sight/anchor）、`VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` /
+`VL_FULL_AZ`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
+恰好罩住实测半径区间）、`SORT_BY_TIME`、`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
+`OUT_IMAGES`、`ONLY` / `FORCE` / `DRY_RUN`。
+
+⚠️ **踩过的坑（2026-10-15）**：图链逻辑第一版在「目标已是软链接」时会穿透链接删掉
+**源目录里的真图**（实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进回收站，已逐张恢复）。
+现行规则：目标若是链接 → 只摘链接本身；若是目录 → 非空跳过、空则 rmdir；
+硬链接阶段只回滚自己创建过的文件。**改这段代码前先读 `link_images` 的 docstring。**
+
+---
+
 ## 首次准备（族 A 需要）
 
 ```bash
@@ -272,5 +316,6 @@ chmod +x /path/to/UWA_Sample_Tool_v3/build/gltf_packer
   [../vggt_human/NOTES.md](../vggt_human/NOTES.md) 第 9、10 条。
 - **99g 的坐标系坑、四联对照图约定、球心取哪个点的实测数据**：见
   [../vggt_human/NOTES.md](../vggt_human/NOTES.md)「Remy 采集包」等节。
+  **99k 的球心口径与余量常量直接沿用 99g**，两边必须一致。
 - **与服务器侧「3DGS 相机位姿调整工具」的四模块对照**（同族能力互证）：
   见 [../vggt_human/AI开发经验分享.md](../vggt_human/AI开发经验分享.md) 第 4.4 节。
