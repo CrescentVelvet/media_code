@@ -63,13 +63,24 @@
     模式 = centered（默认，画居中后的包）| origin（原始采集包，做对照）| both
     关掉出图：OUT_PLOTS=0。绘图失败不影响参数产物，只打印告警。
 
-gs_camera_params_final.json 的 schema（99b_pack_ply_to_mp4.py:386-415 读的就是这些键）
-    {"setting": {"pitch_min", "pitch_max", "yaw_min", "yaw_max", "pitch_init", "yaw_init"},
-     "scene":   {"radius"}}
-    99b 的用法：maxPhi = yaw_max、minPhi = yaw_min、maxTheta = 90 − pitch_min、
-    minTheta = 90 − pitch_max、minRadius = 0.9×radius、maxRadius = 1.2×radius。
-    所以 radius 取「让 0.9r/1.2r 恰好罩住实测半径区间」的值（RADIUS_MODE=mid，默认）；
-    罩不住（实测半径跨度 > 1.333 倍）时打印警告，可换 max/min/mean/median。
+gs_camera_params_final.json 的 schema（4 空格缩进、带换行，便于人工核对）
+    {
+      "setting": {"init_fov", "yaw_init", "yaw_min", "yaw_max",
+                  "pitch_init", "pitch_min", "pitch_max", "roll_init"},
+      "camera_type": "pinhole",
+      "intrinsics": {"width", "height", "fx", "fy", "cx", "cy"},
+      "scene": {"center": [0,0,0], "radius"}
+    }
+    其中 99b_pack_ply_to_mp4.py:386-415 只消费 setting.pitch_min/pitch_max/yaw_min/yaw_max
+    （+ pitch_init 做 1° 一致性告警）与 scene.radius，其余字段是按 3DGS 侧相机文件的既有
+    格式补齐的，供人工核对与下游直接消费。99b 的用法：maxPhi = yaw_max、minPhi = yaw_min、
+    maxTheta = 90 − pitch_min、minTheta = 90 − pitch_max、minRadius = 0.9×radius、
+    maxRadius = 1.2×radius —— 所以 radius 取「让 0.9r/1.2r 恰好罩住实测半径区间」的值
+    （RADIUS_MODE=mid，默认）；罩不住（跨度 > 1.333 倍）时打印警告，可换 max/min/mean/median。
+    字段取值来源：init_fov = 2·atan(h/(2·fx))·INIT_FOV_SCALE（同 99b:466，默认系数 0.8）；
+    intrinsics 取时间序首帧的 w/h/fl_x/fl_y/cx/cy；camera_type 恒 "pinhole"（采集包
+    camera_model=OPENCV 的畸变系数不进这个文件，99b/99c 侧也按 PINHOLE 处理）；
+    roll_init 恒 0（本链路无滚转）；scene.center 居中后恒 [0,0,0]。
 
 用法
     python tools_99/99k_make_gs_params.py                     # 跑 main() 里的预设批次
@@ -89,6 +100,8 @@ Env vars
     RADIUS_MODE    scene.radius 取法：mid(默认) | mean | median | max | min
                    mid = 让 99b 的 [0.9r,1.2r] 恰好罩住实测半径区间
     SORT_BY_TIME   1(默认) 先按 file_path（时间戳）排序再解缠与取 init 帧；0=保持 json 原序
+    INIT_FOV_SCALE setting.init_fov 的经验系数（默认 0.8，与 99b:466 一致；
+                   想要原始竖直视场角就设 1.0）
     PHI_NORMALIZE  1(默认) 把 Phi 区间整体平移 k×360，使区间中心落进 (−180,180]
     OUT_CENTERED / OUT_PLY / OUT_IMAGES   1(默认) 是否落居中位姿 / 居中点云 / 图链
     OUT_PLOTS      1(默认) 跑完是否调 99g 出图；0=不出图
@@ -376,13 +389,42 @@ def pick_radius(vl: dict, mode: str):
     return r_mean, "mean"
 
 
-def build_gs_params(vl: dict, cfg: dict):
+def frame_intrinsics(f0: dict):
+    """从采集包首帧抽 pinhole 内参六元组；缺字段返回 None（只在日志里告警，不编数）。
+
+    width/height 输出成整数像素（与 3DGS 侧相机文件的写法一致），fx/fy/cx/cy 保留浮点。
+    """
+    keys = ("w", "h", "fl_x", "fl_y", "cx", "cy")
+    if any(f0.get(k) is None for k in keys):
+        return None
+    return {"width": int(round(float(f0["w"]))), "height": int(round(float(f0["h"]))),
+            "fx": float(f0["fl_x"]), "fy": float(f0["fl_y"]),
+            "cx": float(f0["cx"]), "cy": float(f0["cy"])}
+
+
+def init_fov_deg(intr: dict | None, scale: float):
+    """init_camera 的初始视场角（度）。
+
+    与 99b_pack_ply_to_mp4.py:466 同一式：2·atan(h / (2·fx))，再乘同一经验系数
+    （INIT_FOV_SCALE，默认 0.8 = 99b 口径；99c 用 INIT_FOV_SCALE=1.25 反向补偿）。
+    竖构图下 h 是长边，所以这个数是「竖直视场角」。
+    """
+    if not intr or not intr["fx"] or not intr["height"]:
+        return None
+    return math.degrees(2.0 * math.atan(intr["height"] / (2.0 * intr["fx"]))) * scale
+
+
+def build_gs_params(vl: dict, cfg: dict, ordered: list):
     """组装 gs_camera_params_final.json 的对象。
 
     换算（与 99b/99c 一致的权威口径）：
       pitch = el（仰角）      → 99b: maxTheta = 90 − pitch_min、minTheta = 90 − pitch_max
       yaw   = −az = Phi       → 99b: maxPhi = yaw_max、minPhi = yaw_min
       init 取首帧（时间序第一帧），pitch_init/yaw_init 用同一换算。
+
+    99b 实际只用 setting.pitch_min/pitch_max/yaw_min/yaw_max（+ pitch_init 做 1° 一致性
+    告警）与 scene.radius；其余字段按 3DGS 侧相机文件的既有格式补齐，供人工核对与下游
+    直接消费（向上游对齐，99b 多读到键也不会受影响）。
     """
     phi_lo = -vl["az_hi"]
     phi_hi = -vl["az_lo"]
@@ -390,27 +432,51 @@ def build_gs_params(vl: dict, cfg: dict):
     # init 的方位角必须跟着同一次平移，否则会落在规范化后的区间之外
     yaw_init = -vl["init"]["az"] - shift * 360.0
     radius, r_mode = pick_radius(vl, cfg["radius_mode"])
+
+    intr = frame_intrinsics(ordered[0]) if ordered else None
+    fov = init_fov_deg(intr, cfg["init_fov_scale"])
+    # 居中后主体就在原点；未居中时如实写主体中心在原始世界系里的位置，
+    # 好让下游（和 99b 写死的 view_limits target=[0,0,0]）一眼看出对不上。
+    center = [0.0, 0.0, 0.0] if cfg["out_centered"] else list(vl["target"])
+
     return {
         "setting": {
-            "pitch_min": vl["el_lo"], "pitch_max": vl["el_hi"],
-            "yaw_min": phi_lo, "yaw_max": phi_hi,
-            "pitch_init": vl["init"]["el"],
+            "init_fov": fov,
             "yaw_init": yaw_init,
+            "yaw_min": phi_lo,
+            "yaw_max": phi_hi,
+            "pitch_init": vl["init"]["el"],
+            "pitch_min": vl["el_lo"],
+            "pitch_max": vl["el_hi"],
+            "roll_init": 0.0,
         },
-        "scene": {"radius": radius},
+        "camera_type": "pinhole",
+        "intrinsics": intr if intr else {},
+        "scene": {"center": center, "radius": radius},
     }, {"phi_shift_deg": shift, "radius_mode": r_mode,
         "phi": (phi_lo, phi_hi), "theta": (90.0 - vl["el_hi"], 90.0 - vl["el_lo"]),
-        "radius_band": (0.9 * radius, 1.2 * radius), "yaw_init": yaw_init}
+        "radius_band": (0.9 * radius, 1.2 * radius), "yaw_init": yaw_init,
+        "init_fov": fov, "intrinsics": intr, "scene_center": center,
+        "camera_type": "pinhole"}
 
 
 # --------------------------------------------------------------------------
 # 落盘：居中位姿 / 居中点云 / 图链
 # --------------------------------------------------------------------------
-def write_json(path: Path, obj) -> bool:
-    """UTF-8 落盘（不转义非 ASCII，task 名常带中文）。"""
+def write_json(path: Path, obj, indent=None) -> bool:
+    """UTF-8 落盘（不转义非 ASCII，task 名常带中文）。
+
+    indent=4 → 带换行缩进（gs_camera_params_final.json / center_report.json 用，
+    便于人工核对与 diff）；indent=None → 单行紧凑（transforms.json 用，保持与上游
+    采集包一致的书写风格；json.load 不关心空白，两者功能完全等价）。
+    """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+        text = json.dumps(obj, ensure_ascii=False, indent=indent)
+        # newline="\n"：Windows 上默认会把 \n 翻成 \r\n，而本仓规范是 LF
+        # （.gitattributes: * text=auto eol=lf），这里显式压住
+        with path.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text + "\n")
         return True
     except OSError as exc:
         print(f"  ❌ 写文件失败 {path}: {exc}")
@@ -616,7 +682,7 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     anchor = tuple(float(v) for v in anchor) if anchor else None
 
     vl = compute_view_limit(pos, look, anchor, cfg)
-    gs, info = build_gs_params(vl, cfg)
+    gs, info = build_gs_params(vl, cfg, ordered)
 
     # ---------- 居中位姿（先算出来，自检直接验它，而不是验中间量）----------
     centered = recenter_transforms(data, ordered, vl["target"]) if cfg["out_centered"] else None
@@ -666,6 +732,18 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     print(f"  📍 init(首帧): pitch {gs['setting']['pitch_init']:.2f}° "
           f"yaw {yaw_init:.2f}° r {vl['init']['r']:.3f}"
           f"{'  ✅ 在区间内' if init_in else '  ⚠️ 落在区间外（请检查数据）'}")
+    intr, fov = info["intrinsics"], info["init_fov"]
+    if intr:
+        print(f"  🔭 内参(首帧): {intr['width']:.0f}×{intr['height']:.0f} "
+              f"fx {intr['fx']:.2f} fy {intr['fy']:.2f} "
+              f"cx {intr['cx']:.2f} cy {intr['cy']:.2f}"
+              + (f" ｜ init_fov {fov:.2f}°(×{cfg['init_fov_scale']:g})" if fov else ""))
+    else:
+        print("  ⚠️ 首帧缺内参字段（w/h/fl_x/fl_y/cx/cy），intrinsics 与 init_fov 留空")
+    if not cfg["out_centered"]:
+        print(f"  ⚠️ OUT_CENTERED=0：scene.center 写的是主体中心在原始世界系的位置 "
+              f"{tuple(round(v, 3) for v in info['scene_center'])}，"
+              f"而 99b 的 view_limits target 写死 [0,0,0]，两边对不上")
     if dist_err > 1e-9:
         print(f"  ⚠️ 居中后距离校验偏差 {dist_err:.3e} m（应为 0，请检查实现）")
 
@@ -676,9 +754,10 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     # ---------- 落盘 ----------
     ok = True
     fp_gs = out_dir / cfg["gs_name"]
-    ok &= write_json(fp_gs, gs)
+    ok &= write_json(fp_gs, gs, indent=4)
 
     if cfg["out_centered"] and centered is not None:
+        # 紧凑单行：与上游采集包的书写风格一致，json.load 不受影响
         ok &= write_json(out_dir / cfg["transforms_name"], centered)
     if cfg["out_ply"]:
         src_ply = task_dir / cfg["ply_name"]
@@ -710,16 +789,22 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
                     "radius": gs["scene"]["radius"], "radius_mode": info["radius_mode"],
                     "radius_band_0.9_1.2": list(info["radius_band"]),
                     "radius_span_ratio": r_max / max(r_min, 1e-9),
-                    "phi_shift_deg": info["phi_shift_deg"]},
+                    "phi_shift_deg": info["phi_shift_deg"],
+                    "init_fov": info["init_fov"],
+                    "init_fov_scale": cfg["init_fov_scale"],
+                    "camera_type": info["camera_type"],
+                    "intrinsics": info["intrinsics"],
+                    "scene_center": info["scene_center"]},
         "init": {"pitch": gs["setting"]["pitch_init"], "yaw": yaw_init,
                  "r": vl["init"]["r"], "inside_limits": init_in},
         "checks": {"center_dist_err_m": dist_err, "radius_band_covers": band_cover},
         "params": {"VL_TARGET": cfg["target_mode"], "VL_AZ_PAD": cfg["az_pad"],
                    "VL_EL_PAD": cfg["el_pad"], "VL_R_PAD": cfg["r_pad"],
                    "VL_FULL_AZ": cfg["full_az"], "RADIUS_MODE": cfg["radius_mode"],
-                   "PHI_NORMALIZE": cfg["phi_normalize"]},
+                   "PHI_NORMALIZE": cfg["phi_normalize"],
+                   "INIT_FOV_SCALE": cfg["init_fov_scale"]},
     }
-    ok &= write_json(out_dir / "center_report.json", report)
+    ok &= write_json(out_dir / "center_report.json", report, indent=4)
     print(f"  {'✅' if ok else '❌'} 输出: {out_dir}")
     return "ok" if ok else "failed"
 
@@ -890,6 +975,7 @@ def main():
         "r_pad": float(os.environ.get("VL_R_PAD", "0.08")),
         "full_az": float(os.environ.get("VL_FULL_AZ", "300.0")),
         "radius_mode": os.environ.get("RADIUS_MODE", "mid").strip().lower(),
+        "init_fov_scale": float(os.environ.get("INIT_FOV_SCALE", "0.8")),
         "sort_by_time": os.environ.get("SORT_BY_TIME", "1") == "1",
         "phi_normalize": os.environ.get("PHI_NORMALIZE", "1") == "1",
         "out_centered": os.environ.get("OUT_CENTERED", "1") == "1",
@@ -917,6 +1003,8 @@ def main():
         sys.exit(f"❌ VL_TARGET 只能是 sight / anchor，实际 {cfg['target_mode']}")
     if cfg["radius_mode"] not in ("mean", "median", "mid", "max", "min"):
         sys.exit(f"❌ RADIUS_MODE 只能是 mean/median/mid/max/min，实际 {cfg['radius_mode']}")
+    if cfg["init_fov_scale"] <= 0:
+        sys.exit(f"❌ INIT_FOV_SCALE 需 > 0，实际 {cfg['init_fov_scale']}")
     for k in ("az_pad", "el_pad", "r_pad"):
         if cfg[k] < 0:
             sys.exit(f"❌ 余量参数 {k}={cfg[k]} 不能为负")

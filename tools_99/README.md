@@ -285,11 +285,48 @@ PLOT_STYLE=lim_edges PLOT_SRC=both python ...            # 换图面风格 / 顺
 
 | 文件 | 用途 |
 |---|---|
-| `gs_camera_params_final.json` | 99b 的 COLMAP 模式直接消费（`setting.pitch_min/max`、`yaw_min/max`、`pitch_init` + `scene.radius`） |
+| `gs_camera_params_final.json` | 99b 的 COLMAP 模式直接消费：`setting.pitch_min/pitch_max`、`yaw_min/yaw_max`、`pitch_init` + `scene.radius`（其余字段见下） |
 | `transforms.json` | 居中后位姿（同名 drop-in），世界原点 = 主体中心 |
 | `pcd.ply` | 居中后点云（按属性偏移平移 xyz，其它属性原样） |
 | `image/` | 源图硬链接（跨卷退软链接，都失败给手工命令） |
 | `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
+
+`gs_camera_params_final.json` / `center_report.json` 落盘为 **4 空格缩进、LF 换行、无 BOM**
+（便于人工核对与 diff）；`transforms.json` 保持**紧凑单行**，与上游采集包书写风格一致
+（两者对 `json.load` 完全等价）。
+
+**gs json 的字段**（4 个顶层块）：
+
+```json
+{
+    "setting": {
+        "init_fov": 56.364194283649056,
+        "yaw_init": 68.03129209261009,
+        "yaw_min": -49.12659718819826,
+        "yaw_max": 170.07489874016608,
+        "pitch_init": 22.982417952841683,
+        "pitch_min": 18.730548539102887,
+        "pitch_max": 28.08402128802671,
+        "roll_init": 0.0
+    },
+    "camera_type": "pinhole",
+    "intrinsics": {"width": 1440, "height": 1920,
+                   "fx": 1359.494873046875, "fy": 1361.6729736328125,
+                   "cx": 716.0700073242188, "cy": 952.9739990234375},
+    "scene": {"center": [0.0, 0.0, 0.0], "radius": 1.4989950484938566}
+}
+```
+
+取值来源：99b 只读 `setting` 的四个区间键 + `pitch_init`（做 1° 一致性告警）与
+`scene.radius`，其余按键向上游 3DGS 侧相机文件的既有格式补齐，供人工核对与下游直接消费。
+
+| 字段 | 来源 |
+|---|---|
+| `init_fov` | `2·atan(h/(2·fx))·INIT_FOV_SCALE`，**与 `99b_pack_ply_to_mp4.py:466` 同一式**；默认系数 0.8（99b 口径，99c 用 `INIT_FOV_SCALE=1.25` 反向补偿），想要原始竖直视场角设 1.0 |
+| `intrinsics` | 时间序首帧的 `w/h/fl_x/fl_y/cx/cy`；`width`/`height` 写整数，其余浮点。缺字段时告警并留空，不编数 |
+| `camera_type` | 恒 `"pinhole"`（采集包 `camera_model=OPENCV` 的畸变系数不进本文件，99b/99c 侧也按 PINHOLE 处理） |
+| `roll_init` | 恒 `0.0`（本链路无滚转） |
+| `scene.center` | 居中后恒 `[0,0,0]`；`OUT_CENTERED=0` 时写主体中心在原始世界系的位置并告警（与 99b 写死的 `target=[0,0,0]` 对不上） |
 
 **图面**（`<PLOT_ROOT>/<模式>/`，默认 `<批次名>/plots/`）：`<task>.html`（自包含，
 quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化后端时）+ `index.html` 总览页。
@@ -301,7 +338,8 @@ quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化�
 
 **关键 env**：`VL_TARGET`（sight/anchor）、`VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` /
 `VL_FULL_AZ`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
-恰好罩住实测半径区间）、`SORT_BY_TIME`、`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
+恰好罩住实测半径区间）、`INIT_FOV_SCALE`（默认 `0.8`，同 99b）、`SORT_BY_TIME`、
+`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
 `OUT_IMAGES`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
 `PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`。
 
