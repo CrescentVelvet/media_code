@@ -236,13 +236,20 @@
 >   后 next_n 直接取 max_n（只剪不增）。160 帧推演：epoch 1–18 scale4、19–36
 >   scale2、37–60 scale1，densify 窗口 3–56。
 >
-> 【2026-10-15 profile 支撑 + 首个 cap A/B 在跑】三点步时分解（profile_step.py）：
-> N=216k→1.5M 时 TOTAL 25.5→98.7ms（deform MLP 前向+反向占 ~80% 且随 N 线性，
-> 渲染前向仅 5%，dense Adam 9%）→ 降 N 是 som_human 链路剩余唯一大杠杆。
-> 已启动 **MAX_GAUSSIANS=600000 硬护栏对照**（v1 配方 + 精化位姿，20k，
-> model_colmap_cap600k）：测「好位姿 + 60 万点」的质量损失与 ~2× 加速，
-> 结果出来再决定 som_human 侧 D 案调度器（momentum/显式 cap 口径对齐）的落地形态。
-> 稀疏 Adam 经此 profile 定级为小杠杆（≤9%），不单独列案。
+> 【2026-10-15 cap600k A/B 结果：**免费午餐成立，cap 60 万落定**】对照（同配方同位姿、
+> 无曝光）三个模型 @10k/@20k test PSNR：
+> | 模型 | cap | @10k | @20k (best) | 点数@20k | 20k 训练时长 |
+> |---|---|---|---|---|---|
+> | model_colmap | 无（护栏150万） | 21.27 | —(18.5k被杀) | — | ~30 min |
+> | model_colmap_exp | 无 | 20.95 | 21.63 (21.86) | 1,502,625 | ~30 min |
+> | model_colmap_cap600k | 60万 | 21.18 | **21.81 (21.81)** | 629,715 | **~17 min** |
+>
+> 同点 @10k 掉 0.09dB（<0.3dB 判定线，波动内持平）；@20k 反超无 cap 曝光组 +0.18dB
+> （含曝光变量，不单独归功，但至少证无劣化）。点数 2.4× 缩减，训练 ~1.7× 加速
+> （N 减半 → deform MLP 步时随 N 线性下降，符合 profile 外推）。
+> **结论：som_human 默认 cap 改 600k**（02_train.sh MAX_GAUSSIANS 默认值）。
+> D 案剩余工作只剩调度器落地（momentum 仅 cap≤0 时启用 + c2f 折扣，见上方实录），
+> 优先级降——先让 cap 默认值生效即可。
 
 ---
 
