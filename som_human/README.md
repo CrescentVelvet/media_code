@@ -28,6 +28,16 @@ SCENE_NAME=double_wave \
 RAW_DIR="/mnt/d/dataset/手部微动样例/f5cf3ba0d4014ce79a82fcaf7ecae053-双人招手" \
   bash som_human/01_convert_capture.sh
 
+# ── 1c) 位姿精化（手机采集场景强烈建议，治 VIO 漂移根因）──
+#    01b 诊断：App VIO 位姿逐帧 inlier 摆 250 倍 → PSNR 钉死 13~14。
+#    对 01 的去畸变图从零跑 COLMAP SfM（GPU SIFT+exhaustive+mapper，内参固定），
+#    产出 colmap_refined/ 场景（位姿+三角化点云都换掉，图像软链复用）。
+SCENE_NAME=double_wave bash som_human/01c_colmap_refine.sh
+#    精化质量校验（inlier 分布/重投影误差/VIO 轨迹对齐残差 + 叠加图）：
+python som_human/01d_check_refined.py \
+  ~/output/som_human_results/double_wave/colmap_refined \
+  ~/output/som_human_results/double_wave/colmap_scene
+
 # ── 2) SoM 运动基训练（Phase 1 核心）──
 GPU=0 \
 SCENE_NAME=human_seq \
@@ -83,9 +93,66 @@ SCENE_NAME=human_seq bash som_human/08_move_output.sh
 COLMAP txt 三件套 + 末尾投影自检，自检不过会直接退出）。
 
 ## 首次准备
-无新增安装。前置 = deformable_human 全流程已跑通（见其 README_wsl.md）。
+训练/渲染无新增安装。前置 = deformable_human 全流程已跑通（见其 README_wsl.md）。
 `00a_setup_env.sh` 只做体检：env 存在 / 官方仓在位 / fork 光栅化器可 import /
 som_motion 自检。
+
+**01c 位姿精化需要 COLMAP（独立 env，CUDA 版）**：
+```bash
+conda create -n colmap --override-channels -c conda-forge 'colmap=*cuda*' -y
+# ⚠️ conda-forge colmap 4.2.1 配方漏声明 openimageio 且 ABI 锁 3.1，必须补钉：
+conda install -n colmap --override-channels -c conda-forge 'openimageio=3.1' -y
+```
+01c 脚本会自动发现 `~/miniconda3/envs/colmap/bin/colmap` 并补 LD_LIBRARY_PATH。
+另注意 COLMAP 4.x 要求 mapper 的 output_path 目录已存在（3.x 会自动建，脚本已处理）。
+
+## 位姿精化（治手机 VIO 漂移，2026-10-13 实证为手机场景第一瓶颈）
+
+**根因链**（double_wave 三轮实验 + 诊断）：
+
+| 实验 | 配置 | test PSNR |
+|---|---|---|
+| v1 | 21.6 万点，20k，VIO 位姿 | 14.04 |
+| v3 | 147 万点（撞护栏），@7000 | 12.98 |
+| 静态消融 | WARM_UP=20000（运动模型不激活） | 13.40 |
+
+点数 ×7、有无运动模型都无效 → 瓶颈不在容量/运动模型。`01b_check_reproj.py`
+把 pcd 投回各帧：inlier 436~112750 **摆幅 250 倍** → App VIO 位姿漂移。
+与 deformable_human 证伪清单「手机 VI 位姿直接替 COLMAP −4dB」互证。
+
+**01c 精化结果**（double_wave，GPU SIFT，4m49s 全流程）：
+
+- **160/160 帧注册**（mapper 一个子模型，无断裂），三角化点 53,635；
+- 每帧 inlier 1899~4504（max/min **2.4×**，对照 VIO 的 250×）；
+- 重投影误差中位 **0.92px**（p95 1.96，max 3.98）；
+- VIO→COLMAP 轨迹相似对齐：scale 2.537，位置残差中位 1.59（COLMAP 单位，
+  ≈0.63m VIO 单位）、旋转残差中位 47°——VIO 漂移幅度的直接量化；
+- 精化点云叠加图：点坐在人/地面正确结构上（`colmap_refined/reproj_check/`）。
+
+训练侧收益见「实验记录」节（受控 A/B：同 v1 配方只换位姿）。
+
+## 曝光补偿（方案 A，`exposure.py`，默认关闭）
+
+针对手机 auto-exposure 逐帧光度漂移（户外场景 GT 亮度/色温不一致系统性干扰
+几何学习）。移植自服务器 Reconstruction 的 ExposureModule（BACKLOG 方案 A）：
+
+- 每训练相机一个可学习 **4×3 齐次仿射** A（`img_adj = Aᵀ[render;1]`，恒等初始化）；
+- **门控**：`iteration < EXPOSURE_FROM_ITER`（默认 = WARM_UP）前 A 冻结为恒等；
+  门控开启瞬间对全部训练帧渲染一遍做 **lstsq 闭式初始化**（含 2×中位数抗外点重解）；
+- 之后 A 以独立 lr（默认 1e-3）联合训练，L1/DSSIM 用同一张校正图（口径一致）；
+- 正则 `0.01·Σ|A−A_eye|` 拉回恒等，防与 SH 颜色互相吸收震荡；
+- test 帧没训过 A：按 fid 与相邻训练帧 **线性插值**，评测同口径 apply；
+- 权重随 ckpt 存 `model_path/exposure/iteration_N/exposure.pth`，
+  render_som 自动检测并应用（time/original 插帧模式不加，只看运动重影）。
+
+开启：`USE_EXPOSURE=1 bash som_human/02_train.sh`（A/B 效果见实验记录）。
+
+## 实验记录（按日期倒序，负结果也记录）
+
+### 2026-10-13 ① 位姿根因诊断 + COLMAP 精化（01c/01d）
+见「位姿精化」节：VIO 位姿漂移实锤（inlier 摆 250 倍），01c 精化后 160/160
+注册、重投影中位 0.92px、inlier 分布收窄到 2.4×。**受控 A/B（v1 配方只换
+位姿）进行中，结果回填于此。**
 
 ## 分阶段分辨率调度（coarse-to-fine）—— ⚠️ 实测否决，默认关闭
 
@@ -164,9 +231,13 @@ GaussianModel 上验证 ✅（不截断=官方行为、target=30 精确 +30、ta
 | BASIS_LR | 1.6e-4 | 基 rots/transls lr（SoM configs.py:23-26） |
 | COEF_LR | 1e-2 | 系数场 lr（SoM configs.py:5-11） |
 | RES_SCHEDULE | ""（关闭） | 分阶段分辨率；实测零加速（见上节负结果），备查 |
-| MAX_GAUSSIANS | 1500000 | 高斯数硬护栏（v2 爆炸事故后引入），超帽只 prune |
+| MAX_GAUSSIANS | 600000 | 高斯数硬护栏（v2 爆炸事故后引入），超帽只 prune；2026-10-15 cap600k A/B：60 万 @10k 掉 0.09dB<判定线、@20k 21.81 反超无 cap 组、2.4× 省点、~1.7× 加速 → 默认值由 150 万改 60 万 |
 | USE_DENSIFY_SCHED | 0 | 方案 D 自动调度（见上节）；开启后 thr/窗口不敏感 |
 | DENSIFY_MOMENTUM_MULT | auto | 调度器初始动量倍率（auto：init≥10万×0.5 否则×4） |
+| USE_EXPOSURE | 0 | 方案 A 曝光仿射补偿（见上节） |
+| EXPOSURE_FROM_ITER | -1 | 曝光门控起点（-1 = WARM_UP） |
+| EXPOSURE_LR | 1e-3 | 曝光仿射独立 lr |
+| EXPOSURE_REG | 0.01 | 拉回恒等正则权重 |
 | EXTRA_TRAIN_ARGS | （空） | ⚠️ 复杂背景必带降载参数（见下） |
 
 ## 目录布局
@@ -175,13 +246,17 @@ media_code/som_human/
 ├── _env.sh               # 复用 deformable_human env + 共用 DG_DIR
 ├── 00a_setup_env.sh      # WSL 体检（不新建 env）
 ├── 01_convert_capture.sh/.py  # 手机采集包（heic+位姿json+pcd）→ COLMAP 场景
+├── 01b_check_reproj.py   # 位姿/内参诊断：pcd 重投影叠加 + 逐帧 inlier/色差
+├── 01c_colmap_refine.sh  # COLMAP SfM 精化 VIO 位姿（GPU SIFT+mapper，内参固定）
+├── 01d_check_refined.py  # 精化质量校验：inlier 分布/重投影误差/轨迹对齐残差
 ├── 02_train.sh           # SoM 运动基训练
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘
 ├── som_motion.py         # 核心：SE(3) 基凸组合运动模型（替换 DeformModel）
 ├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine，实测否决备查）
 ├── densify_sched.py      # 稠密化自动调度（方案 D：软上限+需求累计+topk 截断）
-├── train_som.py          # fork 官方 train.py（SOM / SOM-RES / SOM-DENSIFY 注释标注差异）
+├── exposure.py           # 曝光仿射补偿（方案 A：逐相机 4×3 仿射 + 闭式初始化）
+├── train_som.py          # fork 官方 train.py（SOM / SOM-RES / SOM-DENSIFY / SOM-EXPOSURE 注释标注差异）
 ├── render_som.py         # fork 官方 render.py（render/time/original）
 └── README.md / README_wsl.md
 官方仓（共用）：~/repos/Deformable-3D-Gaussians

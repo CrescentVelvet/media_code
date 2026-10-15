@@ -53,10 +53,19 @@ SKIP_VERIFY="${SKIP_VERIFY:-0}"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 RES_SCHEDULE="${RES_SCHEDULE-}"             # 注意 ${VAR-}（无冒号）：默认关闭（实测零加速）
 RES_COMPENSATE_DENSIFY="${RES_COMPENSATE_DENSIFY:-0}"
-MAX_GAUSSIANS="${MAX_GAUSSIANS:-1500000}"    # 高斯数上限护栏（v2 爆炸事故后引入）
+MAX_GAUSSIANS="${MAX_GAUSSIANS:-600000}"    # 高斯数上限护栏（v2 爆炸事故后引入；
+                                            # 2026-10-15 cap600k A/B：@10k 掉 0.09dB<
+                                            # 0.3dB 判定线、@20k 21.81 反超、2.4× 省点、
+                                            # ~1.7× 加速 → 默认值 150万 改 60万）
 USE_DENSIFY_SCHED="${USE_DENSIFY_SCHED:-0}"  # 方案 D 自动调度（1=开）：软上限+topk 截断，
                                              # 开启后 thr/窗口不再敏感
 DENSIFY_MOMENTUM_MULT="${DENSIFY_MOMENTUM_MULT:-auto}"  # auto: init>=10万×0.5 否则×4
+USE_EXPOSURE="${USE_EXPOSURE:-0}"            # 方案 A 曝光仿射补偿（1=开）：
+                                             # 每相机可学 4×3 仿射，门控开启瞬间 lstsq
+                                             # 闭式初始化，test 帧按 fid 插值
+EXPOSURE_FROM_ITER="${EXPOSURE_FROM_ITER:--1}"  # -1 = WARM_UP（几何成形后再放曝光）
+EXPOSURE_LR="${EXPOSURE_LR:-1e-3}"           # 仿射独立小 lr
+EXPOSURE_REG="${EXPOSURE_REG:-0.01}"         # 拉回恒等正则（防与 SH 互相吸收）
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -67,6 +76,7 @@ echo "  🧬 bases:      B=$NUM_BASES  smooth_w=$SMOOTH_WEIGHT  basis_lr=$BASIS_
 echo "  🚀 res_sched:  ${RES_SCHEDULE:-（关闭，全程全分辨率）}  compensate_densify=$RES_COMPENSATE_DENSIFY"
 echo "  🛡️ max_gauss:  $MAX_GAUSSIANS（超过即停止 densify 只 prune）"
 echo "  📈 dens_sched: $USE_DENSIFY_SCHED（mult=$DENSIFY_MOMENTUM_MULT）"
+echo "  💡 exposure:   $USE_EXPOSURE（from=${EXPOSURE_FROM_ITER:-warm_up}, lr=$EXPOSURE_LR, reg=$EXPOSURE_REG）"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -111,7 +121,9 @@ export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
        SOM_BASIS_LR="$BASIS_LR" SOM_COEF_LR="$COEF_LR" \
        SOM_RES_SCHEDULE="$RES_SCHEDULE" SOM_RES_COMPENSATE_DENSIFY="$RES_COMPENSATE_DENSIFY" \
        SOM_MAX_GAUSSIANS="$MAX_GAUSSIANS" \
-       SOM_DENSIFY_SCHED="$USE_DENSIFY_SCHED" SOM_DENSIFY_MOMENTUM_MULT="$DENSIFY_MOMENTUM_MULT"
+       SOM_DENSIFY_SCHED="$USE_DENSIFY_SCHED" SOM_DENSIFY_MOMENTUM_MULT="$DENSIFY_MOMENTUM_MULT" \
+       SOM_EXPOSURE="$USE_EXPOSURE" SOM_EXPOSURE_FROM_ITER="$EXPOSURE_FROM_ITER" \
+       SOM_EXPOSURE_LR="$EXPOSURE_LR" SOM_EXPOSURE_REG="$EXPOSURE_REG"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then
