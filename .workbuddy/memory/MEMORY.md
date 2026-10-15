@@ -66,3 +66,14 @@
   **图面配色 / 线宽口径已于 2026-09-28 由峰哥定版**（靛蓝 = 数据 · 青 = 核心 · 琥珀 = 附加说明/反馈），
   速查表见 `.workbuddy/memory/2026-09-28.md`；改这四张图前先读该 HTML 的 `:root` 与
   「图内样式」两个 CSS 块，按既定口径取色，不要自创色值。
+
+## COLMAP 环境（2026-10-13 建立，som_human 01c 依赖）
+- WSL 无系统 colmap（apt 版 CPU-only 且需 sudo）。已建独立 env：
+  `~/miniconda3/envs/colmap`（conda-forge colmap 4.2.1 cuda_129，GPU SIFT 可用）。
+- **必须补钉 `openimageio=3.1`**（4.2.1 配方漏声明且 ABI 锁 3.1，装 3.2 会缺
+  `libOpenImageIO.so.3.1`）。
+- **别用 tuna 的 conda 通道**（repodata 404/落后导致 solver 卡死）；官方
+  conda-forge 直连 ~850KB/s 够用，libmamba 解依赖 14s。
+- COLMAP 4.x 的 mapper 要求 `--output_path` 目录**已存在**（3.x 自动建）。
+- 调用时若直接用二进制路径（不经 conda activate），需
+  `LD_LIBRARY_PATH=~/miniconda3/envs/colmap/lib`（01c 脚本已自动处理）。
