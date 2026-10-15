@@ -36,7 +36,7 @@
     默认 0 锁死回弹，不想锁可经 env 覆盖
 
 用法:
-    FORCE=1 RADIUS_RANGE_SCALE=0.5 THETA_BUFFER=0 PHI_BUFFER=0 INIT_FOV_SCALE=1.25 PHI_MARGIN=40 THETA_MARGIN=40 python vggt_human/99c_repack_view_limits.py
+    FORCE=1 RADIUS_RANGE_SCALE=0.5 THETA_BUFFER=0 PHI_BUFFER=0 INIT_FOV_SCALE=1.25 PHI_MARGIN=40 THETA_MARGIN=40 python tools_99/99c_repack_view_limits.py
     python ... # 默认只收 Phi 两侧 10°
     PHI_LEFT=5 PHI_RIGHT=25 python ...  # 不对称
     DRY_RUN=1 python ...  # 只打印收窄前后范围，不执行

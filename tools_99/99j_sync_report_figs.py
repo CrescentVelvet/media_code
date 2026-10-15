@@ -7,7 +7,8 @@
 import re
 import pathlib
 
-BASE = pathlib.Path(r"C:\code\media_code\vggt_human")
+# 基于脚本自身位置定位（原先硬编码绝对路径，2026-10-15 搬到 tools_99 时改为动态）
+BASE = pathlib.Path(__file__).resolve().parent
 HTML = BASE / "camera_pose_tool_report.html"
 FIGS = [
     "fig1_problem_mapping",

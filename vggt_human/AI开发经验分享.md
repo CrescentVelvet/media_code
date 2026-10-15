@@ -101,7 +101,7 @@
 | `f'''{d["k"]}'''`（三引号外层） | 合法 |
 | `f"{d['k']}"`（内外引号类型不同） | 合法 |
 
-`ast.parse(src, feature_version=(3,10))` 查不出这一类——PEG 解析器不再按旧规则限制 f-string，三种 feature_version 实测全部通过。可靠的验证是用真 3.10 解释器跑一遍；日常自查用 `99h_check_py_syntax.py`（基于 tokenize，需 Python ≥ 3.12 运行）。
+`ast.parse(src, feature_version=(3,10))` 查不出这一类——PEG 解析器不再按旧规则限制 f-string，三种 feature_version 实测全部通过。可靠的验证是用真 3.10 解释器跑一遍；日常自查用 `tools_99/99h_check_py_syntax.py`（基于 tokenize，需 Python ≥ 3.12 运行）。
 
 ---
 

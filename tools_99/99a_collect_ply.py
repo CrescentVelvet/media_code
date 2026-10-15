@@ -10,7 +10,7 @@
 <RESULTS_ROOT>/<批次名>/ply/<task_id>.ply，方便统一查看/上传。
 
 用法:
-    python vggt_human/99a_collect_ply.py
+    python tools_99/99a_collect_ply.py
     DRY_RUN=1 python ...    # 预览，不实际复制
 
 路径都在下方 main() 的变量里写死，改其它批次时直接改这几行即可。

@@ -27,17 +27,17 @@ rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆
 
 ⚠️ 兼容 Python 3.8+（服务器 vggt_human env 是 3.10，本机是 3.13）。**别用 3.12+ 才合法的语法**，
 尤其 f-string 表达式段里复用同类引号——3.10 会直接 SyntaxError，本机 3.13 却看不出来。
-提交前跑 `python vggt_human/99h_check_py_syntax.py` 自查。
+提交前跑 `python tools_99/99h_check_py_syntax.py` 自查。
 
 用法:
-    python vggt_human/99g_plot_capture_trajectory.py
+    python tools_99/99g_plot_capture_trajectory.py
         # 默认 STYLE=quad：四联对照图 2×2（左列＝原始采集轨迹俯视/等轴测，
         # 右列＝同取景下的视角约束：俯视角度标注 + 等轴测 3D 球壳）
     STYLE=combo python ...   # 只要原始双联图（无约束层）
     STYLE=all python ...     # 一次出全部风格（<ID>__<style>.html），便于挑图
     SRC_ROOT=... DST_ROOT=... python ...
         # 本机测试数据集在 D:/dataset/测试数据sample（脚本默认值是服务器路径）：
-        # SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=C:/code/output/xxx python vggt_human/99g_plot_capture_trajectory.py
+        # SRC_ROOT=D:/dataset/测试数据sample DST_ROOT=C:/code/output/xxx python tools_99/99g_plot_capture_trajectory.py
 
     # 视角约束范围（view limit）：先看六种画法的总览再定稿
     STYLE=vlimit SRC_ROOT=... python ...
@@ -2500,7 +2500,7 @@ def render_html(ctx, style, svg) -> str:
 <div class="foot">
   图内坐标系：世界 XZ 俯视，世界 +Y 向上（重力对齐）；相机前向 = −Z（OpenGL 约定）。
   transform_matrix 第 4 列即相机光心，单位米；各帧到 anchor_point 的距离近似恒定 → 属「等距环绕」采集。<br>
-  由 vggt_human/99g_plot_capture_trajectory.py 生成（纯标准库，无外部依赖）。
+  由 tools_99/99g_plot_capture_trajectory.py 生成（纯标准库，无外部依赖）。
 </div>
 </div></body></html>"""
 
@@ -2529,7 +2529,7 @@ def render_index(entries, styles) -> str:
 <table><thead><tr><th>文件夹 ID</th><th>风格</th><th>帧数</th><th>时长</th><th>fps</th>
 <th>相机-锚点均值</th><th>点云点数</th><th>轨迹跨度</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<div class="foot">由 vggt_human/99g_plot_capture_trajectory.py 生成。</div>
+<div class="foot">由 tools_99/99g_plot_capture_trajectory.py 生成。</div>
 </div></body></html>"""
 
 

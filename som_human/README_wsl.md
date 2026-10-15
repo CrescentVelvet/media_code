@@ -40,7 +40,7 @@ Linux fs，训练完跑 `08_move_output.sh` 搬到 `/mnt/d/output/som_human_resu
   NUM_BASES=10，改了训练端就同步改渲染端。
 - **cfg_args 路径过期**（迁移目录后 "Could not recognize scene type!"）：
   `sed -i 's|旧路径|新路径|' model/cfg_args`（同 deformable_human）。
-- **Python 版本红线**：目标 env 3.10.x，本仓脚本提交前过 `99h_check_py_syntax.py`
+- **Python 版本红线**：目标 env 3.10.x，本仓脚本提交前过 `tools_99/99h_check_py_syntax.py`
   口径的人工检查（vggt_human 教训；本目录代码已按 3.10 语法写）。
 - **基不收敛/全程接近 identity**：先查 `SMOOTH_WEIGHT` 是否过大、
   `BASIS_LR` 是否被手抖改小；再怀疑「无 Procrustes 初始化」这一已知差异

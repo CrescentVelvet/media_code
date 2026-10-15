@@ -20,7 +20,7 @@
     [4/4] GLB + 视频      → 最终 MP4（工具链 muxer.py）
 
 用法:
-    python vggt_human/99b_pack_ply_to_mp4.py
+    python tools_99/99b_pack_ply_to_mp4.py
     DRY_RUN=1  python ...   # 只探测不执行
     FORCE=1    python ...   # 已存在 mp4 也重跑
     ONLY=task_id_a,task_id_b python ...

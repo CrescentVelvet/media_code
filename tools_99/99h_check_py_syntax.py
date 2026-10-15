@@ -28,8 +28,8 @@
     所以用 tokenize：真实词法分析，注释与普通字符串天然排除。
 
 用法:
-    python vggt_human/99h_check_py_syntax.py           # 扫 vggt_human/*.py
-    python vggt_human/99h_check_py_syntax.py a.py b/   # 指定文件或目录（递归）
+    python tools_99/99h_check_py_syntax.py           # 默认扫仓根 *.py
+    python tools_99/99h_check_py_syntax.py a.py b/   # 指定文件或目录（递归）
 
 退出码：0 = 干净，1 = 有命中。需 Python ≥ 3.12 运行本检查（低版本不会产出 FSTRING_* token）。
 """
@@ -114,7 +114,8 @@ def scan_file(path: Path):
 
 def iter_targets(args):
     if not args:
-        args = [str(Path(__file__).resolve().parent)]
+        # 默认扫仓根：本工具已是全仓通用（som_human 等也在用）
+        args = [str(Path(__file__).resolve().parent.parent)]
     for a in args:
         p = Path(a)
         if p.is_dir():

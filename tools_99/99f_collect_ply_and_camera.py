@@ -17,7 +17,7 @@ point_cloud_final.ply + gs_camera_params_final.json + front_image.jpg，
 输入输出的预设路径与 99a 保持一致（改批次时改 main() 里那几行即可）。
 
 用法:
-    python vggt_human/99f_collect_ply_and_camera.py
+    python tools_99/99f_collect_ply_and_camera.py
     DRY_RUN=1 python ...            # 预览，不实际复制
     ONLY=task_a,task_b python ...   # 只处理白名单里的 task
 

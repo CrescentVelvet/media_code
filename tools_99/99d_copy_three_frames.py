@@ -15,8 +15,8 @@
 帧数不足 3（重合）时按实际去重后输出，并打印提醒。
 
 用法:
-    python vggt_human/99d_copy_three_frames.py
-    DRY_RUN=1 python vggt_human/99d_copy_three_frames.py       # 预览，不实际复制
+    python tools_99/99d_copy_three_frames.py
+    DRY_RUN=1 python tools_99/99d_copy_three_frames.py       # 预览，不实际复制
     ONLY=a1b2c3,d4e5f6 python ...                              # 只处理指定 task
     SUFFIX_STYLE=seq python ...                                # 用 1/2/3 序号代替原帧号
     FRAMES=01000000.jpg,01000100.jpg python ...                # 改回指定帧号（覆盖自动抽取）

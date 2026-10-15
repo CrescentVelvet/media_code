@@ -23,7 +23,7 @@
     image0.bmp，极难定位。本脚本已在前置检查里拦这一项（见 check_astcenc）。
 
 用法:
-    MP4=/path/to/taskA.mp4 python vggt_human/99e_unpack_mp4_to_ply.py
+    MP4=/path/to/taskA.mp4 python tools_99/99e_unpack_mp4_to_ply.py
     python ... /path/to/taskA.mp4     # 默认路径是mp4的路径
     python ... taskA.mp4              # 裸文件名：到缺省目录 <RESULTS_ROOT>/<批次>/mp4/ 下找
     python ...                        # 不给 MP4：缺省目录里恰好一个 mp4 就直接用
@@ -208,7 +208,7 @@ def resolve_mp4(default_dir: Path) -> Path:
             sys.exit(f"❌ 缺省目录里有多份 mp4，请指定其一: {default_dir}\n"
                      + "\n".join(f"   {p.name}" for p in cands))
         sys.exit(f"❌ 未指定输入 MP4（缺省目录没有 mp4: {default_dir}）。"
-                 "用法: python vggt_human/99e_unpack_mp4_to_ply.py /path/to/x.mp4"
+                 "用法: python tools_99/99e_unpack_mp4_to_ply.py /path/to/x.mp4"
                  "（或裸文件名 / MP4= 环境变量）")
     mp4 = Path(raw).expanduser()
     if not mp4.is_file() and not mp4.is_absolute() and mp4.parent == Path("."):

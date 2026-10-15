@@ -449,7 +449,7 @@ label += f" · 距锚点 {math.dist(原点, ctx["anchor"]):.2f} m"
 | `f"{d['k']}"`（内外引号类型不同） | ✅ 合法 |
 | `f"{f'{x}'}"`（嵌套 f-string，内外类型不同） | ✅ 合法 |
 
-**自查工具**：`python vggt_human/99h_check_py_syntax.py`（扫 `vggt_human/*.py`，命中退出码 1）。
+**自查工具**：`python tools_99/99h_check_py_syntax.py`（默认扫仓根 *.py，命中退出码 1）。
 它用 tokenize 判定（注释与普通字符串天然排除），需 Python ≥ 3.12 运行。
 `ast.parse(src, feature_version=(3,10))` **查不出这一类**——PEG 解析器不再按旧规则限制 f-string，
 三种 feature_version 实测全部通过，所以别指望它兜底。
