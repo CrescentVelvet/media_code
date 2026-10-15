@@ -41,6 +41,13 @@
 #                          #   前 30% 步 1/4 分辨率 → 30-70% 1/2 → 末段全分辨率，
 #                          #   评测仍按原生分辨率。⚠️ 仅 USE_MASK_LOSS=1 分支可用
 #   C2F_SCHEDULE=          # 显式档位覆盖默认，如 "0:4,3000:2,7000:1"
+#   USE_DENSIFY_SCHED=0    # 1=方案 D 稠密化自动调度（train_mask.py，经 shim 复用
+#                          #   som_human/densify_sched.py）：cap>0 显式上限，cap=0
+#                          #   momentum 自适应；topk 截断用 absgrad 均值分数
+#   MAX_GAUSSIANS=         # 点数硬护栏（空/0=关）。调度器开时兼作显式 cap
+#   DENSIFY_MAX_RATE=1.0   # 相邻周期 next_n 相对增长上限（服务器同名常量）
+#   DENSIFY_CNT_CLAMP=3.0  # 分数分母 clamp（服务器 /cnt.clamp_min(3)）
+#   DENSIFY_PRUNE_AFTER=1  # 窗口结束后继续按期 prune（只剪不增）
 #   ※ USE_MASK_LOSS 与 USE_POSE_REFINE 互斥（两个独立 fork，需要时再合并）
 #   POSE_REFINE_WEIGHT=0.01  POSE_REFINE_LR_Q=1e-3  POSE_REFINE_LR_T=1e-3
 #   TEST_ITERATIONS=       # 覆盖评测步（默认 train.py 自带）
@@ -141,9 +148,23 @@ if [ "$USE_MASK_LOSS" = "1" ]; then
         [ -n "$C2F_SCHEDULE" ] && C2F_FLAGS+=(--res_schedule "$C2F_SCHEDULE")
         echo "   🔽 C2F 分辨率调度启用${C2F_SCHEDULE:+（档位: $C2F_SCHEDULE）}（默认 0-30% 1/4 → 30-70% 1/2 → 末段全分辨率）"
     fi
+    # 方案 D：稠密化调度器 / 硬护栏（实现本体在 som_human/densify_sched.py，
+    # 经 deformable_human/densify_sched.py shim 引入）
+    DENSIFY_FLAGS=()
+    if [ "$USE_DENSIFY_SCHED" = "1" ]; then
+        DENSIFY_FLAGS+=(--densify_sched 1)
+        DENSIFY_FLAGS+=(--max_gaussians "${MAX_GAUSSIANS:-0}")
+        DENSIFY_FLAGS+=(--densify_max_rate "${DENSIFY_MAX_RATE:-1.0}")
+        DENSIFY_FLAGS+=(--densify_cnt_clamp "${DENSIFY_CNT_CLAMP:-3.0}")
+        DENSIFY_FLAGS+=(--densify_prune_after "${DENSIFY_PRUNE_AFTER:-1}")
+        echo "   📈 方案 D 调度器启用（cap=${MAX_GAUSSIANS:-0=关/momentum}，rate=${DENSIFY_MAX_RATE:-1.0}，clamp=${DENSIFY_CNT_CLAMP:-3.0}，prune_after=${DENSIFY_PRUNE_AFTER:-1}）"
+    elif [ -n "$MAX_GAUSSIANS" ] && [ "$MAX_GAUSSIANS" != "0" ]; then
+        DENSIFY_FLAGS+=(--max_gaussians "$MAX_GAUSSIANS")
+        echo "   🛡️ 硬护栏 MAX_GAUSSIANS=$MAX_GAUSSIANS（到顶只 prune 不 densify）"
+    fi
     ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_mask.py" "${TRAIN_FLAGS[@]}" \
         --mask_dir "$MASK_DIR" --fg_weight "$FG_WEIGHT" --bg_weight "$BG_WEIGHT" \
-        --bg_deform_lambda "$BG_DEFORM_LAMBDA" "${C2F_FLAGS[@]}" )
+        --bg_deform_lambda "$BG_DEFORM_LAMBDA" "${C2F_FLAGS[@]}" "${DENSIFY_FLAGS[@]}" )
 elif [ "$USE_POSE_REFINE" = "1" ]; then
     # 可学位姿（场景侧 delta 注入，梯度真实有效；原理与限制见 README_wsl.md）
     export USE_POSE_REFINE POSE_REFINE_WEIGHT POSE_REFINE_LR_Q POSE_REFINE_LR_T POSE_REFINE_START DG_DIR

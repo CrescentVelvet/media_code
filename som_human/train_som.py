@@ -20,6 +20,20 @@
   8. SOM-EXPOSURE：方案 A 逐相机曝光仿射（exposure.py，默认关闭）——
      门控开启瞬间 lstsq 闭式初始化，独立 lr 1e-3 + 拉回恒等正则，
      test 帧按 fid 插值。针对手机 auto-exposure 逐帧光度漂移。
+  9. SOM-DENSIFY：方案 D 稠密化自动调度（densify_sched.py，默认关闭）——
+     显式 cap（SOM_MAX_GAUSSIANS）为默认路径，momentum 自适应仅在 cap≤0 时启用；
+     target 按 absgrad 分数 topk 截断；窗口结束后只剪不增（可选）。口径与服务器
+     DensificationScheduler 对齐（详见 densify_sched.py 顶部）。
+     窗口后的 prune **只按 opacity**（`max_screen_size=None`）：尺寸判据
+     （max_radii2D>20 / scaling>0.1·extent）在窗口内安全（每轮 prune 后紧跟
+     clone/split 补点），一旦没有补点来源就是死亡螺旋。2026-10-16 三次独立
+     冒烟实测：599k→463k→…→9.6k，PSNR 20.52→5.34；对照组 21.81 正常。
+ 10. 硬护栏语义修正（2026-10-16）：到 SOM_MAX_GAUSSIANS 后**只 prune 不 densify**
+     （旧版直接跳过整个 densify_and_prune 调用，连 prune 一起停了，与注释不符）。
+ 11. SOM-DEPTH：方案 E 单目深度先验正则（depth_prior.py，默认关闭）——
+     **点级锚定**（不是渲染深度 loss：本仓 fork 光栅化器的 depth 是前向-only
+     输出，backward 没有深度梯度通道）：形变后高斯中心投影采样单目深度做
+     加权 SSI-L1，warm_up 后启用；fg mask 来自 01d，缺失时退化为纯 opacity 权重。
 
 用法（由 02_train.sh 调用，CLI 参数与官方 train.py 全兼容；SOM 超参走 env，
 与仓内 train_pose_refine.py 的 POSE_REFINE_* 同一惯例）：
@@ -68,11 +82,18 @@ SOM_COEF_LR = float(os.environ.get("SOM_COEF_LR", "1e-2"))
 # SOM-RES：分阶段分辨率（默认空串=关闭：实测零加速，见 res_scheduler.py 顶部结论）
 SOM_RES_SCHEDULE = os.environ.get("SOM_RES_SCHEDULE", "")
 SOM_RES_COMPENSATE_DENSIFY = os.environ.get("SOM_RES_COMPENSATE_DENSIFY", "0") == "1"
-# SOM：高斯数上限护栏（默认 150 万；v2 事故后引入，超过即停止 densify 只 prune）
-SOM_MAX_GAUSSIANS = int(os.environ.get("SOM_MAX_GAUSSIANS", "1500000"))
+# SOM：高斯数上限护栏（v2 事故后引入）。2026-10-15 cap600k A/B 后默认值 150万→60万：
+# @10k 掉 0.09dB（<0.3dB 判定线）、@20k 21.81 反超无 cap 组、2.4× 省点、~1.7× 加速。
+# 语义：超过即停止 densify，但**仍按周期 prune**（2026-10-16 修正；旧版连 prune 一起停）。
+# 置 0 或负数 → 不设硬护栏（此时调度器自动落入 momentum 自适应路径）。
+SOM_MAX_GAUSSIANS = int(os.environ.get("SOM_MAX_GAUSSIANS", "600000"))
 # SOM-DENSIFY：稠密化自动调度（方案 D 移植，默认关；开后 thr/窗口不再靠人肉调）
 SOM_DENSIFY_SCHED = os.environ.get("SOM_DENSIFY_SCHED", "0") == "1"
 SOM_DENSIFY_MOMENTUM_MULT = os.environ.get("SOM_DENSIFY_MOMENTUM_MULT", "auto")
+SOM_DENSIFY_MAX_RATE = os.environ.get("SOM_DENSIFY_MAX_RATE", "1.0")   # 服务器同名常量
+SOM_DENSIFY_CNT_CLAMP = os.environ.get("SOM_DENSIFY_CNT_CLAMP", "3.0")  # 服务器 /cnt.clamp_min(3)
+# densify 窗口结束后是否继续按期 prune（服务器「只剪不增」；1=开）
+SOM_DENSIFY_PRUNE_AFTER = os.environ.get("SOM_DENSIFY_PRUNE_AFTER", "1") == "1"
 # SOM-EXPOSURE：方案 A 逐相机曝光仿射补偿（exposure.py，默认关）。
 # 门控：iteration < FROM（默认 warm_up）前 A 恒等；门控瞬间对全部训练帧
 # 渲染一遍做 lstsq 闭式初始化，再以独立小 lr 联合训练；test 帧按 fid 插值。
@@ -80,6 +101,14 @@ SOM_EXPOSURE = os.environ.get("SOM_EXPOSURE", "0") == "1"
 SOM_EXPOSURE_FROM_ITER = int(os.environ.get("SOM_EXPOSURE_FROM_ITER", "-1"))
 SOM_EXPOSURE_LR = float(os.environ.get("SOM_EXPOSURE_LR", "1e-3"))
 SOM_EXPOSURE_REG = float(os.environ.get("SOM_EXPOSURE_REG", "0.01"))
+# SOM-DEPTH：方案 E 单目深度先验正则（depth_prior.py + 01f_depth_maps.sh 产物，
+# 默认关）。⚠️ 不是渲染深度 loss（本仓 fork 光栅化器的 depth 无梯度回路），
+# 是**点级锚定**：形变后高斯中心投影采样单目深度，加权 SSI-L1 拉几何。
+# warm_up 后启用，λ 0.05 起步；fg mask 来自 01d（缺失时退化为纯 opacity 权重）。
+SOM_DEPTH_LAMBDA = float(os.environ.get("SOM_DEPTH_LAMBDA", "0"))
+SOM_DEPTH_FROM_ITER = int(os.environ.get("SOM_DEPTH_FROM_ITER", "-1"))  # -1 = warm_up
+SOM_DEPTH_USE_MASK = int(os.environ.get("SOM_DEPTH_USE_MASK", "1"))     # 1=优先用 01d 前景 mask
+SOM_DEPTH_MIN_POINTS = int(os.environ.get("SOM_DEPTH_MIN_POINTS", "2048"))  # 帧内投影点下限
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -105,8 +134,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         print("[RES] schedule={} compensate_densify={}".format(
             SOM_RES_SCHEDULE, SOM_RES_COMPENSATE_DENSIFY))
 
-    # SOM-DENSIFY：稠密化自动调度器（方案 D）。init_n 在 Scene 加载 pcd 后确定；
-    # MAX_GAUSSIANS 同时作为调度器的 absolute_cap 喂入（硬护栏仍然独立生效）
+    # SOM-DENSIFY：稠密化自动调度器（方案 D）。init_n 在 Scene 加载 pcd 后确定。
+    # 口径（2026-10-16 对齐服务器）：cap>0 = 显式上限路径（momentum 不参与，默认）；
+    # cap<=0 = momentum 自适应路径。硬护栏 SOM_MAX_GAUSSIANS 与 cap 同值，互补。
     densify_sched = None
     if SOM_DENSIFY_SCHED:
         from densify_sched import DensifyScheduler
@@ -114,10 +144,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         densify_sched = DensifyScheduler(
             init_n=gaussians.get_xyz.shape[0],
             mult=(float(_mult) if _mult != "auto" else "auto"),
-            absolute_cap=SOM_MAX_GAUSSIANS)
-        print("[DENSIFY-SCHED] init_n={} mult={} {}".format(
-            densify_sched.init_n, densify_sched.mult, densify_sched.state_str()),
-            flush=True)
+            cap=SOM_MAX_GAUSSIANS,
+            max_rate=float(SOM_DENSIFY_MAX_RATE),
+            cnt_clamp=float(SOM_DENSIFY_CNT_CLAMP))
+        print("[DENSIFY-SCHED] init_n={} mult={} prune_after={} {}".format(
+            densify_sched.init_n, densify_sched.mult, SOM_DENSIFY_PRUNE_AFTER,
+            densify_sched.state_str()), flush=True)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -136,6 +168,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         print("[EXPOSURE] enabled: {} train cams, from_iter={}, lr={}, reg={}".format(
             len(exposure.names), exposure_from, SOM_EXPOSURE_LR, SOM_EXPOSURE_REG),
             flush=True)
+
+    # SOM-DEPTH：方案 E 单目深度先验（depth_prior.py，点级锚定）。FROM=-1 → warm_up
+    depth_prior = None
+    depth_from = -1
+    if SOM_DEPTH_LAMBDA > 0:
+        from depth_prior import DepthPrior
+        depth_prior = DepthPrior(
+            dataset.source_path, use_mask=SOM_DEPTH_USE_MASK,
+            min_points=SOM_DEPTH_MIN_POINTS)
+        # 点级锚定需要形变基已成形（warm_up 前 d_xyz=0 无梯度意义）→ 不低于 warm_up
+        depth_from = max(
+            SOM_DEPTH_FROM_ITER if SOM_DEPTH_FROM_ITER > 0 else opt.warm_up,
+            opt.warm_up)
+        print("[DEPTH] enabled: lambda={} from_iter={} mask={} min_points={} available={}".format(
+            SOM_DEPTH_LAMBDA, depth_from, SOM_DEPTH_USE_MASK, SOM_DEPTH_MIN_POINTS,
+            depth_prior.available), flush=True)
+        if not depth_prior.available:
+            print("[DEPTH] WARN: {} 下没有 depths/*.npz（先跑 01f_depth_maps.sh），"
+                  "本轮深度损失恒为 0".format(dataset.source_path), flush=True)
 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
@@ -225,6 +276,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         # SOM-EXPOSURE：拉回恒等正则（防与 SH 颜色互相吸收震荡）
         if exposure_on and SOM_EXPOSURE_REG > 0:
             loss = loss + SOM_EXPOSURE_REG * exposure.reg_loss()
+        # SOM-DEPTH：方案 E 单目深度先验（点级锚定：把形变后高斯中心投影到
+        # 当前相机、采样单目深度做加权 SSI-L1；只监督几何位置，opacity 取 detach）
+        if depth_prior is not None and iteration >= depth_from:
+            d_loss, d_info = depth_prior.loss(
+                viewpoint_cam, gaussians.get_xyz + d_xyz, gaussians.get_opacity)
+            if d_loss is not None:
+                loss = loss + SOM_DEPTH_LAMBDA * d_loss
+                if iteration % 200 == 0:
+                    print("[DEPTH] iter {} {}".format(iteration, d_info), flush=True)
         # SOM：基加速度时间平滑（warm_up 后基才开始动，故只在之后计）
         if iteration >= opt.warm_up and SOM_SMOOTH_WEIGHT > 0:
             loss = loss + SOM_SMOOTH_WEIGHT * deform.smooth_loss()
@@ -281,26 +341,40 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                     if res_sched.enabled and SOM_RES_COMPENSATE_DENSIFY:
                         dens_thr = res_sched.densify_threshold(dens_thr, cur_scale)
                     n_before = gaussians.get_xyz.shape[0]
-                    if n_before >= SOM_MAX_GAUSSIANS:
-                        # SOM：点数上限护栏（v2 事故：thr 0.0002+窗口 10000 导致点数
-                        # 爆炸、步速掉 13 倍；超帽后只 prune 不 densify）
-                        if iteration % (opt.densification_interval * 10) == 0:
-                            print("[DENSIFY] iter {} CAP reached ({} >= {}), skip densify".format(
-                                iteration, n_before, SOM_MAX_GAUSSIANS), flush=True)
-                    elif densify_sched is not None:
-                        # SOM-DENSIFY：方案 D 自动调度——软上限内 topk 截断，
-                        # 截断前候选数作为需求信号回灌 momentum
+                    if densify_sched is not None:
+                        # SOM-DENSIFY：方案 D——target 由调度器给（显式 cap 路径下
+                        # 就是「补到 cap」，momentum 路径下随需求自适应），超出 target
+                        # 的候选按 absgrad 分数 topk 截断；截断前候选数回灌 momentum
                         from densify_sched import sched_densify_and_prune
                         target = densify_sched.target_add(n_before, cur_scale)
-                        n_cand = sched_densify_and_prune(
+                        want_report = iteration % (opt.densification_interval * 10) == 0
+                        ret = sched_densify_and_prune(
                             gaussians, dens_thr, 0.005, scene.cameras_extent,
-                            size_threshold, target)
+                            size_threshold, target, float(SOM_DENSIFY_CNT_CLAMP),
+                            report=want_report)
+                        n_cand, pparts = ret if want_report else (ret, None)
                         densify_sched.update(n_cand)
                         print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {} "
                               "(cand={} target={} {})".format(
                                   iteration, dens_thr, cur_scale, n_before,
                                   gaussians.get_xyz.shape[0], n_cand, target,
                                   densify_sched.state_str()), flush=True)
+                        if want_report:
+                            # 三路判据分量（诊断：一次大删由哪路造成）
+                            print("[DENSIFY-PRUNE] iter {} opa={} vs={} ws={} "
+                                  "applied={} max_screen_size={}".format(
+                                      iteration, pparts["opa"], pparts["vs"],
+                                      pparts["ws"], pparts["applied"],
+                                      size_threshold), flush=True)
+                    elif n_before >= SOM_MAX_GAUSSIANS:
+                        # SOM：点数上限护栏（v2 事故：thr 0.0002+窗口 10000 导致点数
+                        # 爆炸、步速掉 13 倍）。2026-10-16 修正：超帽后**只 prune 不
+                        # densify**（旧版直接跳过整个调用，连 prune 都停了，与注释不符）
+                        from densify_sched import sched_prune_only
+                        sched_prune_only(gaussians, 0.005, scene.cameras_extent, size_threshold)
+                        if iteration % (opt.densification_interval * 10) == 0:
+                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only".format(
+                                iteration, n_before, SOM_MAX_GAUSSIANS), flush=True)
                     else:
                         gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
                         # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）
@@ -313,6 +387,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
+            elif (densify_sched is not None and SOM_DENSIFY_PRUNE_AFTER
+                    and iteration > opt.densify_from_iter
+                    and iteration % opt.densification_interval == 0):
+                # SOM-DENSIFY：densify 窗口结束后「只剪不增」（服务器口径：next_n=max_n，
+                # 仍按期 prune）。官方在此把 prune 一起停掉，低不透明度点会一直留着。
+                from densify_sched import sched_prune_only
+                densify_sched.target_add(0, window_closed=True)
+                n_before = gaussians.get_xyz.shape[0]
+                # ⚠️ max_screen_size=None：窗口后没有 densify 补点，尺寸判据会触发
+                # 死亡螺旋（2026-10-16 冒烟：599k→463k→…→9.6k，PSNR→5.34；
+                # 三次独立重跑完全一致）。见 densify_sched 模块 docstring 第 6 条。
+                pparts = sched_prune_only(gaussians, 0.005, scene.cameras_extent,
+                                          None, report=True)
+                print("[DENSIFY-PRUNE] iter {} (window closed) opa={} vs={} ws={} "
+                      "applied={}".format(iteration, pparts["opa"], pparts["vs"],
+                                          pparts["ws"], pparts["applied"]), flush=True)
+                if iteration % (opt.densification_interval * 10) == 0:
+                    print("[DENSIFY] iter {} window closed, prune-only {} -> {}".format(
+                        iteration, n_before, gaussians.get_xyz.shape[0]), flush=True)
 
             # Optimizer step
             if iteration < opt.iterations:

@@ -202,6 +202,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
               % (res_sched.stages, opt.iterations))
     _c2f_last_scale = [None]  # 只在档位切换时打印一次（list 包一层以便闭包外可见语义一致）
 
+    # DENSIFY-SCHED：方案 D 稠密化自动调度（实现本体在 som_human/densify_sched.py，
+    # 经本目录同名 shim 引入）。cap>0 = 显式上限（momentum 不参与）；cap=0 = momentum
+    # 自适应路径。默认关闭——不改变既有手工配方行为。
+    densify_sched = None
+    if args.densify_sched:
+        from densify_sched import DensifyScheduler
+        densify_sched = DensifyScheduler(
+            init_n=gaussians.get_xyz.shape[0],
+            mult=args.densify_momentum_mult,
+            cap=args.max_gaussians,
+            max_rate=args.densify_max_rate,
+            cnt_clamp=args.densify_cnt_clamp)
+        print("[DENSIFY-SCHED] init_n={} mult={} prune_after={} {}".format(
+            densify_sched.init_n, densify_sched.mult, args.densify_prune_after,
+            densify_sched.state_str()), flush=True)
+
     # BG-DEFORM static：canonical 空间静态 fg/bg 标签（warm_up 结束时对 K 帧
     # 投票一次，之后仅随 densify/prune 导致的点数变化重算）。
     # 不用「变形后位置 vs 当前帧 mask」的动态判定——手部点变形大→投影甩出 mask→
@@ -363,6 +379,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
                 gaussians.add_densification_stats(viewspace_point_tensor_densify, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    from densify_sched import sched_densify_and_prune, sched_prune_only
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     # C2F：低分辨率档梯度在 1/scale² 像素上累积，同一阈值会把
                     # 大量本该稠密化的点挡在门外。剂量标定（hand_motion 10k 实测）：
@@ -374,11 +391,62 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
                     densify_thr = opt.densify_grad_threshold
                     if args.c2f_densify_comp and res_scale > 1:
                         densify_thr = opt.densify_grad_threshold / res_scale ** 0.5
-                    gaussians.densify_and_prune(densify_thr, 0.005, scene.cameras_extent, size_threshold)
+                    n_before = gaussians.get_xyz.shape[0]
+                    if densify_sched is not None:
+                        # 方案 D：target 由调度器给（cap 路径即「补到 cap」），
+                        # 超出 target 的候选按 absgrad 分数 topk 截断；
+                        # 截断前候选数回灌 momentum（需求信号）
+                        target = densify_sched.target_add(n_before, res_scale)
+                        want_report = iteration % (opt.densification_interval * 10) == 0
+                        ret = sched_densify_and_prune(
+                            gaussians, densify_thr, 0.005, scene.cameras_extent,
+                            size_threshold, target, args.densify_cnt_clamp,
+                            report=want_report)
+                        n_cand, pparts = ret if want_report else (ret, None)
+                        densify_sched.update(n_cand)
+                        print("[DENSIFY] iter {} thr={:.5f} scale={} points {} -> {} "
+                              "(cand={} target={} {})".format(
+                                  iteration, densify_thr, res_scale, n_before,
+                                  gaussians.get_xyz.shape[0], n_cand, target,
+                                  densify_sched.state_str()), flush=True)
+                        if want_report:
+                            # 三路判据分量（诊断：一次大删由哪路造成）
+                            print("[DENSIFY-PRUNE] iter {} opa={} vs={} ws={} "
+                                  "applied={} max_screen_size={}".format(
+                                      iteration, pparts["opa"], pparts["vs"],
+                                      pparts["ws"], pparts["applied"],
+                                      size_threshold), flush=True)
+                    elif 0 < args.max_gaussians <= n_before:
+                        # 硬护栏：只 prune 不 densify（som_human 同款修正 2026-10-16）
+                        sched_prune_only(gaussians, 0.005, scene.cameras_extent, size_threshold)
+                        if iteration % (opt.densification_interval * 10) == 0:
+                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only".format(
+                                iteration, n_before, args.max_gaussians), flush=True)
+                    else:
+                        gaussians.densify_and_prune(densify_thr, 0.005, scene.cameras_extent, size_threshold)
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
+            elif (densify_sched is not None and args.densify_prune_after
+                    and iteration > opt.densify_from_iter
+                    and iteration % opt.densification_interval == 0):
+                # 方案 D：densify 窗口结束后「只剪不增」（服务器口径：next_n=max_n，
+                # 仍按期 prune）。官方在此把 prune 一起停掉，低不透明度点会一直留着。
+                from densify_sched import sched_prune_only
+                densify_sched.target_add(0, window_closed=True)
+                n_before = gaussians.get_xyz.shape[0]
+                # ⚠️ max_screen_size=None：窗口后没有 densify 补点，尺寸判据会触发
+                # 死亡螺旋（2026-10-16 som_human 冒烟：599k→463k→…→9.6k，PSNR→5.34；
+                # 三次独立重跑完全一致）。见 densify_sched 模块 docstring 第 6 条。
+                pparts = sched_prune_only(gaussians, 0.005, scene.cameras_extent,
+                                          None, report=True)
+                print("[DENSIFY-PRUNE] iter {} (window closed) opa={} vs={} ws={} "
+                      "applied={}".format(iteration, pparts["opa"], pparts["vs"],
+                                          pparts["ws"], pparts["applied"]), flush=True)
+                if iteration % (opt.densification_interval * 10) == 0:
+                    print("[DENSIFY] iter {} window closed, prune-only {} -> {}".format(
+                        iteration, n_before, gaussians.get_xyz.shape[0]), flush=True)
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -497,6 +565,20 @@ if __name__ == "__main__":
                         help="C2F 低分辨率档按 1/sqrt(res_scale) 放宽 densify_grad_threshold"
                              "（1=开，默认；0=关。补偿低档梯度像素数不足的容量损失，"
                              "剂量标定见 densify 处注释）")
+    # DENSIFY-SCHED（方案 D，默认关——不改变既有手工配方行为）
+    parser.add_argument("--densify_sched", type=int, default=0,
+                        help="方案 D 稠密化自动调度（1=开）：实现本体在 som_human/densify_sched.py")
+    parser.add_argument("--max_gaussians", type=int, default=0,
+                        help="点数硬护栏（0=关）。调度器开启时兼作显式 cap；"
+                             "cap>0 走显式上限（momentum 不参与），cap=0 走 momentum 自适应")
+    parser.add_argument("--densify_momentum_mult", type=str, default="auto",
+                        help="调度器初始动量倍率（auto：init>=10万×0.5 否则×4）")
+    parser.add_argument("--densify_max_rate", type=float, default=1.0,
+                        help="相邻周期 next_n 相对增长上限（服务器 max_densify_rate_per_step）")
+    parser.add_argument("--densify_cnt_clamp", type=float, default=3.0,
+                        help="分数分母 clamp（服务器 /cnt.clamp_min(3)）")
+    parser.add_argument("--densify_prune_after", type=int, default=1,
+                        help="densify 窗口结束后继续按期 prune（只剪不增；1=开）")
     parser.add_argument("--test_iterations", nargs="+", type=int,
                         default=[5000, 6000, 7_000] + list(range(10000, 40001, 1000)))
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 10_000, 20_000, 30_000, 40000])

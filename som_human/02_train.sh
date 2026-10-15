@@ -57,15 +57,25 @@ MAX_GAUSSIANS="${MAX_GAUSSIANS:-600000}"    # 高斯数上限护栏（v2 爆炸�
                                             # 2026-10-15 cap600k A/B：@10k 掉 0.09dB<
                                             # 0.3dB 判定线、@20k 21.81 反超、2.4× 省点、
                                             # ~1.7× 加速 → 默认值 150万 改 60万）
-USE_DENSIFY_SCHED="${USE_DENSIFY_SCHED:-0}"  # 方案 D 自动调度（1=开）：软上限+topk 截断，
-                                             # 开启后 thr/窗口不再敏感
+USE_DENSIFY_SCHED="${USE_DENSIFY_SCHED:-0}"  # 方案 D 自动调度（1=开）：显式 cap 为主，
+                                             # 候选按 absgrad 分数 topk 截断，窗口后只剪不增
 DENSIFY_MOMENTUM_MULT="${DENSIFY_MOMENTUM_MULT:-auto}"  # auto: init>=10万×0.5 否则×4
+DENSIFY_MAX_RATE="${DENSIFY_MAX_RATE:-1.0}"  # 相邻周期 next_n 相对增长上限（服务器同名常量）
+DENSIFY_CNT_CLAMP="${DENSIFY_CNT_CLAMP:-3.0}"  # 分数分母 clamp（服务器 /cnt.clamp_min(3)）
+DENSIFY_PRUNE_AFTER="${DENSIFY_PRUNE_AFTER:-1}"  # densify 窗口结束后继续按期 prune（只剪不增）
 USE_EXPOSURE="${USE_EXPOSURE:-0}"            # 方案 A 曝光仿射补偿（1=开）：
                                              # 每相机可学 4×3 仿射，门控开启瞬间 lstsq
                                              # 闭式初始化，test 帧按 fid 插值
 EXPOSURE_FROM_ITER="${EXPOSURE_FROM_ITER:--1}"  # -1 = WARM_UP（几何成形后再放曝光）
 EXPOSURE_LR="${EXPOSURE_LR:-1e-3}"           # 仿射独立小 lr
 EXPOSURE_REG="${EXPOSURE_REG:-0.01}"         # 拉回恒等正则（防与 SH 互相吸收）
+DEPTH_LAMBDA="${DEPTH_LAMBDA:-0}"            # 方案 E 深度先验权重（0=关；0.05 起步）。
+                                             # ⚠️ 点级锚定（非渲染深度 loss，本仓光栅化器
+                                             # depth 无梯度回路）；需先跑 01f_depth_maps.sh
+                                             # 产出 $SOURCE_PATH/depths/*.npz
+DEPTH_FROM_ITER="${DEPTH_FROM_ITER:--1}"     # -1 = WARM_UP 后启用（且强制 ≥ warm_up）
+DEPTH_USE_MASK="${DEPTH_USE_MASK:-1}"        # 1=有 01d 前景 mask 就用（<scene>/masks/）
+DEPTH_MIN_POINTS="${DEPTH_MIN_POINTS:-2048}" # 帧内投影点不足则该步跳过深度损失
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -75,8 +85,9 @@ echo "  📐 iterations: $ITERATIONS  white_bg: $WHITE_BG  eval: $EVAL"
 echo "  🧬 bases:      B=$NUM_BASES  smooth_w=$SMOOTH_WEIGHT  basis_lr=$BASIS_LR  coef_lr=$COEF_LR"
 echo "  🚀 res_sched:  ${RES_SCHEDULE:-（关闭，全程全分辨率）}  compensate_densify=$RES_COMPENSATE_DENSIFY"
 echo "  🛡️ max_gauss:  $MAX_GAUSSIANS（超过即停止 densify 只 prune）"
-echo "  📈 dens_sched: $USE_DENSIFY_SCHED（mult=$DENSIFY_MOMENTUM_MULT）"
+echo "  📈 dens_sched: $USE_DENSIFY_SCHED（mult=$DENSIFY_MOMENTUM_MULT, rate=$DENSIFY_MAX_RATE, clamp=$DENSIFY_CNT_CLAMP, prune_after=$DENSIFY_PRUNE_AFTER；0 时上面那就是硬护栏）"
 echo "  💡 exposure:   $USE_EXPOSURE（from=${EXPOSURE_FROM_ITER:-warm_up}, lr=$EXPOSURE_LR, reg=$EXPOSURE_REG）"
+echo "  🌊 depth:      λ=$DEPTH_LAMBDA（点级锚定, mask=$DEPTH_USE_MASK, from=${DEPTH_FROM_ITER:-warm_up}）"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -122,8 +133,12 @@ export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
        SOM_RES_SCHEDULE="$RES_SCHEDULE" SOM_RES_COMPENSATE_DENSIFY="$RES_COMPENSATE_DENSIFY" \
        SOM_MAX_GAUSSIANS="$MAX_GAUSSIANS" \
        SOM_DENSIFY_SCHED="$USE_DENSIFY_SCHED" SOM_DENSIFY_MOMENTUM_MULT="$DENSIFY_MOMENTUM_MULT" \
+       SOM_DENSIFY_MAX_RATE="$DENSIFY_MAX_RATE" SOM_DENSIFY_CNT_CLAMP="$DENSIFY_CNT_CLAMP" \
+       SOM_DENSIFY_PRUNE_AFTER="$DENSIFY_PRUNE_AFTER" \
        SOM_EXPOSURE="$USE_EXPOSURE" SOM_EXPOSURE_FROM_ITER="$EXPOSURE_FROM_ITER" \
-       SOM_EXPOSURE_LR="$EXPOSURE_LR" SOM_EXPOSURE_REG="$EXPOSURE_REG"
+       SOM_EXPOSURE_LR="$EXPOSURE_LR" SOM_EXPOSURE_REG="$EXPOSURE_REG" \
+       SOM_DEPTH_LAMBDA="$DEPTH_LAMBDA" SOM_DEPTH_FROM_ITER="$DEPTH_FROM_ITER" \
+       SOM_DEPTH_USE_MASK="$DEPTH_USE_MASK" SOM_DEPTH_MIN_POINTS="$DEPTH_MIN_POINTS"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then

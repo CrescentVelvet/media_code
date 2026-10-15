@@ -11,7 +11,7 @@
 | A | 曝光补偿 | 质量 | +0.1~0.4dB（外推，非实测） | ❌ **som_human A/B 已测：无收益**（@10k -0.3dB） | `som_human/exposure.py` |
 | B | 位姿精炼延迟启动 | 质量 | 手机位姿场景追回 | ⬜ 未实施（v1 已证伪，v2 待验） | README 实验记录 |
 | C | Coarse-to-Fine 分辨率调度 | 加速 | 省 25~40% | ❌ **som_human 已实测否决**（零加速） | 探针实验 2026-10-13 |
-| D | 稠密化自动调度器 | 稳定/免调参 | 防爆炸 | ✅ **som_human 已实现**（默认关，待冒烟） | commit bfa3b6d |
+| D | 稠密化自动调度器 | 稳定/免调参 | 防爆炸 | ✅ **som_human + deformable_human 双端已落地并冒烟**（两种 thr 均稳定防爆；⚠️ 窗口后 prune 带尺寸判据会死亡螺旋，已修；代价 −0.26~−0.34dB 归因于严格 cap+topk 策略本身，默认仍关按需开） | README 冒烟节 |
 | E | 单目深度先验正则 | 质量（手部） | 攻残余手部模糊 | ⬜ 未实施（需下载深度模型） | — |
 | F | 增强反哺监督 | 质量（目视） | 手部纹理可辨度 | ⬜ 未实施 | — |
 | G | gsplat 渲染器 + 内参可学 | 加速 + 质量 | 1.5~2x 渲染 | ⬜ 未实施（优先级受新证据影响） | 见 G 节批注 |
@@ -217,7 +217,8 @@
 > 【本地状态】✅ **som_human 已实现**（`som_human/densify_sched.py`，commit
 > bfa3b6d）：预过滤 grads 后调官方 clone/split，不动官方仓；单测全过（不截断
 > =官方行为 / target=30 精确 +30 / target=0 安全 / topk 保大分）。默认关
-> （USE_DENSIFY_SCHED=1 开），待双场景冒烟。**deformable_human 侧未移植**。
+> （USE_DENSIFY_SCHED=1 开），待双场景冒烟。**deformable_human 侧已于
+> 2026-10-16 移植**（thin shim + 02_train.sh 五个 env，见下方 10-16 冒烟块）。
 > 同日 som_human 的 v2/v3 两次复利爆炸（147 万点撞护栏）实证了该方案的必要性。
 > som_human 另有硬护栏 `SOM_MAX_GAUSSIANS`（默认 150 万）已上线（commit 125ceda）。
 >
@@ -250,6 +251,34 @@
 > **结论：som_human 默认 cap 改 600k**（02_train.sh MAX_GAUSSIANS 默认值）。
 > D 案剩余工作只剩调度器落地（momentum 仅 cap≤0 时启用 + c2f 折扣，见上方实录），
 > 优先级降——先让 cap 默认值生效即可。
+>
+> 【2026-10-16 调度器端到端冒烟（som_human，double_wave/colmap_refined，20k）】
+> **防爆 + 免调参成立，但代价 ~0.3dB**：
+> | 模型 | thr/until | 调度器 | 窗口后 prune | @10k | best(19k) | @20k | 点数@20k |
+> |---|---|---|---|---|---|---|---|
+> | model_colmap_cap600k（参考） | 默认 0.0007/15000 | 关 | 无（撞帽整块跳过） | 21.18 | 21.63 | **21.81** | 629,715 |
+> | model_dsche_aggr（A2，修复后） | 激进 0.0002/10000 | 开 | 只按 opacity | 20.65 | — | 21.41 | 565,493 |
+> | model_dsche_sched_def（C2，裸跑验收） | 默认 0.0007/15000 | 开 | 只按 opacity | 20.85 | 21.549 | 21.465 | 580,267 |
+> | model_dsche_noprune（C3，隔离实验） | 默认 0.0007/15000 | 开 | **关**（完全不剪） | 20.93 | 21.557 | 21.306 | 599,319 |
+>
+> - 激进（0.0002/10000，v2 爆炸配置）与默认（0.0007/15000）两种 thr 都稳定收敛、
+>   点数严格 ≤600k，无需人肉传 EXTRA_TRAIN_ARGS；B（momentum 模式）冒烟语义正确。
+> - **⚠️ 发现并修复窗口后 prune 死亡螺旋**：densification_postfix 每次加点会把
+>   `max_radii2D` 清零 → 窗口内尺寸判据形同虚设；窗口关后不再清零 → 累积成
+>   「历史最大屏幕半径」→ 首次 prune 删 137k → 正反馈指数崩塌（599k→9.6k，
+>   PSNR→5.34，三次重跑一致）。修复 = 窗口后只按 opacity<0.005 剪（不带尺寸判据）。
+>   详见 som_human/README.md「死亡螺旋」节。
+> - **代价归因（C3 已排除「窗口后剪」）**：C2 vs C3 末三点均 21.439 vs 21.384
+>   （差 −0.055，@19k +0.008 / @20k −0.159，噪声 ±0.045）→ 窗口后 opacity-only
+>   prune **质量中性**且 C2 少 3.2% 点（580,267 vs 599,319）→ 默认维持 `=1`。
+>   代价来自「严格 cap + absgrad 均值 topk 截断」策略本身（参考组撞帽后超到
+>   629.7k 冻结，实得 5% 额外容量）。综合 −0.26~−0.34dB → **调度器默认仍关**，
+>   作「裸跑防爆」保险丝按需开。
+> - **deformable_human 侧已移植**（train_mask.py 经 `deformable_human/densify_sched.py`
+>   shim 复用 som_human 本体，`02_train.sh` 加 USE_DENSIFY_SCHED/MAX_GAUSSIANS/
+>   DENSIFY_MAX_RATE/DENSIFY_CNT_CLAMP/DENSIFY_PRUNE_AFTER 一组 env，仅
+>   `USE_MASK_LOSS=1` 分支接线）。运行时冒烟：hand_motion 1.5k 步、窗口压到
+>   [100,600) 强制走窗口关闭分支，调度/剪枝/修复三条路径均正常执行。
 
 ---
 
