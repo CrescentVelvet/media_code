@@ -12,12 +12,13 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **A. 打包/收尾链** | 99a 99b 99c 99d 99e 99f | 重建产物 ↔ 手机可播放 MP4 的双向封装 | UWA 工具链 + ffmpeg + conda env |
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具 + 汇报图面** | 99h 99i 99j | 语法兼容自查 / SVG→PNG / 汇报页内联同步 | 99h 需 Python ≥ 3.12；99i 需 node + Edge |
-| **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params_final.json` | **纯标准库**，Python ≥ 3.10 |
+| **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params_final.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import；族 C 的三个脚本共同服务本目录的 `camera_pose_tool_report.html` +
 `report_figs/`。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
-余量常量同源，改一处务必同步另一处。
+余量常量同源，改一处务必同步另一处；族 D 跑完会**子进程调族 B（99g）**给居中包出图
+（`OUT_PLOTS=0` 关掉）——为什么是调用而不是复制代码，见 D 节的「与 99g 的分工」。
 
 ---
 
@@ -109,6 +110,10 @@ MP4=/mnt/d/output/recon_human_results/<批次>/mp4/taskA.mp4 \
 对批次目录下每个采集 ID 画一张自包含 HTML 轨迹图（图内标题与文件名都用文件夹 ID），
 用于快速判断这批数据「拍得怎么样」：环绕是否完整、相机到目标距离是否稳定、视线是否对得准。
 每个风格同时落一份独立 `.svg`（矢量原图，可直接拖进 PPT / 报告排版）。
+
+**注意**：99g 也是 99k 的出图后端 —— 99k 跑完会 `subprocess` 调它，把**居中包**当
+`SRC_ROOT` 画一遍（`PLOT_SRC=origin` 可换成画原始包），见 D 节「与 99g 的分工」。
+所以本脚本的 `SRC_ROOT` / `STYLE` 等价物在 99k 侧叫 `PLOT_*`。
 
 ```bash
 # 默认：quad 风格（四联对照图 2×2）
@@ -264,15 +269,17 @@ python tools_99/99k_make_gs_params.py                    # 跑 main() 里预设�
 SRC=D:/dataset/手部微动样例/01e954…-佳佳抱枕 python tools_99/99k_make_gs_params.py
 DRY_RUN=1 python tools_99/99k_make_gs_params.py          # 只算不落盘
 ONLY=<task_a>,<task_b> python tools_99/99k_make_gs_params.py
+OUT_PLOTS=0 python tools_99/99k_make_gs_params.py        # 只要参数、不出图
+PLOT_STYLE=lim_edges PLOT_SRC=both python ...            # 换图面风格 / 顺便画原始包做对照
 ```
 
 **为什么需要**：Remy 采集包的世界原点是手机开机点附近，主体（视线汇聚点）实测离它
 1.3–2.9 m；而 UWA 侧 `view_limits` 的 `target` 被 99b 写死成 `[0,0,0]`
 （`99b_pack_ply_to_mp4.py:435`）。不居中 → 手机端环绕中心整个偏离主体。
 
-**三步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`VL_TARGET=anchor`
+**四步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`VL_TARGET=anchor`
 切到采集包自带 `anchor_point`）→ ② 以球心为原点逐帧算 az / el / r 并取 min/max + 余量
-（解缠 / 整圈 / 余量常量全部沿用 99g）→ ③ 落盘。
+（解缠 / 整圈 / 余量常量全部沿用 99g）→ ③ 落盘 → ④ **调 99g 出图**（默认画居中后的包）。
 
 **产物**（`<OUT_ROOT>/<task>/`，默认 `<RESULTS_ROOT>/<批次名>/centered`）：
 
@@ -284,13 +291,41 @@ ONLY=<task_a>,<task_b> python tools_99/99k_make_gs_params.py
 | `image/` | 源图硬链接（跨卷退软链接，都失败给手工命令） |
 | `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
 
+**图面**（`<PLOT_ROOT>/<模式>/`，默认 `<批次名>/plots/`）：`<task>.html`（自包含，
+quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化后端时）+ `index.html` 总览页。
+模式 `PLOT_SRC=centered`（默认）/ `origin`（原始采集包，做对照）/ `both`。
+（quad 固定文案里的「原始采集轨迹」指**未加约束**，不是指未居中的包。）
+
 居中包可直接喂 `som_human/01_convert_capture.py --raw_dir <该目录>`，训练出的 ply
 与相机天然以主体为原点，99b 的 `target=[0,0,0]` 才对得上。
 
 **关键 env**：`VL_TARGET`（sight/anchor）、`VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` /
 `VL_FULL_AZ`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
 恰好罩住实测半径区间）、`SORT_BY_TIME`、`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
-`OUT_IMAGES`、`ONLY` / `FORCE` / `DRY_RUN`。
+`OUT_IMAGES`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
+`PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`。
+
+### 与 99g 的分工（为什么调脚本、不复制代码）
+
+99k 的产物「居中包」= `transforms.json` + `pcd.ply` + `image/`，**就是 99g 的原生输入
+格式**，把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
+`subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `VL_TARGET` / `VL_*_PAD` /
+`VL_FULL_AZ` 一起透传，保证图上的约束与 json 里的参数同口径。
+
+为什么不把 99g 的绘图代码搬进 99k（或 `import` 它）：99g 是**已定稿的汇报图面**
+（13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉、以后改图要改两处；
+`import` 则会把 99k 钉死在 99g 的内部 API（`build_ctx` / `process_one`）上。而数值
+口径本就一致，不需要把中间量喂给绘图端——
+
+* 「居中包上 99g 重算的球心 = 原点」（平移等变性）：实测 |球心| ≈ 4.6e-16 m；
+* 重算的 Phi/Theta 区间与 99k 写进 json 的**逐样本一致**：Δ ≈ 1e-14°（10/10 包）。
+
+代价只有多一个进程：10 个包 quad 风格实测 **4.2 s**。绘图失败**不影响**参数产物，
+只打印告警（缺 PNG 后端时 99g 会自己回退成 `.svg`）。
+
+⚠️ 一处**不是错的口径差异**：99g 图上画的半径带是「实测 r ± `VL_R_PAD`」（目标带），
+而 gs json 里 99b 实际用的是 `[0.9×radius, 1.2×radius]`（`99b:432`）。看 R 环对不上，
+先想到这一层。
 
 ⚠️ **踩过的坑（2026-10-15）**：图链逻辑第一版在「目标已是软链接」时会穿透链接删掉
 **源目录里的真图**（实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进回收站，已逐张恢复）。
@@ -316,6 +351,7 @@ chmod +x /path/to/UWA_Sample_Tool_v3/build/gltf_packer
   [../vggt_human/NOTES.md](../vggt_human/NOTES.md) 第 9、10 条。
 - **99g 的坐标系坑、四联对照图约定、球心取哪个点的实测数据**：见
   [../vggt_human/NOTES.md](../vggt_human/NOTES.md)「Remy 采集包」等节。
-  **99k 的球心口径与余量常量直接沿用 99g**，两边必须一致。
+  **99k 的球心口径与余量常量直接沿用 99g**，两边必须一致；99k 出图也是调 99g，
+  所以改 99g 的 `compute_view_limit` / 余量常量时，两处（图与 json）会同时生效。
 - **与服务器侧「3DGS 相机位姿调整工具」的四模块对照**（同族能力互证）：
   见 [../vggt_human/AI开发经验分享.md](../vggt_human/AI开发经验分享.md) 第 4.4 节。

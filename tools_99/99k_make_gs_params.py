@@ -6,10 +6,28 @@
     是手机开机点附近，和主体没有关系：实测主体（视线汇聚点）离原点 1.3–2.9 m。
     而 UWA 侧 view_limits 的 target 被写死成 [0,0,0]（见 99b_pack_ply_to_mp4.py:435），
     所以不居中的话，手机端环绕中心会整个偏离主体。
-    本脚本做三件事：
+    本脚本做四件事：
       1) 求主体中心（球心），把相机位姿与点云整体平移过去 —— 主体落到原点；
       2) 以主体中心为球心逐帧算 方位角 az / 仰角 el / 距离 r，取实测 min/max 各加余量；
-      3) 落盘 gs_camera_params_final.json（99b 的 COLMAP 模式消费它）+ 一份「已居中采集包」。
+      3) 落盘 gs_camera_params_final.json（99b 的 COLMAP 模式消费它）+ 一份「已居中采集包」；
+      4) 出图：子进程调同目录的 99g_plot_capture_trajectory.py，把居中后的轨迹与视角约束
+         画成自包含 HTML（默认画居中包；PLOT_SRC=origin/both 可加画原始采集包做对照）。
+
+与 99g 的关系（2026-10-15 定：调脚本，不复制代码、不 import）
+    99k 的产物「居中包」= transforms.json + pcd.ply + image/，**就是 99g 的原生输入格式**，
+    把它当 SRC_ROOT 直接喂进去即可，零适配。之所以不把 99g 的绘图代码搬进 99k：
+      · 99g 是已定稿的汇报图面（13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉，
+        以后改图要改两处、还得保证两处同步；
+      · import 会把 99k 钉死在 99g 的内部 API（build_ctx / process_one）上，同样脆；
+      · 数值口径本就一致，不需要把 99k 的中间量喂给绘图端：
+        「居中包上 99g 重算的球心 = 原点」（平移等变性；实测 |球心| ≈ 4.6e-16 m），
+        重算出的 Phi/Theta 区间与 99k 写进 json 的**逐样本一致**（Δ ≈ 1e-14°）。
+      代价只有「多一个进程」：10 个包 quad 风格实测 4.2 s，可忽略。
+    唯一的口径差异（不是错）：99g 图上画的半径带是「实测 r ±VL_R_PAD」（即目标带），
+    而 gs json 里的 minRadius/maxRadius 是同一套 padded 值、99b 实际用的却是
+    [0.9×radius, 1.2×radius]（见 99b:432）。看 R 环对不上时先想到这一层。
+    另：quad 图内的固定文案「左列＝原始采集轨迹（参考点 anchor_point）」里的「原始」
+    指**未加约束**，不是说「未居中的包」——画居中包时这句同样出现，别看岔。
 
 主体中心取哪个点（VL_TARGET）
     sight  （默认）最小二乘视线汇聚中心：最小化各帧视线到该点的正交距离平方和，
@@ -39,6 +57,12 @@
     image/                        指向源图的硬链接（跨卷失败退符号链接，再失败给手工提示）
     center_report.json            球心对照 / 拟合质量 / 区间明细 / 自检结果（诊断用）
 
+输出（<PLOT_ROOT>/<模式>/，默认 <OUT_ROOT>/../plots）
+    <task>.html + .png/.svg       99g 出的自包含图（默认 quad 四联：左列轨迹、右列视角约束）
+    index.html                    整批总览页
+    模式 = centered（默认，画居中后的包）| origin（原始采集包，做对照）| both
+    关掉出图：OUT_PLOTS=0。绘图失败不影响参数产物，只打印告警。
+
 gs_camera_params_final.json 的 schema（99b_pack_ply_to_mp4.py:386-415 读的就是这些键）
     {"setting": {"pitch_min", "pitch_max", "yaw_min", "yaw_max", "pitch_init", "yaw_init"},
      "scene":   {"radius"}}
@@ -52,6 +76,8 @@ gs_camera_params_final.json 的 schema（99b_pack_ply_to_mp4.py:386-415 读的�
     SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python tools_99/99k_make_gs_params.py
     DRY_RUN=1 python tools_99/99k_make_gs_params.py           # 只算不落盘
     ONLY=01e954...,10e3ec... python ...                       # 批次里只跑白名单
+    PLOT_STYLE=lim_edges python tools_99/99k_make_gs_params.py # 顺便换一种图面风格
+    OUT_PLOTS=0 python tools_99/99k_make_gs_params.py          # 只要参数、不出图
 
 Env vars
     SRC            单个采集包目录（或直接给 transforms.json 的路径）；设了就忽略 SRC_ROOT
@@ -65,6 +91,14 @@ Env vars
     SORT_BY_TIME   1(默认) 先按 file_path（时间戳）排序再解缠与取 init 帧；0=保持 json 原序
     PHI_NORMALIZE  1(默认) 把 Phi 区间整体平移 k×360，使区间中心落进 (−180,180]
     OUT_CENTERED / OUT_PLY / OUT_IMAGES   1(默认) 是否落居中位姿 / 居中点云 / 图链
+    OUT_PLOTS      1(默认) 跑完是否调 99g 出图；0=不出图
+    PLOT_SRC       centered(默认) | origin | both —— 画哪个包（居中包 / 原始包 / 两个都画）
+    PLOT_STYLE     透传 99g 的 STYLE（默认 quad；可选 combo/minimal/darkspace/fov/iso/
+                   vlimit/lim_band/lim_edges/lim_angle/lim_rings/lim_hull/lim_shell/all）
+    PLOT_ROOT      图面输出根，默认 <OUT_ROOT>/../plots（OUT_ROOT 名字不是 centered 时
+                   用 <OUT_ROOT 名>_plots，避免跨批次覆盖 index.html）
+    PLOT_IDS       逗号分隔，只画这些包（留空 = 整批都画，总览页才完整）
+    PLOT_PYTHON    调 99g 用的解释器（默认 sys.executable，即跑 99k 的这个）
     ONLY / FORCE / DRY_RUN   含义同 99b/99c（ONLY=逗号分隔 task 白名单）
 
 ⚠️ 兼容 Python 3.10（服务器 env），别用 3.12+ 才合法的语法；提交前跑
@@ -77,7 +111,9 @@ import math
 import os
 import shutil
 import struct
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 # PLY 属性类型 → 字节宽度 / struct 格式（只处理定长标量属性）
@@ -689,6 +725,99 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
 
 
 # --------------------------------------------------------------------------
+# 出图：子进程调同目录的 99g（复用，不复制代码，理由见文件头「与 99g 的关系」）
+# --------------------------------------------------------------------------
+PLOT_MODES = ("centered", "origin")
+PLOT_SCRIPT = "99g_plot_capture_trajectory.py"
+
+
+def parse_plot_src(raw: str) -> list:
+    """PLOT_SRC → 模式列表。both / all 展开成两个模式，也接受逗号组合。"""
+    out = []
+    for s in (raw or "").split(","):
+        s = s.strip().lower()
+        if not s:
+            continue
+        for m in (PLOT_MODES if s in ("both", "all") else (s,)):
+            if m not in out:
+                out.append(m)
+    return out or ["centered"]
+
+
+def plot_script_path() -> Path:
+    """99g 与本脚本同目录；用 __file__ 而不是 cwd，整个目录搬走也不会断。"""
+    return Path(__file__).resolve().parent / PLOT_SCRIPT
+
+
+def run_plots(cfg: dict, src_root: Path, out_root: Path) -> None:
+    """把批次出图（每个模式一份 <task>.html/.png + 一个 index.html）。
+
+    centered 模式画的是**居中后的包**（世界原点 = 主体中心），图上球心应落在原点、
+    轨迹环绕原点——这是 99k 交付几何的直观校验；origin 模式画原始采集包做对照。
+    IDS 默认不传 = 让 99g 扫整个批次（这样 index.html 覆盖完整；PLOT_IDS 可限制）。
+    """
+    script = plot_script_path()
+    if not script.is_file():
+        print(f"\n⚠️  找不到 {PLOT_SCRIPT}（应与 99k 同目录），跳过出图")
+        return
+    exe = cfg["plot_python"] or sys.executable
+
+    print()
+    print("-" * 60)
+    print(f"🎨 出图：调 {PLOT_SCRIPT}  风格 {cfg['plot_style']}"
+          f"  包 {','.join(cfg['plot_src'])}")
+    for mode in cfg["plot_src"]:
+        root = out_root if mode == "centered" else src_root
+        if not root.is_dir():
+            extra = "（OUT_CENTERED=0 时没有居中包可画）" if mode == "centered" else ""
+            print(f"  ⏭️  [{mode}] 跳过：{root} 不存在{extra}")
+            continue
+        dst = cfg["plot_root"] / mode
+        env = dict(os.environ)
+        env.update({
+            "SRC_ROOT": str(root),
+            "DST_ROOT": str(dst),
+            "STYLE": cfg["plot_style"],
+            "IDS": ",".join(cfg["plot_ids"]),
+            # 视角约束的球心口径与余量常量必须与本次 json 一致，否则图与参数对不上
+            "VL_TARGET": cfg["target_mode"],
+            "VL_AZ_PAD": f"{cfg['az_pad']:g}",
+            "VL_EL_PAD": f"{cfg['el_pad']:g}",
+            "VL_R_PAD": f"{cfg['r_pad']:g}",
+            "VL_FULL_AZ": f"{cfg['full_az']:g}",
+        })
+        what = "居中包（世界原点=主体中心）" if mode == "centered" else "原始采集包（对照）"
+        print(f"  [{mode}] {what} → {dst}")
+        t0 = time.time()
+        try:
+            proc = subprocess.run([exe, str(script)], env=env, capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"  ❌ 调用 {PLOT_SCRIPT} 失败: {exc}")
+            continue
+        for line in (proc.stdout or "").splitlines():
+            if line.startswith(("📁 源:", "📁 输出:")):   # 与上面两行重复
+                continue
+            if line.strip():
+                print(f"    {line}")
+        if proc.returncode != 0:
+            err = [s for s in (proc.stderr or "").splitlines() if s.strip()]
+            print(f"  ❌ 出图[{mode}] 失败（退出码 {proc.returncode}）"
+                  + (f"：{err[-1]}" if err else ""))
+            print(f"     常见原因：PLOT_STYLE 写法不在 99g 支持列表、批次下没有含 "
+                  f"transforms.json 的包。单独重跑："
+                  f"STYLE={cfg['plot_style']} SRC_ROOT=\"{root}\" DST_ROOT=\"{dst}\" "
+                  f"python tools_99/{PLOT_SCRIPT}")
+        else:
+            print(f"  ✅ 出图[{mode}] 完成（{time.time() - t0:.1f}s）")
+
+    if cfg["plot_ids"]:
+        print(f"  ℹ️ PLOT_IDS 只画了 {len(cfg['plot_ids'])} 个包，index.html 也只列这些；"
+              "要整批总览页就不设 PLOT_IDS 再跑一次")
+    print(f"📁 图面: {cfg['plot_root']}")
+
+
+# --------------------------------------------------------------------------
 # 批量入口
 # --------------------------------------------------------------------------
 def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
@@ -709,6 +838,9 @@ def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
           f" ｜ 余量 az±{cfg['az_pad']:g}° el±{cfg['el_pad']:g}° r×(1±{cfg['r_pad']:g})")
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只算不落盘）")
+    if cfg["out_plots"]:
+        print(f"🎨 出图根:   {cfg['plot_root']}  ← {PLOT_SCRIPT}"
+              f"（PLOT_SRC={','.join(cfg['plot_src'])} STYLE={cfg['plot_style']}）")
 
     ok = skip = fail = 0
     failed = []
@@ -732,6 +864,8 @@ def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
         print(f"❌ 失败列表: {', '.join(failed)}")
     if not cfg["dry_run"]:
         print(f"📁 结果: {out_root}")
+        if cfg["out_plots"]:
+            run_plots(cfg, src_root, out_root)
 
 
 def main():
@@ -763,6 +897,18 @@ def main():
         "out_images": os.environ.get("OUT_IMAGES", "1") == "1",
         "force": os.environ.get("FORCE", "0") == "1",
         "dry_run": os.environ.get("DRY_RUN", "0") == "1",
+        # --- 出图（复用 99g，见 run_plots）---
+        "out_plots": os.environ.get("OUT_PLOTS", "1") == "1",
+        "plot_src": parse_plot_src(os.environ.get("PLOT_SRC", "centered")),
+        "plot_style": os.environ.get("PLOT_STYLE", "quad").strip() or "quad",
+        "plot_ids": [s for s in os.environ.get("PLOT_IDS", "").split(",") if s],
+        "plot_python": os.environ.get("PLOT_PYTHON", "").strip(),
+        # 图面根：默认 OUT_ROOT=<批次>/centered → 放平级的 <批次>/plots；
+        # OUT_ROOT 被自定义成别的名字时退化为 <OUT_ROOT 名>_plots，免得两个批次
+        # 的图挤进同一个 plots/ 把 index.html 互相覆盖。
+        "plot_root": (Path(os.environ["PLOT_ROOT"]) if os.environ.get("PLOT_ROOT")
+                      else OUT_ROOT.parent / ("plots" if OUT_ROOT.name == "centered"
+                                              else OUT_ROOT.name + "_plots")),
     }
     only = [s for s in os.environ.get("ONLY", "").split(",") if s]
 
@@ -776,6 +922,10 @@ def main():
             sys.exit(f"❌ 余量参数 {k}={cfg[k]} 不能为负")
     if not 0.0 <= cfg["r_pad"] < 1.0:
         sys.exit(f"❌ VL_R_PAD 需在 [0,1)，实际 {cfg['r_pad']}")
+    bad_modes = [m for m in cfg["plot_src"] if m not in PLOT_MODES]
+    if bad_modes:
+        sys.exit(f"❌ PLOT_SRC 只能是 {'/'.join(PLOT_MODES)} 或逗号组合，"
+                 f"实际 {'/'.join(bad_modes)}")
 
     if SRC:
         p = Path(SRC)
@@ -786,6 +936,8 @@ def main():
         print(f"🔍 单个采集包: {task_dir}")
         print(f"📁 输出:       {out_dir}")
         status = process_one(task_dir, out_dir, cfg)
+        if status == "ok" and cfg["out_plots"]:
+            run_plots(cfg, task_dir.parent, OUT_ROOT)
         print(f"\n🎉 Done. {'✅ ok' if status == 'ok' else '❌ failed'}")
         sys.exit(0 if status == "ok" else 1)
 
