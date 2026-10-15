@@ -8,7 +8,7 @@
 
 | 案 | 名称 | 类型 | 预期收益 | 状态 | 依据 |
 |---|---|---|---|---|---|
-| A | 曝光补偿 | 质量 | +0.1~0.4dB | ⬜ 未实施 | — |
+| A | 曝光补偿 | 质量 | +0.1~0.4dB（外推，非实测） | ❌ **som_human A/B 已测：无收益**（@10k -0.3dB） | `som_human/exposure.py` |
 | B | 位姿精炼延迟启动 | 质量 | 手机位姿场景追回 | ⬜ 未实施（v1 已证伪，v2 待验） | README 实验记录 |
 | C | Coarse-to-Fine 分辨率调度 | 加速 | 省 25~40% | ❌ **som_human 已实测否决**（零加速） | 探针实验 2026-10-13 |
 | D | 稠密化自动调度器 | 稳定/免调参 | 防爆炸 | ✅ **som_human 已实现**（默认关，待冒烟） | commit bfa3b6d |
@@ -72,8 +72,20 @@
 **验证**：标准 A/B；额外看逐帧 test PSNR 方差（曝光问题特征 = 均值不低但个别帧
 大幅掉点）。预期全图 +0.1~0.4dB，成本极低。
 
-> 【本地状态】⬜ 未实施。double_wave（户外、auto-exposure 波动大）是潜在受益者
-> ——01b 诊断里静态区色差偏高可能就含曝光成分。成本低，适合与位姿修复同批做。
+> 【本地状态】🔧 **som_human 已实现**（2026-10-13，`som_human/exposure.py` +
+> train_som/render_som 集成，默认关 `USE_EXPOSURE=1` 开）：4×3 齐次仿射逐训练
+> 相机、门控开启瞬间全训练帧 lstsq 闭式初始化（2×中位抗外点重解）、独立 lr
+> 1e-3、拉回恒等正则、test 帧按 fid 线性插值、权重随 ckpt 存 exposure.pth。
+> 与 BACKLOG 设计两点差异：渲染器无 alpha 输出 → 闭式初始化用全像素+抗外点；
+> 正则为 sum 口径（按原文）。deformable_human 侧未移植。
+>
+> 【2026-10-15 A/B 结果】❌ **无收益**：COLMAP 精化位姿 + v1 配方下，
+> 对照（无曝光）@10k test PSNR 21.27 vs 曝光组 @10k 20.95（**-0.3dB**）；
+> 曝光组 20k 终点 21.63 / best 21.86@19k。闭式初始化显示曝光波动确实存在
+> （max|A−I|=0.246，mean 0.020），但收益被 SH 颜色吸收/噪声吞没。服务器 AI
+> 同日承认「+0.1~0.4dB 是外推预估，非 Reconstruction 实测」，与本结果一致。
+> **结论：som_human 链路默认关闭即可；deformable_human 若移植先确认逐帧
+> PSNR 方差是否有曝光特征，别预期有 dB 级收益。**
 
 ---
 
@@ -86,11 +98,19 @@
 **原理**（Reconstruction 工作正常的联合位姿精炼，三个关键设计）：
 1. **延迟启动**：位姿参数（可学四元数+平移+NDC 内参，nn.Parameter 初始化为
    COLMAP 初值）前段完全冻结——pose_refine 只在 epoch >= pose_refine_from_epoch
-   （默认 11，几何大致成型后）才开；未启用时 w2c 用 .detach() 版本，梯度流不进位姿。
-2. **reg 锚定**：`reg_loss = Σ(q - q_ori)² + Σ(t - t_ori)²` 权重 1 加进总 loss——
-   位姿只能微调不能漂移。
-3. **独立小 lr**：rot/trans 1e-3，内参 1e-4（他们的光栅化器对相机矩阵有梯度；
-   stock 光栅化器没有，deformable_human 保持场景侧 delta 方案即可，数学等价）。
+   （默认 11 / epochs=60 ≈ **18%**，几何大致成型后）才开；未启用时 w2c 用
+   .detach() 版本，梯度流不进位姿。
+2. ~~**reg 锚定**~~（**2026-10-15 服务器 AI 更正**：pose_refine.py 里定义了
+   reg_loss 但**从未被加进主训练 loss**——grep 全 src，主循环只加了 grid 曝光的
+   variation_loss，权重 10。其稳定性来源是**延迟启动 + 小 lr + 4K 下再缩 10 倍**，
+   不是 reg 锚定。实现时 reg anchor 应降级为「可选保险丝」。）
+3. **独立小 lr**：代码终值 `w2c_q/w2c_t = 1e-3×lr_base`、`intrinsic_ndc =
+   1e-4×lr_base`，`lr_base = 1e-1 if is_4k else 1`（4K 下位姿 lr 再缩 10 倍）；
+   逐相机独立 Adam。（他们的光栅化器对相机矩阵有梯度；stock 光栅化器没有，
+   deformable_human 保持场景侧 delta 方案即可，数学等价。）
+
+**test 相机口径**：评测前 `refine_test_for_evaluation` 对 test 相机优化位姿+曝光
+（高斯冻结）——产品评测口径，科研式 A/B 不要混用。
 
 **移植步骤**（train_pose_refine.py）：
 1. 新增 POSE_REFINE_FROM_ITER（默认 = WARM_UP + 4000，形变 MLP 已工作一段、
@@ -149,6 +169,14 @@
 > （train_mask.py 的 mask loss 按像素计价，结构与 som_human 不同）；(b) 或上
 > -r 1 全分辨率。代码保留 `som_human/res_scheduler.py`，负结果数据在
 > `som_human/README.md`。
+>
+> 【2026-10-15 前提已变 + 服务器结构性估算】som_human 的 SoM 混合已 matmul 化
+> （commit 07c91c0，deform 不再占 92%），当年否决 C 的前提在 som_human 链路**已
+> 失效**。服务器 AI 给出边界（0–30% scale4 / 30–60% scale2 / 60–100% scale1）与
+> 收益公式：收益 ≈ 光栅化份额 × 像素节省率；光栅化占 70% 时总省 ≈35%，<30% 基本
+> 白做；次级收益是 scale-4 段点数更低 → per-gaussian 成本间接下降。**重启前先做
+> 一次 profile 实测当前光栅化份额，>50% 才值得做**，边界照抄 0–30%/30–60%/60–100%。
+> （注：服务器无动态场景 c2f 实测加速比，这是结构性推理。）
 
 ---
 
@@ -186,6 +214,22 @@
 > （USE_DENSIFY_SCHED=1 开），待双场景冒烟。**deformable_human 侧未移植**。
 > 同日 som_human 的 v2/v3 两次复利爆炸（147 万点撞护栏）实证了该方案的必要性。
 > som_human 另有硬护栏 `SOM_MAX_GAUSSIANS`（默认 150 万）已上线（commit 125ceda）。
+>
+> 【2026-10-15 服务器实现细节（供对齐修正）】
+> - momentum 公式确认为 `max(momentum, int(0.98×momentum + min(40000,
+>   densify_mask.sum())))`，单调不减 EMA，momentum_step 是 **topk 截断之前**
+>   梯度超阈值的原始计数。
+> - **topk 梯度口径（重要）**：每 epoch 累积 `v_means2d_accum / cnt.clamp_min(3.0)`，
+>   且 use_abs_grad=True 为默认 → 实际喂的是光栅化器 extra 里的 **absgrad 变体**
+>   v_means2d_abs（乘过 grad_scale），不是标准 v_means2d。topk 在
+>   `(grads × ~prune_mask)` 上取 k。代码里有 todo 注释 "why use mean grad instead
+>   of max grad"——**是可见次数均值归一化后的累积 2D 梯度范数**。我们实现若对
+>   齐需从「原始累积」改成「均值归一化 + absgrad」口径。
+> - **显式 cap 才是默认路径**：scene 600k / object·avatar·body 各 300k / salient
+>   200k；momentum 自适应只在 cap≤0 时启用。c2f 折扣：`next_n = (max_n−init_n)/
+>   current_scale + init_n`，rate 上限 max_densify_rate_per_step=1.0；窗口结束
+>   后 next_n 直接取 max_n（只剪不增）。160 帧推演：epoch 1–18 scale4、19–36
+>   scale2、37–60 scale1，densify 窗口 3–56。
 
 ---
 
@@ -273,6 +317,15 @@ A/B 结论两个口径都写。
 > deformable_human 侧（train_mask.py + mask loss）光栅化占比未知，**上 G 之前
 > 应先 profile 两仓的步时分解**。二期「内参可学」与 B 案协同价值大（手机位姿
 > 场景 fx 残差可修），是真正的卖点。
+>
+> 【2026-10-15 服务器更正】Reconstruction **不是 gsplat**，是华为自研 CUDA
+> 光栅化器（third_party/gs_render/，作者 CAI,JUN-XIONG；源码含 fast_ssim.cu /
+> sparse_adam.cuh / grid_exposure.cuh / spherical_harmonics.cuh 等）。所以
+> 「gsplat 1.5~2x 快于 stock」的对标在服务器侧不存在，1.5~2x 是我们从社区
+> 资料的外推，非 Reconstruction 实测。若迁 gsplat：antialiased=True 即可；
+> viewspace 梯度标准做法 means2d.retain_grad() 取 .grad；absgrad gsplat 有支持
+> 但需对安装版本验证签名。**G 案价值重新评估：加速收益无实测背书，真正的卖点
+> 只剩二期「内参可学」（依赖 gsplat 对 viewmats 的梯度）。**
 
 ---
 
@@ -327,3 +380,28 @@ Phase 2 把「3DMM 人脸模板」换成「MHR 人体模板」即可复用整套
    D 案是必需品而非可选项；硬护栏（MAX_GAUSSIANS）已上线。
 4. **运动模型（SoM 运动基）无罪**：静态消融 PSNR 13.40 ≈ 带形变 14.04，
    模型本身工作正常，瓶颈不在它。
+
+---
+
+## 附2：Reconstruction 训练配方实录（2026-10-15 服务器 AI 问答，校准「5min」对标）
+
+服务器 5 分钟重建与我们的配方差异，按代码实录：
+
+- **总迭代数只有 ~6000**：`iterations = epochs × train_frames_ideal = 60 × 100`
+  （pipeline.py:205）；每 epoch 随机采样补齐 100 帧；epochs=60 是硬编码默认值。
+  我们 som_human 跑 20000 步 → 光迭代数就是 3.3×。
+- **单帧/步**：epoch 循环内逐相机 render→loss→backward→gaussians.step(visible)，
+  无多帧 batch。
+- **fused 全家桶**（我们全没有）：fast_ssim CUDA kernel（use_sparse_ssim=True）、
+  SparseGaussianOptimizer 稀疏 Adam（只 step 可见子集，betas 0.9/0.999）。
+- **AMP：无**——全 src 无 autocast/GradScaler/half（不要当它是加速来源）。
+- **颜色 loss 是 RMSE 非 L1**（use_rmse=True）；lambda_dssim=0.2；
+  **lr_factor=2.0**（全部 3DGS 基准 lr 翻倍）。
+- SH：max degree 3，从 0 起，在 epoch (20,30,40) 触发 upgrade_degree()；
+  另有每 epoch sh×0.94、opacity×0.95 衰减。
+- 曝光 lr：1e-2（非 4K）/ 1e-3（4K）（cameras.py:170）。
+
+**对我们「为什么这么慢」问题的最终归因**：服务器 5min ≈ 迭代 6000（3.3×）
+× 稀疏 Adam+稀疏 SSIM（节省随 N 线性增长的 dense 优化开销）× 点数压在
+显式 cap 下 × A100。我们已修 SoM matmul（20×），下一步同量级的杠杆是
+**D 案显式 cap + 稀疏 Adam（后者尚未在任何案里列出，可作新方案 I 评估）**。
