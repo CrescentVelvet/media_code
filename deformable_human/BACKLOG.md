@@ -279,6 +279,14 @@
 >   DENSIFY_MAX_RATE/DENSIFY_CNT_CLAMP/DENSIFY_PRUNE_AFTER 一组 env，仅
 >   `USE_MASK_LOSS=1` 分支接线）。运行时冒烟：hand_motion 1.5k 步、窗口压到
 >   [100,600) 强制走窗口关闭分支，调度/剪枝/修复三条路径均正常执行。
+> - **⚠️ 同族地雷二次发现（硬护栏路径，默认开启！）**：`n_before >= MAX_GAUSSIANS`
+>   的护栏分支同为「只 prune 不 densify」，却仍带尺寸判据 → `max_radii2D` 无 densify
+>   补点清零 → 退化成「历史最大屏幕半径」→ 批量误删。低 cap A/B（double_wave，
+>   cap 120k，5k 步）：带判据 iter 3100 一步删 86,738 点（162k→75k，−54%）并与
+>   densify 交替震荡，**@5k PSNR 8.85 崩**；去判据后 applied 只剩 opa、点数单调平稳，
+>   **@5k PSNR 19.73 正常**。修复 = 护栏 prune-only 也传 `max_screen_size=None`
+>   （双端同改）+ 补分量埋点。**纪律：任何「只剪不增」的 prune 调用一律不得带尺寸
+>   判据**——附近没有 densify/postfix 调用的地方就不该传 `max_screen_size`。
 
 ---
 

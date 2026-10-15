@@ -266,6 +266,37 @@ max_screen_size=None)`。
 - **`applied` 只 294~422 = opa 单路**（`max_screen_size=None`）→ 修复生效的直接
   证据；修复前该位是 137,080。
 
+### 同族地雷：硬护栏路径（2026-10-16 二次发现，默认路径上的）
+
+**同一根因的第二处**：`n_before >= SOM_MAX_GAUSSIANS` 的硬护栏分支也是「只 prune
+不 densify」，它当时传的是 `size_threshold`（=20，`iteration > opacity_reset_interval`
+即 >3000 之后）。护栏路径**没有 densify 补点** → `max_radii2D` 同样不清零 →
+判据退化成「历史最大屏幕半径」→ 批量误删。
+
+> ⚠️ 这条路径是 `MAX_GAUSSIANS=600000` **默认开启**的（不是可选的调度器），
+> 且旧版是「撞帽跳过整个调用」（=不 prune，21.81 那次就是这么跑的）——所以
+> 2026-10-16 把语义改成「只 prune 不 densify」时引入了这个回归，此前无任何冒烟
+> 覆盖（当天 D 案四组全走调度器分支）。
+
+**低 cap A/B 实锤**（double_wave/colmap_refined，`MAX_GAUSSIANS=120000`、
+调度器关、5000 步、`-r 2`；cap 在 iter 900 触发，但 `size_threshold` 到 iter>3000
+才变 20）：
+
+| | 带尺寸判据（修复前） | 去尺寸判据（修复后） |
+|---|---|---|
+| iter ≤3000（`max_screen_size=None`） | `applied` = opa 69~353，点数稳在 ~120k | 同左：opa 56~99，点数 ~120k |
+| iter 3100 首个带判据周期 | **`vs=76,617` → `applied=86,738`**，一步 162,115→75,377（**−54%**） | `vs=57,776` 被忽略，`applied=994`（=opa） |
+| iter 3100–5000 | 与 densify 交替震荡：110k↔150k，每 100~200 步删 6k~26k | 单调缓降（135,789→133,747），无震荡 |
+| **@5000 test PSNR** | **8.85（训练崩）** | **19.73（正常）** |
+
+**修复**：护栏分支同样传 `max_screen_size=None`，并补 `[DENSIFY-PRUNE] (cap)`
+分量埋点 + 点数前后打印（此前这条路径是哑的）。
+
+**结论（写进纪律）**：**任何「只剪不增」的 prune 调用一律不得带尺寸判据**。
+判定方法很简单——这段代码附近没有 `densify_*` / `clone` / `split` / `postfix`
+调用，就不该传 `max_screen_size`。合法使用尺寸判据的只有窗口内那一处（每轮
+prune 后紧跟 clone/split 补点，自纠）。
+
 ## 与 SoM 原版的有意差异（改动都有理由，勿当 bug 修）
 | 项 | SoM 原版 | 本实现 | 理由 |
 |---|---|---|---|

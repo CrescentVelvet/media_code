@@ -30,6 +30,11 @@
      冒烟实测：599k→463k→…→9.6k，PSNR 20.52→5.34；对照组 21.81 正常。
  10. 硬护栏语义修正（2026-10-16）：到 SOM_MAX_GAUSSIANS 后**只 prune 不 densify**
      （旧版直接跳过整个 densify_and_prune 调用，连 prune 一起停了，与注释不符）。
+     ⚠️ 同一条理由：**只剪不增的调用一律不得带尺寸判据**（max_screen_size=None）。
+     护栏路径同样没有 densify 补点 → max_radii2D 不清零 → 判据退化成「历史最大
+     屏幕半径」。低 cap 实测（cap 120k）：带判据时 iter 3100 一步删 86,738 点
+     （162k→75k，−54%），随后每 100 步在 110k↔150k 震荡；去判据后 applied 只剩
+     opa 的 70~350，点数平稳。
  11. SOM-DEPTH：方案 E 单目深度先验正则（depth_prior.py，默认关闭）——
      **点级锚定**（不是渲染深度 loss：本仓 fork 光栅化器的 depth 是前向-only
      输出，backward 没有深度梯度通道）：形变后高斯中心投影采样单目深度做
@@ -369,12 +374,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                     elif n_before >= SOM_MAX_GAUSSIANS:
                         # SOM：点数上限护栏（v2 事故：thr 0.0002+窗口 10000 导致点数
                         # 爆炸、步速掉 13 倍）。2026-10-16 修正：超帽后**只 prune 不
-                        # densify**（旧版直接跳过整个调用，连 prune 都停了，与注释不符）
+                        # densify**（旧版直接跳过整个调用，连 prune 都停了，与注释不符）。
+                        # ⚠️ max_screen_size 必须传 None（与窗口后同一条理由，2026-10-16
+                        # 低 cap 实测实锤）：这条路径没有 densify 补点 → densification_postfix
+                        # 不清零 max_radii2D → 尺寸判据退化成「历史最大屏幕半径」。
+                        # 带判据时 iter 3100 一步删 86,738 点（162k→75k，−54%），随后
+                        # 与 densify 交替震荡（110k↔150k 每 100 步删 6k~26k）。
                         from densify_sched import sched_prune_only
-                        sched_prune_only(gaussians, 0.005, scene.cameras_extent, size_threshold)
+                        pparts = sched_prune_only(gaussians, 0.005, scene.cameras_extent,
+                                                  None, report=True)
+                        # 分量埋点：这条路径同样「只剪不增」，必须盯 vs（max_radii2D
+                        # 无 densify 补点清零 → 会单调累积），否则与窗口后同类死亡螺旋
+                        print("[DENSIFY-PRUNE] iter {} (cap) opa={} vs={} ws={} "
+                              "applied={} max_screen_size=None".format(
+                                  iteration, pparts["opa"], pparts["vs"], pparts["ws"],
+                                  pparts["applied"]), flush=True)
                         if iteration % (opt.densification_interval * 10) == 0:
-                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only".format(
-                                iteration, n_before, SOM_MAX_GAUSSIANS), flush=True)
+                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only "
+                                  "{} -> {}".format(
+                                      iteration, n_before, SOM_MAX_GAUSSIANS, n_before,
+                                      gaussians.get_xyz.shape[0]), flush=True)
                     else:
                         gaussians.densify_and_prune(dens_thr, 0.005, scene.cameras_extent, size_threshold)
                         # SOM：稠密化记账（定位显存爆炸/点数膨胀的一手数据）

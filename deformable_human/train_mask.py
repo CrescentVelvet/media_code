@@ -418,10 +418,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, args):
                                       size_threshold), flush=True)
                     elif 0 < args.max_gaussians <= n_before:
                         # 硬护栏：只 prune 不 densify（som_human 同款修正 2026-10-16）
-                        sched_prune_only(gaussians, 0.005, scene.cameras_extent, size_threshold)
+                        # ⚠️ max_screen_size=None：这条路径没有 densify 补点 →
+                        # densification_postfix 不清零 max_radii2D → 尺寸判据退化成
+                        # 「历史最大屏幕半径」，会批量误删（som_human 低 cap 实测：
+                        # 一步删 −54%，随后与 densify 交替震荡）。同窗口后死亡螺旋。
+                        from densify_sched import sched_prune_only
+                        pparts = sched_prune_only(gaussians, 0.005, scene.cameras_extent,
+                                                  None, report=True)
+                        print("[DENSIFY-PRUNE] iter {} (cap) opa={} vs={} ws={} "
+                              "applied={}".format(iteration, pparts["opa"], pparts["vs"],
+                                                  pparts["ws"], pparts["applied"]),
+                              flush=True)
                         if iteration % (opt.densification_interval * 10) == 0:
-                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only".format(
-                                iteration, n_before, args.max_gaussians), flush=True)
+                            print("[DENSIFY] iter {} CAP reached ({} >= {}), prune-only "
+                                  "{} -> {}".format(
+                                      iteration, n_before, args.max_gaussians, n_before,
+                                      gaussians.get_xyz.shape[0]), flush=True)
                     else:
                         gaussians.densify_and_prune(densify_thr, 0.005, scene.cameras_extent, size_threshold)
 
