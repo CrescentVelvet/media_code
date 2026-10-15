@@ -297,6 +297,38 @@ max_screen_size=None)`。
 调用，就不该传 `max_screen_size`。合法使用尺寸判据的只有窗口内那一处（每轮
 prune 后紧跟 clone/split 补点，自纠）。
 
+## 单目深度先验正则（方案 E，`depth_prior.py`，默认关闭，⚠️ 首轮负结果）
+
+**设计转折**：最初是「渲染深度 ↔ 单目深度」图像级 SSI loss，但本仓 fork
+光栅化器（depth-diff-gaussian-rasterization）的 depth 是**前向-only 输出**
+（backward 无深度梯度通道）→ 图像级渲染深度 loss 是摆设。故改为**点级锚定**
+（MonoGS/Depth-GS 一族做法）：把形变后高斯中心投影到当前相机、采样单目深度，
+加权最小二乘解 (a,b) 对齐后算 L1，只对位置求梯度（opacity 取 detach，不给
+「调低透明度逃惩罚」留捷径），fg mask 加权。
+
+**离线资产**：`01f_depth_maps.sh`（UniDepth V1 ViT-L14，gavs env）→
+`<scene>/depths/<stem>.npz`（米制深度 float16）。fg mask 复用 01d（缺失退化为
+纯 opacity 权重）。
+
+**首轮 A/B（2026-10-16，double_wave/colmap_refined，20k，同代码逐字同参，
+唯一变量 λ 0→0.05）——负结果**：
+
+| 模型 | λ | ALL | FG | BG |
+|---|---|---|---|---|
+| model_depth_ctl（对照） | 0 | **21.872** | **23.474** | **21.670** |
+| model_depth005 | 0.05 | 21.345 | 22.433 | 21.140 |
+| Δ | | **−0.527** | **−1.041** | **−0.530** |
+
+- 前景掉得比背景还狠 → 深度先验专伤它要救的部位。
+- **根因（两条叠加）**：① 量级失衡——残差是绝对米制未归一化（~3.5~6.7，
+  ×0.05=0.18~0.33 ≈ 光度项 ~0.09 的 2~4 倍，反客为主）；② 单目深度对手部
+  不可靠（BACKLOG 风险命中），把逐点几何硬拉向错误深度。
+- **过程中修掉一个 gy 垂直镜像 bug**（投影采样 y 符号错，让 `a<=0` 门限把
+  损失静默失效 10k 步；用光栅化器自渲染深度逐点核对裁决 `gy=+ndc_y`）。
+- **结论：默认保持 `DEPTH_LAMBDA=0`**。后续若再做：残差尺度归一化、λ 降到
+  0.005 量级、或换边缘感知项（L1 on ∂d/∂x,∂d/∂y）。代码与
+  `03b_fg_metrics.py`（前景专项指标工具）留仓备查。
+
 ## 与 SoM 原版的有意差异（改动都有理由，勿当 bug 修）
 | 项 | SoM 原版 | 本实现 | 理由 |
 |---|---|---|---|
@@ -329,6 +361,10 @@ prune 后紧跟 clone/split 补点，自纠）。
 | EXPOSURE_FROM_ITER | -1 | 曝光门控起点（-1 = WARM_UP） |
 | EXPOSURE_LR | 1e-3 | 曝光仿射独立 lr |
 | EXPOSURE_REG | 0.01 | 拉回恒等正则权重 |
+| DEPTH_LAMBDA | 0 | 方案 E 深度先验权重（0=关；⚠️ 0.05 首轮负结果，见上节）。需先跑 01f_depth_maps.sh 产出 `<scene>/depths/*.npz` |
+| DEPTH_FROM_ITER | -1 | 深度损失启用起点（-1 = WARM_UP，且强制 ≥ warm_up） |
+| DEPTH_USE_MASK | 1 | 1=有 01d 前景 mask（`<scene>/masks/`）就加权 |
+| DEPTH_MIN_POINTS | 2048 | 帧内投影点不足则该步跳过深度损失 |
 | EXTRA_TRAIN_ARGS | （空） | ⚠️ 复杂背景必带降载参数（见下） |
 
 ## 目录布局
@@ -340,13 +376,17 @@ media_code/som_human/
 ├── 01b_check_reproj.py   # 位姿/内参诊断：pcd 重投影叠加 + 逐帧 inlier/色差
 ├── 01c_colmap_refine.sh  # COLMAP SfM 精化 VIO 位姿（GPU SIFT+mapper，内参固定）
 ├── 01d_check_refined.py  # 精化质量校验：inlier 分布/重投影误差/轨迹对齐残差
+├── 01f_depth_maps.sh     # 方案 E 资产：为每帧生成单目深度图（UniDepth）到 <scene>/depths/
 ├── 02_train.sh           # SoM 运动基训练
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
+├── 03b_fg_metrics.py     # 前景专项指标（fg/bg/all PSNR + 逐视角最差 + 三联拼图）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘
 ├── som_motion.py         # 核心：SE(3) 基凸组合运动模型（替换 DeformModel）
 ├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine，实测否决备查）
 ├── densify_sched.py      # 稠密化自动调度（方案 D：软上限+需求累计+topk 截断）
 ├── exposure.py           # 曝光仿射补偿（方案 A：逐相机 4×3 仿射 + 闭式初始化）
+├── depth_prior.py        # 方案 E：点级深度锚定损失（投影采样单目深度 + lstsq 对齐 (a,b)）
+├── depth_est.py          # 方案 E：单目深度估计（UniDepth 推理，供 01f 调用）
 ├── train_som.py          # fork 官方 train.py（SOM / SOM-RES / SOM-DENSIFY / SOM-EXPOSURE 注释标注差异）
 ├── render_som.py         # fork 官方 render.py（render/time/original）
 └── README.md / README_wsl.md
