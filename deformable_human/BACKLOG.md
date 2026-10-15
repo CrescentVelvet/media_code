@@ -177,6 +177,12 @@
 > 白做；次级收益是 scale-4 段点数更低 → per-gaussian 成本间接下降。**重启前先做
 > 一次 profile 实测当前光栅化份额，>50% 才值得做**，边界照抄 0–30%/30–60%/60–100%。
 > （注：服务器无动态场景 c2f 实测加速比，这是结构性推理。）
+>
+> 【2026-10-15 profile 实测（profile_step.py，三点数据）】光栅化前向只占 **~5%**
+> （216k:1.47ms / 1.5M:5.4ms，TOTAL 25.5→98.7ms）→ **C 案继续冻结**（分辨率
+> 调度理论上限 ~4%，服务器「光栅化 70%」前提在我们的链路不成立）。步时大头是
+> 随 N 线性的 deform MLP 前向+反向（~80%）+ dense Adam（9%）→ 降 N（D 案）才是
+> 剩余大杠杆。
 
 ---
 
@@ -215,8 +221,7 @@
 > 同日 som_human 的 v2/v3 两次复利爆炸（147 万点撞护栏）实证了该方案的必要性。
 > som_human 另有硬护栏 `SOM_MAX_GAUSSIANS`（默认 150 万）已上线（commit 125ceda）。
 >
-> 【2026-10-15 服务器实现细节（供对齐修正）】
-> - momentum 公式确认为 `max(momentum, int(0.98×momentum + min(40000,
+> 【2026-10-15 服务器实现细节（供对齐修正）】> - momentum 公式确认为 `max(momentum, int(0.98×momentum + min(40000,
 >   densify_mask.sum())))`，单调不减 EMA，momentum_step 是 **topk 截断之前**
 >   梯度超阈值的原始计数。
 > - **topk 梯度口径（重要）**：每 epoch 累积 `v_means2d_accum / cnt.clamp_min(3.0)`，
@@ -230,6 +235,14 @@
 >   current_scale + init_n`，rate 上限 max_densify_rate_per_step=1.0；窗口结束
 >   后 next_n 直接取 max_n（只剪不增）。160 帧推演：epoch 1–18 scale4、19–36
 >   scale2、37–60 scale1，densify 窗口 3–56。
+>
+> 【2026-10-15 profile 支撑 + 首个 cap A/B 在跑】三点步时分解（profile_step.py）：
+> N=216k→1.5M 时 TOTAL 25.5→98.7ms（deform MLP 前向+反向占 ~80% 且随 N 线性，
+> 渲染前向仅 5%，dense Adam 9%）→ 降 N 是 som_human 链路剩余唯一大杠杆。
+> 已启动 **MAX_GAUSSIANS=600000 硬护栏对照**（v1 配方 + 精化位姿，20k，
+> model_colmap_cap600k）：测「好位姿 + 60 万点」的质量损失与 ~2× 加速，
+> 结果出来再决定 som_human 侧 D 案调度器（momentum/显式 cap 口径对齐）的落地形态。
+> 稀疏 Adam 经此 profile 定级为小杠杆（≤9%），不单独列案。
 
 ---
 
@@ -326,6 +339,10 @@ A/B 结论两个口径都写。
 > viewspace 梯度标准做法 means2d.retain_grad() 取 .grad；absgrad gsplat 有支持
 > 但需对安装版本验证签名。**G 案价值重新评估：加速收益无实测背书，真正的卖点
 > 只剩二期「内参可学」（依赖 gsplat 对 viewmats 的梯度）。**
+>
+> 【2026-10-15 profile 实测】渲染前向占步时仅 ~5%（@1.5M 点），即使 backward 里
+> 的光栅器部分全部白送，G 案一期渲染器替换的总收益上限 ~10-15% 量级 → 一期
+> **冻结**；二期「内参可学」仍是唯一卖点，与 B 案绑定评审。
 
 ---
 
@@ -405,3 +422,16 @@ Phase 2 把「3DMM 人脸模板」换成「MHR 人体模板」即可复用整套
 × 稀疏 Adam+稀疏 SSIM（节省随 N 线性增长的 dense 优化开销）× 点数压在
 显式 cap 下 × A100。我们已修 SoM matmul（20×），下一步同量级的杠杆是
 **D 案显式 cap + 稀疏 Adam（后者尚未在任何案里列出，可作新方案 I 评估）**。
+
+**2026-10-15 步时分解实测（som_human profile_step.py，-r 2，每点 200 迭代均值）**：
+
+| N_gauss | deform | render | loss | backward | opt | TOTAL | it/s | 峰值显存 |
+|---|---|---|---|---|---|---|---|---|
+| 215,900 (v1@20k) | 5.7ms | 1.5ms | 2.4ms | 13.8ms | 2.2ms | **25.5ms** | 39.2 | 2.2GB |
+| 1,378,956 (@7k) | 28.5ms | 4.9ms | 2.5ms | 49.9ms | 8.1ms | **93.9ms** | 10.7 | 6.0GB |
+| 1,502,625 (@20k) | 31.0ms | 5.4ms | 2.5ms | 50.7ms | 8.9ms | **98.7ms** | 10.1 | 6.4GB |
+
+- deform MLP 前向+反向 ≈ 80% 且随 N 线性 → **降 N（D 案 cap）是唯一大杠杆**；
+- render 前向仅 ~5% → C/G 两案维持冻结；
+- dense Adam 9% → 稀疏 Adam 定级小杠杆（服务器 sparse Adam 的真实收益需在其
+  点数/帧数口径下重新评估，勿外推）。
