@@ -210,6 +210,11 @@ frame 0 的实测角（`min(lo+span·k, init)` / `max(hi−span·k, init)`），
 等轴测一起缩掉，左列就不是原图了。整圈（`VL_FULL_AZ`）时 az 不裁。`VL_TRIM=0` 关闭。
 副作用：el 跨度收到 8° 以下时球壳不填色（既有阈值），④ 会退化成细网格带。
 
+**仰角空洞保护**（`PITCH_MODE`，默认 `full`）：双峰数据（俯视 + 平视两圈）下仰角区间会
+横跨没拍到的空档，设 `PITCH_MODE=peak` 让本脚本与 99k 一样按 gap split 只保留一圈。
+参数与语义见「D. 采集包主体居中 → 相机参数（99k）」一节的「仰角空洞保护」—— 注意
+99k 出图时会自动把这组 env 透传下来，手工单独跑 99g 时才需要自己设。
+
 图上会同时画出**球心**（实心圆 + 十字）与**对照球心**（另一个候选点，空心叉 + 虚线 + Δ 距离），
 标题行给出两者的拟合质量对照（垂距 RMS / 视线夹角 / 正规矩阵条件数）。实测 10 个样本
 （见 NOTES.md「球心取哪个点」）：`sight` 垂距 RMS 0.081 m、夹角 3.46°，`anchor_point`
@@ -271,6 +276,8 @@ DRY_RUN=1 python tools_99/99k_make_gs_params.py          # 只算不落盘
 ONLY=<task_a>,<task_b> python tools_99/99k_make_gs_params.py
 OUT_PLOTS=0 python tools_99/99k_make_gs_params.py        # 只要参数、不出图
 PLOT_STYLE=lim_edges PLOT_SRC=both python ...            # 换图面风格 / 顺便画原始包做对照
+PITCH_MODE=peak python tools_99/99k_make_gs_params.py    # 双峰数据（俯视+平视两圈）只保留一圈
+PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的那一圈（开场视角不变）
 ```
 
 **为什么需要**：Remy 采集包的世界原点是手机开机点附近，主体（视线汇聚点）实测离它
@@ -341,14 +348,67 @@ quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化�
 恰好罩住实测半径区间）、`INIT_FOV_SCALE`（默认 `0.8`，同 99b）、`SORT_BY_TIME`、
 `PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
 `OUT_IMAGES`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
-`PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`。
+`PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`，以及仰角空洞保护的一组
+`PITCH_MODE` / `EL_GAP_MIN` / `EL_GAP_K` / `EL_PICK` / `EL_PAD_GAP` / `EL_TIE_WARN` /
+`EL_MIN_FRAMES`（见下节）。
+
+### 仰角「空洞」保护（`PITCH_MODE=peak`）
+
+**问题**：绕物体拍两圈（一圈俯视、一圈平视）时仰角 `el` 呈**双峰**，两峰之间是没拍到的
+空档。原来的区间取 `min/max ± VL_EL_PAD` —— 只看两个极值点、对分布形状无感 —— 必然把这个
+空档包进 `pitch_min/pitch_max`，用户转到中间视角就穿帮。
+
+**做法**：`PITCH_MODE=peak` 时对 `el` 做 **gap split**：按仰角排序后看相邻样本的间距，
+在「大间隙」处切段，只保留一圈。
+
+```
+thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适应帧密度 + 绝对下限防误切
+切段 → 丢掉帧数 < EL_MIN_FRAMES 的小段 → EL_PICK 选一圈 → 外侧 +VL_EL_PAD、洞侧 +EL_PAD_GAP
+```
+
+**为什么不用「直方图投票 + 区间长度系数」**：投票要先定 bin 宽度，投完还要再拍一个长度系数，
+而这个系数对「数据在哪」无感。实测两圈样例（平视 −5~8°、俯视 30~45°）：全局跨度 56°、
+洞 22°，按跨度各端收 20% 得到的区间**仍然横跨空洞**，要收掉得单端 ~30% —— 收多少完全随
+数据变，不是常数。切段法的区间边界直接由数据给出，不需要长度系数。
+
+| env | 默认 | 含义 |
+|---|---|---|
+| `PITCH_MODE` | `full` | `full` = 原行为（min/max ± pad）；`peak` = gap split 只保留一圈 |
+| `EL_GAP_MIN` | `8.0` | 切段绝对下限（度）：相邻仰角差 ≥ 它才算「洞」 |
+| `EL_GAP_K` | `5.0` | 切段相对倍率：阈值还要 ≥ K × 同圈中位帧间距 |
+| `EL_PICK` | `biggest` | 保留哪一圈：`biggest`（帧数最多）/ `top`（仰角最高 = 俯视圈）/ `bottom`（仰角最低 = 平视圈）/ `init`（含首帧的圈） |
+| `EL_PAD_GAP` | `0.0` | 「洞侧」余量；不往洞里加 pad，否则等于把空洞又拉回来一截 |
+| `EL_TIE_WARN` | `0.8` | 次大段 / 主段 ≥ 此值就告警（两圈帧数接近时 `biggest` 会随帧数抖动） |
+| `EL_MIN_FRAMES` | `5` | 段的最小帧数：不足的段当离群 / 噪声丢掉 |
+
+**安全性质（默认关，向后兼容）**：单圈数据不存在 ≥ thr 的间隙 → 只有一段 → 两侧都走
+「外侧」分支 → 结果与 `full` **逐位相同**。实测 10 包真实数据（手部微动样例）peak 与 full
+产物完全一致（`pitch_min/max`、`pitch_init`、`yaw`、`radius`、`init_fov` 全等）；只有合成
+双峰包才收窄。附带收益：单帧离群（手抖拍到 −60°）会自成一段并被丢掉 —— 这是 min/max 做不到的。
+
+**首帧（开场视角）**：若首帧落在被丢掉的那一圈里，`pitch_init` 会被**夹进保留区间**
+（`center_report.json` 的 `pitch_split.init_clamped` 记 true），否则用户一开场就落在约束外。
+想让开场视角留在首帧那一圈，设 `EL_PICK=init`。
+
+**诊断**：`center_report.json` 新增 `pitch_split`（段列表 / 选中段 / 阈值 / 最大间隙及其跨度 /
+切几刀 / 丢了几段 / tie 告警 / clamp 详情），跑批时也直接打在终端上。
+
+**只作用于 `el`**：两圈都绕整圈时 `az` 走 `VL_FULL_AZ` 本来就不设限，无需处理（而且 az 是
+环形量，做间隙还得处理解缠跨 ±180，风险大收益小）。
+
+**99g 必须同步**：99k 调 99g 出图时会把上面 7 个 env 一起透传 —— 99g 是独立进程、自己从
+`transforms.json` 重算视角区间，不透传的话图会画出横跨空洞的旧区间、与 json 对不上。
+`99g_plot_capture_trajectory.py` 里有**逐字同源**的 `median_of` / `split_el_segments` /
+`pick_el_segment` / `el_span` 四份实现（用脚本可比对：取 `def median_of` 到
+`def compute_view_limit` 之间的文本应完全相同），改一处必须同步另一处。
 
 ### 与 99g 的分工（为什么调脚本、不复制代码）
 
 99k 的产物「居中包」= `transforms.json` + `pcd.ply` + `image/`，**就是 99g 的原生输入
 格式**，把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
 `subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `VL_TARGET` / `VL_*_PAD` /
-`VL_FULL_AZ` 一起透传，保证图上的约束与 json 里的参数同口径。
+`VL_FULL_AZ` 以及仰角空洞保护的 `PITCH_MODE` / `EL_*` 一起透传，保证图上的约束与 json 里
+的参数同口径。
 
 为什么不把 99g 的绘图代码搬进 99k（或 `import` 它）：99g 是**已定稿的汇报图面**
 （13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉、以后改图要改两处；

@@ -905,6 +905,18 @@ VL_EL_PAD = float(os.environ.get("VL_EL_PAD", "3.0"))    # 仰角两侧余量（
 VL_R_PAD = float(os.environ.get("VL_R_PAD", "0.08"))     # 半径两侧余量（比例）
 # 方位角跨度超过这个值就按「整圈」处理（原版是 1.8π≈324°，这里收紧到 300°）
 VL_FULL_AZ = float(os.environ.get("VL_FULL_AZ", "300.0"))
+# 仰角「空洞」保护 gap split —— 与 99k_make_gs_params.py **同名同义**，改一处必须同步另一处
+# （99k 调本脚本出图时会把这几个 env 透传下来；不同步的话图上 el 区间与 gs json 不一致）。
+# 场景：绕物体拍两圈（俯视 + 平视）时 el 双峰，两峰之间是没拍到的空档；min/max ± pad 必然
+# 横跨空档 → 用户转到中间视角穿帮。peak = 按仰角排序找最大间隙切段，只保留一圈：
+#   thr = max(EL_GAP_MIN, EL_GAP_K × 中位帧间距)；单圈数据不会触发 → 结果与 full 逐位相同。
+PITCH_MODE = os.environ.get("PITCH_MODE", "full").strip().lower()   # full(默认) | peak
+EL_GAP_MIN = float(os.environ.get("EL_GAP_MIN", "8.0"))    # 切段绝对下限（度）
+EL_GAP_K = float(os.environ.get("EL_GAP_K", "5.0"))        # 切段相对倍率（× 中位帧间距）
+EL_MIN_FRAMES = int(os.environ.get("EL_MIN_FRAMES", "5"))  # 段的最小帧数（不足的当离群丢掉）
+EL_PICK = os.environ.get("EL_PICK", "biggest").strip().lower()  # biggest | top | bottom | init
+EL_PAD_GAP = float(os.environ.get("EL_PAD_GAP", "0.0"))    # peak 模式「洞侧」余量（度）
+EL_TIE_WARN = float(os.environ.get("EL_TIE_WARN", "0.8"))  # 两圈帧数接近的告警阈值
 # 四联图右列专用：约束区间在「画出来/标出来」时两端各收掉这么大比例的跨度，
 # 但两端都不许越过 frame 0 的实测角 —— 否则用户一开场就落在约束外，会穿帮。
 # 只作用于右列约束层的绘制与标注，**不改取景**：取景仍用完整区间，否则四块共用的
@@ -1062,8 +1074,134 @@ def sight_fit(ctx, t):
     }
 
 
+# --------------------------------------------------------------------------
+# 仰角「空洞」保护：gap split（PITCH_MODE=peak）
+#   与 99k_make_gs_params.py 里的同名函数**逐字同源**（median_of / split_el_segments /
+#   pick_el_segment / el_span），env 名也一致 —— 改一处必须同步另一处，否则图（本脚本自己
+#   重算）与 gs json（99k 写）会不一致。
+# --------------------------------------------------------------------------
+def median_of(xs):
+    """中位数（偶数长度取中间两个的平均）。空列表返回 0.0。"""
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    m = n // 2
+    return s[m] if n % 2 else 0.5 * (s[m - 1] + s[m])
+
+
+def split_el_segments(el, gap_min, gap_k, min_frames):
+    """按仰角**排序后相邻样本的间距**切段（gap split）。
+
+    为什么不用直方图投票：投票得先把角度离散成 bin，bin 宽度是纯调参项，而且投完还要再
+    拍一个「区间长度系数」；切段的判据直接由数据给出，段的边界就是区间边界，不需要长度系数。
+
+    判据 thr = max(gap_min, gap_k × median(gaps))：
+      · median(gaps) = 同一圈内的正常帧间距，洞是它的几十倍 → gap_k（默认 5）即分开；
+      · gap_min（默认 8°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+    单帧离群（手抖拍到 -60°）会自成一段、再被 min_frames 丢掉；这是附带收益 ——
+    原来的 min/max 取法对离群零抵抗。
+
+    返回 (segments, diag)；segments 按 lo 升序，元素为 {"lo","hi","n"}。
+    """
+    e = sorted(float(v) for v in el)
+    n = len(e)
+    diag = {"n": n, "median_gap": 0.0, "gap_max": 0.0, "gap_max_span": None,
+            "threshold": 0.0, "n_cuts": 0, "n_segments_all": 1, "n_dropped": 0}
+    if n == 0:
+        return [], diag
+    if n == 1:
+        return [{"lo": e[0], "hi": e[0], "n": 1}], diag
+
+    gaps = [e[i + 1] - e[i] for i in range(n - 1)]
+    med = median_of(gaps)
+    thr = max(float(gap_min), float(gap_k) * med)
+    cuts = [i for i, g in enumerate(gaps) if g >= thr]
+    imax = gaps.index(max(gaps))
+    diag.update({"median_gap": med, "gap_max": gaps[imax],
+                 "gap_max_span": (e[imax], e[imax + 1]),
+                 "threshold": thr, "n_cuts": len(cuts)})
+
+    bounds = [0] + [i + 1 for i in cuts] + [n]
+    segs = []
+    for k in range(len(bounds) - 1):
+        a, b = bounds[k], bounds[k + 1]
+        if b > a:
+            segs.append({"lo": e[a], "hi": e[b - 1], "n": b - a})
+    diag["n_segments_all"] = len(segs)
+
+    keep = [s for s in segs if s["n"] >= max(1, int(min_frames))]
+    if keep and len(keep) < len(segs):
+        diag["n_dropped"] = len(segs) - len(keep)
+        segs = keep
+    return segs, diag
+
+
+def pick_el_segment(segments, pick, init_el):
+    """从切好的段里选「保留哪一圈」。
+
+    biggest（默认）= 帧数最多的段（次大段接近时 el_span 会置 tie_warn 提醒）
+    top            = 仰角最高的段（= 俯视那一圈）
+    bottom         = 仰角最低的段（= 平视/仰视那一圈）
+    init           = 含首帧的段（首帧若离群不在任何段里，退回 biggest）
+    """
+    if not segments:
+        return None
+    if pick == "top":
+        return max(segments, key=lambda s: (s["hi"], s["n"]))
+    if pick == "bottom":
+        return min(segments, key=lambda s: (s["lo"], -s["n"]))
+    if pick == "init":
+        inside = [s for s in segments if s["lo"] - 1e-9 <= init_el <= s["hi"] + 1e-9]
+        if inside:
+            return max(inside, key=lambda s: s["n"])
+    return max(segments, key=lambda s: s["n"])
+
+
+def el_span(el, init_el, mode, pad, gap_min, gap_k, min_frames, pick, gap_pad, tie_warn):
+    """仰角区间 [lo, hi]（已含余量）+ 诊断 dict。返回 (lo, hi, info)。
+
+    full（默认）= min(el) − pad / max(el) + pad —— 与历史行为逐位一致。
+    peak        = gap split 后只保留一圈，"余量分侧给"：
+                    · 外侧（贴着全部数据的那一端）用 pad，与 full 同口径；
+                    · 洞侧用 gap_pad（默认 0）—— 往洞里加 pad 等于把空洞又拉回来一截。
+
+    单圈数据不存在 ≥thr 的间隙 → 只有一段 → 两侧都走 pad 分支 → 结果与 full **完全相同**，
+    所以 peak 是「只对双峰生效」的安全开关。
+    """
+    lo_raw, hi_raw = min(el), max(el)
+    info = {"mode": mode, "raw_span": (lo_raw, hi_raw), "pad_out": pad, "pad_gap": gap_pad,
+            "segments": [], "picked": None, "diag": {}, "tie_warn": False, "fallback": None,
+            "lo": lo_raw, "hi": hi_raw}
+    if mode != "peak":
+        info["lo"], info["hi"] = lo_raw - pad, hi_raw + pad
+        return info["lo"], info["hi"], info
+
+    segs, diag = split_el_segments(el, gap_min, gap_k, min_frames)
+    info["diag"] = diag
+    info["segments"] = [[s["lo"], s["hi"], s["n"]] for s in segs]
+    picked = pick_el_segment(segs, pick, init_el)
+    if picked is None:                     # n ≥ 1 时走不到，防御性回退
+        info["fallback"] = "无有效段，退回 min/max"
+        info["lo"], info["hi"] = lo_raw - pad, hi_raw + pad
+        return info["lo"], info["hi"], info
+
+    info["picked"] = [picked["lo"], picked["hi"], picked["n"]]
+    tiny = 1e-9
+    lo = picked["lo"] - (gap_pad if picked["lo"] > lo_raw + tiny else pad)
+    hi = picked["hi"] + (gap_pad if picked["hi"] < hi_raw - tiny else pad)
+    others = [s["n"] for s in segs if s is not picked]
+    info["tie_warn"] = bool(others) and max(others) >= tie_warn * max(picked["n"], 1)
+    info["lo"], info["hi"] = lo, hi
+    return lo, hi, info
+
+
 def compute_view_limit(ctx, target_mode=None):
     """算出视角约束区间（球壳扇块）。纯数据驱动：实测 min/max ± VL_*_PAD。
+
+    PITCH_MODE=peak 时仰角改走 gap split（见 el_span）：双峰数据（俯视+平视两圈）只保留
+    一圈，避开两圈之间没拍到的空洞；单圈数据结果与 full 逐位相同。方位角不受影响 ——
+    两圈都绕整圈时 az 本来就走 full_az 不设限。
 
     target_mode 决定球壳中心取哪个点（缺省读环境变量 VL_TARGET）：
       "anchor" ＝ transforms.json 自带的 anchor_point
@@ -1112,7 +1250,13 @@ def compute_view_limit(ctx, target_mode=None):
     else:
         az_lo, az_hi = min(azu) - VL_AZ_PAD, max(azu) + VL_AZ_PAD
 
-    el_lo, el_hi = min(el) - VL_EL_PAD, max(el) + VL_EL_PAD
+    # 仰角：PITCH_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
+    el_lo, el_hi, el_split = el_span(el, el[0], PITCH_MODE, VL_EL_PAD,
+                                     EL_GAP_MIN, EL_GAP_K, EL_MIN_FRAMES,
+                                     EL_PICK, EL_PAD_GAP, EL_TIE_WARN)
+    # frame 0 可能落在被丢掉的那一圈里 → 夹进保留区间。它有两个用途：用户开场时的仰角，
+    # 以及 trim_view_limit 的「两端不许越过」兜底锚点 —— 不夹的话右列区间会被撑回空洞。
+    init_el_used = min(max(el[0], el_lo), el_hi)
     rho_lo = max(0.0, min(rho) * (1.0 - VL_R_PAD))
     rho_hi = max(rho) * (1.0 + VL_R_PAD)
     r_lo = max(0.0, min(rr) * (1.0 - VL_R_PAD))
@@ -1136,9 +1280,10 @@ def compute_view_limit(ctx, target_mode=None):
         "fit": sight_fit(ctx, target),
         "fit_alt": sight_fit(ctx, alt),
         # frame 0 的实测角：右列做贴身裁剪（trim_view_limit）时，区间两端都不许越过它。
-        "init_az": azu[0], "init_el": el[0],
+        # ⚠️ init_el 是**夹过的**（与 99k 写进 gs json 的 pitch_init 同值），原始值见 init_el_raw
+        "init_az": azu[0], "init_el": init_el_used, "init_el_raw": el[0],
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az,
-        "el_lo": el_lo, "el_hi": el_hi,
+        "el_lo": el_lo, "el_hi": el_hi, "el_split": el_split,
         "rho_lo": rho_lo, "rho_hi": rho_hi, "r_lo": r_lo, "r_hi": r_hi,
         "raw": {"az": (min(azu), max(azu)), "el": (min(el), max(el)),
                 "rho": (min(rho), max(rho)), "r": (min(rr), max(rr))},

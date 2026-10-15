@@ -44,6 +44,21 @@
     换算成 UWA：Phi = −az、Theta = 90 − el、Radius = r（与 99b/99c 的
     pos_to_pitch_yaw 互为逆变换，见 99c_repack_view_limits.py:165-186）。
 
+仰角「空洞」保护（PITCH_MODE=peak，2026-10-15 新增）
+    场景：绕物体拍两圈（一圈俯视、一圈平视）时 el 呈**双峰**，两峰之间是没拍到的空档。
+    此时 min/max ± pad 必然横跨空档 → 用户转到中间视角就穿帮。
+    peak = 对 el 做 gap split（按仰角排序后找最大间隙切段），只保留「一圈」。区间长度由
+    数据段的自然边界给出，**不需要长度系数**（按跨度收固定比例够不着洞：洞常占跨度 40%+）：
+        thr = max(EL_GAP_MIN, EL_GAP_K × 中位帧间距)   # 相对倍率自适应帧密度 + 绝对下限防误切
+        切段 → 丢掉帧数不足的小段 → EL_PICK 选一圈 → 外侧 +VL_EL_PAD、洞侧 +EL_PAD_GAP
+    单圈数据不含 ≥thr 的间隙 → 只有一段 → 两侧都走外侧分支 → 结果与 full **逐位相同**，
+    所以 peak 是「只对双峰生效」的安全开关（默认 full，历史产物零变化）。
+    附带收益：单帧离群（手抖拍到 −60°）会自成一段并被丢掉，而 min/max 对它零抵抗。
+    只作用于 el —— 两圈都绕整圈时 az 走 full_az 本来就不设限，无需处理（az 是环形量，
+    真要做间隙还得处理解缠跨 ±180，风险大收益小）。
+    首帧（开场视角）若落在被丢掉的圈里，pitch_init 会**夹进保留区间**并在报告里记
+    init_clamped（不夹的话用户一开场就落在约束外 —— 99g trim_view_limit 记过这条坑）。
+
 输入
     <采集包>/transforms.json          必需（逐帧 w/h/cx/cy/fl_x/fl_y/k1..k3/p1/p2
                                       + transform_matrix，c2w / OpenGL 相机系）
@@ -88,6 +103,8 @@ gs_camera_params_final.json 的 schema（4 空格缩进、带换行，便于人�
     DRY_RUN=1 python tools_99/99k_make_gs_params.py           # 只算不落盘
     ONLY=01e954...,10e3ec... python ...                       # 批次里只跑白名单
     PLOT_STYLE=lim_edges python tools_99/99k_make_gs_params.py # 顺便换一种图面风格
+    PITCH_MODE=peak python tools_99/99k_make_gs_params.py      # 两圈数据只保留一圈（避开空洞）
+    PITCH_MODE=peak EL_PICK=init python tools_99/99k_make_gs_params.py   # 保留首帧那一圈
     OUT_PLOTS=0 python tools_99/99k_make_gs_params.py          # 只要参数、不出图
 
 Env vars
@@ -97,6 +114,14 @@ Env vars
     OUT_ROOT       输出根，默认 <RESULTS_ROOT>/<批次名>/centered
     VL_TARGET      球心口径 sight(默认) | anchor
     VL_AZ_PAD / VL_EL_PAD / VL_R_PAD / VL_FULL_AZ   同 99g（默认 3.0 / 3.0 / 0.08 / 300.0）
+    PITCH_MODE     full(默认) | peak —— peak=仰角 gap split，双峰数据只保留一圈
+    EL_GAP_MIN     切段绝对下限（度，默认 8.0）：相邻仰角差 ≥ 它才算「洞」
+    EL_GAP_K       切段相对倍率（默认 5.0）：阈值还要 ≥ K×同圈中位帧间距，自适应帧密度
+    EL_PICK        peak 模式保留哪一圈：biggest(默认，帧数最多) | top(仰角最高=俯视圈)
+                   | bottom(仰角最低=平视圈) | init(含首帧的圈)
+    EL_PAD_GAP     peak 模式「洞侧」余量（度，默认 0.0）；外侧仍用 VL_EL_PAD
+    EL_TIE_WARN    两圈帧数接近的告警阈值（默认 0.8：次大段/主段 ≥ 它就提示换 EL_PICK）
+    EL_MIN_FRAMES  段的最小帧数（默认 5）：不足的段当离群/噪声丢掉
     RADIUS_MODE    scene.radius 取法：mid(默认) | mean | median | max | min
                    mid = 让 99b 的 [0.9r,1.2r] 恰好罩住实测半径区间
     SORT_BY_TIME   1(默认) 先按 file_path（时间戳）排序再解缠与取 init 帧；0=保持 json 原序
@@ -294,12 +319,134 @@ def normalize_phi(lo, hi, enabled: bool = True):
     if not enabled:
         return lo, hi, 0.0
     c = (lo + hi) / 2.0
-    shift = 0.0
-    while c - shift * 360.0 <= -180.0:
-        shift += 1.0
-    while c - shift * 360.0 > 180.0:
-        shift -= 1.0
+    # 闭式解 shift = ceil((c − 180)/360)，等价于「把中心折算进 (−180, 180]」。
+    # ⚠️ 原来写的是 while c - shift*360 <= -180: shift += 1 —— 当 c 恰为 −180 时（绕整圈
+    # 且首帧方位角恰为 0° → Phi 区间 (−360, 0] → 中心 −180）条件恒成立，shift 无限递增、
+    # 进程死循环挂住（2026-10-15 用合成包实测命中）。闭式解无此风险且结果逐位相同。
+    shift = float(math.ceil((c - 180.0) / 360.0))
     return lo - shift * 360.0, hi - shift * 360.0, shift
+
+
+# --------------------------------------------------------------------------
+# 仰角「空洞」保护：gap split（PITCH_MODE=peak）
+#   99k 与 99g_plot_capture_trajectory.py 里是**逐字同源**的三份实现（median_of /
+#   split_el_segments / pick_el_segment / el_span），env 名也一致 —— 改一处必须同步另一处，
+#   否则图（99g 自己重算）与 gs json（99k 写）会不一致。
+# --------------------------------------------------------------------------
+def median_of(xs):
+    """中位数（偶数长度取中间两个的平均）。空列表返回 0.0。"""
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    m = n // 2
+    return s[m] if n % 2 else 0.5 * (s[m - 1] + s[m])
+
+
+def split_el_segments(el, gap_min, gap_k, min_frames):
+    """按仰角**排序后相邻样本的间距**切段（gap split）。
+
+    为什么不用直方图投票：投票得先把角度离散成 bin，bin 宽度是纯调参项，而且投完还要再
+    拍一个「区间长度系数」；切段的判据直接由数据给出，段的边界就是区间边界，不需要长度系数。
+
+    判据 thr = max(gap_min, gap_k × median(gaps))：
+      · median(gaps) = 同一圈内的正常帧间距，洞是它的几十倍 → gap_k（默认 5）即分开；
+      · gap_min（默认 8°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+    单帧离群（手抖拍到 -60°）会自成一段、再被 min_frames 丢掉；这是附带收益 ——
+    原来的 min/max 取法对离群零抵抗。
+
+    返回 (segments, diag)；segments 按 lo 升序，元素为 {"lo","hi","n"}。
+    """
+    e = sorted(float(v) for v in el)
+    n = len(e)
+    diag = {"n": n, "median_gap": 0.0, "gap_max": 0.0, "gap_max_span": None,
+            "threshold": 0.0, "n_cuts": 0, "n_segments_all": 1, "n_dropped": 0}
+    if n == 0:
+        return [], diag
+    if n == 1:
+        return [{"lo": e[0], "hi": e[0], "n": 1}], diag
+
+    gaps = [e[i + 1] - e[i] for i in range(n - 1)]
+    med = median_of(gaps)
+    thr = max(float(gap_min), float(gap_k) * med)
+    cuts = [i for i, g in enumerate(gaps) if g >= thr]
+    imax = gaps.index(max(gaps))
+    diag.update({"median_gap": med, "gap_max": gaps[imax],
+                 "gap_max_span": (e[imax], e[imax + 1]),
+                 "threshold": thr, "n_cuts": len(cuts)})
+
+    bounds = [0] + [i + 1 for i in cuts] + [n]
+    segs = []
+    for k in range(len(bounds) - 1):
+        a, b = bounds[k], bounds[k + 1]
+        if b > a:
+            segs.append({"lo": e[a], "hi": e[b - 1], "n": b - a})
+    diag["n_segments_all"] = len(segs)
+
+    keep = [s for s in segs if s["n"] >= max(1, int(min_frames))]
+    if keep and len(keep) < len(segs):
+        diag["n_dropped"] = len(segs) - len(keep)
+        segs = keep
+    return segs, diag
+
+
+def pick_el_segment(segments, pick, init_el):
+    """从切好的段里选「保留哪一圈」。
+
+    biggest（默认）= 帧数最多的段（次大段接近时 el_span 会置 tie_warn 提醒）
+    top            = 仰角最高的段（= 俯视那一圈）
+    bottom         = 仰角最低的段（= 平视/仰视那一圈）
+    init           = 含首帧的段（首帧若离群不在任何段里，退回 biggest）
+    """
+    if not segments:
+        return None
+    if pick == "top":
+        return max(segments, key=lambda s: (s["hi"], s["n"]))
+    if pick == "bottom":
+        return min(segments, key=lambda s: (s["lo"], -s["n"]))
+    if pick == "init":
+        inside = [s for s in segments if s["lo"] - 1e-9 <= init_el <= s["hi"] + 1e-9]
+        if inside:
+            return max(inside, key=lambda s: s["n"])
+    return max(segments, key=lambda s: s["n"])
+
+
+def el_span(el, init_el, mode, pad, gap_min, gap_k, min_frames, pick, gap_pad, tie_warn):
+    """仰角区间 [lo, hi]（已含余量）+ 诊断 dict。返回 (lo, hi, info)。
+
+    full（默认）= min(el) − pad / max(el) + pad —— 与历史行为逐位一致。
+    peak        = gap split 后只保留一圈，"余量分侧给"：
+                    · 外侧（贴着全部数据的那一端）用 pad，与 full 同口径；
+                    · 洞侧用 gap_pad（默认 0）—— 往洞里加 pad 等于把空洞又拉回来一截。
+
+    单圈数据不存在 ≥thr 的间隙 → 只有一段 → 两侧都走 pad 分支 → 结果与 full **完全相同**，
+    所以 peak 是「只对双峰生效」的安全开关。
+    """
+    lo_raw, hi_raw = min(el), max(el)
+    info = {"mode": mode, "raw_span": (lo_raw, hi_raw), "pad_out": pad, "pad_gap": gap_pad,
+            "segments": [], "picked": None, "diag": {}, "tie_warn": False, "fallback": None,
+            "lo": lo_raw, "hi": hi_raw}
+    if mode != "peak":
+        info["lo"], info["hi"] = lo_raw - pad, hi_raw + pad
+        return info["lo"], info["hi"], info
+
+    segs, diag = split_el_segments(el, gap_min, gap_k, min_frames)
+    info["diag"] = diag
+    info["segments"] = [[s["lo"], s["hi"], s["n"]] for s in segs]
+    picked = pick_el_segment(segs, pick, init_el)
+    if picked is None:                     # n ≥ 1 时走不到，防御性回退
+        info["fallback"] = "无有效段，退回 min/max"
+        info["lo"], info["hi"] = lo_raw - pad, hi_raw + pad
+        return info["lo"], info["hi"], info
+
+    info["picked"] = [picked["lo"], picked["hi"], picked["n"]]
+    tiny = 1e-9
+    lo = picked["lo"] - (gap_pad if picked["lo"] > lo_raw + tiny else pad)
+    hi = picked["hi"] + (gap_pad if picked["hi"] < hi_raw - tiny else pad)
+    others = [s["n"] for s in segs if s is not picked]
+    info["tie_warn"] = bool(others) and max(others) >= tie_warn * max(picked["n"], 1)
+    info["lo"], info["hi"] = lo, hi
+    return lo, hi, info
 
 
 def compute_view_limit(pos, look, anchor, cfg: dict):
@@ -339,7 +486,19 @@ def compute_view_limit(pos, look, anchor, cfg: dict):
         az_lo, az_hi = azu[0], azu[0] + 360.0
     else:
         az_lo, az_hi = min(azu) - az_pad, max(azu) + az_pad
-    el_lo, el_hi = min(el) - el_pad, max(el) + el_pad
+    # 仰角：PITCH_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
+    el_lo, el_hi, pitch = el_span(
+        el, el[0], cfg["pitch_mode"], el_pad,
+        cfg["el_gap_min"], cfg["el_gap_k"], cfg["el_min_frames"],
+        cfg["el_pick"], cfg["el_pad_gap"], cfg["el_tie_warn"])
+    # 首帧（99b 的 1° 一致性告警 / 99g 的 trim 兜底锚点）可能落在被丢掉的那一圈里 →
+    # 把开场角夹进保留区间，否则用户一开场就落在约束外（99g trim_view_limit 记过这条坑）
+    init_el_raw = el[0]
+    init_el_used = min(max(init_el_raw, el_lo), el_hi)
+    pitch["init_original"] = init_el_raw
+    pitch["init_used"] = init_el_used
+    pitch["init_clamped"] = abs(init_el_used - init_el_raw) > 1e-9
+
     r_lo = max(0.0, min(rr) * (1.0 - r_pad))
     r_hi = max(rr) * (1.0 + r_pad)
 
@@ -350,7 +509,8 @@ def compute_view_limit(pos, look, anchor, cfg: dict):
         "delta": delta,
         "fit": sight_fit(pos, look, target), "fit_alt": sight_fit(pos, look, alt),
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az, "az_span": span,
-        "el_lo": el_lo, "el_hi": el_hi, "r_lo": r_lo, "r_hi": r_hi,
+        "el_lo": el_lo, "el_hi": el_hi, "pitch": pitch, "init_el_used": init_el_used,
+        "r_lo": r_lo, "r_hi": r_hi,
         "raw": {"az": (min(azu), max(azu)), "el": (min(el), max(el)),
                 "r": (min(rr), max(rr)), "r_mean": sum(rr) / len(rr)},
         "r_all": rr,
@@ -421,6 +581,9 @@ def build_gs_params(vl: dict, cfg: dict, ordered: list):
       pitch = el（仰角）      → 99b: maxTheta = 90 − pitch_min、minTheta = 90 − pitch_max
       yaw   = −az = Phi       → 99b: maxPhi = yaw_max、minPhi = yaw_min
       init 取首帧（时间序第一帧），pitch_init/yaw_init 用同一换算。
+      ⚠️ pitch_init 取的是 **vl["init_el_used"]** 而不是首帧原始仰角：peak 模式下若首帧落在
+      被丢弃的那一圈里，原始角会落在 pitch 区间之外，必须夹进来（原始值记在
+      center_report 的 pitch_split.init_original）。
 
     99b 实际只用 setting.pitch_min/pitch_max/yaw_min/yaw_max（+ pitch_init 做 1° 一致性
     告警）与 scene.radius；其余字段按 3DGS 侧相机文件的既有格式补齐，供人工核对与下游
@@ -445,7 +608,7 @@ def build_gs_params(vl: dict, cfg: dict, ordered: list):
             "yaw_init": yaw_init,
             "yaw_min": phi_lo,
             "yaw_max": phi_hi,
-            "pitch_init": vl["init"]["el"],
+            "pitch_init": vl["init_el_used"],
             "pitch_min": vl["el_lo"],
             "pitch_max": vl["el_hi"],
             "roll_init": 0.0,
@@ -455,6 +618,7 @@ def build_gs_params(vl: dict, cfg: dict, ordered: list):
         "scene": {"center": center, "radius": radius},
     }, {"phi_shift_deg": shift, "radius_mode": r_mode,
         "phi": (phi_lo, phi_hi), "theta": (90.0 - vl["el_hi"], 90.0 - vl["el_lo"]),
+        "pitch": vl["pitch"], "init_clamped": vl["pitch"].get("init_clamped", False),
         "radius_band": (0.9 * radius, 1.2 * radius), "yaw_init": yaw_init,
         "init_fov": fov, "intrinsics": intr, "scene_center": center,
         "camera_type": "pinhole"}
@@ -700,7 +864,7 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     theta_lo, theta_hi = info["theta"]
     yaw_init = info["yaw_init"]
     init_in = (phi_lo - 1e-6 <= yaw_init <= phi_hi + 1e-6
-               and vl["el_lo"] - 1e-6 <= vl["init"]["el"] <= vl["el_hi"] + 1e-6)
+               and vl["el_lo"] - 1e-6 <= vl["init_el_used"] <= vl["el_hi"] + 1e-6)
     band_lo, band_hi = info["radius_band"]
     r_min, r_max = vl["raw"]["r"]
     band_cover = band_lo <= r_min + 1e-9 and band_hi >= r_max - 1e-9
@@ -715,6 +879,30 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
           f"span {vl['az_span']:.1f}°{'(整圈)' if vl['full_az'] else ''} ｜ "
           f"el [{vl['raw']['el'][0]:.1f},{vl['raw']['el'][1]:.1f}] ｜ "
           f"r [{r_min:.3f},{r_max:.3f}] mean {vl['raw']['r_mean']:.3f}")
+    pk = vl["pitch"]
+    if pk["mode"] == "peak":
+        if not pk["picked"]:
+            print(f"  🗳️ 仰角切段(peak): {pk['fallback'] or '无有效段'}，退回 min/max")
+        else:
+            seg_txt = " ｜ ".join("[{:.1f},{:.1f}] {}帧".format(s[0], s[1], s[2])
+                                  for s in pk["segments"])
+            print(f"  🗳️ 仰角切段(peak · EL_PICK={cfg['el_pick']}): "
+                  f"{len(pk['segments'])} 段 {seg_txt} → 保留 "
+                  f"[{pk['picked'][0]:.1f},{pk['picked'][1]:.1f}]°（{pk['picked'][2]} 帧）")
+            d, gsp = pk["diag"], pk["diag"].get("gap_max_span")
+            print(f"     判据 thr=max({cfg['el_gap_min']:g}, {cfg['el_gap_k']:g}×中位间距 "
+                  f"{d['median_gap']:.2f})={d['threshold']:.2f}° ｜ 最大间隙 "
+                  f"{d['gap_max']:.2f}°"
+                  + (f"（{gsp[0]:.1f}→{gsp[1]:.1f}°）" if gsp else "")
+                  + f" ｜ 切 {d['n_cuts']} 刀"
+                  + (f" ｜ 丢弃 {d['n_dropped']} 个小段" if d["n_dropped"] else ""))
+            print(f"     余量分侧: 外侧 ±{cfg['el_pad']:g}° ｜ 洞侧 ±{cfg['el_pad_gap']:g}°"
+                  f" → pitch [{vl['el_lo']:.2f},{vl['el_hi']:.2f}]"
+                  f"（full 模式下为 [{min(vl['raw']['el']) - cfg['el_pad']:.2f},"
+                  f"{max(vl['raw']['el']) + cfg['el_pad']:.2f}]）")
+            if pk["tie_warn"]:
+                print(f"     ⚠️ 两圈帧数接近（次大段 ≥ {cfg['el_tie_warn']:g}×主段）："
+                      "biggest 会随帧数抖动，建议显式 EL_PICK=top/bottom")
     print(f"  ✂️ 加余量(az±{cfg['az_pad']:g}°/el±{cfg['el_pad']:g}°/r×(1±{cfg['r_pad']:g})): "
           f"Phi [{phi_lo:.2f},{phi_hi:.2f}] ｜ Theta [{theta_lo:.2f},{theta_hi:.2f}] ｜ "
           f"R [{vl['r_lo']:.3f},{vl['r_hi']:.3f}]")
@@ -732,6 +920,10 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     print(f"  📍 init(首帧): pitch {gs['setting']['pitch_init']:.2f}° "
           f"yaw {yaw_init:.2f}° r {vl['init']['r']:.3f}"
           f"{'  ✅ 在区间内' if init_in else '  ⚠️ 落在区间外（请检查数据）'}")
+    if pk["init_clamped"]:
+        print(f"     ℹ️ 首帧原始仰角 {pk['init_original']:.2f}° 落在保留区间外，"
+              f"pitch_init 已夹到 {pk['init_used']:.2f}°"
+              f"（要让开场视角留在首帧那一圈 → EL_PICK=init）")
     intr, fov = info["intrinsics"], info["init_fov"]
     if intr:
         print(f"  🔭 内参(首帧): {intr['width']:.0f}×{intr['height']:.0f} "
@@ -796,13 +988,36 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
                     "intrinsics": info["intrinsics"],
                     "scene_center": info["scene_center"]},
         "init": {"pitch": gs["setting"]["pitch_init"], "yaw": yaw_init,
-                 "r": vl["init"]["r"], "inside_limits": init_in},
+                 "r": vl["init"]["r"], "inside_limits": init_in,
+                 "pitch_raw_first_frame": pk["init_original"],
+                 "pitch_clamped": pk["init_clamped"]},
         "checks": {"center_dist_err_m": dist_err, "radius_band_covers": band_cover},
+        "pitch_split": {
+            "mode": pk["mode"], "pick": cfg["el_pick"],
+            "raw_span": list(pk["raw_span"]),
+            "segments": pk["segments"], "picked": pk["picked"],
+            "threshold": pk["diag"].get("threshold"),
+            "median_gap": pk["diag"].get("median_gap"),
+            "gap_max": pk["diag"].get("gap_max"),
+            "gap_max_span": (list(pk["diag"]["gap_max_span"])
+                             if pk["diag"].get("gap_max_span") else None),
+            "n_cuts": pk["diag"].get("n_cuts"),
+            "n_dropped": pk["diag"].get("n_dropped"),
+            "tie_warn": pk["tie_warn"], "fallback": pk["fallback"],
+            "pad_out": pk["pad_out"], "pad_gap": pk["pad_gap"],
+            "el_lo": vl["el_lo"], "el_hi": vl["el_hi"],
+            "init_original": pk["init_original"], "init_used": pk["init_used"],
+            "init_clamped": pk["init_clamped"],
+        },
         "params": {"VL_TARGET": cfg["target_mode"], "VL_AZ_PAD": cfg["az_pad"],
                    "VL_EL_PAD": cfg["el_pad"], "VL_R_PAD": cfg["r_pad"],
                    "VL_FULL_AZ": cfg["full_az"], "RADIUS_MODE": cfg["radius_mode"],
                    "PHI_NORMALIZE": cfg["phi_normalize"],
-                   "INIT_FOV_SCALE": cfg["init_fov_scale"]},
+                   "INIT_FOV_SCALE": cfg["init_fov_scale"],
+                   "PITCH_MODE": cfg["pitch_mode"], "EL_PICK": cfg["el_pick"],
+                   "EL_GAP_MIN": cfg["el_gap_min"], "EL_GAP_K": cfg["el_gap_k"],
+                   "EL_PAD_GAP": cfg["el_pad_gap"], "EL_TIE_WARN": cfg["el_tie_warn"],
+                   "EL_MIN_FRAMES": cfg["el_min_frames"]},
     }
     ok &= write_json(out_dir / "center_report.json", report, indent=4)
     print(f"  {'✅' if ok else '❌'} 输出: {out_dir}")
@@ -870,6 +1085,15 @@ def run_plots(cfg: dict, src_root: Path, out_root: Path) -> None:
             "VL_EL_PAD": f"{cfg['el_pad']:g}",
             "VL_R_PAD": f"{cfg['r_pad']:g}",
             "VL_FULL_AZ": f"{cfg['full_az']:g}",
+            # 仰角空洞保护也必须透传：否则 99g 会自己算出一版横跨空洞的 el 区间，
+            # 图与 gs json 对不上（99g 是独立进程、自己读 transforms.json 重算的）
+            "PITCH_MODE": cfg["pitch_mode"],
+            "EL_GAP_MIN": f"{cfg['el_gap_min']:g}",
+            "EL_GAP_K": f"{cfg['el_gap_k']:g}",
+            "EL_MIN_FRAMES": str(cfg["el_min_frames"]),
+            "EL_PICK": cfg["el_pick"],
+            "EL_PAD_GAP": f"{cfg['el_pad_gap']:g}",
+            "EL_TIE_WARN": f"{cfg['el_tie_warn']:g}",
         })
         what = "居中包（世界原点=主体中心）" if mode == "centered" else "原始采集包（对照）"
         print(f"  [{mode}] {what} → {dst}")
@@ -920,7 +1144,10 @@ def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
     print(f"🔍 批次根:   {src_root}")
     print(f"📁 输出根:   {out_root}")
     print(f"🎯 球心口径: {cfg['target_mode']}（sight=最小二乘视线汇聚中心）"
-          f" ｜ 余量 az±{cfg['az_pad']:g}° el±{cfg['el_pad']:g}° r×(1±{cfg['r_pad']:g})")
+          f" ｜ 余量 az±{cfg['az_pad']:g}° el±{cfg['el_pad']:g}° r×(1±{cfg['r_pad']:g})"
+          + (f" ｜ 仰角 PITCH_MODE=peak(EL_PICK={cfg['el_pick']}，gap≥"
+             f"{cfg['el_gap_min']:g}°/洞侧余量{cfg['el_pad_gap']:g}°)"
+             if cfg["pitch_mode"] == "peak" else " ｜ 仰角 PITCH_MODE=full"))
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只算不落盘）")
     if cfg["out_plots"]:
@@ -974,6 +1201,14 @@ def main():
         "el_pad": float(os.environ.get("VL_EL_PAD", "3.0")),
         "r_pad": float(os.environ.get("VL_R_PAD", "0.08")),
         "full_az": float(os.environ.get("VL_FULL_AZ", "300.0")),
+        # --- 仰角「空洞」保护 gap split（99g 同名 env，改一处要同步另一处）---
+        "pitch_mode": os.environ.get("PITCH_MODE", "full").strip().lower(),
+        "el_gap_min": float(os.environ.get("EL_GAP_MIN", "8.0")),
+        "el_gap_k": float(os.environ.get("EL_GAP_K", "5.0")),
+        "el_min_frames": int(os.environ.get("EL_MIN_FRAMES", "5")),
+        "el_pick": os.environ.get("EL_PICK", "biggest").strip().lower(),
+        "el_pad_gap": float(os.environ.get("EL_PAD_GAP", "0.0")),
+        "el_tie_warn": float(os.environ.get("EL_TIE_WARN", "0.8")),
         "radius_mode": os.environ.get("RADIUS_MODE", "mid").strip().lower(),
         "init_fov_scale": float(os.environ.get("INIT_FOV_SCALE", "0.8")),
         "sort_by_time": os.environ.get("SORT_BY_TIME", "1") == "1",
@@ -1003,6 +1238,17 @@ def main():
         sys.exit(f"❌ VL_TARGET 只能是 sight / anchor，实际 {cfg['target_mode']}")
     if cfg["radius_mode"] not in ("mean", "median", "mid", "max", "min"):
         sys.exit(f"❌ RADIUS_MODE 只能是 mean/median/mid/max/min，实际 {cfg['radius_mode']}")
+    if cfg["pitch_mode"] not in ("full", "peak"):
+        sys.exit(f"❌ PITCH_MODE 只能是 full / peak，实际 {cfg['pitch_mode']}")
+    if cfg["el_pick"] not in ("biggest", "top", "bottom", "init"):
+        sys.exit(f"❌ EL_PICK 只能是 biggest / top / bottom / init，实际 {cfg['el_pick']}")
+    if cfg["el_gap_min"] < 0 or cfg["el_gap_k"] < 0 or cfg["el_pad_gap"] < 0:
+        sys.exit("❌ EL_GAP_MIN / EL_GAP_K / EL_PAD_GAP 不能为负（实际 "
+                 f"{cfg['el_gap_min']:g} / {cfg['el_gap_k']:g} / {cfg['el_pad_gap']:g}）")
+    if cfg["el_min_frames"] < 1:
+        sys.exit(f"❌ EL_MIN_FRAMES 需 ≥ 1，实际 {cfg['el_min_frames']}")
+    if not 0.0 <= cfg["el_tie_warn"] <= 1.0:
+        sys.exit(f"❌ EL_TIE_WARN 需在 [0,1]，实际 {cfg['el_tie_warn']}")
     if cfg["init_fov_scale"] <= 0:
         sys.exit(f"❌ INIT_FOV_SCALE 需 > 0，实际 {cfg['init_fov_scale']}")
     for k in ("az_pad", "el_pad", "r_pad"):
