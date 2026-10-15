@@ -17,6 +17,9 @@
   7. SOM-RES：分阶段分辨率调度（res_scheduler.py，默认关闭）——
      2026-10-13 A/B/C 实测在本链路零加速（瓶颈是随高斯数 N 增长的
      非渲染开销，不是光栅化像素），阈值补偿有害。数据见 README 负结果节。
+  8. SOM-EXPOSURE：方案 A 逐相机曝光仿射（exposure.py，默认关闭）——
+     门控开启瞬间 lstsq 闭式初始化，独立 lr 1e-3 + 拉回恒等正则，
+     test 帧按 fid 插值。针对手机 auto-exposure 逐帧光度漂移。
 
 用法（由 02_train.sh 调用，CLI 参数与官方 train.py 全兼容；SOM 超参走 env，
 与仓内 train_pose_refine.py 的 POSE_REFINE_* 同一惯例）：
@@ -70,6 +73,13 @@ SOM_MAX_GAUSSIANS = int(os.environ.get("SOM_MAX_GAUSSIANS", "1500000"))
 # SOM-DENSIFY：稠密化自动调度（方案 D 移植，默认关；开后 thr/窗口不再靠人肉调）
 SOM_DENSIFY_SCHED = os.environ.get("SOM_DENSIFY_SCHED", "0") == "1"
 SOM_DENSIFY_MOMENTUM_MULT = os.environ.get("SOM_DENSIFY_MOMENTUM_MULT", "auto")
+# SOM-EXPOSURE：方案 A 逐相机曝光仿射补偿（exposure.py，默认关）。
+# 门控：iteration < FROM（默认 warm_up）前 A 恒等；门控瞬间对全部训练帧
+# 渲染一遍做 lstsq 闭式初始化，再以独立小 lr 联合训练；test 帧按 fid 插值。
+SOM_EXPOSURE = os.environ.get("SOM_EXPOSURE", "0") == "1"
+SOM_EXPOSURE_FROM_ITER = int(os.environ.get("SOM_EXPOSURE_FROM_ITER", "-1"))
+SOM_EXPOSURE_LR = float(os.environ.get("SOM_EXPOSURE_LR", "1e-3"))
+SOM_EXPOSURE_REG = float(os.environ.get("SOM_EXPOSURE_REG", "0.01"))
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -112,6 +122,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
+    # SOM-EXPOSURE：方案 A 逐相机曝光仿射（exposure.py）。FROM=-1 → warm_up
+    exposure = None
+    exposure_from = -1
+    if SOM_EXPOSURE:
+        from exposure import ExposureBank
+        _train_cams = scene.getTrainCameras()
+        exposure = ExposureBank([c.image_name for c in _train_cams],
+                                [float(c.fid) for c in _train_cams],
+                                lr=SOM_EXPOSURE_LR, reg_weight=SOM_EXPOSURE_REG)
+        exposure_from = (SOM_EXPOSURE_FROM_ITER if SOM_EXPOSURE_FROM_ITER > 0
+                         else opt.warm_up)
+        print("[EXPOSURE] enabled: {} train cams, from_iter={}, lr={}, reg={}".format(
+            len(exposure.names), exposure_from, SOM_EXPOSURE_LR, SOM_EXPOSURE_REG),
+            flush=True)
+
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
 
@@ -138,6 +163,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 network_gui.conn = None
 
         iter_start.record()
+
+        # SOM-EXPOSURE：门控开启瞬间做闭式初始化（全部训练帧渲染一遍解 lstsq）
+        if exposure is not None and iteration == exposure_from and not exposure.initialized:
+            exposure.closed_form_init(_exposure_render_pass(
+                scene, gaussians, deform, render, pipe, background, dataset))
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -185,8 +215,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             gt_image = res_sched.gt_image(viewpoint_cam, cur_scale).cuda()
         else:
             gt_image = viewpoint_cam.original_image.cuda()
+        # SOM-EXPOSURE：门控后对渲染图做逐相机仿射校正；L1 与 DSSIM 用同一张
+        # 校正图（口径一致），test 帧评测时按 fid 插值（见 training_report）
+        exposure_on = exposure is not None and iteration >= exposure_from
+        if exposure_on:
+            image = exposure.apply(viewpoint_cam.image_name, image)
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        # SOM-EXPOSURE：拉回恒等正则（防与 SH 颜色互相吸收震荡）
+        if exposure_on and SOM_EXPOSURE_REG > 0:
+            loss = loss + SOM_EXPOSURE_REG * exposure.reg_loss()
         # SOM：基加速度时间平滑（warm_up 后基才开始动，故只在之后计）
         if iteration >= opt.warm_up and SOM_SMOOTH_WEIGHT > 0:
             loss = loss + SOM_SMOOTH_WEIGHT * deform.smooth_loss()
@@ -213,7 +251,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             # Log and save
             cur_psnr = training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end),
                                        testing_iterations, scene, render, (pipe, background), deform,
-                                       dataset.load2gpu_on_the_fly, dataset.is_6dof)
+                                       dataset.load2gpu_on_the_fly, dataset.is_6dof,
+                                       exposure=exposure if exposure_on else None)
             if iteration in testing_iterations:
                 if cur_psnr.item() > best_psnr:
                     best_psnr = cur_psnr.item()
@@ -225,6 +264,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 # SOM：存 som_motion/ 而不是 deform/（官方这里引用全局 args 是 bug 习惯，
                 # 沿用 train_pose_refine.py 的修正：用 dataset.model_path）
                 deform.save_weights(dataset.model_path, iteration)
+                # SOM-EXPOSURE：随 ckpt 存曝光仿射（render_som/评测复用）
+                if exposure is not None:
+                    exposure.save_weights(dataset.model_path, iteration)
 
             # Densification
             if iteration < opt.densify_until_iter:
@@ -277,11 +319,40 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 gaussians.optimizer.step()
                 gaussians.update_learning_rate(iteration)
                 deform.optimizer.step()
+                if exposure_on:
+                    exposure.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none=True)
                 deform.optimizer.zero_grad()
+                if exposure_on:
+                    exposure.optimizer.zero_grad()
                 deform.update_learning_rate(iteration)
 
     print("Best PSNR = {} in Iteration {}".format(best_psnr, best_iteration))
+
+
+def _exposure_render_pass(scene, gaussians, deform, render_func, pipe, background, dataset):
+    """SOM-EXPOSURE：对全部训练相机渲染一遍（no_grad），供闭式初始化解 lstsq。
+    渲染口径与 training_report 的评测完全一致（deform.step 带 rotations）。"""
+    outs = {}
+    with torch.no_grad():
+        for cam in scene.getTrainCameras():
+            if dataset.load2gpu_on_the_fly:
+                cam.load2device()
+            fid = cam.fid
+            xyz = gaussians.get_xyz
+            time_input = fid.unsqueeze(0).expand(xyz.shape[0], -1)
+            d_xyz, d_rotation, d_scaling = deform.step(
+                xyz.detach(), time_input,
+                rotations=gaussians.get_rotation.detach())
+            pkg = render_func(cam, gaussians, pipe, background,
+                              d_xyz, d_rotation, d_scaling, dataset.is_6dof)
+            outs[cam.image_name] = (
+                pkg["render"].clamp(0, 1).cpu(),
+                cam.original_image.clamp(0, 1).cpu(),
+                None)  # 渲染器无 alpha 输出 → 全像素 + 抗外点重解
+            if dataset.load2gpu_on_the_fly:
+                cam.load2device('cpu')
+    return outs
 
 
 def prepare_output_and_logger(args):
@@ -306,7 +377,7 @@ def prepare_output_and_logger(args):
 
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene: Scene, renderFunc,
-                    renderArgs, deform, load2gpu_on_the_fly, is_6dof=False):
+                    renderArgs, deform, load2gpu_on_the_fly, is_6dof=False, exposure=None):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -337,6 +408,10 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     image = torch.clamp(
                         renderFunc(viewpoint, scene.gaussians, *renderArgs, d_xyz, d_rotation, d_scaling, is_6dof)["render"],
                         0.0, 1.0)
+                    # SOM-EXPOSURE：评测同口径 apply（train 查表 / test 按 fid 插值）
+                    if exposure is not None:
+                        image = torch.clamp(exposure.apply_eval(
+                            viewpoint.image_name, viewpoint.fid, image), 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     images = torch.cat((images, image.unsqueeze(0)), dim=0)
                     gts = torch.cat((gts, gt_image.unsqueeze(0)), dim=0)

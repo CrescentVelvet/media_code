@@ -49,7 +49,7 @@ def _step(deform, gaussians, fid):
                        rotations=gaussians.get_rotation.detach())
 
 
-def render_set(model_path, load2gpu_on_the_fly, is_6dof, name, iteration, views, gaussians, pipeline, background, deform):
+def render_set(model_path, load2gpu_on_the_fly, is_6dof, name, iteration, views, gaussians, pipeline, background, deform, exposure=None):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
     depth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "depth")
@@ -65,6 +65,10 @@ def render_set(model_path, load2gpu_on_the_fly, is_6dof, name, iteration, views,
         d_xyz, d_rotation, d_scaling = _step(deform, gaussians, view.fid)
         results = render(view, gaussians, pipeline, background, d_xyz, d_rotation, d_scaling, is_6dof)
         rendering = results["render"]
+        # SOM-EXPOSURE：与训练评测同口径应用曝光仿射（train 查表/test 插值）
+        if exposure is not None:
+            rendering = torch.clamp(
+                exposure.apply_eval(view.image_name, view.fid, rendering), 0.0, 1.0)
         depth = results["depth"]
         depth = depth / (depth.max() + 1e-5)
         gt = view.original_image[0:3, :, :]
@@ -209,6 +213,12 @@ def render_sets(dataset, iteration, pipeline, skip_train, skip_test, mode):
         deform.load_weights(dataset.model_path)
         print("[SOM] num_frames={}, num_bases={}".format(num_frames, SOM_NUM_BASES))
 
+        # SOM-EXPOSURE：若训练时开了方案 A，渲染同口径应用（无 exposure.pth 则为 None）
+        from exposure import ExposureBank
+        exposure = ExposureBank.load(dataset.model_path)
+        if exposure is not None:
+            print("[EXPOSURE] loaded exposure.pth（渲染将应用逐相机仿射校正）")
+
         bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
@@ -221,12 +231,15 @@ def render_sets(dataset, iteration, pipeline, skip_train, skip_test, mode):
         else:
             raise ValueError("render_som.py 只支持 render/time/original，收到: {}".format(mode))
 
+        # SOM-EXPOSURE：仿射只进 render 模式（指标/存图口径）；time/original 插帧
+        # 视频用于看运动重影，曝光校正无关紧要，不加（函数签名也不接）
+        extra = {"exposure": exposure} if mode == "render" else {}
         if not skip_train:
             render_func(dataset.model_path, dataset.load2gpu_on_the_fly, dataset.is_6dof, "train", scene.loaded_iter,
-                        scene.getTrainCameras(), gaussians, pipeline, background, deform)
+                        scene.getTrainCameras(), gaussians, pipeline, background, deform, **extra)
         if not skip_test:
             render_func(dataset.model_path, dataset.load2gpu_on_the_fly, dataset.is_6dof, "test", scene.loaded_iter,
-                        scene.getTestCameras(), gaussians, pipeline, background, deform)
+                        scene.getTestCameras(), gaussians, pipeline, background, deform, **extra)
 
 
 if __name__ == "__main__":
