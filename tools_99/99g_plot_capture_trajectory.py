@@ -919,7 +919,7 @@ VL_FULL_AZ = float(os.environ.get("VL_FULL_AZ", "300.0"))
 # 横跨空档 → 用户转到中间视角穿帮。peak = 按仰角排序找最大间隙切段，只保留一圈：
 #   thr = max(EL_GAP_MIN, EL_GAP_K × 中位帧间距)；单圈数据不会触发 → 结果与 full 逐位相同。
 PITCH_MODE = os.environ.get("PITCH_MODE", "full").strip().lower()   # full(默认) | peak
-EL_GAP_MIN = float(os.environ.get("EL_GAP_MIN", "8.0"))    # 切段绝对下限（度）
+EL_GAP_MIN = float(os.environ.get("EL_GAP_MIN", "2.5"))    # 切段绝对下限（度）
 EL_GAP_K = float(os.environ.get("EL_GAP_K", "5.0"))        # 切段相对倍率（× 中位帧间距）
 EL_MIN_FRAMES = int(os.environ.get("EL_MIN_FRAMES", "5"))  # 段的最小帧数（不足的当离群丢掉）
 EL_PICK = os.environ.get("EL_PICK", "biggest").strip().lower()  # biggest | top | bottom | init
@@ -1106,7 +1106,11 @@ def split_el_segments(el, gap_min, gap_k, min_frames):
 
     判据 thr = max(gap_min, gap_k × median(gaps))：
       · median(gaps) = 同一圈内的正常帧间距，洞是它的几十倍 → gap_k（默认 5）即分开；
-      · gap_min（默认 8°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+      · gap_min（默认 2.5°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+    默认值依据（2026-10-16 实测 10 包真实单圈数据）：单圈内部最大间隙仅 0.11~1.71°、
+    中位帧间距 0.013~0.08°（相对判据最多只到 0.41° → 实际拦住切段的恒为绝对下限）；
+    服务器双峰样例的洞只有 3.29°（el 33.5°→36.8°），故下限由 8.0 下调到 2.5 —— 仍比
+    实测单圈最大间隙（1.71°，仅 68 帧的稀疏采集）高 46%；再降到 1.5 即会把那包误切。
     单帧离群（手抖拍到 -60°）会自成一段、再被 min_frames 丢掉；这是附带收益 ——
     原来的 min/max 取法对离群零抵抗。
 

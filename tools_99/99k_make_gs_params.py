@@ -118,7 +118,8 @@ Env vars
     VL_TARGET      球心口径 sight(默认) | anchor
     VL_AZ_PAD / VL_EL_PAD / VL_R_PAD / VL_FULL_AZ   同 99g（默认 3.0 / 3.0 / 0.08 / 300.0）
     PITCH_MODE     full(默认) | peak —— peak=仰角 gap split，双峰数据只保留一圈
-    EL_GAP_MIN     切段绝对下限（度，默认 8.0）：相邻仰角差 ≥ 它才算「洞」
+    EL_GAP_MIN     切段绝对下限（度，默认 2.5）：相邻仰角差 ≥ 它才算「洞」
+                   （单圈实测最大间隙 1.71°；洞比 2.5° 更小时才往下调，需留意误切单圈）
     EL_GAP_K       切段相对倍率（默认 5.0）：阈值还要 ≥ K×同圈中位帧间距，自适应帧密度
     EL_PICK        peak 模式保留哪一圈：biggest(默认，帧数最多) | top(仰角最高=俯视圈)
                    | bottom(仰角最低=平视圈) | init(含首帧的圈)
@@ -354,7 +355,11 @@ def split_el_segments(el, gap_min, gap_k, min_frames):
 
     判据 thr = max(gap_min, gap_k × median(gaps))：
       · median(gaps) = 同一圈内的正常帧间距，洞是它的几十倍 → gap_k（默认 5）即分开；
-      · gap_min（默认 8°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+      · gap_min（默认 2.5°）是绝对下限 → 防止「稠密圈内部本来就稀疏」时被误切成多段。
+    默认值依据（2026-10-16 实测 10 包真实单圈数据）：单圈内部最大间隙仅 0.11~1.71°、
+    中位帧间距 0.013~0.08°（相对判据最多只到 0.41° → 实际拦住切段的恒为绝对下限）；
+    服务器双峰样例的洞只有 3.29°（el 33.5°→36.8°），故下限由 8.0 下调到 2.5 —— 仍比
+    实测单圈最大间隙（1.71°，仅 68 帧的稀疏采集）高 46%；再降到 1.5 即会把那包误切。
     单帧离群（手抖拍到 -60°）会自成一段、再被 min_frames 丢掉；这是附带收益 ——
     原来的 min/max 取法对离群零抵抗。
 
@@ -1151,7 +1156,7 @@ def main():
         "full_az": float(os.environ.get("VL_FULL_AZ", "300.0")),
         # --- 仰角「空洞」保护 gap split（99g 同名 env，改一处要同步另一处）---
         "pitch_mode": os.environ.get("PITCH_MODE", "full").strip().lower(),
-        "el_gap_min": float(os.environ.get("EL_GAP_MIN", "8.0")),
+        "el_gap_min": float(os.environ.get("EL_GAP_MIN", "2.5")),
         "el_gap_k": float(os.environ.get("EL_GAP_K", "5.0")),
         "el_min_frames": int(os.environ.get("EL_MIN_FRAMES", "5")),
         "el_pick": os.environ.get("EL_PICK", "biggest").strip().lower(),
