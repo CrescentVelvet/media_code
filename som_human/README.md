@@ -129,7 +129,7 @@ conda install -n colmap --override-channels -c conda-forge 'openimageio=3.1' -y
   ≈0.63m VIO 单位）、旋转残差中位 47°——VIO 漂移幅度的直接量化；
 - 精化点云叠加图：点坐在人/地面正确结构上（`colmap_refined/reproj_check/`）。
 
-训练侧收益见「实验记录」节（受控 A/B：同 v1 配方只换位姿）。
+训练侧收益见「实验记录」节 ①：同 10k 迭代下 **13.978 → 21.265（+7.29dB）**。
 
 ## 曝光补偿（方案 A，`exposure.py`，默认关闭）
 
@@ -145,14 +145,55 @@ conda install -n colmap --override-channels -c conda-forge 'openimageio=3.1' -y
 - 权重随 ckpt 存 `model_path/exposure/iteration_N/exposure.pth`，
   render_som 自动检测并应用（time/original 插帧模式不加，只看运动重影）。
 
-开启：`USE_EXPOSURE=1 bash som_human/02_train.sh`（A/B 效果见实验记录）。
+⚠️ **渲染口径坑（2026-10-16 修，A 案复核时踩到）**：
+`ExposureBank.load()` 与 `SoMMotionModel.load_weights()` 的默认参数都是
+**「取最大迭代号」**，而 render_som 原先两处都没传 `--iteration` 对应的迭代号
+→ **渲染旧 ckpt 时会套上最新迭代的运动基/曝光权重**（实测：`model_colmap_exp`
+渲染 10k 时套了 20k 的运动权重，虚高 **+0.49dB**）。现均改为按 `scene.loaded_iter`
+配对加载，曝光权重缺失时回退到「≤ 目标迭代的最大者」并告警。
+**渲染非最新 ckpt 前务必核对日志**：`✅ [SoM] 加载运动基权重: .../iteration_N/som.pth`
+的 N 是否等于目标迭代。
+
+开启：`USE_EXPOSURE=1 bash som_human/02_train.sh`（**实测无收益，默认关**，见实验记录 ②）。
 
 ## 实验记录（按日期倒序，负结果也记录）
 
+### 2026-10-16 ② 曝光补偿（方案 A）A/B 定论：**无收益，默认关**
+
+`USE_EXPOSURE` 0→1，其余逐字同配（double_wave/colmap_refined，20k 计划、
+warm_up 1000、-r 2、max_gauss 1.5M 撞帽、matmul 修复后代码）：
+
+| 模型 | exposure | PSNR@10k | SSIM | LPIPS |
+|---|---|---|---|---|
+| model_colmap（对照） | 0 | **21.265** | **0.6748** | **0.2485** |
+| model_colmap_exp | 1 | 20.953 | 0.6566 | 0.2519 |
+| Δ | | **−0.31** | −0.018 | +0.003 |
+
+- **10k 是唯一严格配对点**：对照那次训练在 14k 被杀，只落了 7k/10k ckpt。
+- @20k：曝光组终点 21.633（best 21.863@19k），**无同配置对照**；且低于同期
+  600k-cap 基线 21.808（cap 变量不可比，仅作指示）。两期点数均撞 1.5M cap
+  （1,500,885 vs 1,502,625），配对性良好。
+- 闭式初始化证明曝光漂移**真实存在**（max|A−I|=0.246，mean 0.020），但收益被
+  SH 颜色吸收/噪声吞没 → **默认 `USE_EXPOSURE=0`**。
+- ⚠️ 复核时先测到「+0.18dB」是**假象**：渲染 10k ckpt 时套了 20k 的运动基权重
+  （见方案 A 节「渲染口径坑」，已修）。修正后渲染值与训练期协议逐位吻合
+  （20.953 vs 20.954）。
+
 ### 2026-10-13 ① 位姿根因诊断 + COLMAP 精化（01c/01d）
+
 见「位姿精化」节：VIO 位姿漂移实锤（inlier 摆 250 倍），01c 精化后 160/160
-注册、重投影中位 0.92px、inlier 分布收窄到 2.4×。**受控 A/B（v1 配方只换
-位姿）进行中，结果回填于此。**
+注册、重投影中位 0.92px、inlier 分布收窄到 2.4×。
+
+**受控 A/B（同 v1 配方只换位姿，同迭代数口径）——决定性正收益**：
+
+| 模型 | 位姿来源 | PSNR@10k | SSIM | LPIPS |
+|---|---|---|---|---|
+| model_v1 | App VIO（colmap_scene） | 13.978 | 0.3345 | 0.6629 |
+| model_colmap | COLMAP 精化 | **21.265** | **0.6748** | **0.2485** |
+| Δ | | **+7.29** | +0.340 | −0.414 |
+
+@20k 只能单边看：v1 = 14.038（精化组 20k ckpt 不存在，训练在 14k 被杀）。
+**结论：手机采集场景，位姿精化是收益最大的单一步骤，01c 应默认开启。**
 
 ## 分阶段分辨率调度（coarse-to-fine）—— ⚠️ 实测否决，默认关闭
 
