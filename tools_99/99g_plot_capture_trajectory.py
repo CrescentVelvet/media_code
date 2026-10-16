@@ -50,6 +50,9 @@ rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆
     VL_TARGET=anchor python ...    # 回到 anchor_point 口径
     VL_MARK_ALT=0    python ...    # 不画对照球心
     QUAD_PHOTO=0     python ...    # quad 左栏不贴实拍首帧（默认贴，解码 HEIC 需 pillow-heif）
+    # 被画的包自身没有 image/ 时，按「同名 ID 目录」去这个根下取源图（99k 画的居中包
+    # 就是这种情况：只有 transforms.json + pcd.ply）。不复制、不挂链，直接读原包。
+    PHOTO_ROOT=D:/dataset/手部微动样例 SRC_ROOT=C:/code/output/.../centered python ...
 
     # 可选：只画其中几个 ID
     IDS=13a8ecadfeb448e890db319ac828befe,10e3ec6291c04bedaad735309e4bc43b STYLE=all python ...
@@ -95,6 +98,11 @@ PNG_SCALE = float(os.environ.get("PNG_SCALE", "2"))  # PNG 宽度 = 画布宽 ×
 # 解不了（无依赖 / 无 image 目录 / 解码失败）就不贴，quad 版面回退为无左栏的原样。
 QUAD_PHOTO = os.environ.get("QUAD_PHOTO", "1") == "1"
 QUAD_PHOTO_W = 340.0   # 左栏宽 px；照片面板与 ① 同高（450），竖拍 3:4 正好贴满
+
+# 源图回退根（2026-10-16）：本包没有 image/ 时，按「同名 ID 目录」去 <PHOTO_ROOT>/<ID>/image
+# 取实拍首帧 —— 集中在一处读原包，比在输出侧复制/挂链干净（99k 画的居中包只含位姿与点云，
+# 靠这条就能照常贴左栏实拍图）。留空 = 只用本包 image/。
+PHOTO_ROOT = os.environ.get("PHOTO_ROOT", "").strip()
 
 STYLES = ("quad", "combo", "minimal", "darkspace", "fov", "iso",
           "vlimit", "lim_band", "lim_edges", "lim_angle", "lim_rings", "lim_hull", "lim_shell")
@@ -2686,10 +2694,19 @@ def process_one(folder: Path, dst_root: Path, styles, suffix=""):
     data = load_transforms(tj)
     points, total, pbbox = load_ply_points(folder / "pcd.ply")
     ctx = build_ctx(folder.name, data, points, total, point_bbox=pbbox)
-    # quad 左栏要贴 image/ 第一张实拍图（HEIC 需 pillow-heif，解不了返回 None 自动跳过）
+    # quad 左栏要贴 image/ 第一张实拍图（HEIC 需 pillow-heif，解不了返回 None 自动跳过）。
+    # 本包没有 image/（如 99k 出的居中包只含位姿+点云）→ 按同名 ID 去 PHOTO_ROOT 下的源包
+    # 取图，因此输出侧无需复制/挂链也能贴实拍首帧。
     if QUAD_PHOTO and "quad" in styles:
         ctx["photo"] = load_first_photo(folder / "image",
                                         int(QUAD_PHOTO_W), int(QUAD_PH))
+        if ctx["photo"] is None and PHOTO_ROOT:
+            alt = Path(PHOTO_ROOT) / folder.name / "image"
+            ctx["photo"] = load_first_photo(alt, int(QUAD_PHOTO_W), int(QUAD_PH))
+            if ctx["photo"] is not None:
+                print(f"  🖼️  本包无 image/，实拍首帧取自源包: {alt}")
+            else:
+                print(f"  ⏭️  本包与源包都没有可用的 image/，quad 回退无左栏版面（查过 {alt}）")
 
     out = []
     for style in styles:

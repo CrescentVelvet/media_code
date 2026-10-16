@@ -214,6 +214,21 @@ frame 0 的实测角（`min(lo+span·k, init)` / `max(hi−span·k, init)`），
 参数与语义见「D. 采集包主体居中 → 相机参数（99k）」一节的「仰角空洞保护」—— 注意
 99k 出图时会自动把这组 env 透传下来，手工单独跑 99g 时才需要自己设。
 
+**`PHOTO_ROOT` —— 实拍首帧贴图的源图回退根**（2026-10-16）：quad 左栏那张实拍首帧默认读
+**被画的那个包**自己的 `image/`；如果被画的包没有 `image/`（典型就是 99k 出的居中包，
+只有 `transforms.json` + `pcd.ply`），就按**同名 ID 目录**去 `<PHOTO_ROOT>/<ID>/image` 取。
+所以"不复制、不挂链"和"图上照样有实拍图"可以同时成立 —— 图面照旧，源图只被读、不动。
+
+```bash
+# 画居中包（无 image/），实拍首帧回原批次根取
+PHOTO_ROOT=D:/dataset/手部微动样例 SRC_ROOT=../../output/recon_human_results/<批次>/centered \
+  python tools_99/99g_plot_capture_trajectory.py
+```
+
+回退成功会打一行 `🖼️ 本包无 image/，实拍首帧取自源包: …`；两边都没有可用图（或无
+pillow-heif）时打印提示并回退无左栏版面，不报错。99k 出图时**自动透传**这个变量
+（= 它扫的原始批次根），手工单独跑 99g 才需要自己设。
+
 图上会同时画出**球心**（实心圆 + 十字）与**对照球心**（另一个候选点，空心叉 + 虚线 + Δ 距离），
 标题行给出两者的拟合质量对照（垂距 RMS / 视线夹角 / 正规矩阵条件数）。实测 10 个样本
 （见 NOTES.md「球心取哪个点」）：`sight` 垂距 RMS 0.081 m、夹角 3.46°，`anchor_point`
@@ -275,9 +290,9 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 | `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
 
 **源图一律不复制、不挂链**（2026-10-16 起删掉 `OUT_IMAGES` 与 `link_images`）：居中包只含
-位姿与点云，需要图就直接用原始采集包（`01_convert_capture.sh` 也照样吃原包）。唯一副作用是
-quad 图左栏的「实拍首帧」贴图没了——99g 找不到 `image/` 会自动回退无左栏版面，不报错；
-想看那张图用 `PLOT_SRC=origin`（原包自带 `image/`）。
+位姿与点云，需要图就直接用原始采集包（`01_convert_capture.sh` 也照样吃原包）。
+**这不影响出图**：99k 出图时透传 `PHOTO_ROOT=<原批次根>`，99g 在本包找不到 `image/` 时按
+同名 ID 回源包读实拍首帧，quad 左栏的贴图照旧（详见 99g 一节的 `PHOTO_ROOT`）。
 
 `gs_camera_params_final.json` / `center_report.json` 落盘为 **4 空格缩进、LF 换行、无 BOM**
 （便于人工核对与 diff）；`transforms.json` 保持**紧凑单行**，与上游采集包书写风格一致
@@ -386,11 +401,11 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 
 ### 与 99g 的分工（为什么调脚本、不复制代码）
 
-99k 的产物「居中包」= `transforms.json` + `pcd.ply`，是 99g 认得的输入格式
-（只少一张左栏实拍贴图，回退无左栏），把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
+99k 的产物「居中包」= `transforms.json` + `pcd.ply`，是 99g 认得的输入格式（缺 `image/` 由
+`PHOTO_ROOT` 兜住，见上），把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
 `subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `VL_TARGET` / `VL_*_PAD` /
-`VL_FULL_AZ` 以及仰角空洞保护的 `PITCH_MODE` / `EL_*` 一起透传，保证图上的约束与 json 里
-的参数同口径。
+`VL_FULL_AZ`、仰角空洞保护的 `PITCH_MODE` / `EL_*`，以及 **`PHOTO_ROOT`（= 原始批次根）**
+一起透传，保证图上的约束与 json 里的参数同口径、且左栏实拍首帧照常有图。
 
 为什么不把 99g 的绘图代码搬进 99k（或 `import` 它）：99g 是**已定稿的汇报图面**
 （13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉、以后改图要改两处；

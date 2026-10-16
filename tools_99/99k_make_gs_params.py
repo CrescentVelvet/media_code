@@ -14,10 +14,11 @@
          画成自包含 HTML（默认画居中包；PLOT_SRC=origin/both 可加画原始采集包做对照）。
 
 与 99g 的关系（2026-10-15 定：调脚本，不复制代码、不 import）
-    99k 的产物「居中包」= transforms.json + pcd.ply（**不碰源图：image/ 既不复制也不挂链**，
-    2026-10-16 起），把它当 SRC_ROOT 直接喂给 99g 即可，零适配。代价是 quad 左栏的
-    「实拍首帧」贴图没了（99g 找不到 image/ 就自动回退无左栏版面，不会报错）；
-    想看那张图就 PLOT_SRC=origin（原包自带 image/）。之所以不把 99g 的绘图代码搬进 99k：
+    99k 的产物「居中包」= transforms.json + pcd.ply，**不碰源图：image/ 既不复制也不挂链**
+    （2026-10-16 起），把它当 SRC_ROOT 直接喂给 99g 即可，零适配。出图时 99k 会透传
+    `PHOTO_ROOT=<原批次根>`：99g 在本包找不到 image/ 就按**同名 ID 目录**回源包读实拍首帧，
+    所以 quad 左栏那张贴图照旧有（源图只读、不动；见 99g 的 PHOTO_ROOT）。之所以不把
+    99g 的绘图代码搬进 99k：
       · 99g 是已定稿的汇报图面（13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉，
         以后改图要改两处、还得保证两处同步；
       · import 会把 99k 钉死在 99g 的内部 API（build_ctx / process_one）上，同样脆；
@@ -65,7 +66,8 @@
     <采集包>/transforms.json          必需（逐帧 w/h/cx/cy/fl_x/fl_y/k1..k3/p1/p2
                                       + transform_matrix，c2w / OpenGL 相机系）
     <采集包>/pcd.ply                  可选（落居中包时平移它的 x/y/z）
-    <采集包>/image/*.heic             不读、不动（居中包只含位姿与点云，不复制源图）
+    <采集包>/image/*.heic             本脚本不读、不动（居中包只含位姿与点云；出图时
+                                      99g 按同名 ID 回源包读实拍首帧，见 PHOTO_ROOT）
 
 输出（<OUT_ROOT>/<task>/）
     gs_camera_params_final.json   99b 直接消费的相机参数（schema 见下）
@@ -1022,6 +1024,9 @@ def run_plots(cfg: dict, src_root: Path, out_root: Path) -> None:
             "EL_PICK": cfg["el_pick"],
             "EL_PAD_GAP": f"{cfg['el_pad_gap']:g}",
             "EL_TIE_WARN": f"{cfg['el_tie_warn']:g}",
+            # 居中包不含源图（99k 不复制、不挂链）→ 告诉 99g 按同名 ID 回原始批次根取
+            # 实拍首帧，quad 左栏照旧贴图。源图只被读、不动：见 99g 的 PHOTO_ROOT。
+            "PHOTO_ROOT": str(src_root),
         })
         what = "居中包（世界原点=主体中心）" if mode == "centered" else "原始采集包（对照）"
         print(f"  [{mode}] {what} → {dst}")
