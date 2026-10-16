@@ -1182,10 +1182,14 @@ def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
 
 def main():
     # ===== 在这里直接改路径（或用环境变量覆盖）=====
-    RESULTS_ROOT = Path(os.environ.get(
-        "RESULTS_ROOT", "../../output/recon_human_results"))
     # 采集包批次根（本机样例集；服务器上换成实际采集目录）
-    SRC_ROOT = Path(os.environ.get("SRC_ROOT", "D:/dataset/手部微动样例"))
+    SRC_ROOT = Path(os.environ.get(
+        "SRC_ROOT",
+        # "D:/dataset/手部微动样例",
+        "../../code/Reconstruction/dataset/scene_B004_0824_data-物体输入图像",
+    ))
+    # 输出目录（HTML 很小，放哪儿都行）
+    RESULTS_ROOT = Path(os.environ.get("RESULTS_ROOT", "../../output/recon_human_results"))
     SRC = os.environ.get("SRC", "").strip()      # 单个采集包（或其 transforms.json）
     batch = Path(SRC).parent.name if SRC else SRC_ROOT.resolve().name
     OUT_ROOT = Path(os.environ.get("OUT_ROOT", "")) if os.environ.get("OUT_ROOT") else \
