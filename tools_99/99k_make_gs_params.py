@@ -101,14 +101,14 @@ gs_camera_params_final.json 的 schema（4 空格缩进、带换行，便于人�
     roll_init 恒 0（本链路无滚转）；scene.center 居中后恒 [0,0,0]。
 
 用法
-    python tools_99/99k_make_gs_params.py                     # 跑 main() 里的预设批次
-    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python tools_99/99k_make_gs_params.py
-    DRY_RUN=1 python tools_99/99k_make_gs_params.py           # 只算不落盘
-    ONLY=01e954...,10e3ec... python ...                       # 批次里只跑白名单
-    PLOT_STYLE=lim_edges python tools_99/99k_make_gs_params.py # 顺便换一种图面风格
     PITCH_MODE=peak python tools_99/99k_make_gs_params.py      # 两圈数据只保留一圈（避开空洞）
-    PITCH_MODE=peak EL_PICK=init python tools_99/99k_make_gs_params.py   # 保留首帧那一圈
-    OUT_PLOTS=0 python tools_99/99k_make_gs_params.py          # 只要参数、不出图
+    python ...                                                 # 跑 main() 里的预设批次，默认PITCH_MODE=full
+    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...    # 更改输入路径
+    DRY_RUN=1 python ...                                       # 只算不落盘
+    ONLY=01e954...,10e3ec... python ...                        # 批次里只跑白名单
+    PLOT_STYLE=lim_edges python ...                            # 顺便换一种图面风格
+    PITCH_MODE=peak EL_PICK=init python ...                    # 保留首帧那一圈
+    OUT_PLOTS=0 python ...                                     # 只要参数、不出图
 
 Env vars
     SRC            单个采集包目录（或直接给 transforms.json 的路径）；设了就忽略 SRC_ROOT
