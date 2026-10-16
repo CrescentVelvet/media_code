@@ -13,6 +13,9 @@
      delta、不加正则。动机：立即启动在坏初值（手机 VI 位姿）上发散——
      warm-up 期几何未成型，位姿被垃圾梯度拖走自我强化；BARF 式课程
      等几何成型（warm_up + 稠密化冻结）后再开位姿优化。
+  4c. B v2 可微课程（2026-10-16）：POSE_REFINE_LR_WARMUP（启动后 lr 从 0 线性
+     爬到满值）+ POSE_REFINE_ROT_ONLY_STEPS（在此之前仅放开旋转，之后才解冻
+     平移）。动机：v1/v2-a 都在启用瞬间让位姿自由乱走；课程让位姿温和收敛。
   5. 评估（training_report）不带 store——test/train 抽样都用 COLMAP 原始位姿，
      与 vanilla 基线的评估口径一致（精炼位姿没有真值可对标）。
 
@@ -47,7 +50,8 @@ from utils.general_utils import safe_state, get_linear_noise_func
 
 # POSE-REFINE：可学位姿存储 + 带 delta 注入的渲染
 from pose_delta import (PoseDeltaStore, render_pose_delta,
-                        POSE_REFINE_WEIGHT, POSE_REFINE_START)
+                        POSE_REFINE_WEIGHT, POSE_REFINE_START,
+                        POSE_REFINE_LR_WARMUP, POSE_REFINE_ROT_ONLY_STEPS)
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -69,7 +73,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     pose_store = PoseDeltaStore(scene.getTrainCameras())
     pose_optimizer = pose_store.get_optimizer()
     print(f"[POSE-REFINE] {len(pose_store.uids)} 个训练相机参与位姿精炼, "
-          f"reg_weight={POSE_REFINE_WEIGHT}, start_iter={POSE_REFINE_START}"
+          f"reg_weight={POSE_REFINE_WEIGHT}, start_iter={POSE_REFINE_START}, "
+          f"lr_warmup={POSE_REFINE_LR_WARMUP}, rot_only={POSE_REFINE_ROT_ONLY_STEPS}"
           + ("（延迟启动：之前走原始位姿）" if POSE_REFINE_START > 0 else "（立即启动）"))
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -82,6 +87,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     ema_loss_for_log = 0.0
     best_psnr = 0.0
     best_iteration = 0
+    pose_trans_unlocked = False        # B v2：平移解冻只打印一次
     progress_bar = tqdm(range(opt.iterations), desc="Training progress")
     smooth_term = get_linear_noise_func(lr_init=0.1, lr_final=1e-15,
                                         lr_delay_mult=0.01, max_steps=20000)
@@ -139,8 +145,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         # store=None 时 render_pose_delta 走原始位姿路径，delta 参数无梯度，
         # Adam 状态在启用步才惰性建立，天然干净。
         pose_active = iteration >= POSE_REFINE_START
+        # B v2：课程 lr 每步写进 optimizer.param_groups（start 前 =0，start 后线性
+        # 爬升；平移在 rot_only 步后才解冻）。start 前 lr=0 → step 也不会动位姿。
+        scale_q, scale_t = pose_store.apply_lr_schedule(pose_optimizer, iteration)
         if pose_active and POSE_REFINE_START > 0 and iteration == POSE_REFINE_START:
-            print(f"\n[POSE-REFINE] iter {iteration}: 几何已成型，启用位姿精炼")
+            print(f"\n[POSE-REFINE] iter {iteration}: 几何已成型，启用位姿精炼"
+                  f"（lr 爬升 {POSE_REFINE_LR_WARMUP} 步，平移再等 {POSE_REFINE_ROT_ONLY_STEPS} 步）"
+                  f"\n[POSE-REFINE] 启用前 drift（应为 0）{pose_store.drift_stats()}")
+        if (pose_active and POSE_REFINE_ROT_ONLY_STEPS > 0
+                and scale_t > 0.0 and not pose_trans_unlocked):
+            print(f"\n[POSE-REFINE] iter {iteration}: 旋转课程结束，放开平移")
+            pose_trans_unlocked = True
         render_pkg_re = render_pose_delta(viewpoint_cam, gaussians, pipe, background,
                                           d_xyz, d_rotation, d_scaling, dataset.is_6dof,
                                           store=pose_store if pose_active else None)
@@ -189,7 +204,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
             # POSE-REFINE：周期性 drift 监控（偏离 COLMAP 初值过大 = 正则太弱或位姿在学噪声）
             if iteration % 1000 == 0:
-                print(f"\n[POSE-REFINE iter {iteration}] drift {pose_store.drift_stats()}")
+                print(f"\n[POSE-REFINE iter {iteration}] drift {pose_store.drift_stats()}"
+                      f" | lr_scale q={scale_q:.2f} t={scale_t:.2f}")
 
             if iteration in saving_iterations:
                 print("\n[ITER {}] Saving Gaussians".format(iteration))

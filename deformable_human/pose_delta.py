@@ -22,13 +22,24 @@
   tanfov，同样拿不到梯度（如需内参精炼，在 01 阶段用 colmap bundle_adjuster）。
 
 环境变量（由 02_train.sh 透传）：
-  POSE_REFINE_WEIGHT (0.01)  位姿正则权重（L2 拉回初始 COLMAP 位姿）
-  POSE_REFINE_LR_Q   (1e-3)  四元数学习率
-  POSE_REFINE_LR_T   (1e-3)  平移学习率
-  POSE_REFINE_START  (0)     延迟启动步数：iteration < N 时不注入 delta
-                             （几何未成型期位姿会被垃圾梯度拖走——2026-10-09
-                             手机位姿+立即启动实测发散 rot 1.48°/trans 0.12m；
-                             BARF 式课程：warm_up 静态热身 + 稠密化冻结后再开）
+  POSE_REFINE_WEIGHT (0.01)        位姿正则权重（L2 拉回初始 COLMAP 位姿）。
+                                   服务器 2026-10-15 更正：Reconstruction 的 reg
+                                   定义了但从未进主 loss，其稳定性来自「延迟启动 +
+                                   小 lr」；故本项降级为**可选保险丝**，设 0 即关。
+  POSE_REFINE_LR_Q   (1e-3)        四元数学习率（上限，受课程缩放）
+  POSE_REFINE_LR_T   (1e-3)        平移学习率（上限，受课程缩放）
+  POSE_REFINE_START  (0)           延迟启动步数：iteration < N 时不注入 delta
+                                   （几何未成型期位姿会被垃圾梯度拖走——2026-10-09
+                                   手机位姿+立即启动实测发散 rot 1.48°/trans 0.12m）
+  POSE_REFINE_LR_WARMUP (2000)     启动后 lr 从 0 线性爬到满值的步数（可微课程：
+                                   防启用瞬间的噪梯度把位姿一脚踹飞）
+  POSE_REFINE_ROT_ONLY_STEPS (1000) 启动后**只放开旋转**的步数，之后才放开平移
+                                   （旋转优先：手持视频旋转误差更敏感也更稳定，先让
+                                   旋转收敛再放平移，避免两个自由度同时乱走）
+
+[B v2 · 2026-10-16] v1（立即启动）与 v2-a（仅延迟 3000）都在手机 VI 烂初值上证伪；
+本文件补上课程两项（lr warmup + 旋转优先）后，B 案的验证目标改为**COLMAP 好初值
+修残差**（安全性优先：精炼 ≥ 纯 COLMAP 基线才继续）。
 """
 import os
 import json
@@ -44,6 +55,9 @@ POSE_REFINE_WEIGHT = float(os.environ.get("POSE_REFINE_WEIGHT", "0.01"))
 POSE_REFINE_LR_Q = float(os.environ.get("POSE_REFINE_LR_Q", "1e-3"))
 POSE_REFINE_LR_T = float(os.environ.get("POSE_REFINE_LR_T", "1e-3"))
 POSE_REFINE_START = int(os.environ.get("POSE_REFINE_START", "0"))
+# B v2 课程：启动后 lr 线性爬升的步数 / 启动后只放开旋转的步数
+POSE_REFINE_LR_WARMUP = int(os.environ.get("POSE_REFINE_LR_WARMUP", "2000"))
+POSE_REFINE_ROT_ONLY_STEPS = int(os.environ.get("POSE_REFINE_ROT_ONLY_STEPS", "1000"))
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +164,34 @@ class PoseDeltaStore(nn.Module):
             {"params": [self.delta_q], "lr": lr_q},
             {"params": [self.delta_t], "lr": lr_t},
         ])
+
+    # ── 可微课程（B v2）：延迟启动 → lr 线性 warmup → 旋转优先放开平移 ──────────
+    def lr_scales(self, iteration, start=None, warmup=None, rot_only=None):
+        """返回课程缩放系数 (scale_q, scale_t) ∈ [0,1]，乘在基础 lr 上。
+
+        - iteration < start          → (0, 0)  位姿冻结（不注入 delta）
+        - [start, start+warmup)      → 线性 0→1 爬升（防启用瞬间噪梯度一脚踹飞）
+        - [start+rot_only, ∞)        → 平移才解冻（此前 scale_t=0，只学旋转）
+        """
+        start = POSE_REFINE_START if start is None else start
+        warmup = POSE_REFINE_LR_WARMUP if warmup is None else warmup
+        rot_only = POSE_REFINE_ROT_ONLY_STEPS if rot_only is None else rot_only
+        if iteration < start:
+            return 0.0, 0.0
+        k = iteration - start
+        scale_q = 1.0 if warmup <= 0 else min(1.0, float(k + 1) / float(warmup))
+        scale_t = scale_q if k >= rot_only else 0.0
+        return scale_q, scale_t
+
+    def apply_lr_schedule(self, optimizer, iteration, lr_q=None, lr_t=None):
+        """把课程 lr 写进 optimizer.param_groups（顺序与 get_optimizer 一致：
+        [0]=delta_q，[1]=delta_t）。返回 (scale_q, scale_t) 供日志。"""
+        lr_q = POSE_REFINE_LR_Q if lr_q is None else lr_q
+        lr_t = POSE_REFINE_LR_T if lr_t is None else lr_t
+        scale_q, scale_t = self.lr_scales(iteration)
+        optimizer.param_groups[0]["lr"] = lr_q * scale_q
+        optimizer.param_groups[1]["lr"] = lr_t * scale_t
+        return scale_q, scale_t
 
     # ── 记录 ────────────────────────────────────────────────────────────────
     @torch.no_grad()

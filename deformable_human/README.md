@@ -45,6 +45,7 @@ SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   bash deformable_human/01d_fg_masks.sh
 # 2) vanilla Deformable-GS 训练（canonical + 形变 MLP，NeRF-DS 模式）
 #    可选：USE_POSE_REFINE=1 联合精炼位姿（可学四元数+平移，内参不学）
+#      B v2 课程：POSE_REFINE_START + POSE_REFINE_LR_WARMUP + POSE_REFINE_ROT_ONLY_STEPS
 GPU=0 SCENE_NAME=human_seq RESULTS_DIR=../deformable_human_results \
   ITERATIONS=10000 \
   bash deformable_human/02_train.sh
@@ -91,6 +92,8 @@ CLONE_FROM=vggt_human INSTALL_DEPS=1 BUILD_CUDA=1 \
 | `USE_POSE_REFINE` | `0` | 1=训练中联合精炼位姿（可学四元数+平移，内参不学） |
 | `POSE_REFINE_WEIGHT` | `0.01` | 位姿正则权重（拉回 COLMAP 初值） |
 | `POSE_REFINE_START` | `0` | >0 时延迟到第 N 步才启用位姿精炼（BARF 式课程；坏初值场景实测仍证伪，见「实验记录」） |
+| `POSE_REFINE_LR_WARMUP` | `2000` | B v2：启动后 lr 从 0 线性爬到满值的步数（可微课程，防启用瞬间噪梯度踹飞位姿） |
+| `POSE_REFINE_ROT_ONLY_STEPS` | `1000` | B v2：启动后只放开旋转的步数，之后才放开平移（旋转优先，先稳旋转再放平移） |
 | `USE_MASK_LOSS` | `0` | 1=前景 mask 加权 L1（train_mask.py；需先跑 01d；与 POSE_REFINE 互斥） |
 | `MASK_DIR` | `$SOURCE_PATH/masks` | 01d 的输出目录 |
 | `FG_WEIGHT` / `BG_WEIGHT` | `1.0` / `0.2` | 前景/背景像素 loss 权重（按有效像素均值归一化，不改变 loss 量级） |
@@ -217,6 +220,7 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
 | 手机 VI 位姿（01e，transforms.json） | 178k（pcd.ply 稠密） | 25.14 | 28.84 | ❌ -4dB |
 | 手机 VI + POSE_REFINE | 178k | 14.78 | 14.61 | ❌ 发散 |
 | 手机 VI + POSE_REFINE（延迟 3000 启动） | 178k | 17.95（best@5000）→16.35@10000 | — | ❌ 延迟也救不活 |
+| **COLMAP 好初值 + POSE_REFINE v2**（延迟 5000 + lr 爬升 2000 + 旋转优先 1000，2026-10-16） | ~10k | **20.92**@10k（同参对照 29.21） | — | ❌ **−8.3dB，路线收束** |
 | VGGT-Omega 前馈（vggt_human 02/03 链路） | 5.4k（voxel 下采样偏狠） | 23.85 | 25.74 | ❌ -5.3dB |
 
 要点：
@@ -231,6 +235,18 @@ fg=1.0/bg=0.2，mask 来自 01d 的 SAM3 video 传播「person + 恐龙玩偶」
   评测用冻结原始位姿——说明位姿 delta 在启用窗口内已不可逆地烤坏高斯几何。
   根因：手机位姿噪声下「动位姿」比「修几何」更易降 loss（118 个自由位姿当泄压阀），
   延迟只推迟不解决。该开关保留默认 0，作负结果存档。
+- **B v2「可微课程」在 COLMAP 好初值上同样证伪**（2026-10-16，hand_motion/colmap_scene，
+  10k+warm1000，两臂严格同参、唯一变量 `USE_POSE_REFINE`）：三步增量（延迟 5000 启动 +
+  lr 线性爬升 2000 步 + 旋转优先 1000 步后放开平移）**机制逐条按预期触发**（iter 5000
+  启用、6000 放平移、lr q/t 系数 0.50→1.00），但 **test PSNR 28.12→22.66→20.92**，
+  对照臂同窗口 28.17→28.50→29.21，**@10k −8.29dB**；两臂点数 977k vs 975k（排除容量差异）。
+  **根因钉死在「梯度方向」而非「lr 太大」**：崩溃起点是 **iter 5100**（启用后第 100 步，
+  此时 lr 系数仅 0.05、`scale_t=0` 平移尚未解冻）——**纯旋转、且以满值的 5% 学习率，
+  100 步就把 loss 从 0.027 抬到 0.044**。COLMAP 位姿已亚像素级准确，光度 loss 对位姿的
+  梯度是纯噪声，任何偏移都是净损失；`POSE_REFINE_WEIGHT` 的 reg 量级（delta L2²≈6e-5
+  ×0.01=6e-7）比光度项（~0.02）小 **4 个数量级**，形同虚设，拉不住漂移。
+  结论：**「精炼 COLMAP 好初值」路线收束**——不是调度问题，是手部弱纹理场景的光度
+  位姿梯度不可用。位姿精化的正解仍是**离线 COLMAP 精化**（01c/01d），不是可微精炼。
 - VGGT-Omega 前馈位姿（38.5s 出 135 帧）重投影目检同样对齐，但预测内参与真实
   固定内参有系统差（fx median 1397.6 vs 手机标定 1380.8，且逐帧浮动 MAD 6px），
   联合 pose+intrinsic 误差使其垫底。
