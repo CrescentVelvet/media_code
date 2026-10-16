@@ -37,9 +37,14 @@
   （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
   `gs_camera_params_final.json`（99b COLMAP 模式消费 `setting.pitch_min/max`、`yaw_min/max`、
   `pitch_init`、`scene.radius`）+ 居中位姿/点云（`transforms.json`/`pcd.ply`）。
-  **源图不复制不挂链**（2026-10-16 删掉 `OUT_IMAGES`/`link_images`，见当日 log）：代价是
-  99g quad 图左栏「实拍首帧」没了（找不到 `image/` 自动回退，想要图用 `PLOT_SRC=origin`）；
+  **源图不复制不挂链**（2026-10-16 删掉 `OUT_IMAGES`/`link_images`）：99k 出图时透传
+  `PHOTO_ROOT=<原批次根>`，99g 在本包找不到 `image/` 时按**同名 ID 目录**回源包读实拍首帧
+  → 图面照旧、源图只读（99g 单跑要自己设 `PHOTO_ROOT`；不设则退无左栏版面，不报错）；
   som_human 01 要吃居中位姿得拿原包副本覆盖 `transforms.json`/`pcd.ply`。
+- **本机跑 99g 贴实拍首帧需要 pillow/pillow-heif**（2026-10-16 实测）：WorkBuddy 自带的
+  python 3.13.12 **没装 PIL** → quad 静默退无左栏版面（看着像"没这张图"）；
+  `~/.workbuddy/binaries/python/envs/default` 这个 venv 装了 pillow 12.3.0 + pillow_heif 1.8.1，
+  出图时 `PLOT_PYTHON=<该 venv>/Scripts/python.exe` 即可。
   区间口径与余量常量与 99g 同源（同名 env：`VL_AZ_PAD/EL_PAD/R_PAD/FULL_AZ`），**改一处要同步另一处**；
   `RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
   **仰角空洞保护**（2026-10-15，提交 `499a7ee`）：双峰数据（俯视+平视两圈，中间没拍到）
