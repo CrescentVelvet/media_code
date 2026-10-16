@@ -37,7 +37,13 @@
   （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
   `gs_camera_params.json`（**2026-10-16 由 `gs_camera_params_final.json` 改名**，99b COLMAP
   模式消费 `setting.pitch_min/max`、`yaw_min/max`、`pitch_init`、`scene.radius`）+
-  居中位姿/点云（`transforms.json`/`pcd.ply`）。
+  居中位姿/点云（`transforms.json`/`pcd.ply`）——**居中是必需项、不是可选项**（2026-10-16 评审）：
+  json 里的 az/el/r 是相对球心算的、平移不变，但下游把角度当「绕**世界原点**的球坐标」用
+  ——99b:435 写死 `target=[0,0,0]`、99b:445 由 `positions[0]` 绕原点反算 init 位姿、
+  99b:432 `[0.9r,1.2r]` 直接把相机摆在原点球壳上；而 Remy 包的原点是 **AR 会话起点**
+  （99g:621 记「实测离场景 0.5–5.1 m」）。实测 10 包：|target| = 环绕半径的 **86%~198%**
+  （1.19~2.73 m），不居中则 99b 反算的 init 偏 Δpitch 最大 38.7°、Δyaw 最大 **174°**。
+  `OUT_CENTERED=0` 只作诊断逃生口，默认必须居中。
   ⚠️ **99b/99f 里的 `gs_camera_params_final.json` 是另一回事、别跟着改**：那两处读的是
   重建流程（`code/Reconstruction/output/…`）与 `3d_gaussian_photo/…/UserData` 的**外部产物**，
   与 99k 只是同名约定；跟着改会让它们找不到文件。

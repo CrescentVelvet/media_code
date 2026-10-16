@@ -273,8 +273,9 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 ```
 
 **为什么需要**：Remy 采集包的世界原点是手机开机点附近，主体（视线汇聚点）实测离它
-1.3–2.9 m；而 UWA 侧 `view_limits` 的 `target` 被 99b 写死成 `[0,0,0]`
-（`99b_pack_ply_to_mp4.py:435`）。不居中 → 手机端环绕中心整个偏离主体。
+1.19–2.73 m（10 包，`sight` 口径）；而 UWA 侧 `view_limits` 的 `target` 被 99b 写死成
+`[0,0,0]`（`99b_pack_ply_to_mp4.py:435`）。不居中 → 手机端环绕中心整个偏离主体。
+**「能不能不居中、居中到底是不是必需项」的完整论证与 10 包实测见下「为什么必须居中」。**
 
 **四步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`VL_TARGET=anchor`
 切到采集包自带 `anchor_point`）→ ② 以球心为原点逐帧算 az / el / r 并取 min/max + 余量
@@ -329,7 +330,7 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 | `intrinsics` | 时间序首帧的 `w/h/fl_x/fl_y/cx/cy`；`width`/`height` 写整数，其余浮点。缺字段时告警并留空，不编数 |
 | `camera_type` | 恒 `"pinhole"`（采集包 `camera_model=OPENCV` 的畸变系数不进本文件，99b/99c 侧也按 PINHOLE 处理） |
 | `roll_init` | 恒 `0.0`（本链路无滚转） |
-| `scene.center` | 居中后恒 `[0,0,0]`；`OUT_CENTERED=0` 时写主体中心在原始世界系的位置并告警（与 99b 写死的 `target=[0,0,0]` 对不上） |
+| `scene.center` | 居中后恒 `[0,0,0]`；`OUT_CENTERED=0` 时写主体中心在原始世界系的位置并告警（与 99b 写死的 `target=[0,0,0]` 对不上）；详见下「为什么必须居中」 |
 
 **图面**（`<PLOT_ROOT>/<模式>/`，默认 `<批次名>/plots/`）：`<task>.html`（自包含，
 quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化后端时）+ `index.html` 总览页。
@@ -348,6 +349,50 @@ drop-in）。训练出的 ply 与相机天然以主体为原点，99b 的 `targe
 `PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`，以及仰角空洞保护的一组
 `PITCH_MODE` / `EL_GAP_MIN` / `EL_GAP_K` / `EL_PICK` / `EL_PAD_GAP` / `EL_TIE_WARN` /
 `EL_MIN_FRAMES`（见下节）。
+
+### 为什么必须居中（2026-10-16 定论：不可省）
+
+**疑点**：99k 的产物是 json，json 里只有角度与半径、没有平移项 —— 那还有必要居中吗？
+（`az` / `el` / `r` 都是**相对球心**算的，整个场景平移时逐帧数值不变 —— 这一点没错。）
+
+**结论：必须居中。** 数值确实平移不变，但**语义会错**：这份 json 的下游把 `az` / `el` / `r`
+当成「绕**世界原点**」的球坐标来消费（下三处），而采集包的世界原点是 **AR 会话起点**、不是主体
+（`99g` 实测原点离场景 0.5–5.1 m，10 包里只有 4 包落在取景内）。两者不重合时，json 描述的
+环绕中心与下游实际使用的环绕中心就差一个平移量，而这个平移量在 json 里**看不见**。
+
+下游的三处「看不见的假设」（都在 99b）：
+
+| 位置 | 代码 | 含义 |
+|---|---|---|
+| `99b_pack_ply_to_mp4.py:435` | `"target": [0.0, 0.0, 0.0]` | UWA `view_limits` 的环绕中心**写死世界原点** |
+| `99b_pack_ply_to_mp4.py:444-446` | `p0 = positions[0]` → `asin(p0[1]/‖p0‖)` / `atan2(p0[0], p0[2])` | 开场位姿由首帧相机**相对原点**反算；只有原点 = 主体中心时，它才等于 json 里的 `pitch_init` / `yaw_init` |
+| `99b_pack_ply_to_mp4.py:432` | `minRadius/maxRadius = 0.9·radius / 1.2·radius` | 相机被直接摆在**原点球壳**上 |
+
+**实测（10 包，`D:/dataset/手部微动样例/`）**：
+
+| 指标 | 实测 |
+|---|---|
+| `‖target‖`（球心到世界原点） | **1.19 ~ 2.73 m** |
+| `‖target‖ / r_mean` | **86.0% ~ 198.1%**（极值：佳佳蹲 0.860 / 男生二郎腿 1.981） |
+| 按 99b 反算的开场位姿 vs 正解 | **Δpitch 最大 38.67°、Δyaw 最大 173.96°**（99b 的一致性告警阈值是 1°，必报） |
+
+复算口径：`target` 取 `center_report.json` 的 `target`、`r_mean` 取 `measured.r_mean`；
+「正解」= 首帧相机相对 `target` 的球坐标（已与 99k 写进 json 的 `init.pitch` / `init.yaw`
+逐包比对，10/10 严格相等，确保口径同源）。
+
+**为什么 `transforms.json` / `pcd.ply` 是控制模型原点的唯一入口**：
+`som_human/01_convert_capture.py` 的位姿段（约 105–120 行）把采集包的 `transform_matrix`
+按 `w2c = inv(M @ diag(1,-1,-1,1))` 原样转进 COLMAP —— **重建模型坐标系 = 采集包坐标系**，
+链路上没有别的环节能改模型原点。所以居中只能在打包这一步做，且这两个文件不能删
+（`01_convert_capture.py` 要求 `transforms.json` + `image/` + `pcd.ply` 三件齐全）。
+
+`OUT_CENTERED=0` 只是**诊断逃生口**（保留原始世界系、把主体中心写进 `scene.center` 并告警），
+**不是「可选的省事模式」** —— 默认必须居中。
+
+⚠️ **一处待实测**：`01c` 的 COLMAP SfM 是否会重置坐标系，尚未在服务器验证 —— 退化路径
+（固定 VIO 位姿跑 SfM）会保留原 gauge（居中生效），正路径不确定。*推理（待实测）*：若 SfM
+自行确定 gauge，模型原点改由重建决定、不再取决于输入位姿的平移，届时居中的收益需重新评估；
+但两种情况下居中都不会更差（不居中在「原 gauge 保留」时必定错）。
 
 ### 仰角「空洞」保护（`PITCH_MODE=peak`）
 
