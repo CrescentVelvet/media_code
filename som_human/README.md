@@ -92,6 +92,11 @@ SCENE_NAME=human_seq bash som_human/08_move_output.sh
 转换入口：`01_convert_capture.sh`（HEIC 解码 → 去畸变 → 整数重命名 →
 COLMAP txt 三件套 + 末尾投影自检，自检不过会直接退出）。
 
+整批跑：`bash som_human/hand_batch.sh all`（对 `RAW_ROOT` 下每个采集包串跑
+01 → 01c → 02；`PAR=2` 控并发、幂等跳过已产出的阶段）。
+2026-10-16 实测 10 个包（共 1382 帧）：01 用 12 min ｜ 01c 用 60 min（全部帧注册）
+｜ 02（10k + `-r 2`）用 100 min，test PSNR 21.3~27.7、高斯 53~63 万/场景。
+
 ## 首次准备
 训练/渲染无新增安装。前置 = deformable_human 全流程已跑通（见其 README_wsl.md）。
 `00a_setup_env.sh` 只做体检：env 存在 / 官方仓在位 / fork 光栅化器可 import /
@@ -422,6 +427,7 @@ media_code/som_human/
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 03b_fg_metrics.py     # 前景专项指标（fg/bg/all PSNR + 逐视角最差 + 三联拼图）
 ├── 08_move_output.sh     # WSL：产物搬到 D 盘
+├── hand_batch.sh         # 批量：一批采集包跑通 01→01c→02（幂等，PAR 控并发）
 ├── som_motion.py         # 核心：SE(3) 基凸组合运动模型（替换 DeformModel）
 ├── res_scheduler.py      # 分阶段分辨率调度（coarse-to-fine，实测否决备查）
 ├── densify_sched.py      # 稠密化自动调度（方案 D：软上限+需求累计+topk 截断）
