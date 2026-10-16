@@ -35,8 +35,12 @@
   ③ **通用工具 99h**（全仓 Python 3.10 语法自查，**默认扫仓根**，som_human 也引用）；
   ④ **采集包预处理 99k**（2026-10-15 新增，提交 58eb1bb）：Remy 采集包 → 主体居中
   （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
-  `gs_camera_params_final.json`（99b COLMAP 模式消费 `setting.pitch_min/max`、`yaw_min/max`、
-  `pitch_init`、`scene.radius`）+ 居中位姿/点云（`transforms.json`/`pcd.ply`）。
+  `gs_camera_params.json`（**2026-10-16 由 `gs_camera_params_final.json` 改名**，99b COLMAP
+  模式消费 `setting.pitch_min/max`、`yaw_min/max`、`pitch_init`、`scene.radius`）+
+  居中位姿/点云（`transforms.json`/`pcd.ply`）。
+  ⚠️ **99b/99f 里的 `gs_camera_params_final.json` 是另一回事、别跟着改**：那两处读的是
+  重建流程（`code/Reconstruction/output/…`）与 `3d_gaussian_photo/…/UserData` 的**外部产物**，
+  与 99k 只是同名约定；跟着改会让它们找不到文件。
   **源图不复制不挂链**（2026-10-16 删掉 `OUT_IMAGES`/`link_images`）：99k 出图时透传
   `PHOTO_ROOT=<原批次根>`，99g 在本包找不到 `image/` 时按**同名 ID 目录**回源包读实拍首帧
   → 图面照旧、源图只读（99g 单跑要自己设 `PHOTO_ROOT`；不设则退无左栏版面，不报错）；
