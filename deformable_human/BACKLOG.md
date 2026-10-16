@@ -14,7 +14,7 @@
 | 案 | 名称 | 类型 | 预期收益 | 实现状态 | 结论（质量/收益） | 依据 |
 |---|---|---|---|---|---|---|
 | A | 曝光补偿 | 质量 | +0.1~0.4dB（外推，非实测） | 🔸 已实现（som_human `exposure.py`）/ **未移植**（deformable_human） | ❌ **无收益**：@10k 严格配对 −0.31dB，SSIM/LPIPS 同向劣化；默认关 | som_human README 实验记录 ② |
-| B | 位姿精炼延迟启动 | 质量 | COLMAP 好初值修残差 | ❌ **已测否决**（v1/v2-a 在手机 VI 两度证伪；B v2 可微课程在 **COLMAP 好初值**上也 −8.29dB，崩溃起点 iter 5100、纯旋转、lr 仅 5%） | 证伪：手部弱纹理场景的光度位姿梯度不可用，正解是离线 COLMAP 精化（01c/01d） | README 位姿来源消融 |
+| B | 位姿精炼延迟启动 | 质量 | COLMAP 好初值修残差 | ✅ **已实施**（`deformable_human/pose_delta.py` + `train_pose_refine.py`，含可微课程 `POSE_REFINE_LR_WARMUP`/`ROT_ONLY_STEPS`）<br>❌ **已测否决**（v1/v2-a 手机 VI 两度证伪；B v2 在 **COLMAP 好初值**上也 −8.29dB） | 证伪：手部弱纹理场景的光度位姿梯度不可用，正解是离线 COLMAP 精化（01c/01d，+7.29dB） | README 位姿来源消融 |
 | C | Coarse-to-Fine 分辨率调度 | 加速 | 省 25~40% | 🔸 已实现，代码留仓（som_human `res_scheduler.py`）/ **未移植** | ❌ **零加速**否决（渲染前向仅占 ~5%，前提不成立） | 探针实验 2026-10-13 |
 | D | 稠密化自动调度器 | 稳定/免调参 | 防爆炸 | ✅ 已落地（som_human + deformable_human 双端冒烟；两种 thr 均稳定防爆） | 防爆 + 免调参成立；⚠️ 窗口后 prune 带尺寸判据会死亡螺旋（已修）；代价 −0.26~−0.34dB 归因于严格 cap+topk 策略本身；默认关按需开 | README 冒烟节 |
 | E | 单目深度先验正则 | 质量（手部） | 攻残余手部模糊 | 🔸 已实现（som_human `depth_prior.py`）/ **未接**（deformable_human） | ⚠️ λ=0.05 首轮**负结果** FG −1.04dB（量级失衡 + 手部深度不可靠）；默认关，后续要归一化/降 λ/边缘项 | som_human README |
@@ -118,7 +118,7 @@
 **test 相机口径**：评测前 `refine_test_for_evaluation` 对 test 相机优化位姿+曝光
 （高斯冻结）——产品评测口径，科研式 A/B 不要混用。
 
-**移植步骤**（train_pose_refine.py）：
+**移植步骤**（train_pose_refine.py）—— ✅ **1~4 已全部实施**（见下「实施状态」）：
 1. 新增 POSE_REFINE_FROM_ITER（默认 = WARM_UP + 4000，形变 MLP 已工作一段、
    手部几何基本成形后），此前 pose delta 冻结为 0。
 2. 启动后前 2000 步 lr 从 0 线性 warmup（可微课程）。
@@ -126,6 +126,19 @@
    手机 VI 初值场景试 0.1（初值差但防漂移）。
 4. 可选分级：先只放开旋转，过 1000 步再放开平移（旋转误差对手持视频更敏感
    且更稳定）。
+
+**✅ 实施状态（2026-10-16，标注清楚避免后来者重复实现）**：
+
+| 能力 | 状态 | 代码位置 | 备注 |
+|---|---|---|---|
+| 可微位姿精炼（四元数+平移 delta） | ✅ 已实施 | `deformable_human/pose_delta.py`<br>`deformable_human/train_pose_refine.py` | 默认关（`USE_POSE_REFINE=0`） |
+| 可微课程（延迟启动 + lr warmup + 旋转优先） | ✅ 已实施 | 同上：`PoseDeltaStore.lr_scales()` / `apply_lr_schedule()`；env `POSE_REFINE_START` / `POSE_REFINE_LR_WARMUP` / `POSE_REFINE_ROT_ONLY_STEPS` | 冒烟三机制已验证 |
+| 离线 COLMAP 精化（**位姿问题的正解**） | ✅ 已实施 | `som_human/01c_colmap_refine.sh` + `som_human/01d_check_refined.py` | 实测同迭代数 **+7.29dB** |
+
+**复用指引**：`vggt_human` / `deformable_human` / 其它链路若需要「可微位姿精炼」能力，
+**直接取 `deformable_human/pose_delta.py` + `train_pose_refine.py`**（数学与课程已就绪，
+接进训练循环即可，见这两个文件顶部 docstring）。⚠️ 但**默认不要开**——本页三项 A/B
+（手机 VI ×2 + COLMAP 好初值 ×1）全部证伪；要动位姿优先走 `som_human/01c` 离线精化。
 
 **验证**：
 - 第一步（安全性）：COLMAP 场景 + 延迟精炼 ≥ 纯 COLMAP 基线（不回退才继续）；
