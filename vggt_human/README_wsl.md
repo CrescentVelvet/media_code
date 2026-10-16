@@ -331,9 +331,9 @@ bash vggt_human/08_move_output.sh
 - 结果：VGGT-Omega 推理 → `02_vggt/<scene>/predictions.npz`；COLMAP 场景 → `03_source/`；3DGS 高斯 → `04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
 - PLY 可拖到 [supersplat](https://playcanvas.com/supersplat/editor) 在线查看。
 
-## 数据集体检 / 汇报图面工具（99 系列）
+## 数据集体检 / 采集包预处理工具（99 系列）
 
-99a~99j（PLY↔MP4 封装收尾、Remy 采集包轨迹图、语法自查、汇报页图面）已迁出本目录，
+99a~99h 与 99k（PLY↔MP4 封装收尾、Remy 采集包轨迹图、语法自查、采集包主体居中）已迁出本目录，
 见 [`../tools_99/README.md`](../tools_99/README.md)。**提交前跑一次 99h 语法自查**
 与 99g 采集包轨迹图的完整用法都在那份 README 里。
 

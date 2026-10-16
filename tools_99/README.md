@@ -1,9 +1,9 @@
-# tools_99 — 重建产物的封装收尾、采集包预处理、数据集体检与汇报图面工具集
+# tools_99 — 重建产物的封装收尾、采集包预处理与数据集体检工具集
 
 2026-10-15 从 `vggt_human/` 迁出（`git mv`，保留提交历史）。本目录原属于
 vggt_human 的下游「99 系列」，但它们的服务对象已超出人脸重建本身：既有对
-UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 3DGS 相机位姿工具的
-汇报图面。脚本文件名一律未改（保留 99 前缀的连续性）。
+UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 Remy 采集包的居中预处理。
+脚本文件名一律未改（保留 99 前缀的连续性）。
 
 ## 四个族
 
@@ -11,12 +11,11 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 |---|---|---|---|
 | **A. 打包/收尾链** | 99a 99b 99c 99d 99e 99f | 重建产物 ↔ 手机可播放 MP4 的双向封装 | UWA 工具链 + ffmpeg + conda env |
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
-| **C. 通用工具 + 汇报图面** | 99h 99i 99j | 语法兼容自查 / SVG→PNG / 汇报页内联同步 | 99h 需 Python ≥ 3.12；99i 需 node + Edge |
+| **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params_final.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
-import；族 C 的三个脚本共同服务本目录的 `camera_pose_tool_report.html` +
-`report_figs/`。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
+import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
 余量常量同源，改一处务必同步另一处；族 D 跑完会**子进程调族 B（99g）**给居中包出图
 （`OUT_PLOTS=0` 关掉）——为什么是调用而不是复制代码，见 D 节的「与 99g 的分工」。
 
@@ -222,7 +221,7 @@ frame 0 的实测角（`min(lo+span·k, init)` / `max(hi−span·k, init)`），
 
 ---
 
-## C. 通用工具与汇报图面
+## C. 通用工具
 
 ### 99h — 提交前跑一次语法兼容检查
 
@@ -242,28 +241,6 @@ python tools_99/99h_check_py_syntax.py a.py b/    # 也可指定文件/目录
 > 本工具已跨项目复用（`som_human/README_wsl.md` 也引用它），2026-10-15 起默认扫描目录
 > 从「脚本所在目录」改为「**仓根**」——原先它恰好在 `vggt_human/` 下，默认值等于扫
 > vggt_human，搬出本目录后那个巧合不再成立。
-
-### 99i / 99j — 汇报页图面
-
-配套本目录的 `camera_pose_tool_report.html`（部门技术评审口径的汇报页）与 `report_figs/`
-（4 组同名 `.svg` + 3× `.png`，3540 px 宽）。
-
-```bash
-# 99i：把 report_figs/*.svg 渲染成 3x PNG（供汇报页 / PPT 用）
-node tools_99/99i_render_report_figs.js                          # 全部 4 张
-node tools_99/99i_render_report_figs.js fig2_solution_architecture 1180 620   # 只渲一张
-# 输出：report_figs/<name>.png；包裹页临时生成在系统 temp 下，渲染完自动清理
-
-# 99j：把 report_figs/*.svg 的最新内容同步进汇报页的内联 figure（就地改 HTML）
-python tools_99/99j_sync_report_figs.py
-```
-
-⚠️ **99i 的坑点**：Edge 154 起 `--headless --screenshot=xxx.png` 静默失效 —— 进程 exit 0、
-不报错、也不产出文件。必须走 CDP（启动 headless 实例 → WebSocket → `Page.captureScreenshot`）。
-
-⚠️ **改图面前先读** `camera_pose_tool_report.html` 的 `:root` 与「图内样式」两个 CSS 块 ——
-图面配色/线宽口径已于 2026-09-28 定版（靛蓝 = 数据 · 青 = 核心 · 琥珀 = 附加说明/反馈），
-按既定口径取色，不要自创色值。
 
 ---
 
