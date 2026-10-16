@@ -21,7 +21,7 @@
 - 同一步骤的多个变体用同一数字加字母：`01_pick_and_segment.sh` / `01b_...` / `01c_...`。
 - 跨平台变体同样用字母区分：`00_setup_env.sh`（服务器）/ `00a_setup_env.sh`（WSL 本机）。
 - 不写无编号的 `run_xxx.sh`、`stop_xxx.sh` 这类 wrapper；一键脚本也要编号（`04_run.sh`、`05_stop.sh`）。
-- 收尾类脚本单独占一个数字段：vggt_human 的 `99a`（收集 ply）～ `99j`（图面渲染）共 10 个，各自职责单一。
+- 收尾类脚本单独占一个数字段：`99a`（收集 ply）～ `99h`（语法自查），外加 `99k`（采集包居中），共 9 个，各自职责单一（2026-10-15 从 vggt_human/ 迁至 tools_99/）。
 
 **参数注入方式**：所有环境变量用 `${VAR:-default}` 形式，允许命令行覆盖全部路径。README 里有一条硬性要求——示例命令必须显式写出模型路径、输入路径、输出路径，不能用 `...` 占位。这条要求的作用是：复制命令即可复现，不需要回读脚本源码找默认值。
 
@@ -152,8 +152,8 @@
 
 读图 debug 依赖截图能力，这条链路上有几个实测结论：
 
-- **Edge headless 截图**：`--headless --screenshot=` 在 Edge 154 起 100% 失效（进程 exit 0、无 stderr、无文件输出；`--dump-dom` 同样无输出；`--no-sandbox`、版本目录 exe、PowerShell `Start-Process` 均无效）。此前记录的「约 1/3 概率静默不产出」是误判，实质是 `--user-data-dir` 复用导致确定性失败。可行路径是启动 headless 实例后走 CDP `Page.captureScreenshot`，已封装为 `99i_render_report_figs.js`（自探测 Edge 版本目录 → spawn `--remote-debugging-port` → `PUT /json/new` 开 tab → `Emulation.setDeviceMetricsOverride(deviceScaleFactor=3)` → 截图）。附带一个坑：`child.kill()` 后需 sleep 500 ms 再删 profile 目录，否则 Crashpad 句柄未释放报 EBUSY。
-- **图面可读性有量化判据**：4 张汇报图原为 1180 px 宽画布 + 11–14.5 px 字号，字号/宽度比 0.93%；PPT 16:9 满宽（约 30 cm）插入时最小字号折合约 7.9 pt，投影必糊。目标比值 ≥1.5%（等效 ≥14 pt）。最终画布收窄到 880 px、字号重排（正文 12→14、说明 11→13、卡标题 13→17），PNG 输出 2640 px 宽（880×3）。
+- **Edge headless 截图**：`--headless --screenshot=` 在 Edge 154 起 100% 失效（进程 exit 0、无 stderr、无文件输出；`--dump-dom` 同样无输出；`--no-sandbox`、版本目录 exe、PowerShell `Start-Process` 均无效）。此前记录的「约 1/3 概率静默不产出」是误判，实质是 `--user-data-dir` 复用导致确定性失败。可行路径是启动 headless 实例后走 CDP `Page.captureScreenshot`（曾封装为 `99i_render_report_figs.js`，该脚本与配套汇报页已于 2026-10-16 删除，封装要点留档：自探测 Edge 版本目录 → spawn `--remote-debugging-port` → `PUT /json/new` 开 tab → `Emulation.setDeviceMetricsOverride(deviceScaleFactor=3)` → 截图）。附带一个坑：`child.kill()` 后需 sleep 500 ms 再删 profile 目录，否则 Crashpad 句柄未释放报 EBUSY。
+- **图面可读性有量化判据**：4 张汇报图（已随 2026-10-16 一并删除，此处留判据备查）原为 1180 px 宽画布 + 11–14.5 px 字号，字号/宽度比 0.93%；PPT 16:9 满宽（约 30 cm）插入时最小字号折合约 7.9 pt，投影必糊。目标比值 ≥1.5%（等效 ≥14 pt）。最终画布收窄到 880 px、字号重排（正文 12→14、说明 11→13、卡标题 13→17），PNG 输出 2640 px 宽（880×3）。
 
 ---
 
