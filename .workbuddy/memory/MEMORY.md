@@ -36,7 +36,10 @@
   ④ **采集包预处理 99k**（2026-10-15 新增，提交 58eb1bb）：Remy 采集包 → 主体居中
   （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
   `gs_camera_params_final.json`（99b COLMAP 模式消费 `setting.pitch_min/max`、`yaw_min/max`、
-  `pitch_init`、`scene.radius`）+ 居中采集包（`transforms.json`/`pcd.ply`/`image/`）。
+  `pitch_init`、`scene.radius`）+ 居中位姿/点云（`transforms.json`/`pcd.ply`）。
+  **源图不复制不挂链**（2026-10-16 删掉 `OUT_IMAGES`/`link_images`，见当日 log）：代价是
+  99g quad 图左栏「实拍首帧」没了（找不到 `image/` 自动回退，想要图用 `PLOT_SRC=origin`）；
+  som_human 01 要吃居中位姿得拿原包副本覆盖 `transforms.json`/`pcd.ply`。
   区间口径与余量常量与 99g 同源（同名 env：`VL_AZ_PAD/EL_PAD/R_PAD/FULL_AZ`），**改一处要同步另一处**；
   `RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
   **仰角空洞保护**（2026-10-15，提交 `499a7ee`）：双峰数据（俯视+平视两圈，中间没拍到）
