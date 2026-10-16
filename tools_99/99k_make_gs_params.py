@@ -1027,25 +1027,36 @@ def run_plots(cfg: dict, src_root: Path, out_root: Path) -> None:
             # 居中包不含源图（99k 不复制、不挂链）→ 告诉 99g 按同名 ID 回原始批次根取
             # 实拍首帧，quad 左栏照旧贴图。源图只被读、不动：见 99g 的 PHOTO_ROOT。
             "PHOTO_ROOT": str(src_root),
+            "PYTHONUNBUFFERED": "1",  # pipe 下子进程默认块缓冲，进度行会攒着不吐
         })
+
         what = "居中包（世界原点=主体中心）" if mode == "centered" else "原始采集包（对照）"
+        n_pkg = sum(1 for d in root.iterdir() if d.is_dir() and (d / "transforms.json").exists())
         print(f"  [{mode}] {what} → {dst}")
+        print(f"  ⏳ {n_pkg} 个包，每包 ~20-60s（cairosvg 光栅化大 SVG），请耐心等进度行")
         t0 = time.time()
         try:
-            proc = subprocess.run([exe, str(script)], env=env, capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace")
+            # 实时透传 99g 进度：capture_output=True 会把整段进度憋到子进程结束才打，
+            # 几十分钟零输出看着像卡死。PYTHONUNBUFFERED 防 pipe 下子进程块缓冲。
+            proc = subprocess.Popen([exe, str(script)], env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True,
+                                    encoding="utf-8", errors="replace", bufsize=1)
         except OSError as exc:
             print(f"  ❌ 调用 {PLOT_SCRIPT} 失败: {exc}")
             continue
-        for line in (proc.stdout or "").splitlines():
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n")
             if line.startswith(("📁 源:", "📁 输出:")):   # 与上面两行重复
                 continue
             if line.strip():
-                print(f"    {line}")
+                print(f"    {line}", flush=True)
+        err = (proc.stderr.read() or "") if proc.stderr else ""
+        proc.wait()
         if proc.returncode != 0:
-            err = [s for s in (proc.stderr or "").splitlines() if s.strip()]
+            err_lines = [s for s in err.splitlines() if s.strip()]
             print(f"  ❌ 出图[{mode}] 失败（退出码 {proc.returncode}）"
-                  + (f"：{err[-1]}" if err else ""))
+                  + (f"：{err_lines[-1]}" if err_lines else ""))
             print(f"     常见原因：PLOT_STYLE 写法不在 99g 支持列表、批次下没有含 "
                   f"transforms.json 的包。单独重跑："
                   f"STYLE={cfg['plot_style']} SRC_ROOT=\"{root}\" DST_ROOT=\"{dst}\" "
