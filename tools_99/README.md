@@ -272,8 +272,12 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 | `gs_camera_params_final.json` | 99b 的 COLMAP 模式直接消费：`setting.pitch_min/pitch_max`、`yaw_min/yaw_max`、`pitch_init` + `scene.radius`（其余字段见下） |
 | `transforms.json` | 居中后位姿（同名 drop-in），世界原点 = 主体中心 |
 | `pcd.ply` | 居中后点云（按属性偏移平移 xyz，其它属性原样） |
-| `image/` | 源图硬链接（跨卷退软链接，都失败给手工命令） |
 | `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
+
+**源图一律不复制、不挂链**（2026-10-16 起删掉 `OUT_IMAGES` 与 `link_images`）：居中包只含
+位姿与点云，需要图就直接用原始采集包（`01_convert_capture.sh` 也照样吃原包）。唯一副作用是
+quad 图左栏的「实拍首帧」贴图没了——99g 找不到 `image/` 会自动回退无左栏版面，不报错；
+想看那张图用 `PLOT_SRC=origin`（原包自带 `image/`）。
 
 `gs_camera_params_final.json` / `center_report.json` 落盘为 **4 空格缩进、LF 换行、无 BOM**
 （便于人工核对与 diff）；`transforms.json` 保持**紧凑单行**，与上游采集包书写风格一致
@@ -317,14 +321,15 @@ quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化�
 模式 `PLOT_SRC=centered`（默认）/ `origin`（原始采集包，做对照）/ `both`。
 （quad 固定文案里的「原始采集轨迹」指**未加约束**，不是指未居中的包。）
 
-居中包可直接喂 `som_human/01_convert_capture.py --raw_dir <该目录>`，训练出的 ply
-与相机天然以主体为原点，99b 的 `target=[0,0,0]` 才对得上。
+要把居中后的位姿送进 `som_human/01_convert_capture.py`（它要求 `RAW_DIR` 里
+`transforms.json` + `image/` + `pcd.ply` 三件齐全，**因此吃不了只有位姿和点云的居中包**）：
+拿原始采集包复制一份，用居中包的 `transforms.json` / `pcd.ply` 覆盖同名文件即可（同名
+drop-in）。训练出的 ply 与相机天然以主体为原点，99b 的 `target=[0,0,0]` 才对得上。
 
 **关键 env**：`VL_TARGET`（sight/anchor）、`VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` /
 `VL_FULL_AZ`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
 恰好罩住实测半径区间）、`INIT_FOV_SCALE`（默认 `0.8`，同 99b）、`SORT_BY_TIME`、
-`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY` /
-`OUT_IMAGES`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
+`PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
 `PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`，以及仰角空洞保护的一组
 `PITCH_MODE` / `EL_GAP_MIN` / `EL_GAP_K` / `EL_PICK` / `EL_PAD_GAP` / `EL_TIE_WARN` /
 `EL_MIN_FRAMES`（见下节）。
@@ -381,8 +386,8 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 
 ### 与 99g 的分工（为什么调脚本、不复制代码）
 
-99k 的产物「居中包」= `transforms.json` + `pcd.ply` + `image/`，**就是 99g 的原生输入
-格式**，把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
+99k 的产物「居中包」= `transforms.json` + `pcd.ply`，是 99g 认得的输入格式
+（只少一张左栏实拍贴图，回退无左栏），把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
 `subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `VL_TARGET` / `VL_*_PAD` /
 `VL_FULL_AZ` 以及仰角空洞保护的 `PITCH_MODE` / `EL_*` 一起透传，保证图上的约束与 json 里
 的参数同口径。
@@ -402,10 +407,10 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 而 gs json 里 99b 实际用的是 `[0.9×radius, 1.2×radius]`（`99b:432`）。看 R 环对不上，
 先想到这一层。
 
-⚠️ **踩过的坑（2026-10-15）**：图链逻辑第一版在「目标已是软链接」时会穿透链接删掉
-**源目录里的真图**（实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进回收站，已逐张恢复）。
-现行规则：目标若是链接 → 只摘链接本身；若是目录 → 非空跳过、空则 rmdir；
-硬链接阶段只回滚自己创建过的文件。**改这段代码前先读 `link_images` 的 docstring。**
+⚠️ **历史坑（2026-10-15，相关代码已删）**：99k 第一版的 `link_images` 在「目标已是软链接」
+时会穿透链接删掉**源目录里的真图**（实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进回收站，
+已逐张恢复）。该功能已于 2026-10-16 整体删除；教训仍然通用——**清场式删除前先判
+`is_symlink()`，链接只摘链接、不按目录内容清理**（见 `.workbuddy/memory/MEMORY.md`）。
 
 ---
 

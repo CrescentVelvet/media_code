@@ -14,8 +14,10 @@
          画成自包含 HTML（默认画居中包；PLOT_SRC=origin/both 可加画原始采集包做对照）。
 
 与 99g 的关系（2026-10-15 定：调脚本，不复制代码、不 import）
-    99k 的产物「居中包」= transforms.json + pcd.ply + image/，**就是 99g 的原生输入格式**，
-    把它当 SRC_ROOT 直接喂进去即可，零适配。之所以不把 99g 的绘图代码搬进 99k：
+    99k 的产物「居中包」= transforms.json + pcd.ply（**不碰源图：image/ 既不复制也不挂链**，
+    2026-10-16 起），把它当 SRC_ROOT 直接喂给 99g 即可，零适配。代价是 quad 左栏的
+    「实拍首帧」贴图没了（99g 找不到 image/ 就自动回退无左栏版面，不会报错）；
+    想看那张图就 PLOT_SRC=origin（原包自带 image/）。之所以不把 99g 的绘图代码搬进 99k：
       · 99g 是已定稿的汇报图面（13 种风格、1000+ 行绘图与图例口径），复制一份必然分叉，
         以后改图要改两处、还得保证两处同步；
       · import 会把 99k 钉死在 99g 的内部 API（build_ctx / process_one）上，同样脆；
@@ -63,13 +65,12 @@
     <采集包>/transforms.json          必需（逐帧 w/h/cx/cy/fl_x/fl_y/k1..k3/p1/p2
                                       + transform_matrix，c2w / OpenGL 相机系）
     <采集包>/pcd.ply                  可选（落居中包时平移它的 x/y/z）
-    <采集包>/image/*.heic             可选（落居中包时挂链，供 01_convert_capture 直接用）
+    <采集包>/image/*.heic             不读、不动（居中包只含位姿与点云，不复制源图）
 
 输出（<OUT_ROOT>/<task>/）
     gs_camera_params_final.json   99b 直接消费的相机参数（schema 见下）
     transforms.json               居中后位姿（同名 drop-in，可直接当新采集包用）
     pcd.ply                       居中后点云（binary_little_endian，按属性偏移平移 xyz）
-    image/                        指向源图的硬链接（跨卷失败退符号链接，再失败给手工提示）
     center_report.json            球心对照 / 拟合质量 / 区间明细 / 自检结果（诊断用）
 
 输出（<PLOT_ROOT>/<模式>/，默认 <OUT_ROOT>/../plots）
@@ -128,7 +129,7 @@ Env vars
     INIT_FOV_SCALE setting.init_fov 的经验系数（默认 0.8，与 99b:466 一致；
                    想要原始竖直视场角就设 1.0）
     PHI_NORMALIZE  1(默认) 把 Phi 区间整体平移 k×360，使区间中心落进 (−180,180]
-    OUT_CENTERED / OUT_PLY / OUT_IMAGES   1(默认) 是否落居中位姿 / 居中点云 / 图链
+    OUT_CENTERED / OUT_PLY   1(默认) 是否落居中位姿 / 居中点云（源图一律不复制、不挂链）
     OUT_PLOTS      1(默认) 跑完是否调 99g 出图；0=不出图
     PLOT_SRC       centered(默认) | origin | both —— 画哪个包（居中包 / 原始包 / 两个都画）
     PLOT_STYLE     透传 99g 的 STYLE（默认 quad；可选 combo/minimal/darkspace/fov/iso/
@@ -625,7 +626,7 @@ def build_gs_params(vl: dict, cfg: dict, ordered: list):
 
 
 # --------------------------------------------------------------------------
-# 落盘：居中位姿 / 居中点云 / 图链
+# 落盘：居中位姿 / 居中点云
 # --------------------------------------------------------------------------
 def write_json(path: Path, obj, indent=None) -> bool:
     """UTF-8 落盘（不转义非 ASCII，task 名常带中文）。
@@ -759,76 +760,6 @@ def recenter_ply(src: Path, target: Path, dst: Path, dry_run: bool = False,
     return "ok", f"{total} 顶点的 xyz 已平移"
 
 
-def link_images(src_dir: Path, dst_dir: Path, dry_run: bool = False):
-    """把源 image/ 以硬链接挂进居中包（同卷零拷贝）；跨卷退符号链接；都失败给手工提示。
-
-    ⚠️ 血的教训（2026-10-15，本脚本第一版）：目标已存在**软链接**时，清场循环
-    `for p in dst.iterdir(): p.unlink()` 会**穿透链接删掉源目录里的真图**
-    （实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进了回收站，已恢复）。
-    因此规则是：目标若是链接 → 只 `unlink` 链接本身；若是目录 → 非空就跳过、
-    空则 `rmdir`；硬链接阶段只回滚**自己创建过**的文件，绝不按目录内容清理。
-    """
-    files = sorted(p for p in src_dir.iterdir() if p.is_file()) if src_dir.is_dir() else []
-    if not files:
-        return "none", "源目录没有图片"
-    if dry_run:
-        return "ok", f"{len(files)} 张（DRY_RUN 未建链）"
-
-    # ---- 目标已存在：只处理「链接本身」或「空目录」，绝不进目录删内容 ----
-    if dst_dir.is_symlink():
-        try:
-            os.unlink(dst_dir)
-        except OSError as exc:
-            return "failed", f"目标已是链接且摘不掉: {exc}"
-    elif dst_dir.exists():
-        if not dst_dir.is_dir():
-            return "failed", "目标已存在且不是目录"
-        try:
-            entries = list(dst_dir.iterdir())
-        except OSError as exc:
-            return "failed", f"读目标目录失败: {exc}"
-        if entries:
-            return "skip", f"目标已有 {len(entries)} 个条目，不动"
-        try:
-            dst_dir.rmdir()
-        except OSError as exc:
-            return "failed", f"空目录删不掉: {exc}"
-
-    # ---- 1) 硬链接（同卷秒建、零拷贝）----
-    try:
-        dst_dir.mkdir(parents=True)
-    except OSError as exc:
-        return "failed", f"建目录失败: {exc}"
-    created, link_err = [], ""
-    for p in files:
-        try:
-            os.link(p, dst_dir / p.name)
-            created.append(dst_dir / p.name)
-        except OSError as exc:
-            link_err = str(exc)
-            break
-    if len(created) == len(files):
-        return "hardlink", f"{len(created)} 张硬链接"
-    for p in created:   # 只回滚自己建的，不按目录内容清理
-        try:
-            p.unlink()
-        except OSError:
-            pass
-    try:
-        dst_dir.rmdir()
-    except OSError:
-        pass
-
-    # ---- 2) 符号链接 ----
-    try:
-        os.symlink(src_dir, dst_dir, target_is_directory=True)
-        return "symlink", f"image/ → {src_dir}"
-    except OSError as exc:
-        print(f"  ⚠️ 图链失败（硬链接: {link_err or '未知'}；软链接: {exc}）")
-        print(f'  ℹ️ 手工挂上即可（Windows 免管理员）：mklink /J "{dst_dir}" "{src_dir}"')
-        return "none", f"未建 image/ 链（{len(files)} 张源图未挂）"
-
-
 # --------------------------------------------------------------------------
 # 单包处理
 # --------------------------------------------------------------------------
@@ -959,9 +890,6 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
             ok &= st != "failed"
         else:
             print(f"  ⏭️  源目录没有 {cfg['ply_name']}，跳过点云")
-    if cfg["out_images"]:
-        st, note = link_images(task_dir / "image", out_dir / "image")
-        print(f"  {'✅' if st in ('hardlink', 'symlink') else '⏭️'} 图链: {note}")
 
     report = {
         "task": task_dir.name, "n_frames": vl["n"],
@@ -1219,7 +1147,6 @@ def main():
         "phi_normalize": os.environ.get("PHI_NORMALIZE", "1") == "1",
         "out_centered": os.environ.get("OUT_CENTERED", "1") == "1",
         "out_ply": os.environ.get("OUT_PLY", "1") == "1",
-        "out_images": os.environ.get("OUT_IMAGES", "1") == "1",
         "force": os.environ.get("FORCE", "0") == "1",
         "dry_run": os.environ.get("DRY_RUN", "0") == "1",
         # --- 出图（复用 99g，见 run_plots）---
