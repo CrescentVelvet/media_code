@@ -47,8 +47,11 @@ rsvg-convert（librsvg2-bin），另需系统有 CJK 字体，否则中文变豆
     VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python ...
 
     # 约束球心取哪个点（默认 sight = 最小二乘视线汇聚中心，不使用 anchor_point）
-    VL_TARGET=anchor python ...    # 回到 anchor_point 口径
-    VL_MARK_ALT=0    python ...    # 不画对照球心
+    TARGET_MODE=anchor python ...  # 回到 anchor_point 口径
+    MARK_ALT=0      python ...     # 不画对照球心
+    # 观看视角约束裁剪：把「实测 min/max ± 余量」再往里收（默认 0 = 不裁）。
+    # 名字与方向对齐 99c 的 crop_axis，两端交叉（THETA_TOP 收 el 低端）——详见 README。
+    THETA_TOP=3 THETA_BOTTOM=5 PHI_LEFT=10 PHI_RIGHT=10 python ...
     QUAD_PHOTO=0     python ...    # quad 左栏不贴实拍首帧（默认贴，解码 HEIC 需 pillow-heif）
     # 被画的包自身没有 image/ 时，按「同名 ID 目录」去这个根下取源图（99k 画的居中包
     # 就是这种情况：只有 transforms.json + pcd.ply）。不复制、不挂链，直接读原包。
@@ -126,13 +129,30 @@ STYLE_LABELS = {
 # 等轴测投用的视角因子
 ISO_COS, ISO_SIN = math.cos(math.radians(30)), math.sin(math.radians(30))
 
+def env_get(new: str, default: str, *old: str) -> str:
+    """读环境变量：新名优先；旧名（2026-10-16 前的 VL_* / EL_* 写法）兜底并提示一次。
+
+    与 99k_make_gs_params.py 的同名函数**同规则**：99k 出图时按新名透传 env，而用户在
+    命令行用旧名跑 99k 时，旧名会经 os.environ 一起继承到本进程 —— 两条路都要能读。
+    """
+    v = os.environ.get(new, "")
+    if v != "":
+        return v
+    for o in old:
+        ov = os.environ.get(o, "")
+        if ov != "":
+            print(f"⚠️ 环境变量 {o} 已更名为 {new}（旧名仍生效，建议改用新名）")
+            return ov
+    return default
+
+
 # 视角约束球心取哪个点：anchor（transforms.json 自带）| sight（最小二乘视线交汇点）。
 # 默认 sight：实测 10 个样本，sight 的视线垂距 RMS 0.081 m / 夹角 3.46°，明显优于
 # anchor_point 的 0.205 m / 9.54°（anchor 主要是采集包自带的标称点，并不严格是视线汇聚处）。
-# VL_TARGET=anchor 可回到旧口径。
-VL_TARGET = os.environ.get("VL_TARGET", "sight").strip().lower()
+# TARGET_MODE=anchor 可回到旧口径（旧名 VL_TARGET 仍能读）。
+TARGET_MODE = env_get("TARGET_MODE", "sight", "VL_TARGET").strip().lower()
 # 约束球心的对照点标记：1 = 画出另一个候选点并标出两点距离（看准不准用），0 = 不画
-VL_MARK_ALT = os.environ.get("VL_MARK_ALT", "1").strip().lower() not in ("0", "false", "no")
+MARK_ALT = env_get("MARK_ALT", "1", "VL_MARK_ALT").strip().lower() not in ("0", "false", "no")
 
 # 哨兵：表示「该函数的参考点沿用 ctx['anchor']」。传 None 才是「不画」。
 # 用 None 当默认值会让「不画」和「用 ctx 的」混成一个值，所以单独造一个。
@@ -908,28 +928,36 @@ def draw_iso_geometry(ctx, view, clip, pal=PAL_LIGHT, *, cloud_screen=None, grid
 # 本实现：区间 = 各帧实测 min/max，再各加一个显式、可调的余量（下面三个常量）。
 # 余量给小的理由：约束的目的是「允许用户在采集范围内游走」，小于采集范围会穿帮，
 # 大太多会露没采到的区域，所以贴着实测区间给一点点最稳。
-VL_AZ_PAD = float(os.environ.get("VL_AZ_PAD", "3.0"))    # 方位角两侧余量（度）
-VL_EL_PAD = float(os.environ.get("VL_EL_PAD", "3.0"))    # 仰角两侧余量（度）
-VL_R_PAD = float(os.environ.get("VL_R_PAD", "0.08"))     # 半径两侧余量（比例）
+PHI_PAD = float(env_get("PHI_PAD", "3.0", "VL_AZ_PAD"))        # 方位角（Phi）两侧余量（度）
+THETA_PAD = float(env_get("THETA_PAD", "3.0", "VL_EL_PAD"))    # 仰角（Theta）两侧余量（度）
+RADIUS_PAD = float(env_get("RADIUS_PAD", "0.08", "VL_R_PAD"))  # 半径两侧余量（比例）
 # 方位角跨度超过这个值就按「整圈」处理（原版是 1.8π≈324°，这里收紧到 300°）
-VL_FULL_AZ = float(os.environ.get("VL_FULL_AZ", "300.0"))
+FULL_PHI_SPAN = float(env_get("FULL_PHI_SPAN", "300.0", "VL_FULL_AZ"))
 # 仰角「空洞」保护 gap split —— 与 99k_make_gs_params.py **同名同义**，改一处必须同步另一处
 # （99k 调本脚本出图时会把这几个 env 透传下来；不同步的话图上 el 区间与 gs json 不一致）。
 # 场景：绕物体拍两圈（俯视 + 平视）时 el 双峰，两峰之间是没拍到的空档；min/max ± pad 必然
 # 横跨空档 → 用户转到中间视角穿帮。peak = 按仰角排序找最大间隙切段，只保留一圈：
-#   thr = max(EL_GAP_MIN, EL_GAP_K × 中位帧间距)；单圈数据不会触发 → 结果与 full 逐位相同。
-PITCH_MODE = os.environ.get("PITCH_MODE", "full").strip().lower()   # full(默认) | peak
-EL_GAP_MIN = float(os.environ.get("EL_GAP_MIN", "2.5"))    # 切段绝对下限（度）
-EL_GAP_K = float(os.environ.get("EL_GAP_K", "5.0"))        # 切段相对倍率（× 中位帧间距）
-EL_MIN_FRAMES = int(os.environ.get("EL_MIN_FRAMES", "5"))  # 段的最小帧数（不足的当离群丢掉）
-EL_PICK = os.environ.get("EL_PICK", "biggest").strip().lower()  # biggest | top | bottom | init
-EL_PAD_GAP = float(os.environ.get("EL_PAD_GAP", "0.0"))    # peak 模式「洞侧」余量（度）
-EL_TIE_WARN = float(os.environ.get("EL_TIE_WARN", "0.8"))  # 两圈帧数接近的告警阈值
+#   thr = max(THETA_GAP_MIN, THETA_GAP_K × 中位帧间距)；单圈数据不会触发 → 与 full 逐位相同。
+THETA_MODE = env_get("THETA_MODE", "full", "PITCH_MODE").strip().lower()   # full(默认) | peak
+THETA_GAP_MIN = float(env_get("THETA_GAP_MIN", "2.5", "EL_GAP_MIN"))  # 切段绝对下限（度）
+THETA_GAP_K = float(env_get("THETA_GAP_K", "5.0", "EL_GAP_K"))  # 切段相对倍率（× 中位帧间距）
+THETA_MIN_FRAMES = int(env_get("THETA_MIN_FRAMES", "5", "EL_MIN_FRAMES"))  # 段最小帧数
+THETA_PICK = env_get("THETA_PICK", "biggest", "EL_PICK").strip().lower()  # biggest|top|bottom|init
+THETA_PAD_GAP = float(env_get("THETA_PAD_GAP", "0.0", "EL_PAD_GAP"))  # peak「洞侧」余量（度）
+THETA_TIE_WARN = float(env_get("THETA_TIE_WARN", "0.8", "EL_TIE_WARN"))  # 两圈帧数接近告警阈值
+# 观看视角约束裁剪（2026-10-16 新增）—— 语义 = 99c 的 crop_axis，与 99k 同名同义：
+# 在这四个维度上把区间往里收（默认全 0 = 不裁）。两端交叉关系见 trim_axis 的注释。
+THETA_TOP = float(env_get("THETA_TOP", "0.0"))
+THETA_BOTTOM = float(env_get("THETA_BOTTOM", "0.0"))
+PHI_LEFT = float(env_get("PHI_LEFT", "0.0"))
+PHI_RIGHT = float(env_get("PHI_RIGHT", "0.0"))
 # 四联图右列专用：约束区间在「画出来/标出来」时两端各收掉这么大比例的跨度，
 # 但两端都不许越过 frame 0 的实测角 —— 否则用户一开场就落在约束外，会穿帮。
 # 只作用于右列约束层的绘制与标注，**不改取景**：取景仍用完整区间，否则四块共用的
 # 取景会把左下 ③ 等轴测一起缩掉，左列就不再是「原始采集轨迹」原图了。设 0 关闭。
-VL_TRIM = float(os.environ.get("VL_TRIM", "0.2"))
+# ⚠️ 与 THETA_TOP/THETA_BOTTOM（真实裁剪，改区间本身、进而改 gs json）不是一回事：
+#    这个是纯绘制层的收拢，产物数值不受影响。
+LIM_TRIM = float(env_get("LIM_TRIM", "0.2", "VL_TRIM"))
 # 可选：把视角约束叠进 combo 风格的俯视图（band/edges/angle/rings/hull），
 # 或叠进等轴测面板（shell）。留空 = 完全不叠，combo 行为与旧版一致。
 VLIMIT_MODE = os.environ.get("VLIMIT_MODE", "")
@@ -1083,10 +1111,51 @@ def sight_fit(ctx, t):
 
 
 # --------------------------------------------------------------------------
-# 仰角「空洞」保护：gap split（PITCH_MODE=peak）
+def trim_axis(name, lo, hi, cut_lo, cut_hi, init_val, disp=None):
+    """把区间 [lo, hi] 往里收（观看视角约束裁剪）。返回 (new_lo, new_hi, info)。
+
+    裁剪语义与 99c_repack_view_limits.py 的 crop_axis、以及 99k 的同名函数**完全一致**：
+        new_lo = lo + cut_lo,   new_hi = hi − cut_hi
+    收没了（new_lo > new_hi）时降级成一条缝 [c, c]：c 优先取初始视角（落在原区间内时），
+    否则取区间中心 —— 与 99c 一样只打印告警、不报错（收死在图上立刻看得见）。
+
+    ⚠️ **加减一律在本脚本自己的值域上做（el / az），全程不换算。** 只裁一侧时，另一侧
+    必须逐位不动；而 Theta = 90 − el 这种映射有浮点往返误差（实测 90−(90−x) 在 10 包的
+    80 个角度里 20 个不逐位相等，最大偏差 7.1e-15°）—— 为了显示而换算一次就够了。
+
+    disp(v) 只用于**显示**：把本值域映到用户与 99c 熟悉的值域（Theta = 90 − el /
+    Phi = −az），使 info 与告警里的刻度同时是 gs json 的 pitch / yaw 刻度、也是 99c
+    CLI 的 Theta / Phi 刻度。必须是单调映射（升序或者降序都行，内部会把 info 里的
+    in/out 归一成升序，并把 cut 同步对齐到同一端）。
+    """
+    cut_lo, cut_hi = float(cut_lo), float(cut_hi)
+    new_lo, new_hi = lo + cut_lo, hi - cut_hi
+    d = disp or (lambda v: v)
+    a, b = d(lo), d(hi)
+    rev = a > b                       # 降序值域（Theta = 90 − el、Phi = −az）
+    d_lo, d_hi = (b, a) if rev else (a, b)
+    d_cut = (cut_hi, cut_lo) if rev else (cut_lo, cut_hi)
+    info = {"axis": name, "in": (d_lo, d_hi), "cut": d_cut,
+            "out": (d(new_lo), d(new_hi)) if not rev else (d(new_hi), d(new_lo)),
+            "degenerate": False, "src": None}
+    if new_lo <= new_hi:
+        return new_lo, new_hi, info
+    if init_val is not None and lo <= init_val <= hi:
+        c, src = init_val, "初始视角"
+    else:
+        c, src = (lo + hi) / 2.0, "区间中心"
+    dc = d(c)
+    info.update({"out": (dc, dc), "degenerate": True, "src": src})
+    print(f"  ⚠️ {name} 裁剪量 [{d_cut[0]:g},{d_cut[1]:g}] 超过半跨度 {(hi - lo) / 2.0:.2f}°，"
+          f"收成一条缝 [{dc:.2f},{dc:.2f}]（取{src}，不报错）")
+    return c, c, info
+
+
+# --------------------------------------------------------------------------
+# 仰角「空洞」保护：gap split（THETA_MODE=peak）
 #   与 99k_make_gs_params.py 里的同名函数**逐字同源**（median_of / split_el_segments /
 #   pick_el_segment / el_span），env 名也一致 —— 改一处必须同步另一处，否则图（本脚本自己
-#   重算）与 gs json（99k 写）会不一致。
+#   重算）与 gs json（99k 写）会不一致。（trim_axis 不属于这四个函数，故放在同源区之外。）
 # --------------------------------------------------------------------------
 def median_of(xs):
     """中位数（偶数长度取中间两个的平均）。空列表返回 0.0。"""
@@ -1209,13 +1278,16 @@ def el_span(el, init_el, mode, pad, gap_min, gap_k, min_frames, pick, gap_pad, t
 
 
 def compute_view_limit(ctx, target_mode=None):
-    """算出视角约束区间（球壳扇块）。纯数据驱动：实测 min/max ± VL_*_PAD。
+    """算出视角约束区间（球壳扇块）。纯数据驱动：实测 min/max ± *_PAD，再经观看约束裁剪。
 
-    PITCH_MODE=peak 时仰角改走 gap split（见 el_span）：双峰数据（俯视+平视两圈）只保留
+    THETA_MODE=peak 时仰角改走 gap split（见 el_span）：双峰数据（俯视+平视两圈）只保留
     一圈，避开两圈之间没拍到的空洞；单圈数据结果与 full 逐位相同。方位角不受影响 ——
     两圈都绕整圈时 az 本来就走 full_az 不设限。
+    观看约束裁剪（THETA_TOP / THETA_BOTTOM / PHI_LEFT / PHI_RIGHT，默认全 0 = 不裁）在
+    余量之后、init 夹取之前执行，语义与 99c 的 crop_axis / 99k 的 trim_axis 一致（见
+    trim_axis 的注释）。
 
-    target_mode 决定球壳中心取哪个点（缺省读环境变量 VL_TARGET）：
+    target_mode 决定球壳中心取哪个点（缺省读环境变量 TARGET_MODE）：
       "anchor" ＝ transforms.json 自带的 anchor_point
       "sight"  ＝ 最小二乘视线汇聚中心，完全不使用 anchor_point
     两个候选点都会算出来：选中的进 target，另一个进 target_alt 供图上对照
@@ -1233,7 +1305,7 @@ def compute_view_limit(ctx, target_mode=None):
     if anchor is None:
         target, src = sc, "sight_center（transforms.json 无 anchor_point，自动回退）"
         alt, alt_src = None, "anchor_point"
-    elif (target_mode or VL_TARGET) == "sight":
+    elif (target_mode or TARGET_MODE) == "sight":
         target, src = sc, "sight_center（最小二乘视线汇聚中心）"
         alt, alt_src = anchor, "anchor_point"
     else:
@@ -1256,23 +1328,46 @@ def compute_view_limit(ctx, target_mode=None):
         azu.append(azu[-1] + ((a - azu[-1] + 180.0) % 360.0 - 180.0))
 
     az_span = max(azu) - min(azu)
-    full_az = az_span >= VL_FULL_AZ
+    full_az = az_span >= FULL_PHI_SPAN
     if full_az:   # 绕了一整圈 → 方位角不设限，画成闭合环
         az_lo, az_hi = azu[0], azu[0] + 360.0
     else:
-        az_lo, az_hi = min(azu) - VL_AZ_PAD, max(azu) + VL_AZ_PAD
+        az_lo, az_hi = min(azu) - PHI_PAD, max(azu) + PHI_PAD
 
-    # 仰角：PITCH_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
-    el_lo, el_hi, el_split = el_span(el, el[0], PITCH_MODE, VL_EL_PAD,
-                                     EL_GAP_MIN, EL_GAP_K, EL_MIN_FRAMES,
-                                     EL_PICK, EL_PAD_GAP, EL_TIE_WARN)
+    # 仰角：THETA_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
+    el_lo, el_hi, el_split = el_span(el, el[0], THETA_MODE, THETA_PAD,
+                                     THETA_GAP_MIN, THETA_GAP_K, THETA_MIN_FRAMES,
+                                     THETA_PICK, THETA_PAD_GAP, THETA_TIE_WARN)
+
+    # 观看视角约束裁剪（与 99k 同一步、同口径）：余量之上再往里收，几何与 gs json 一致。
+    # env 名与 99c 的 crop 参数同名；本脚本内部用 el / az 而 99c 用 Theta = 90 − el /
+    # Phi = −az（两轴都**反向**），所以同一参数名落到本值域时「上/下」正好互换：
+    #   THETA_TOP → el_lo += TOP（99c 裁 Theta 上界）｜ THETA_BOTTOM → el_hi -= BOTTOM
+    #   PHI_RIGHT → az_lo += RIGHT（99c 裁 Phi 上界）｜ PHI_LEFT     → az_hi -= LEFT
+    el_lo, el_hi, theta_trim = trim_axis("Theta", el_lo, el_hi,
+                                         THETA_TOP, THETA_BOTTOM, el[0],
+                                         disp=lambda v: 90.0 - v)
+    if full_az:
+        # 整圈 = 允许转满一圈，裁剪在这里没有语义 → 跳过（有设就明确告警，不静默吞掉）
+        phi_trim = {"axis": "Phi", "in": (-az_hi, -az_lo), "cut": (0.0, 0.0),
+                    "out": (-az_hi, -az_lo), "degenerate": False, "src": None,
+                    "skipped": "full_az（整圈不设限）"}
+        if PHI_LEFT or PHI_RIGHT:
+            print(f"⚠️ 方位角按整圈处理（不设限），PHI_LEFT={PHI_LEFT:g} / "
+                  f"PHI_RIGHT={PHI_RIGHT:g} 被忽略")
+    else:
+        az_lo, az_hi, phi_trim = trim_axis("Phi", az_lo, az_hi,
+                                           PHI_RIGHT, PHI_LEFT, azu[0],
+                                           disp=lambda v: -v)
+
     # frame 0 可能落在被丢掉的那一圈里 → 夹进保留区间。它有两个用途：用户开场时的仰角，
     # 以及 trim_view_limit 的「两端不许越过」兜底锚点 —— 不夹的话右列区间会被撑回空洞。
+    # ⚠️ 必须在裁剪**之后**夹（与 99k 同序），否则 init 会被夹到裁剪前的区间、又落到裁剪外。
     init_el_used = min(max(el[0], el_lo), el_hi)
-    rho_lo = max(0.0, min(rho) * (1.0 - VL_R_PAD))
-    rho_hi = max(rho) * (1.0 + VL_R_PAD)
-    r_lo = max(0.0, min(rr) * (1.0 - VL_R_PAD))
-    r_hi = max(rr) * (1.0 + VL_R_PAD)
+    rho_lo = max(0.0, min(rho) * (1.0 - RADIUS_PAD))
+    rho_hi = max(rho) * (1.0 + RADIUS_PAD)
+    r_lo = max(0.0, min(rr) * (1.0 - RADIUS_PAD))
+    r_hi = max(rr) * (1.0 + RADIUS_PAD)
 
     # 两个候选球心的差异：分解为「沿平均视线」与「垂直视线」两个分量。
     # 垂直分量影响方位/仰角区间，沿视分量只影响半径——图上要讲清差在哪。
@@ -1296,6 +1391,8 @@ def compute_view_limit(ctx, target_mode=None):
         "init_az": azu[0], "init_el": init_el_used, "init_el_raw": el[0],
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az,
         "el_lo": el_lo, "el_hi": el_hi, "el_split": el_split,
+        # 观看视角约束裁剪的回执（未裁时两侧为 0 / degenerate=False）：图注据此提示裁剪量
+        "theta_trim": theta_trim, "phi_trim": phi_trim,
         "rho_lo": rho_lo, "rho_hi": rho_hi, "r_lo": r_lo, "r_hi": r_hi,
         "raw": {"az": (min(azu), max(azu)), "el": (min(el), max(el)),
                 "rho": (min(rho), max(rho)), "r": (min(rr), max(rr))},
@@ -1324,7 +1421,7 @@ def trim_view_limit(vl, ratio=None):
     整圈（full_az）不裁 az：360° 收 20% 会变成 288°，语义从「整圈」滑向「扇块」，
     而 full_az 标志还留着，图上自相矛盾。el 照裁。
     """
-    k = VL_TRIM if ratio is None else ratio
+    k = LIM_TRIM if ratio is None else ratio
     if k <= 0.0:
         return vl
     out = dict(vl)
@@ -1498,14 +1595,14 @@ def _lim_rings(ctx, vl, view):
 
 
 def _lim_hull(ctx, vl, view):
-    """对照组：不假设环绕，直接取相机水平位置的凸包并沿质心外扩 VL_R_PAD。"""
+    """对照组：不假设环绕，直接取相机水平位置的凸包并沿质心外扩 RADIUS_PAD。"""
     pts = [view.p(p[0], p[2]) for p in ctx["pos"]]
     hull = _hull2d(pts)
     if len(hull) < 3:
         return ""
     cx = sum(p[0] for p in hull) / len(hull)
     cy = sum(p[1] for p in hull) / len(hull)
-    grown = [(cx + (p[0] - cx) * (1.0 + VL_R_PAD), cy + (p[1] - cy) * (1.0 + VL_R_PAD))
+    grown = [(cx + (p[0] - cx) * (1.0 + RADIUS_PAD), cy + (p[1] - cy) * (1.0 + RADIUS_PAD))
              for p in hull]
     poly = " ".join("%.1f,%.1f" % p for p in grown)
     return "\n".join([
@@ -1656,10 +1753,27 @@ def _limit_head(ctx, vl, mode):
                f'{vl["el_hi"]:.1f}° ｜ 水平半径 ρ {vl["rho_lo"]:.2f} → {vl["rho_hi"]:.2f} m ｜ '
                f'3D 距离 R {vl["r_lo"]:.2f} → {vl["r_hi"]:.2f} m'
                f'{" ｜ ⚠️ 方位角近似整圈" if vl["full_az"] else ""}</text>')
+    # 观看约束裁剪提示：只有真的裁了才出现（默认全 0 时不往图注塞噪音，图面逐字不变）。
+    # 按 env 名回报，而不是按 Theta/Phi 值域的「下界/上界」—— 两者端向相反，写错就误导。
+    # ⚠️ 单独占 y=150 一行，不并进上面那条 y=132：那条本来就已超出画布宽（实测 ~909/900 px），
+    #    再往后接字会被裁掉、等于没写。
+    cut_bits = []
+    if THETA_TOP or THETA_BOTTOM:
+        cut_bits.append(f'THETA_TOP {THETA_TOP:g}° / THETA_BOTTOM {THETA_BOTTOM:g}°')
+    if not vl["full_az"] and (PHI_LEFT or PHI_RIGHT):
+        cut_bits.append(f'PHI_LEFT {PHI_LEFT:g}° / PHI_RIGHT {PHI_RIGHT:g}°')
+    if cut_bits:
+        deg = [t["axis"] for t in (vl.get("theta_trim"), vl.get("phi_trim"))
+               if t and t.get("degenerate")]
+        txt = (f'✂️ 已按观看约束裁剪（{" ｜ ".join(cut_bits)}）—— 区间两端比实测覆盖更窄，'
+               f'以 gs json 为准')
+        if deg:
+            txt += f' ｜ ⚠️ {"、".join(deg)} 收成了一条缝'
+        out.append(f'<text x="40" y="150" font-size="11.5" fill="{LIM_INK}">{esc(txt)}</text>')
     u = vl["uwa"]
     out.append(f'<text x="40" y="132" font-size="12" fill="#9CA3AF">'
-               f'区间 = 各帧实测 min/max ± 余量（{VL_AZ_PAD:g}° / {VL_EL_PAD:g}° / '
-               f'{VL_R_PAD * 100:g}%） ｜ UWA 对照（未加余量）：Phi {u["phi"][0]:.1f}° → '
+               f'区间 = 各帧实测 min/max ± 余量（{PHI_PAD:g}° / {THETA_PAD:g}° / '
+               f'{RADIUS_PAD * 100:g}%） ｜ UWA 对照（未加余量）：Phi {u["phi"][0]:.1f}° → '
                f'{u["phi"][1]:.1f}° ｜ Theta {u["theta"][0]:.1f}° → {u["theta"][1]:.1f}° ｜ '
                f'Radius {u["radius"][0]:.3f} → {u["radius"][1]:.3f} m</text>')
     return "\n".join(out)
@@ -1677,7 +1791,7 @@ def _target_marks(ctx, vl, view, ink, *, iso=False, fs=12):
 
     球心（实心圆 + 十字）＝本图用来定约束的那个点；对照点（空心叉）＝另一个候选点
     （anchor_point ↔ 最小二乘视线汇聚中心）。二者之间的虚线与 Δ 值就是「换个点算差多少」，
-    不用回日志对数字。VL_MARK_ALT=0 可关掉对照点。
+    不用回日志对数字。MARK_ALT=0 可关掉对照点。
     """
     def prj(p):
         return view.p(*iso_proj(*p)) if iso else view.p(p[0], p[2])
@@ -1686,7 +1800,7 @@ def _target_marks(ctx, vl, view, ink, *, iso=False, fs=12):
     tx, ty = prj(t)
     out = []
     alt = vl["target_alt"]
-    if alt is not None and VL_MARK_ALT and vl["delta"] > 1e-3:
+    if alt is not None and MARK_ALT and vl["delta"] > 1e-3:
         ax, ay = prj(alt)
         out.append(f'<line x1="{tx:.1f}" y1="{ty:.1f}" x2="{ax:.1f}" y2="{ay:.1f}" '
                    f'stroke="{ALT_INK}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.9"/>')
@@ -1706,7 +1820,7 @@ def _target_marks(ctx, vl, view, ink, *, iso=False, fs=12):
     # 必然叠在一起（实测 Δ=0.52 m、比例尺 110 px/m → 相距才 56 px，两个标签印成一团）。
     t_name = vl["target_src"].split("（")[0]
     alt_name = vl["target_alt_src"].split("（")[0]
-    draw_alt = alt is not None and VL_MARK_ALT and vl["delta"] > 1e-3
+    draw_alt = alt is not None and MARK_ALT and vl["delta"] > 1e-3
 
     def _pick(cx, cy, text, color, avoid):
         """在四个方位里挑一个不压住 avoid 的位置（都撞就退回右上）。"""
@@ -1767,7 +1881,7 @@ def _limit_foot(ctx, vl, mode, view, y_note):
            f'{esc(rate)} · {esc(note)}</text>']
     tname = vl["target_src"].split("（")[0]
     aname = (vl["target_alt_src"].split("（")[0]
-             if (vl["target_alt"] is not None and VL_MARK_ALT) else None)
+             if (vl["target_alt"] is not None and MARK_ALT) else None)
     items = [("ring", f"球心 = {tname}", LIM_INK),
              ("dash", "视角约束边界", LIM_INK),
              ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"])]
@@ -1777,7 +1891,7 @@ def _limit_foot(ctx, vl, mode, view, y_note):
         items.insert(1, ("wedge", "允许范围（弧带）", LIM_FILL))
     elif mode == "hull":
         items = [("ring", f"球心 = {tname}", LIM_INK),
-                 ("dash", f"采集包络（凸包外扩 {VL_R_PAD * 100:g}%）", LIM_ALT),
+                 ("dash", f"采集包络（凸包外扩 {RADIUS_PAD * 100:g}%）", LIM_ALT),
                  ("line", f"相机轨迹（{ctx['n']} 帧）", PAL_LIGHT["track"])]
     elif mode == "shell":
         items = [("ring", f"球心 = {tname}", LIM_INK),
@@ -2240,7 +2354,7 @@ def style_combo(ctx):
         _tgt = vl_combo["target_src"].split("（")[0]
         out.append(f'<text x="{BOX_R}" y="{TOP_Y + PANEL_H - 14:.0f}" font-size="12" fill="{LIM_INK}" '
                    f'text-anchor="end">视角约束范围（{esc(LIMIT_LABELS[VLIMIT_MODE])}·球心 {_tgt}·'
-                   f'实测区间 ±{VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%）</text>')
+                   f'实测区间 ±{PHI_PAD:g}°/{THETA_PAD:g}°/{RADIUS_PAD * 100:g}%）</text>')
     out.append(axis_hints(view_top, PAL_LIGHT["axis"]))
     out.append(scale_bar(BOX_L + 16, TOP_Y + PANEL_H - 44, 0.5, view_top, color=MUTED))
 
@@ -2346,7 +2460,7 @@ def style_quad(ctx):
     # 右列的球心用**最小二乘视线汇聚中心**（完全不使用 anchor_point）；左列是原始采集
     # 轨迹图，参考点仍是 anchor_point——两列本来就不是同一件事，不需要统一。
     vl = compute_view_limit(ctx, target_mode="sight")
-    # 取景一律用 vl（完整区间）；右列画出来/标出来的约束用 vt（两端各收 VL_TRIM，不越 frame 0）。
+    # 取景一律用 vl（完整区间）；右列画出来/标出来的约束用 vt（两端各收 LIM_TRIM，不越 frame 0）。
     # 刻意分成两个对象：共用取景若跟着变窄，左下 ③ 等轴测会一起缩比例尺，左列就不是原图了。
     vt = trim_view_limit(vl)
     sid = ctx["id"][:8]
@@ -2492,9 +2606,9 @@ def style_quad(ctx):
 
     az_txt = ("整圈 360°" if vt["full_az"]
               else f'{vt["az_lo"]:.1f}°→{vt["az_hi"]:.1f}°')
-    trim_txt = (f'，az/el 两端各收 {VL_TRIM * 100:g}%（不越 frame 0）'
-                if VL_TRIM > 0 and not vt["full_az"] else
-                (f'，el 两端各收 {VL_TRIM * 100:g}%（不越 frame 0）' if VL_TRIM > 0 else ''))
+    trim_txt = (f'，az/el 两端各收 {LIM_TRIM * 100:g}%（不越 frame 0）'
+                if LIM_TRIM > 0 and not vt["full_az"] else
+                (f'，el 两端各收 {LIM_TRIM * 100:g}%（不越 frame 0）' if LIM_TRIM > 0 else ''))
     t_, a_ = vl["target"], vl["target_alt"]
     out.append(f'<text x="{X_R}" y="{ly}" font-size="12.5" fill="{QUAD_INK}">'
                f'球心 = 最小二乘视线汇聚中心 ({t_[0]:.2f}, {t_[1]:.2f}, {t_[2]:.2f})'
@@ -2505,7 +2619,7 @@ def style_quad(ctx):
     out.append(f'<text x="{X_R}" y="{ly + 22}" font-size="12" fill="{ALT_INK}">'
                f'{esc(_fit_note(vl))}</text>')
     out.append(f'<text x="{X_R}" y="{ly + 44}" font-size="12" fill="{QUAD_INK}">'
-               f'区间 = 实测 ±{VL_AZ_PAD:g}°/{VL_EL_PAD:g}°/{VL_R_PAD * 100:g}%{trim_txt} ｜ '
+               f'区间 = 实测 ±{PHI_PAD:g}°/{THETA_PAD:g}°/{RADIUS_PAD * 100:g}%{trim_txt} ｜ '
                f'az {az_txt} ｜ el {vt["el_lo"]:.1f}°→{vt["el_hi"]:.1f}° ｜ '
                f'ρ {vt["rho_lo"]:.2f}→{vt["rho_hi"]:.2f} m ｜ '
                f'R {vt["r_lo"]:.2f}→{vt["r_hi"]:.2f} m</text>')

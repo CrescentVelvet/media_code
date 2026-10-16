@@ -34,7 +34,7 @@
   ② **数据集体检 99g**（Remy 采集包轨迹图 / 视角约束可视化）；
   ③ **通用工具 99h**（全仓 Python 3.10 语法自查，**默认扫仓根**，som_human 也引用）；
   ④ **采集包预处理 99k**（2026-10-15 新增，提交 58eb1bb）：Remy 采集包 → 主体居中
-  （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
+  （球心默认 `sight` 最小二乘视线汇聚，`TARGET_MODE=anchor` 可切）+ 视角区间 →
   `gs_camera_params.json`（**2026-10-16 由 `gs_camera_params_final.json` 改名**，99b COLMAP
   模式消费 `setting.pitch_min/max`、`yaw_min/max`、`pitch_init`、`scene.radius`）+
   居中位姿/点云（`transforms.json`/`pcd.ply`）——**居中是必需项、不是可选项**（2026-10-16 评审）：
@@ -55,20 +55,33 @@
   python 3.13.12 **没装 PIL** → quad 静默退无左栏版面（看着像"没这张图"）；
   `~/.workbuddy/binaries/python/envs/default` 这个 venv 装了 pillow 12.3.0 + pillow_heif 1.8.1，
   出图时 `PLOT_PYTHON=<该 venv>/Scripts/python.exe` 即可。
-  区间口径与余量常量与 99g 同源（同名 env：`VL_AZ_PAD/EL_PAD/R_PAD/FULL_AZ`），**改一处要同步另一处**；
-  `RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
+  区间口径与余量常量与 99g 同源（同名 env：`PHI_PAD/THETA_PAD/RADIUS_PAD/FULL_PHI_SPAN`），
+  **改一处要同步另一处**；`RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
+  **观看视角约束裁剪**（2026-10-16 新增）：`THETA_TOP/THETA_BOTTOM/PHI_LEFT/PHI_RIGHT`
+  在「实测±余量」之后再往里收（默认全 0 = 与历史产物逐位一致），语义/方向与 99c 的
+  `crop_axis` **完全一致**（99c 原文 `Phi→[min+LEFT,max−RIGHT]`、`Theta→[min+BOTTOM,max−TOP]`）。
+  ⚠️ Theta=90−el、Phi=−az 是**反向**的：`THETA_TOP` 收 Theta 上界 = 抬 `pitch_min`（去相机
+  最低/最平视那端）；`THETA_BOTTOM` 压 `pitch_max`；`PHI_LEFT`→`yaw_min`↑、`PHI_RIGHT`→`yaw_max`↓。
+  代码内部用 el/az 计算且**只裁被设的那一侧**（另一侧逐位不动），`Theta/Phi` 只做显示换算
+  （90−(90−x) 有 ~7e-15° 浮点往返误差，实测 10 包 80 个角度 20 个不逐位相等）；裁剪发生在
+  init 夹取**之前**（先裁后夹）；整圈时 `PHI_LEFT/RIGHT` 跳过并告警；收没了降级成一条缝
+  （取初始视角，同 99c）。`trim_axis` 在两脚本同源但不属于逐字比对块。
+  **env 改名**（2026-10-16）：`VL_*`/`PITCH_*`/`EL_*` → Phi/Theta 术语（`env_get(新名, 默认, *旧名)`，
+  新名优先、旧名一次性提示）——`VL_TARGET→TARGET_MODE`、`VL_AZ_PAD→PHI_PAD`、`VL_EL_PAD→THETA_PAD`、
+  `VL_R_PAD→RADIUS_PAD`、`VL_FULL_AZ→FULL_PHI_SPAN`、`PITCH_MODE→THETA_MODE`、`EL_*→THETA_*`、
+  `VL_TRIM→LIM_TRIM`、`VL_MARK_ALT→MARK_ALT`。四向对照表见 tools_99/README「env 命名与旧名对照」。
   **仰角空洞保护**（2026-10-15，提交 `499a7ee`）：双峰数据（俯视+平视两圈，中间没拍到）
-  原先 `min/max ± pad` 必然横跨空洞 → `PITCH_MODE=peak` 按 gap split 只保留一圈。
-  判据 `thr=max(EL_GAP_MIN, EL_GAP_K×中位帧间距)`；**EL_GAP_MIN 默认 2.5°**
+  原先 `min/max ± pad` 必然横跨空洞 → `THETA_MODE=peak` 按 gap split 只保留一圈。
+  判据 `thr=max(THETA_GAP_MIN, THETA_GAP_K×中位帧间距)`；**THETA_GAP_MIN 默认 2.5°**
   （2026-10-16 由 8.0 下调，提交 `3e8db9f`）：服务器双峰样例的洞仅 3.29° 被 8.0 卡死；
   实测 10 包单圈内部最大间隙 0.11~1.71°、相对判据最多 0.41° → 拦门的恒为绝对下限，
   2.5 对实测最坏值留 46% 余量（1.5 会误切佳佳蹲）。
-  这一组 env（`PITCH_MODE/EL_GAP_MIN/EL_GAP_K/EL_MIN_FRAMES/EL_PICK/EL_PAD_GAP/EL_TIE_WARN`）
+  这一组 env（`THETA_MODE/THETA_GAP_MIN/THETA_GAP_K/THETA_MIN_FRAMES/THETA_PICK/THETA_PAD_GAP/THETA_TIE_WARN`）
   在 99k 与 99g **同名同义**，且 99k/99g 各有**逐字同源**的四份函数
   （`median_of/split_el_segments/pick_el_segment/el_span`）—— **改一处必须同步另一处**，
   比对法：取 `def median_of` 到 `def compute_view_limit` 之间文本应完全相同。
   单圈数据下 peak 与 full 结果逐位相同（安全开关，默认 full）；pad 只加数据外侧、
-  洞侧用 `EL_PAD_GAP`；首帧落在被丢圈里时 `pitch_init` 夹进保留区间（记 `init_clamped`）。
+  洞侧用 `THETA_PAD_GAP`；首帧落在被丢圈里时 `pitch_init` 夹进保留区间（记 `init_clamped`）。
   **出图 = 子进程调 99g**（2026-10-15 定，提交 5b569d0）：99k 的居中包就是 99g 的原生输入
   （把 `OUT_ROOT` 当 99g 的 `SRC_ROOT`），`OUT_PLOTS`/`PLOT_SRC(centered|origin|both)`/
   `PLOT_STYLE`/`PLOT_ROOT`/`PLOT_IDS`/`PLOT_PYTHON` 控制；图面默认落 `<批次>/plots/<模式>/`。

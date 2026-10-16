@@ -171,7 +171,7 @@ STYLE=quad IDS=<id1>,<id2> python tools_99/99g_plot_capture_trajectory.py
 把「以球心为心、方位角/仰角/半径三区间围成的球壳扇块」画进轨迹图。区间由各帧实测
 min/max ± 余量推出（不照抄外部那版 C++ 移植代码，四点问题见 NOTES.md）。
 
-**球心取哪个点**由 `VL_TARGET` 决定，默认 `sight`：
+**球心取哪个点**由 `TARGET_MODE` 决定，默认 `sight`：
 
 | 取值 | 含义 |
 |---|---|
@@ -190,27 +190,34 @@ STYLE=lim_edges SRC_ROOT=... python tools_99/99g_plot_capture_trajectory.py
 VLIMIT_MODE=edges STYLE=combo SRC_ROOT=... python tools_99/99g_plot_capture_trajectory.py
 
 # ④ 回到 anchor_point 口径 / 关掉对照点标记
-VL_TARGET=anchor python tools_99/99g_plot_capture_trajectory.py
-VL_MARK_ALT=0    python tools_99/99g_plot_capture_trajectory.py
+TARGET_MODE=anchor python tools_99/99g_plot_capture_trajectory.py
+MARK_ALT=0        python tools_99/99g_plot_capture_trajectory.py
 
 # ⑤ 关掉右列的贴身裁剪（回到实测 min/max ± 余量的完整区间）
-VL_TRIM=0 python tools_99/99g_plot_capture_trajectory.py
+LIM_TRIM=0 python tools_99/99g_plot_capture_trajectory.py
+
+# ⑥ 观看视角约束裁剪：在「实测±余量」之上再往图里收（方向与 99c 一致，见 D 节）
+THETA_TOP=3 THETA_BOTTOM=5 PHI_LEFT=10 PHI_RIGHT=10 \
+STYLE=lim_angle python tools_99/99g_plot_capture_trajectory.py
 ```
 
 画法：`lim_band`（扇环填充）/ `lim_edges`（四条边界虚线，对轨迹影响最小）/ `lim_angle`
 （边界 + 角度/半径数值标注）/ `lim_rings`（米制同心环 + 方位刻度）/ `lim_hull`
 （对照组：相机水平位置凸包外扩，不假设环绕）/ `lim_shell`（等轴测 3D 球壳扇块）。
-余量可用 `VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` 覆盖，整圈判定阈值用 `VL_FULL_AZ`。
+余量可用 `PHI_PAD` / `THETA_PAD` / `RADIUS_PAD` 覆盖，整圈判定阈值用 `FULL_PHI_SPAN`。
 
-**四联图右列的贴身裁剪**（`VL_TRIM`，默认 `0.2`；只有 `STYLE=quad` 的右列吃这个参数）：
+**四联图右列的贴身裁剪**（`LIM_TRIM`，默认 `0.2`；只有 `STYLE=quad` 的右列吃这个参数）：
 右列画出来/标出来的 az/el 区间在「实测 ± 余量」之上两端各再收 20% 跨度，但两端都不越过
 frame 0 的实测角（`min(lo+span·k, init)` / `max(hi−span·k, init)`），免得用户一开场就落在
 约束外。**只作用于右列约束层、不改取景** —— 四块共用取景，取景若跟着变窄会把左下 ③
-等轴测一起缩掉，左列就不是原图了。整圈（`VL_FULL_AZ`）时 az 不裁。`VL_TRIM=0` 关闭。
+等轴测一起缩掉，左列就不是原图了。整圈（`FULL_PHI_SPAN`）时 az 不裁。`LIM_TRIM=0` 关闭。
 副作用：el 跨度收到 8° 以下时球壳不填色（既有阈值），④ 会退化成细网格带。
+**别和观看视角约束裁剪混**：`LIM_TRIM` 只是绘制层的收拢（只影响这张图怎么画）；而
+`THETA_TOP` / `THETA_BOTTOM` / `PHI_LEFT` / `PHI_RIGHT` 是**改区间本身**的真实裁剪
+（99k 里会进 gs json，这里只影响图面，见图注）。
 
-**仰角空洞保护**（`PITCH_MODE`，默认 `full`）：双峰数据（俯视 + 平视两圈）下仰角区间会
-横跨没拍到的空档，设 `PITCH_MODE=peak` 让本脚本与 99k 一样按 gap split 只保留一圈。
+**仰角空洞保护**（`THETA_MODE`，默认 `full`）：双峰数据（俯视 + 平视两圈）下仰角区间会
+横跨没拍到的空档，设 `THETA_MODE=peak` 让本脚本与 99k 一样按 gap split 只保留一圈。
 参数与语义见「D. 采集包主体居中 → 相机参数（99k）」一节的「仰角空洞保护」—— 注意
 99k 出图时会自动把这组 env 透传下来，手工单独跑 99g 时才需要自己设。
 
@@ -268,8 +275,10 @@ DRY_RUN=1 python tools_99/99k_make_gs_params.py          # 只算不落盘
 ONLY=<task_a>,<task_b> python tools_99/99k_make_gs_params.py
 OUT_PLOTS=0 python tools_99/99k_make_gs_params.py        # 只要参数、不出图
 PLOT_STYLE=lim_edges PLOT_SRC=both python ...            # 换图面风格 / 顺便画原始包做对照
-PITCH_MODE=peak python tools_99/99k_make_gs_params.py    # 双峰数据（俯视+平视两圈）只保留一圈
-PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的那一圈（开场视角不变）
+THETA_MODE=peak python tools_99/99k_make_gs_params.py    # 双峰数据（俯视+平视两圈）只保留一圈
+THETA_MODE=peak THETA_PICK=init python ...               # 保留首帧所在的那一圈（开场视角不变）
+# 观看视角约束裁剪：在「实测 min/max ± 余量」之上再往里收（默认全 0 = 不裁）
+THETA_TOP=3 THETA_BOTTOM=5 PHI_LEFT=10 PHI_RIGHT=10 python ...
 ```
 
 **为什么需要**：Remy 采集包的世界原点是手机开机点附近，主体（视线汇聚点）实测离它
@@ -277,9 +286,10 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 `[0,0,0]`（`99b_pack_ply_to_mp4.py:435`）。不居中 → 手机端环绕中心整个偏离主体。
 **「能不能不居中、居中到底是不是必需项」的完整论证与 10 包实测见下「为什么必须居中」。**
 
-**四步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`VL_TARGET=anchor`
+**四步**：① 求球心（默认 `sight` = 最小二乘视线汇聚中心，与 99g 同源；`TARGET_MODE=anchor`
 切到采集包自带 `anchor_point`）→ ② 以球心为原点逐帧算 az / el / r 并取 min/max + 余量
-（解缠 / 整圈 / 余量常量全部沿用 99g）→ ③ 落盘 → ④ **调 99g 出图**（默认画居中后的包）。
+（解缠 / 整圈 / 余量常量全部沿用 99g）→ ②b 观看视角约束裁剪（可选，见下）→ ③ 落盘 → ④
+**调 99g 出图**（默认画居中后的包）。
 
 **产物**（`<OUT_ROOT>/<task>/`，默认 `<RESULTS_ROOT>/<批次名>/centered`）：
 
@@ -342,13 +352,16 @@ quad 四联 = 左列轨迹 / 右列视角约束球壳）+ `.png`（有光栅化�
 拿原始采集包复制一份，用居中包的 `transforms.json` / `pcd.ply` 覆盖同名文件即可（同名
 drop-in）。训练出的 ply 与相机天然以主体为原点，99b 的 `target=[0,0,0]` 才对得上。
 
-**关键 env**：`VL_TARGET`（sight/anchor）、`VL_AZ_PAD` / `VL_EL_PAD` / `VL_R_PAD` /
-`VL_FULL_AZ`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
+**关键 env**：`TARGET_MODE`（sight/anchor）、`PHI_PAD` / `THETA_PAD` / `RADIUS_PAD` /
+`FULL_PHI_SPAN`（同 99g）、`RADIUS_MODE`（默认 `mid`：让 99b 硬编码的 `[0.9r,1.2r]`
 恰好罩住实测半径区间）、`INIT_FOV_SCALE`（默认 `0.8`，同 99b）、`SORT_BY_TIME`、
 `PHI_NORMALIZE`、`OUT_CENTERED` / `OUT_PLY`、`OUT_PLOTS` / `PLOT_SRC` / `PLOT_STYLE` / `PLOT_ROOT` / `PLOT_IDS` /
 `PLOT_PYTHON`、`ONLY` / `FORCE` / `DRY_RUN`，以及仰角空洞保护的一组
-`PITCH_MODE` / `EL_GAP_MIN` / `EL_GAP_K` / `EL_PICK` / `EL_PAD_GAP` / `EL_TIE_WARN` /
-`EL_MIN_FRAMES`（见下节）。
+`THETA_MODE` / `THETA_GAP_MIN` / `THETA_GAP_K` / `THETA_PICK` / `THETA_PAD_GAP` / `THETA_TIE_WARN` /
+`THETA_MIN_FRAMES`（见「仰角空洞保护」）和观看约束裁剪的 `THETA_TOP` / `THETA_BOTTOM` /
+`PHI_LEFT` / `PHI_RIGHT`（见「观看视角约束裁剪」）。
+**旧名仍生效**（`VL_*` / `PITCH_*` / `EL_*`），用到时会在终端打一条一次性更名提示；
+新名 ↔ 旧名 ↔ 99c ↔ json 字段的四向对照见文末「env 命名与旧名对照」。
 
 ### 为什么必须居中（2026-10-16 定论：不可省）
 
@@ -394,18 +407,18 @@ drop-in）。训练出的 ply 与相机天然以主体为原点，99b 的 `targe
 自行确定 gauge，模型原点改由重建决定、不再取决于输入位姿的平移，届时居中的收益需重新评估；
 但两种情况下居中都不会更差（不居中在「原 gauge 保留」时必定错）。
 
-### 仰角「空洞」保护（`PITCH_MODE=peak`）
+### 仰角「空洞」保护（`THETA_MODE=peak`）
 
 **问题**：绕物体拍两圈（一圈俯视、一圈平视）时仰角 `el` 呈**双峰**，两峰之间是没拍到的
-空档。原来的区间取 `min/max ± VL_EL_PAD` —— 只看两个极值点、对分布形状无感 —— 必然把这个
+空档。原来的区间取 `min/max ± THETA_PAD` —— 只看两个极值点、对分布形状无感 —— 必然把这个
 空档包进 `pitch_min/pitch_max`，用户转到中间视角就穿帮。
 
-**做法**：`PITCH_MODE=peak` 时对 `el` 做 **gap split**：按仰角排序后看相邻样本的间距，
+**做法**：`THETA_MODE=peak` 时对 `el` 做 **gap split**：按仰角排序后看相邻样本的间距，
 在「大间隙」处切段，只保留一圈。
 
 ```
-thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适应帧密度 + 绝对下限防误切
-切段 → 丢掉帧数 < EL_MIN_FRAMES 的小段 → EL_PICK 选一圈 → 外侧 +VL_EL_PAD、洞侧 +EL_PAD_GAP
+thr = max(THETA_GAP_MIN, THETA_GAP_K × median(相邻间距))   # 相对倍率自适应帧密度 + 绝对下限防误切
+切段 → 丢掉帧数 < THETA_MIN_FRAMES 的小段 → THETA_PICK 选一圈 → 外侧 +THETA_PAD、洞侧 +THETA_PAD_GAP
 ```
 
 **为什么不用「直方图投票 + 区间长度系数」**：投票要先定 bin 宽度，投完还要再拍一个长度系数，
@@ -415,13 +428,13 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 
 | env | 默认 | 含义 |
 |---|---|---|
-| `PITCH_MODE` | `full` | `full` = 原行为（min/max ± pad）；`peak` = gap split 只保留一圈 |
-| `EL_GAP_MIN` | `2.5` | 切段绝对下限（度）：相邻仰角差 ≥ 它才算「洞」；单圈采集内部最大间隙实测 1.71°，2.5 是「不误切单圈」的安全下限 |
-| `EL_GAP_K` | `5.0` | 切段相对倍率：阈值还要 ≥ K × 同圈中位帧间距 |
-| `EL_PICK` | `biggest` | 保留哪一圈：`biggest`（帧数最多）/ `top`（仰角最高 = 俯视圈）/ `bottom`（仰角最低 = 平视圈）/ `init`（含首帧的圈） |
-| `EL_PAD_GAP` | `0.0` | 「洞侧」余量；不往洞里加 pad，否则等于把空洞又拉回来一截 |
-| `EL_TIE_WARN` | `0.8` | 次大段 / 主段 ≥ 此值就告警（两圈帧数接近时 `biggest` 会随帧数抖动） |
-| `EL_MIN_FRAMES` | `5` | 段的最小帧数：不足的段当离群 / 噪声丢掉 |
+| `THETA_MODE` | `full` | `full` = 原行为（min/max ± pad）；`peak` = gap split 只保留一圈 |
+| `THETA_GAP_MIN` | `2.5` | 切段绝对下限（度）：相邻仰角差 ≥ 它才算「洞」；单圈采集内部最大间隙实测 1.71°，2.5 是「不误切单圈」的安全下限 |
+| `THETA_GAP_K` | `5.0` | 切段相对倍率：阈值还要 ≥ K × 同圈中位帧间距 |
+| `THETA_PICK` | `biggest` | 保留哪一圈：`biggest`（帧数最多）/ `top`（仰角最高 = 俯视圈）/ `bottom`（仰角最低 = 平视圈）/ `init`（含首帧的圈） |
+| `THETA_PAD_GAP` | `0.0` | 「洞侧」余量；不往洞里加 pad，否则等于把空洞又拉回来一截 |
+| `THETA_TIE_WARN` | `0.8` | 次大段 / 主段 ≥ 此值就告警（两圈帧数接近时 `biggest` 会随帧数抖动） |
+| `THETA_MIN_FRAMES` | `5` | 段的最小帧数：不足的段当离群 / 噪声丢掉 |
 
 **默认下限 2.5° 的来历（2026-10-16）**：服务器双峰样例的两圈挨得很近 —— 洞只有 **3.29°**
 （el 33.5° → 36.8°），远小于原默认 8.0°，于是判据被**绝对下限**卡死、两圈没切开（相对判据
@@ -430,8 +443,8 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 2.5° 比实测最坏值（1.71°，仅 68 帧的稀疏采集）仍高 46%，10 包全部不被误切；再降到 1.5° 就有
 1 包被误切成两段。
 **排查「某包为什么没切开」看 `center_report.json` 的 `pitch_split`**：`threshold > gap_max`
-就是门槛过高；再看 `median_gap` 决定调哪个 —— 相对项小（≪ 下限）就调 `EL_GAP_MIN`，否则调
-`EL_GAP_K`。单圈数据跑 peak 是 no-op，图上自然看不出差别，以报告数字为准。
+就是门槛过高；再看 `median_gap` 决定调哪个 —— 相对项小（≪ 下限）就调 `THETA_GAP_MIN`，否则调
+`THETA_GAP_K`。单圈数据跑 peak 是 no-op，图上自然看不出差别，以报告数字为准。
 
 **安全性质（默认关，向后兼容）**：单圈数据不存在 ≥ thr 的间隙 → 只有一段 → 两侧都走
 「外侧」分支 → 结果与 `full` **逐位相同**。实测 10 包真实数据（手部微动样例）peak 与 full
@@ -440,26 +453,95 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 
 **首帧（开场视角）**：若首帧落在被丢掉的那一圈里，`pitch_init` 会被**夹进保留区间**
 （`center_report.json` 的 `pitch_split.init_clamped` 记 true），否则用户一开场就落在约束外。
-想让开场视角留在首帧那一圈，设 `EL_PICK=init`。
+想让开场视角留在首帧那一圈，设 `THETA_PICK=init`。
 
 **诊断**：`center_report.json` 新增 `pitch_split`（段列表 / 选中段 / 阈值 / 最大间隙及其跨度 /
 切几刀 / 丢了几段 / tie 告警 / clamp 详情），跑批时也直接打在终端上。
 
-**只作用于 `el`**：两圈都绕整圈时 `az` 走 `VL_FULL_AZ` 本来就不设限，无需处理（而且 az 是
+**只作用于 `el`**：两圈都绕整圈时 `az` 走 `FULL_PHI_SPAN` 本来就不设限，无需处理（而且 az 是
 环形量，做间隙还得处理解缠跨 ±180，风险大收益小）。
 
-**99g 必须同步**：99k 调 99g 出图时会把上面 7 个 env 一起透传 —— 99g 是独立进程、自己从
-`transforms.json` 重算视角区间，不透传的话图会画出横跨空洞的旧区间、与 json 对不上。
+**99g 必须同步**：99k 调 99g 出图时会把上面 7 个 env（`THETA_*`）与观看约束裁剪的 4 个
+env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `transforms.json` 重算视角区间，
+不透传的话图会画出横跨空洞 / 未裁剪的旧区间、与 json 对不上。
 `99g_plot_capture_trajectory.py` 里有**逐字同源**的 `median_of` / `split_el_segments` /
 `pick_el_segment` / `el_span` 四份实现（用脚本可比对：取 `def median_of` 到
 `def compute_view_limit` 之间的文本应完全相同），改一处必须同步另一处。
+
+### 观看视角约束裁剪（`THETA_TOP` / `THETA_BOTTOM` / `PHI_LEFT` / `PHI_RIGHT`，默认全 0）
+
+99k 生成的 `gs_camera_params.json` 描述的是**可观看范围**，所以除了「数据覆盖到哪」
+（实测 min/max ± 余量），还需要一个「允许用户看到哪」的口子 —— 就是这 4 个裁剪参数，
+与「余量」是两个正交的方向：
+
+| | 余量（`PHI_PAD` / `THETA_PAD` / `RADIUS_PAD`） | 裁剪（`THETA_TOP` 等） |
+|---|---|---|
+| 方向 | 从实测 min/max **往外扩** | 在余量之后**再往里收** |
+| 目的 | 贴着采集范围留一点游走空间，防边缘穿帮 | 挡住不想开放的视角（残缺 / 伪影一侧） |
+| 负值 | ❌ 报错（余量只往外扩，要收窄用裁剪） | ❌ 报错（裁剪只往里收，要放宽用余量） |
+| 收没了 | ——（余量不会反转区间） | 降级成一条缝 `[c, c]`：c 优先取初始视角（99b 的 1° 告警锚点），只打印告警不报错 |
+
+**四个参数的语义、方向与 99c 的 `crop_axis` 完全一致**（99c 文档原文：
+`Phi → [minPhi+LEFT, maxPhi−RIGHT]`、`Theta → [minTheta+BOTTOM, maxTheta−TOP]`）。
+但注意：99c 的输入是 UWA `view_limits`（Theta / Phi 值域），99k/99g 内部存的是 el / az，
+换算 `Theta = 90 − el`、`Phi = −az` 是**反向**的，所以参数名照抄 99c，落到 gs json 的效果是：
+
+| env | 收的是 | 对 gs json 的效果 |
+|---|---|---|
+| `THETA_TOP` | Theta 上界（= 相机仰角最低、最接近平视的那一端） | `pitch_min` 增大 |
+| `THETA_BOTTOM` | Theta 下界（= 相机仰角最高、最接近垂直俯视的那一端） | `pitch_max` 减小 |
+| `PHI_LEFT` | Phi 下界 | `yaw_min` 增大 |
+| `PHI_RIGHT` | Phi 上界 | `yaw_max` 减小 |
+
+⚠️ 「`THETA_TOP` 抬的其实是 pitch 下限」容易反直觉（Theta 与 pitch 反向）。拿不准方向就
+看产物：裁剪非 0 时，终端「最终区间」行会带 `THETA_TOP 3° / THETA_BOTTOM 5° …`，
+99g 图注会多一行紫色「✂️ 已按观看约束裁剪（…）」—— 以它们为准。
+
+**计算顺序**：实测 min/max ± 余量 →（仰角空洞保护，可选）→ **裁剪** → 最后才把首帧
+`pitch_init` / `yaw_init` **夹进裁剪后的区间**。必须先裁后夹，否则 init 会被夹到裁剪前
+的区间、又落到裁剪外。
+
+**整圈不设限**：方位角跨度 ≥ `FULL_PHI_SPAN` 时按整圈处理，`PHI_LEFT` / `PHI_RIGHT`
+被忽略（打印告警，不静默吞掉）。
+
+**诊断**：`center_report.json` 的 `view_trim` 块逐维记录 `in`（裁剪前，Theta/Phi 值域）/
+`cut` / `out`（裁剪后）/ `degenerate`。⚠️ 代码内部始终用 el / az 计算、**只裁被设了的那一侧**
+（另一侧逐位不动），in/out 换算成 Theta/Phi 只为显示 —— 所以全 0 时与历史产物逐位一致，
+个别裁一侧时另一侧也不会出现 1e-15° 的浮点漂移。
+
+### env 命名与旧名对照
+
+2026-10-16 起，99k / 99g 的视角相关 env 统一换成 **Phi / Theta 术语**（与 99c、与 UWA
+`view_limits` 的字段同名，好对齐）。旧名（`VL_*` / `PITCH_*` / `EL_*`）仍生效，用到时
+终端打一条一次性提示：`⚠️ 环境变量 VL_AZ_PAD 已更名为 PHI_PAD（旧名仍生效，建议改用新名）`。
+**新名优先**：同名新旧两个都设了时只认新名。
+
+| 新名（现在用） | 旧名（仍生效） | 99c 里的对应 | 影响的 gs json 字段 |
+|---|---|---|---|
+| `TARGET_MODE` | `VL_TARGET` | —（99c 不求球心） | `scene.center` 的来源 |
+| `PHI_PAD` | `VL_AZ_PAD` | —（99c 不加余量） | `yaw_min` / `yaw_max` |
+| `THETA_PAD` | `VL_EL_PAD` | — | `pitch_min` / `pitch_max` |
+| `RADIUS_PAD` | `VL_R_PAD` | — | `scene.radius` |
+| `FULL_PHI_SPAN` | `VL_FULL_AZ` | — | `yaw_min` / `yaw_max`（整圈时不设限） |
+| `THETA_MODE` | `PITCH_MODE` | — | `pitch_min` / `pitch_max` |
+| `THETA_GAP_MIN` | `EL_GAP_MIN` | — | 同上 |
+| `THETA_GAP_K` | `EL_GAP_K` | — | 同上 |
+| `THETA_MIN_FRAMES` | `EL_MIN_FRAMES` | — | 同上 |
+| `THETA_PICK` | `EL_PICK` | — | 同上 |
+| `THETA_PAD_GAP` | `EL_PAD_GAP` | — | 同上 |
+| `THETA_TIE_WARN` | `EL_TIE_WARN` | — | 同上 |
+| `THETA_TOP` / `THETA_BOTTOM` | —（新增） | `THETA_TOP` / `THETA_BOTTOM`（**同名同义**） | `pitch_min` / `pitch_max` |
+| `PHI_LEFT` / `PHI_RIGHT` | —（新增） | `PHI_LEFT` / `PHI_RIGHT`（**同名同义**） | `yaw_min` / `yaw_max` |
+| `LIM_TRIM`（仅 99g） | `VL_TRIM` | — | —（只影响图面） |
 
 ### 与 99g 的分工（为什么调脚本、不复制代码）
 
 99k 的产物「居中包」= `transforms.json` + `pcd.ply`，是 99g 认得的输入格式（缺 `image/` 由
 `PHOTO_ROOT` 兜住，见上），把它当 99g 的 `SRC_ROOT` 直接喂进去即可，零适配。所以 99k 用
-`subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `VL_TARGET` / `VL_*_PAD` /
-`VL_FULL_AZ`、仰角空洞保护的 `PITCH_MODE` / `EL_*`，以及 **`PHOTO_ROOT`（= 原始批次根）**
+`subprocess` 调同目录的 `99g_plot_capture_trajectory.py`，并把 `TARGET_MODE` / `PHI_PAD` /
+`THETA_PAD` / `RADIUS_PAD` / `FULL_PHI_SPAN`、仰角空洞保护的 `THETA_MODE` / `THETA_GAP_*` /
+`THETA_PICK` / `THETA_PAD_GAP` / `THETA_TIE_WARN` / `THETA_MIN_FRAMES`、观看约束裁剪的
+`THETA_TOP` / `THETA_BOTTOM` / `PHI_LEFT` / `PHI_RIGHT`，以及 **`PHOTO_ROOT`（= 原始批次根）**
 一起透传，保证图上的约束与 json 里的参数同口径、且左栏实拍首帧照常有图。
 
 为什么不把 99g 的绘图代码搬进 99k（或 `import` 它）：99g 是**已定稿的汇报图面**
@@ -473,7 +555,7 @@ thr = max(EL_GAP_MIN, EL_GAP_K × median(相邻间距))   # 相对倍率自适�
 代价只有多一个进程：10 个包 quad 风格实测 **4.2 s**。绘图失败**不影响**参数产物，
 只打印告警（缺 PNG 后端时 99g 会自己回退成 `.svg`）。
 
-⚠️ 一处**不是错的口径差异**：99g 图上画的半径带是「实测 r ± `VL_R_PAD`」（目标带），
+⚠️ 一处**不是错的口径差异**：99g 图上画的半径带是「实测 r ± `RADIUS_PAD`」（目标带），
 而 gs json 里 99b 实际用的是 `[0.9×radius, 1.2×radius]`（`99b:432`）。看 R 环对不上，
 先想到这一层。
 

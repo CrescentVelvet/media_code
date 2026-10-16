@@ -3,7 +3,7 @@
 
 背景（为什么需要它）
     Remy / HarmonyOS 采集包（transforms.json + image/*.heic + pcd.ply）的世界原点
-    是手机开机点附近，和主体没有关系：实测主体（视线汇聚点）离原点 1.3–2.9 m。
+    是手机开机点附近，和主体没有关系：实测主体（视线汇聚点）离原点 1.19–2.73 m。
     而 UWA 侧 view_limits 的 target 被写死成 [0,0,0]（见 99b_pack_ply_to_mp4.py:435），
     所以不居中的话，手机端环绕中心会整个偏离主体。
     本脚本做四件事：
@@ -26,34 +26,57 @@
         「居中包上 99g 重算的球心 = 原点」（平移等变性；实测 |球心| ≈ 4.6e-16 m），
         重算出的 Phi/Theta 区间与 99k 写进 json 的**逐样本一致**（Δ ≈ 1e-14°）。
       代价只有「多一个进程」：10 个包 quad 风格实测 4.2 s，可忽略。
-    唯一的口径差异（不是错）：99g 图上画的半径带是「实测 r ±VL_R_PAD」（即目标带），
+    唯一的口径差异（不是错）：99g 图上画的半径带是「实测 r ±RADIUS_PAD」（即目标带），
     而 gs json 里的 minRadius/maxRadius 是同一套 padded 值、99b 实际用的却是
     [0.9×radius, 1.2×radius]（见 99b:432）。看 R 环对不上时先想到这一层。
     另：quad 图内的固定文案「左列＝原始采集轨迹（参考点 anchor_point）」里的「原始」
     指**未加约束**，不是说「未居中的包」——画居中包时这句同样出现，别看岔。
 
-主体中心取哪个点（VL_TARGET）
+主体中心取哪个点（TARGET_MODE）
     sight  （默认）最小二乘视线汇聚中心：最小化各帧视线到该点的正交距离平方和，
                     即 99g 的 sight_center()，纯标准库 3×3 小系统；
     anchor          transforms.json 自带的 anchor_point（采集包标称锚点）。
     实测 10 个样本（手部微动样例）：sight 的视线垂距 RMS 0.05–0.16 m、夹角均值 2.1–5.7°，
-    anchor 0.16–0.58 m、6.3–16.3°，**10/10 都是 sight 更贴合**，故默认 sight（与 99g 一致）。
+    anchor 0.16–0.58 m、6.3–16.3°，10/10 都是 sight 更贴合，故默认 sight（与 99g 一致）。
 
 区间口径（与 99g compute_view_limit 同源，env 名也一致，便于两处对账）
     az 自 +Z 轴起、朝 +X 为正；el 自水平面（+Y 为高度轴）起；r = 相机到球心的 3D 距离。
     解缠：帧序增量归一到 (−180,180] 后累加（慢速小步长、跨 ±180°、绕两圈都成立）。
-    整圈：az 跨度 ≥ VL_FULL_AZ（默认 300°）时方位角不设限，写成 [az0, az0+360]。
-    余量：az / el 各 ±VL_AZ_PAD / VL_EL_PAD 度，r 乘 (1±VL_R_PAD)。
+    整圈：az 跨度 ≥ FULL_PHI_SPAN（默认 300°）时方位角不设限，写成 [az0, az0+360]。
+    余量：az / el 各 ±PHI_PAD / THETA_PAD 度，r 乘 (1±RADIUS_PAD)。
     换算成 UWA：Phi = −az、Theta = 90 − el、Radius = r（与 99b/99c 的
     pos_to_pitch_yaw 互为逆变换，见 99c_repack_view_limits.py:165-186）。
 
-仰角「空洞」保护（PITCH_MODE=peak，2026-10-15 新增）
+env 命名（2026-10-16 改：VL_* / EL_* → Phi/Theta 术语，与 99c 对齐）
+    旧写法仍被识别（读到就打印一次弃用提示），新名优先：
+      VL_TARGET → TARGET_MODE ｜ VL_AZ_PAD → PHI_PAD ｜ VL_EL_PAD → THETA_PAD
+      VL_R_PAD → RADIUS_PAD ｜ VL_FULL_AZ → FULL_PHI_SPAN
+      PITCH_MODE → THETA_MODE ｜ EL_* → THETA_*
+    为什么用 Phi/Theta 而不是产物 json 里的 yaw/pitch：裁剪参数要与 99c 同名同义
+    （99c 是 UWA 侧的收窄工具，同一套参数在两边对账）；换算写在下节与 README 对照表里。
+
+观看视角约束裁剪（THETA_TOP / THETA_BOTTOM / PHI_LEFT / PHI_RIGHT，默认全 0）
+    前三步算出的是「数据覆盖到哪」（实测 min/max ± 余量）；裁剪是「允许用户看到哪」——
+    在它之上再往里收，把不想开放的视角挡掉。语义与 99c 的 crop_axis 严格一致：
+        new_lo = lo + cut_lo、new_hi = hi − cut_hi；收没了降级成一条缝（取初始视角/中心）
+    ⚠️ 两端是**交叉**的（Theta = 90 − el 反转、Phi = −az 镜像），照 99c 命名时要对着看：
+        THETA_TOP    → 抬最低仰角端（el_lo += TOP）
+        THETA_BOTTOM → 压最高仰角端（el_hi −= BOTTOM）
+        PHI_RIGHT    → az_lo += RIGHT      PHI_LEFT → az_hi −= LEFT
+    默认全 0 = 与历史产物逐位一致。余量（PAD）往外扩、裁剪往里收，两者正交 ——
+    「只要约束不要外扩」＝ PHI_PAD=0 THETA_PAD=0 再给裁剪量。
+    整圈（full_az）时方位角不设限，PHI_LEFT/RIGHT 被忽略（打印告警，不静默吞掉）。
+    别与 99c 的默认值混：99c 的 THETA_MARGIN / PHI_MARGIN 默认 10（默认就收窄），
+    这里默认 0 —— 99k 的区间由数据驱动，默认必须无损。
+    另：99g 的 LIM_TRIM（右列绘制时收掉的比例，默认 0.2）与这里无关，只影响图怎么画。
+
+仰角「空洞」保护（THETA_MODE=peak，2026-10-15 新增）
     场景：绕物体拍两圈（一圈俯视、一圈平视）时 el 呈**双峰**，两峰之间是没拍到的空档。
     此时 min/max ± pad 必然横跨空档 → 用户转到中间视角就穿帮。
     peak = 对 el 做 gap split（按仰角排序后找最大间隙切段），只保留「一圈」。区间长度由
     数据段的自然边界给出，**不需要长度系数**（按跨度收固定比例够不着洞：洞常占跨度 40%+）：
-        thr = max(EL_GAP_MIN, EL_GAP_K × 中位帧间距)   # 相对倍率自适应帧密度 + 绝对下限防误切
-        切段 → 丢掉帧数不足的小段 → EL_PICK 选一圈 → 外侧 +VL_EL_PAD、洞侧 +EL_PAD_GAP
+        thr = max(THETA_GAP_MIN, THETA_GAP_K × 中位帧间距)  # 相对倍率自适应帧密度 + 绝对下限防误切
+        切段 → 丢掉帧数不足的小段 → THETA_PICK 选一圈 → 外侧 +THETA_PAD、洞侧 +THETA_PAD_GAP
     单圈数据不含 ≥thr 的间隙 → 只有一段 → 两侧都走外侧分支 → 结果与 full **逐位相同**，
     所以 peak 是「只对双峰生效」的安全开关（默认 full，历史产物零变化）。
     附带收益：单帧离群（手抖拍到 −60°）会自成一段并被丢掉，而 min/max 对它零抵抗。
@@ -61,6 +84,7 @@
     真要做间隙还得处理解缠跨 ±180，风险大收益小）。
     首帧（开场视角）若落在被丢掉的圈里，pitch_init 会**夹进保留区间**并在报告里记
     init_clamped（不夹的话用户一开场就落在约束外 —— 99g trim_view_limit 记过这条坑）。
+    夹取发生在**观看裁剪之后**（先裁后夹）：否则 init 会被夹到裁剪前的区间、又落到裁剪之外。
 
 输入
     <采集包>/transforms.json          必需（逐帧 w/h/cx/cy/fl_x/fl_y/k1..k3/p1/p2
@@ -101,31 +125,42 @@ gs_camera_params.json 的 schema（4 空格缩进、带换行，便于人工核�
     roll_init 恒 0（本链路无滚转）；scene.center 居中后恒 [0,0,0]。
 
 用法
-    PITCH_MODE=peak python tools_99/99k_make_gs_params.py      # 两圈数据只保留一圈（避开空洞）
-    python ...                                                 # 跑 main() 里的预设批次，默认PITCH_MODE=full
-    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...    # 更改输入路径
-    DRY_RUN=1 python ...                                       # 只算不落盘
-    ONLY=01e954...,10e3ec... python ...                        # 批次里只跑白名单
-    PLOT_STYLE=lim_edges python ...                            # 顺便换一种图面风格
-    PITCH_MODE=peak EL_PICK=init python ...                    # 保留首帧那一圈
-    OUT_PLOTS=0 python ...                                     # 只要参数、不出图
+    THETA_MODE=peak python tools_99/99k_make_gs_params.py       # 两圈数据只保留一圈（避开空洞）
+    python ...                                                  # 跑 main() 里的预设批次，默认 THETA_MODE=full
+    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...      # 更改输入路径
+    DRY_RUN=1 python ...                                        # 只计算不落盘
+    ONLY=01e954...,10e3ec... python ...                         # 批次里只跑白名单
+    PLOT_STYLE=lim_edges python ...                             # 顺便换一种图面风格
+    THETA_MODE=peak THETA_PICK=init python ...                  # 双峰数据只保留一圈，保留首帧那一圈
+    THETA_TOP=8 THETA_BOTTOM=15 python ...                      # 观看约束：仰角两端各收 8° / 15°
+    PHI_LEFT=10 PHI_RIGHT=10 python ...                         # 观看约束：方位角两端各收 10°
+    THETA_PAD=0 PHI_PAD=0 THETA_TOP=5 python ...                # 只要约束、不要外扩余量
+    OUT_PLOTS=0 python ...                                      # 只要参数、不出图
 
 Env vars
     SRC            单个采集包目录（或直接给 transforms.json 的路径）；设了就忽略 SRC_ROOT
     SRC_ROOT       批次根目录（其下每个子目录是一个采集包）
     RESULTS_ROOT   统一结果根（默认 ../../output/recon_human_results）
     OUT_ROOT       输出根，默认 <RESULTS_ROOT>/<批次名>/centered
-    VL_TARGET      球心口径 sight(默认) | anchor
-    VL_AZ_PAD / VL_EL_PAD / VL_R_PAD / VL_FULL_AZ   同 99g（默认 3.0 / 3.0 / 0.08 / 300.0）
-    PITCH_MODE     full(默认) | peak —— peak=仰角 gap split，双峰数据只保留一圈
-    EL_GAP_MIN     切段绝对下限（度，默认 2.5）：相邻仰角差 ≥ 它才算「洞」
+    TARGET_MODE    球心口径 sight(默认) | anchor
+    PHI_PAD / THETA_PAD / RADIUS_PAD / FULL_PHI_SPAN   同 99g
+                   （默认 3.0 / 3.0 / 0.08 / 300.0；单位 度 / 度 / 比例 / 度）
+    THETA_TOP / THETA_BOTTOM / PHI_LEFT / PHI_RIGHT   观看约束裁剪量（度，默认全 0）
+                   把区间往里收，语义同 99c 的 crop_axis；⚠️ Theta 与 pitch 反向、
+                   Phi 与 az 镜像（两端交叉），对应关系见文件头与 README
+    THETA_MODE     full(默认) | peak —— peak=仰角 gap split，双峰数据只保留一圈
+    THETA_GAP_MIN  切段绝对下限（度，默认 2.5）：相邻仰角差 ≥ 它才算「洞」
                    （单圈实测最大间隙 1.71°；洞比 2.5° 更小时才往下调，需留意误切单圈）
-    EL_GAP_K       切段相对倍率（默认 5.0）：阈值还要 ≥ K×同圈中位帧间距，自适应帧密度
-    EL_PICK        peak 模式保留哪一圈：biggest(默认，帧数最多) | top(仰角最高=俯视圈)
+    THETA_GAP_K    切段相对倍率（默认 5.0）：阈值还要 ≥ K×同圈中位帧间距，自适应帧密度
+    THETA_PICK     peak 模式保留哪一圈：biggest(默认，帧数最多) | top(仰角最高=俯视圈)
                    | bottom(仰角最低=平视圈) | init(含首帧的圈)
-    EL_PAD_GAP     peak 模式「洞侧」余量（度，默认 0.0）；外侧仍用 VL_EL_PAD
-    EL_TIE_WARN    两圈帧数接近的告警阈值（默认 0.8：次大段/主段 ≥ 它就提示换 EL_PICK）
-    EL_MIN_FRAMES  段的最小帧数（默认 5）：不足的段当离群/噪声丢掉
+                   （THETA_PICK 的 top/bottom 是「选哪一圈」，与裁剪量
+                     THETA_TOP/THETA_BOTTOM「收多少度」是两回事，别混）
+    THETA_PAD_GAP  peak 模式「洞侧」余量（度，默认 0.0）；外侧仍用 THETA_PAD
+    THETA_TIE_WARN 两圈帧数接近的告警阈值（默认 0.8：次大段/主段 ≥ 它就提示换 THETA_PICK）
+    THETA_MIN_FRAMES  段的最小帧数（默认 5）：不足的段当离群/噪声丢掉
+    旧名兼容       VL_TARGET / VL_AZ_PAD / VL_EL_PAD / VL_R_PAD / VL_FULL_AZ /
+                   PITCH_MODE / EL_* 仍能读（打印一次弃用提示），新名优先
     RADIUS_MODE    scene.radius 取法：mid(默认) | mean | median | max | min
                    mid = 让 99b 的 [0.9r,1.2r] 恰好罩住实测半径区间
     SORT_BY_TIME   1(默认) 先按 file_path（时间戳）排序再解缠与取 init 帧；0=保持 json 原序
@@ -172,6 +207,69 @@ PLY_FMT = {
     "int": "i", "int32": "i", "uint": "I", "uint32": "I",
     "float": "f", "float32": "f", "double": "d", "float64": "d",
 }
+
+# --------------------------------------------------------------------------
+# env 读取：新名优先、旧名兜底
+# --------------------------------------------------------------------------
+def env_get(new: str, default: str, *old: str) -> str:
+    """读环境变量：新名优先；旧名（2026-10-16 前的 VL_* / EL_* 写法）兜底并提示一次。
+
+    改名映射见 README「env 命名对照」：VL_* / EL_* → Phi/Theta 术语（与 99c 对齐）。
+    旧名不删是为了让 README / 历史命令 / 已有脚本不炸；提示只打一次（每次进程一次）。
+    """
+    v = os.environ.get(new, "")
+    if v != "":
+        return v
+    for o in old:
+        ov = os.environ.get(o, "")
+        if ov != "":
+            print(f"  ⚠️ 环境变量 {o} 已更名为 {new}（旧名仍生效，建议改用新名）")
+            return ov
+    return default
+
+
+def trim_axis(name, lo, hi, cut_lo, cut_hi, init_val, disp=None):
+    """把区间 [lo, hi] 往里收（观看视角约束裁剪）。返回 (new_lo, new_hi, info)。
+
+    裁剪语义与 99c_repack_view_limits.py 的 crop_axis **完全一致**：
+        new_lo = lo + cut_lo,   new_hi = hi − cut_hi
+    收没了（new_lo > new_hi）时降级成一条缝 [c, c]：c 优先取初始视角（落在原区间内时），
+    否则取区间中心 —— 与 99c 一样只打印告警、不报错（收死在图上立刻看得见）。
+
+    ⚠️ **加减一律在本脚本自己的值域上做（el / az），全程不换算。** 只裁一侧时，另一侧
+    必须逐位不动；而 Theta = 90 − el 这种映射有浮点往返误差（实测 90−(90−x) 在 10 包的
+    80 个角度里 20 个不逐位相等，最大偏差 7.1e-15°）—— 为了显示而换算一次就够了。
+
+    disp(v) 只用于**显示**：把本值域映到用户与 99c 熟悉的值域（Theta = 90 − el /
+    Phi = −az），使 info 与告警里的刻度同时是 gs json 的 pitch / yaw 刻度、也是 99c
+    CLI 的 Theta / Phi 刻度。必须是单调映射（升序或者降序都行，内部会把 info 里的
+    in/out 归一成升序，并把 cut 同步对齐到同一端）。
+
+    两个裁剪量谁配哪一端仍由调用方决定（`cut_lo` 配 lo）。注意 Theta/Phi 与 el/az
+    是**反向**的，所以调用方传进来的两个量在 99c 的 CLI 里是「上/下」互换的 —— 见调用处。
+    """
+    cut_lo, cut_hi = float(cut_lo), float(cut_hi)
+    new_lo, new_hi = lo + cut_lo, hi - cut_hi
+    d = disp or (lambda v: v)
+    a, b = d(lo), d(hi)
+    rev = a > b                       # 降序值域（Theta = 90 − el、Phi = −az）
+    d_lo, d_hi = (b, a) if rev else (a, b)
+    d_cut = (cut_hi, cut_lo) if rev else (cut_lo, cut_hi)
+    info = {"axis": name, "in": (d_lo, d_hi), "cut": d_cut,
+            "out": (d(new_lo), d(new_hi)) if not rev else (d(new_hi), d(new_lo)),
+            "degenerate": False, "src": None}
+    if new_lo <= new_hi:
+        return new_lo, new_hi, info
+    if init_val is not None and lo <= init_val <= hi:
+        c, src = init_val, "初始视角"
+    else:
+        c, src = (lo + hi) / 2.0, "区间中心"
+    dc = d(c)
+    info.update({"out": (dc, dc), "degenerate": True, "src": src})
+    print(f"  ⚠️ {name} 裁剪量 [{d_cut[0]:g},{d_cut[1]:g}] 超过半跨度 {(hi - lo) / 2.0:.2f}°，"
+          f"收成一条缝 [{dc:.2f},{dc:.2f}]（取{src}，不报错）")
+    return c, c, info
+
 
 # --------------------------------------------------------------------------
 # 几何：最小二乘视线汇聚（移植 99g，纯标准库，免 numpy）
@@ -333,7 +431,7 @@ def normalize_phi(lo, hi, enabled: bool = True):
 
 
 # --------------------------------------------------------------------------
-# 仰角「空洞」保护：gap split（PITCH_MODE=peak）
+# 仰角「空洞」保护：gap split（THETA_MODE=peak）
 #   99k 与 99g_plot_capture_trajectory.py 里是**逐字同源**的三份实现（median_of /
 #   split_el_segments / pick_el_segment / el_span），env 名也一致 —— 改一处必须同步另一处，
 #   否则图（99g 自己重算）与 gs json（99k 写）会不一致。
@@ -469,7 +567,7 @@ def compute_view_limit(pos, look, anchor, cfg: dict):
     if anchor is None:
         target, src, alt = sc, "sight_center", None
         if mode == "anchor":
-            print("  ⚠️ 采集包没有 anchor_point，VL_TARGET=anchor 无法生效，改用 sight_center")
+            print("  ⚠️ 采集包没有 anchor_point，TARGET_MODE=anchor 无法生效，改用 sight_center")
     elif mode == "anchor":
         target, src, alt = anchor, "anchor_point", sc
     else:
@@ -488,28 +586,56 @@ def compute_view_limit(pos, look, anchor, cfg: dict):
     for a in az[1:]:
         azu.append(azu[-1] + ((a - azu[-1] + 180.0) % 360.0 - 180.0))
 
-    az_pad, el_pad, r_pad = cfg["az_pad"], cfg["el_pad"], cfg["r_pad"]
+    phi_pad, theta_pad, radius_pad = cfg["phi_pad"], cfg["theta_pad"], cfg["radius_pad"]
     span = max(azu) - min(azu)
-    full_az = span >= cfg["full_az"]
+    full_az = span >= cfg["full_phi_span"]
     if full_az:   # 绕了一整圈 → 方位角不设限
         az_lo, az_hi = azu[0], azu[0] + 360.0
     else:
-        az_lo, az_hi = min(azu) - az_pad, max(azu) + az_pad
-    # 仰角：PITCH_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
+        az_lo, az_hi = min(azu) - phi_pad, max(azu) + phi_pad
+    # 仰角：THETA_MODE=peak 时按 gap split 只保留一圈（避开两圈之间没拍到的空洞）
     el_lo, el_hi, pitch = el_span(
-        el, el[0], cfg["pitch_mode"], el_pad,
-        cfg["el_gap_min"], cfg["el_gap_k"], cfg["el_min_frames"],
-        cfg["el_pick"], cfg["el_pad_gap"], cfg["el_tie_warn"])
+        el, el[0], cfg["theta_mode"], theta_pad,
+        cfg["theta_gap_min"], cfg["theta_gap_k"], cfg["theta_min_frames"],
+        cfg["theta_pick"], cfg["theta_pad_gap"], cfg["theta_tie_warn"])
+
+    # ---------- 观看视角约束裁剪（2026-10-16 新增，语义 = 99c 的 crop_axis）----------
+    # 上面两步给的是「数据覆盖到哪」（实测 min/max ± 余量），这一步是「允许用户看到哪」
+    # —— 主动往里收，把不想开放的视角挡掉。默认全 0 → 与历史产物逐位一致。
+    # env 名与 99c 的 crop 参数完全同名；因为本脚本内部用 el / az 而 99c 用
+    # Theta = 90 − el / Phi = −az（两轴都是**反向**的），同一个参数名落到本值域时
+    # 「上/下」正好互换：
+    #   THETA_TOP    → el_lo += TOP      （99c 里裁 Theta 上界 = 抬最低仰角那端）
+    #   THETA_BOTTOM → el_hi -= BOTTOM   （99c 里裁 Theta 下界 = 压最高仰角那端）
+    #   PHI_RIGHT    → az_lo += RIGHT    （99c 里裁 Phi 上界 = 动 az 下界）
+    #   PHI_LEFT     → az_hi -= LEFT
+    el_lo, el_hi, theta_trim = trim_axis(
+        "Theta", el_lo, el_hi, cfg["theta_top"], cfg["theta_bottom"], el[0],
+        disp=lambda v: 90.0 - v)
+    if full_az:
+        # 整圈 = 允许转满一圈，裁剪在这里没有语义 → 跳过（有设就明确告警，不静默吞掉）
+        phi_trim = {"axis": "Phi", "in": (-az_hi, -az_lo), "cut": (0.0, 0.0),
+                    "out": (-az_hi, -az_lo), "degenerate": False, "src": None,
+                    "skipped": "full_az（整圈不设限）"}
+        if cfg["phi_left"] or cfg["phi_right"]:
+            print(f"  ⚠️ 方位角按整圈处理（不设限），PHI_LEFT={cfg['phi_left']:g} / "
+                  f"PHI_RIGHT={cfg['phi_right']:g} 被忽略")
+    else:
+        az_lo, az_hi, phi_trim = trim_axis(
+            "Phi", az_lo, az_hi, cfg["phi_right"], cfg["phi_left"], azu[0],
+            disp=lambda v: -v)
+
     # 首帧（99b 的 1° 一致性告警 / 99g 的 trim 兜底锚点）可能落在被丢掉的那一圈里 →
     # 把开场角夹进保留区间，否则用户一开场就落在约束外（99g trim_view_limit 记过这条坑）
+    # ⚠️ 必须在裁剪**之后**夹：先夹后裁的话 init 会被夹到裁剪前的区间、又落到裁剪之外。
     init_el_raw = el[0]
     init_el_used = min(max(init_el_raw, el_lo), el_hi)
     pitch["init_original"] = init_el_raw
     pitch["init_used"] = init_el_used
     pitch["init_clamped"] = abs(init_el_used - init_el_raw) > 1e-9
 
-    r_lo = max(0.0, min(rr) * (1.0 - r_pad))
-    r_hi = max(rr) * (1.0 + r_pad)
+    r_lo = max(0.0, min(rr) * (1.0 - radius_pad))
+    r_hi = max(rr) * (1.0 + radius_pad)
 
     delta = math.dist(target, alt) if alt else 0.0
     alt_src = ("anchor_point" if src == "sight_center" else "sight_center") if alt else None
@@ -519,6 +645,7 @@ def compute_view_limit(pos, look, anchor, cfg: dict):
         "fit": sight_fit(pos, look, target), "fit_alt": sight_fit(pos, look, alt),
         "az_lo": az_lo, "az_hi": az_hi, "full_az": full_az, "az_span": span,
         "el_lo": el_lo, "el_hi": el_hi, "pitch": pitch, "init_el_used": init_el_used,
+        "theta_trim": theta_trim, "phi_trim": phi_trim,
         "r_lo": r_lo, "r_hi": r_hi,
         "raw": {"az": (min(azu), max(azu)), "el": (min(el), max(el)),
                 "r": (min(rr), max(rr)), "r_mean": sum(rr) / len(rr)},
@@ -825,26 +952,37 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
         else:
             seg_txt = " ｜ ".join("[{:.1f},{:.1f}] {}帧".format(s[0], s[1], s[2])
                                   for s in pk["segments"])
-            print(f"  🗳️ 仰角切段(peak · EL_PICK={cfg['el_pick']}): "
+            print(f"  🗳️ 仰角切段(peak · THETA_PICK={cfg['theta_pick']}): "
                   f"{len(pk['segments'])} 段 {seg_txt} → 保留 "
                   f"[{pk['picked'][0]:.1f},{pk['picked'][1]:.1f}]°（{pk['picked'][2]} 帧）")
             d, gsp = pk["diag"], pk["diag"].get("gap_max_span")
-            print(f"     判据 thr=max({cfg['el_gap_min']:g}, {cfg['el_gap_k']:g}×中位间距 "
+            print(f"     判据 thr=max({cfg['theta_gap_min']:g}, {cfg['theta_gap_k']:g}×中位间距 "
                   f"{d['median_gap']:.2f})={d['threshold']:.2f}° ｜ 最大间隙 "
                   f"{d['gap_max']:.2f}°"
                   + (f"（{gsp[0]:.1f}→{gsp[1]:.1f}°）" if gsp else "")
                   + f" ｜ 切 {d['n_cuts']} 刀"
                   + (f" ｜ 丢弃 {d['n_dropped']} 个小段" if d["n_dropped"] else ""))
-            print(f"     余量分侧: 外侧 ±{cfg['el_pad']:g}° ｜ 洞侧 ±{cfg['el_pad_gap']:g}°"
+            print(f"     余量分侧: 外侧 ±{cfg['theta_pad']:g}° ｜ 洞侧 ±{cfg['theta_pad_gap']:g}°"
                   f" → pitch [{vl['el_lo']:.2f},{vl['el_hi']:.2f}]"
-                  f"（full 模式下为 [{min(vl['raw']['el']) - cfg['el_pad']:.2f},"
-                  f"{max(vl['raw']['el']) + cfg['el_pad']:.2f}]）")
+                  f"（full 模式下为 [{min(vl['raw']['el']) - cfg['theta_pad']:.2f},"
+                  f"{max(vl['raw']['el']) + cfg['theta_pad']:.2f}]）")
             if pk["tie_warn"]:
-                print(f"     ⚠️ 两圈帧数接近（次大段 ≥ {cfg['el_tie_warn']:g}×主段）："
-                      "biggest 会随帧数抖动，建议显式 EL_PICK=top/bottom")
-    print(f"  ✂️ 加余量(az±{cfg['az_pad']:g}°/el±{cfg['el_pad']:g}°/r×(1±{cfg['r_pad']:g})): "
-          f"Phi [{phi_lo:.2f},{phi_hi:.2f}] ｜ Theta [{theta_lo:.2f},{theta_hi:.2f}] ｜ "
-          f"R [{vl['r_lo']:.3f},{vl['r_hi']:.3f}]")
+                print(f"     ⚠️ 两圈帧数接近（次大段 ≥ {cfg['theta_tie_warn']:g}×主段）："
+                      "biggest 会随帧数抖动，建议显式 THETA_PICK=top/bottom")
+    tt, pt = vl["theta_trim"], vl["phi_trim"]
+    # 按用户敲的 env 名回报（tt/pt 的 cut 是 Theta/Phi 值域的「下界收/上界收」，
+    # 与参数名不是一个坐标系，直接印容易看反 —— 详见 trim_axis / 调用处的换算注释）
+    ct = (f"THETA_TOP {cfg['theta_top']:g}° / THETA_BOTTOM {cfg['theta_bottom']:g}°"
+          if any(tt["cut"]) else "")
+    cp = (f"PHI_LEFT {cfg['phi_left']:g}° / PHI_RIGHT {cfg['phi_right']:g}°"
+          if any(pt["cut"]) else "")
+    trim_txt = (" ｜ 再裁剪 " + " ｜ ".join(x for x in (ct, cp) if x)) if (ct or cp) else ""
+    if tt["degenerate"] or pt["degenerate"]:
+        trim_txt += "  ⚠️ 收成一条缝"
+    print(f"  ✂️ 最终区间: 余量 Phi±{cfg['phi_pad']:g}° Theta±{cfg['theta_pad']:g}° "
+          f"R×(1±{cfg['radius_pad']:g})" + trim_txt
+          + f" → Phi [{phi_lo:.2f},{phi_hi:.2f}] ｜ Theta [{theta_lo:.2f},{theta_hi:.2f}] ｜ "
+            f"R [{vl['r_lo']:.3f},{vl['r_hi']:.3f}]")
     if band_cover:
         band_note = "  ✅ 罩住实测半径"
     elif cfg["radius_mode"] != "mid":
@@ -862,7 +1000,7 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
     if pk["init_clamped"]:
         print(f"     ℹ️ 首帧原始仰角 {pk['init_original']:.2f}° 落在保留区间外，"
               f"pitch_init 已夹到 {pk['init_used']:.2f}°"
-              f"（要让开场视角留在首帧那一圈 → EL_PICK=init）")
+              f"（要让开场视角留在首帧那一圈 → THETA_PICK=init）")
     intr, fov = info["intrinsics"], info["init_fov"]
     if intr:
         print(f"  🔭 内参(首帧): {intr['width']:.0f}×{intr['height']:.0f} "
@@ -929,7 +1067,7 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
                  "pitch_clamped": pk["init_clamped"]},
         "checks": {"center_dist_err_m": dist_err, "radius_band_covers": band_cover},
         "pitch_split": {
-            "mode": pk["mode"], "pick": cfg["el_pick"],
+            "mode": pk["mode"], "pick": cfg["theta_pick"],
             "raw_span": list(pk["raw_span"]),
             "segments": pk["segments"], "picked": pk["picked"],
             "threshold": pk["diag"].get("threshold"),
@@ -945,15 +1083,24 @@ def process_one(task_dir: Path, out_dir: Path, cfg: dict) -> str:
             "init_original": pk["init_original"], "init_used": pk["init_used"],
             "init_clamped": pk["init_clamped"],
         },
-        "params": {"VL_TARGET": cfg["target_mode"], "VL_AZ_PAD": cfg["az_pad"],
-                   "VL_EL_PAD": cfg["el_pad"], "VL_R_PAD": cfg["r_pad"],
-                   "VL_FULL_AZ": cfg["full_az"], "RADIUS_MODE": cfg["radius_mode"],
+        # 观看约束裁剪：cut = 用户设的量，(in)→(out) 是实际落点；degenerate=收成了一条缝
+        "view_trim": {
+            "theta_top": cfg["theta_top"], "theta_bottom": cfg["theta_bottom"],
+            "phi_left": cfg["phi_left"], "phi_right": cfg["phi_right"],
+            "theta": vl["theta_trim"], "phi": vl["phi_trim"],
+        },
+        "params": {"TARGET_MODE": cfg["target_mode"], "PHI_PAD": cfg["phi_pad"],
+                   "THETA_PAD": cfg["theta_pad"], "RADIUS_PAD": cfg["radius_pad"],
+                   "FULL_PHI_SPAN": cfg["full_phi_span"], "RADIUS_MODE": cfg["radius_mode"],
                    "PHI_NORMALIZE": cfg["phi_normalize"],
                    "INIT_FOV_SCALE": cfg["init_fov_scale"],
-                   "PITCH_MODE": cfg["pitch_mode"], "EL_PICK": cfg["el_pick"],
-                   "EL_GAP_MIN": cfg["el_gap_min"], "EL_GAP_K": cfg["el_gap_k"],
-                   "EL_PAD_GAP": cfg["el_pad_gap"], "EL_TIE_WARN": cfg["el_tie_warn"],
-                   "EL_MIN_FRAMES": cfg["el_min_frames"]},
+                   "THETA_MODE": cfg["theta_mode"], "THETA_PICK": cfg["theta_pick"],
+                   "THETA_GAP_MIN": cfg["theta_gap_min"], "THETA_GAP_K": cfg["theta_gap_k"],
+                   "THETA_PAD_GAP": cfg["theta_pad_gap"],
+                   "THETA_TIE_WARN": cfg["theta_tie_warn"],
+                   "THETA_MIN_FRAMES": cfg["theta_min_frames"],
+                   "THETA_TOP": cfg["theta_top"], "THETA_BOTTOM": cfg["theta_bottom"],
+                   "PHI_LEFT": cfg["phi_left"], "PHI_RIGHT": cfg["phi_right"]},
     }
     ok &= write_json(out_dir / "center_report.json", report, indent=4)
     print(f"  {'✅' if ok else '❌'} 输出: {out_dir}")
@@ -1015,21 +1162,26 @@ def run_plots(cfg: dict, src_root: Path, out_root: Path) -> None:
             "DST_ROOT": str(dst),
             "STYLE": cfg["plot_style"],
             "IDS": ",".join(cfg["plot_ids"]),
-            # 视角约束的球心口径与余量常量必须与本次 json 一致，否则图与参数对不上
-            "VL_TARGET": cfg["target_mode"],
-            "VL_AZ_PAD": f"{cfg['az_pad']:g}",
-            "VL_EL_PAD": f"{cfg['el_pad']:g}",
-            "VL_R_PAD": f"{cfg['r_pad']:g}",
-            "VL_FULL_AZ": f"{cfg['full_az']:g}",
+            # 视角约束的球心口径、余量与裁剪量必须与本次 json 一致，否则图与参数对不上
+            "TARGET_MODE": cfg["target_mode"],
+            "PHI_PAD": f"{cfg['phi_pad']:g}",
+            "THETA_PAD": f"{cfg['theta_pad']:g}",
+            "RADIUS_PAD": f"{cfg['radius_pad']:g}",
+            "FULL_PHI_SPAN": f"{cfg['full_phi_span']:g}",
             # 仰角空洞保护也必须透传：否则 99g 会自己算出一版横跨空洞的 el 区间，
             # 图与 gs json 对不上（99g 是独立进程、自己读 transforms.json 重算的）
-            "PITCH_MODE": cfg["pitch_mode"],
-            "EL_GAP_MIN": f"{cfg['el_gap_min']:g}",
-            "EL_GAP_K": f"{cfg['el_gap_k']:g}",
-            "EL_MIN_FRAMES": str(cfg["el_min_frames"]),
-            "EL_PICK": cfg["el_pick"],
-            "EL_PAD_GAP": f"{cfg['el_pad_gap']:g}",
-            "EL_TIE_WARN": f"{cfg['el_tie_warn']:g}",
+            "THETA_MODE": cfg["theta_mode"],
+            "THETA_GAP_MIN": f"{cfg['theta_gap_min']:g}",
+            "THETA_GAP_K": f"{cfg['theta_gap_k']:g}",
+            "THETA_MIN_FRAMES": str(cfg["theta_min_frames"]),
+            "THETA_PICK": cfg["theta_pick"],
+            "THETA_PAD_GAP": f"{cfg['theta_pad_gap']:g}",
+            "THETA_TIE_WARN": f"{cfg['theta_tie_warn']:g}",
+            # 观看约束裁剪同理：不透传的话图上的约束区间会比 json 宽（图好看但误导）
+            "THETA_TOP": f"{cfg['theta_top']:g}",
+            "THETA_BOTTOM": f"{cfg['theta_bottom']:g}",
+            "PHI_LEFT": f"{cfg['phi_left']:g}",
+            "PHI_RIGHT": f"{cfg['phi_right']:g}",
             # 居中包不含源图（99k 不复制、不挂链）→ 告诉 99g 按同名 ID 回原始批次根取
             # 实拍首帧，quad 左栏照旧贴图。源图只被读、不动：见 99g 的 PHOTO_ROOT。
             "PHOTO_ROOT": str(src_root),
@@ -1094,10 +1246,16 @@ def run_batch(src_root: Path, out_root: Path, cfg: dict, only: list) -> None:
     print(f"🔍 批次根:   {src_root}")
     print(f"📁 输出根:   {out_root}")
     print(f"🎯 球心口径: {cfg['target_mode']}（sight=最小二乘视线汇聚中心）"
-          f" ｜ 余量 az±{cfg['az_pad']:g}° el±{cfg['el_pad']:g}° r×(1±{cfg['r_pad']:g})"
-          + (f" ｜ 仰角 PITCH_MODE=peak(EL_PICK={cfg['el_pick']}，gap≥"
-             f"{cfg['el_gap_min']:g}°/洞侧余量{cfg['el_pad_gap']:g}°)"
-             if cfg["pitch_mode"] == "peak" else " ｜ 仰角 PITCH_MODE=full"))
+          f" ｜ 余量 Phi±{cfg['phi_pad']:g}° Theta±{cfg['theta_pad']:g}° "
+          f"R×(1±{cfg['radius_pad']:g})"
+          + (f" ｜ 仰角 THETA_MODE=peak(THETA_PICK={cfg['theta_pick']}，gap≥"
+             f"{cfg['theta_gap_min']:g}°/洞侧余量{cfg['theta_pad_gap']:g}°)"
+             if cfg["theta_mode"] == "peak" else " ｜ 仰角 THETA_MODE=full")
+          + (f" ｜ 观看裁剪 THETA_TOP {cfg['theta_top']:g}° / THETA_BOTTOM "
+             f"{cfg['theta_bottom']:g}° ｜ PHI_LEFT {cfg['phi_left']:g}° / PHI_RIGHT "
+             f"{cfg['phi_right']:g}°"
+             if any((cfg["theta_top"], cfg["theta_bottom"], cfg["phi_left"],
+                     cfg["phi_right"])) else ""))
     if cfg["dry_run"]:
         print("⏭️  DRY_RUN=1（只算不落盘）")
     if cfg["out_plots"]:
@@ -1150,19 +1308,24 @@ def main():
         "transforms_name": os.environ.get("TRANSFORMS_NAME", "transforms.json"),
         "ply_name": os.environ.get("PLY_NAME", "pcd.ply"),
         "gs_name": os.environ.get("GS_NAME", "gs_camera_params.json"),
-        "target_mode": os.environ.get("VL_TARGET", "sight").strip().lower(),
-        "az_pad": float(os.environ.get("VL_AZ_PAD", "3.0")),
-        "el_pad": float(os.environ.get("VL_EL_PAD", "3.0")),
-        "r_pad": float(os.environ.get("VL_R_PAD", "0.08")),
-        "full_az": float(os.environ.get("VL_FULL_AZ", "300.0")),
+        "target_mode": env_get("TARGET_MODE", "sight", "VL_TARGET").strip().lower(),
+        "phi_pad": float(env_get("PHI_PAD", "3.0", "VL_AZ_PAD")),
+        "theta_pad": float(env_get("THETA_PAD", "3.0", "VL_EL_PAD")),
+        "radius_pad": float(env_get("RADIUS_PAD", "0.08", "VL_R_PAD")),
+        "full_phi_span": float(env_get("FULL_PHI_SPAN", "300.0", "VL_FULL_AZ")),
         # --- 仰角「空洞」保护 gap split（99g 同名 env，改一处要同步另一处）---
-        "pitch_mode": os.environ.get("PITCH_MODE", "full").strip().lower(),
-        "el_gap_min": float(os.environ.get("EL_GAP_MIN", "2.5")),
-        "el_gap_k": float(os.environ.get("EL_GAP_K", "5.0")),
-        "el_min_frames": int(os.environ.get("EL_MIN_FRAMES", "5")),
-        "el_pick": os.environ.get("EL_PICK", "biggest").strip().lower(),
-        "el_pad_gap": float(os.environ.get("EL_PAD_GAP", "0.0")),
-        "el_tie_warn": float(os.environ.get("EL_TIE_WARN", "0.8")),
+        "theta_mode": env_get("THETA_MODE", "full", "PITCH_MODE").strip().lower(),
+        "theta_gap_min": float(env_get("THETA_GAP_MIN", "2.5", "EL_GAP_MIN")),
+        "theta_gap_k": float(env_get("THETA_GAP_K", "5.0", "EL_GAP_K")),
+        "theta_min_frames": int(env_get("THETA_MIN_FRAMES", "5", "EL_MIN_FRAMES")),
+        "theta_pick": env_get("THETA_PICK", "biggest", "EL_PICK").strip().lower(),
+        "theta_pad_gap": float(env_get("THETA_PAD_GAP", "0.0", "EL_PAD_GAP")),
+        "theta_tie_warn": float(env_get("THETA_TIE_WARN", "0.8", "EL_TIE_WARN")),
+        # --- 观看视角约束裁剪（2026-10-16 新增，语义 = 99c 的 crop_axis，默认全 0 不裁）---
+        "theta_top": float(env_get("THETA_TOP", "0.0")),
+        "theta_bottom": float(env_get("THETA_BOTTOM", "0.0")),
+        "phi_left": float(env_get("PHI_LEFT", "0.0")),
+        "phi_right": float(env_get("PHI_RIGHT", "0.0")),
         "radius_mode": os.environ.get("RADIUS_MODE", "mid").strip().lower(),
         "init_fov_scale": float(os.environ.get("INIT_FOV_SCALE", "0.8")),
         "sort_by_time": os.environ.get("SORT_BY_TIME", "1") == "1",
@@ -1188,27 +1351,32 @@ def main():
 
     # --- 前置检查 ---
     if cfg["target_mode"] not in ("sight", "anchor"):
-        sys.exit(f"❌ VL_TARGET 只能是 sight / anchor，实际 {cfg['target_mode']}")
+        sys.exit(f"❌ TARGET_MODE 只能是 sight / anchor，实际 {cfg['target_mode']}")
     if cfg["radius_mode"] not in ("mean", "median", "mid", "max", "min"):
         sys.exit(f"❌ RADIUS_MODE 只能是 mean/median/mid/max/min，实际 {cfg['radius_mode']}")
-    if cfg["pitch_mode"] not in ("full", "peak"):
-        sys.exit(f"❌ PITCH_MODE 只能是 full / peak，实际 {cfg['pitch_mode']}")
-    if cfg["el_pick"] not in ("biggest", "top", "bottom", "init"):
-        sys.exit(f"❌ EL_PICK 只能是 biggest / top / bottom / init，实际 {cfg['el_pick']}")
-    if cfg["el_gap_min"] < 0 or cfg["el_gap_k"] < 0 or cfg["el_pad_gap"] < 0:
-        sys.exit("❌ EL_GAP_MIN / EL_GAP_K / EL_PAD_GAP 不能为负（实际 "
-                 f"{cfg['el_gap_min']:g} / {cfg['el_gap_k']:g} / {cfg['el_pad_gap']:g}）")
-    if cfg["el_min_frames"] < 1:
-        sys.exit(f"❌ EL_MIN_FRAMES 需 ≥ 1，实际 {cfg['el_min_frames']}")
-    if not 0.0 <= cfg["el_tie_warn"] <= 1.0:
-        sys.exit(f"❌ EL_TIE_WARN 需在 [0,1]，实际 {cfg['el_tie_warn']}")
+    if cfg["theta_mode"] not in ("full", "peak"):
+        sys.exit(f"❌ THETA_MODE 只能是 full / peak，实际 {cfg['theta_mode']}")
+    if cfg["theta_pick"] not in ("biggest", "top", "bottom", "init"):
+        sys.exit(f"❌ THETA_PICK 只能是 biggest / top / bottom / init，实际 {cfg['theta_pick']}")
+    if cfg["theta_gap_min"] < 0 or cfg["theta_gap_k"] < 0 or cfg["theta_pad_gap"] < 0:
+        sys.exit("❌ THETA_GAP_MIN / THETA_GAP_K / THETA_PAD_GAP 不能为负（实际 "
+                 f"{cfg['theta_gap_min']:g} / {cfg['theta_gap_k']:g} / {cfg['theta_pad_gap']:g}）")
+    if cfg["theta_min_frames"] < 1:
+        sys.exit(f"❌ THETA_MIN_FRAMES 需 ≥ 1，实际 {cfg['theta_min_frames']}")
+    if not 0.0 <= cfg["theta_tie_warn"] <= 1.0:
+        sys.exit(f"❌ THETA_TIE_WARN 需在 [0,1]，实际 {cfg['theta_tie_warn']}")
     if cfg["init_fov_scale"] <= 0:
         sys.exit(f"❌ INIT_FOV_SCALE 需 > 0，实际 {cfg['init_fov_scale']}")
-    for k in ("az_pad", "el_pad", "r_pad"):
+    for k in ("phi_pad", "theta_pad", "radius_pad"):
         if cfg[k] < 0:
-            sys.exit(f"❌ 余量参数 {k}={cfg[k]} 不能为负")
-    if not 0.0 <= cfg["r_pad"] < 1.0:
-        sys.exit(f"❌ VL_R_PAD 需在 [0,1)，实际 {cfg['r_pad']}")
+            sys.exit(f"❌ 余量参数 {k}={cfg[k]} 不能为负（余量只往外扩；要收窄用裁剪参数）")
+    if not 0.0 <= cfg["radius_pad"] < 1.0:
+        sys.exit(f"❌ RADIUS_PAD 需在 [0,1)，实际 {cfg['radius_pad']}")
+    # 裁剪量 = 「往里收多少度」，负数等于往外扩 → 拦掉并把用户指向余量参数
+    for k in ("theta_top", "theta_bottom", "phi_left", "phi_right"):
+        if cfg[k] < 0:
+            sys.exit(f"❌ 裁剪量 {k}={cfg[k]} 不能为负（裁剪只往里收；要放宽请调 "
+                     f"PHI_PAD / THETA_PAD）")
     bad_modes = [m for m in cfg["plot_src"] if m not in PLOT_MODES]
     if bad_modes:
         sys.exit(f"❌ PLOT_SRC 只能是 {'/'.join(PLOT_MODES)} 或逗号组合，"
