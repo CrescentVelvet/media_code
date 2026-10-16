@@ -125,7 +125,7 @@ gs_camera_params.json 的 schema（4 空格缩进、带换行，便于人工核�
     roll_init 恒 0（本链路无滚转）；scene.center 居中后恒 [0,0,0]。
 
 用法
-    THETA_MODE=peak python tools_99/99k_make_gs_params.py       # 两圈数据只保留一圈（避开空洞）
+    THETA_MODE=peak THETA_PICK=biggest THETA_PAD=0 PHI_PAD=0 THETA_TOP=5 THETA_BOTTOM=5 python tools_99/99k_make_gs_params.py # 两圈数据只保留一圈（避开空洞），保留视角最多的一圈，不外扩，俯仰角裁剪5°
     python ...                                                  # 跑 main() 里的预设批次，默认 THETA_MODE=full
     SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...      # 更改输入路径
     DRY_RUN=1 python ...                                        # 只计算不落盘
