@@ -25,10 +25,44 @@
 - `vggt_human/DESIGN_face_pipeline.md`（2026-09-08 建立）：人脸链路 v2 设计方案与决策记录
   （FLAME+DECA+468 点+重心绑定+表情驱动，八阶段全链路）。**讨论人脸链路前先读它**。
 - vggt_human 三文档分工：README=运行命令；NOTES=原理/排错；EXPERIMENTS=实验结论（按日期倒序追加）。
-- vggt_human 99 系列 = 重建产物的收尾/打包/搬运脚本（预设路径写在各自 main() 里，非 env 默认）：
-  99a 收集 ply（压平成 `<批次>/ply/<task>.ply`）｜99b PLY→UWA MP4｜99c 收窄视角重封装（mp4_crop）
+- **`tools_99/`（2026-10-15 从 vggt_human/ 迁出，git mv 保留历史）= 重建产物工具集**，三族：
+  ① **打包收尾链 99a~99f**（预设路径写在各自 main() 里，非 env 默认）——99a 收集 ply
+  （压平成 `<批次>/ply/<task>.ply`）｜99b PLY→UWA MP4（中间产物 `mp4_work/`，KEEP_WORK
+  默认保留，是 99c/99e 复用的前提）｜99c 收窄视角重封装（mp4_crop，依赖 99b 的 mp4_work）
   ｜99d 复制三帧｜99e MP4→PLY｜99f 收集 ply+相机参数+front_image.jpg 到
-  `<批次>/ply_viewlimit/<task>/`（三件成套，缺一即 skip）。
+  `<批次>/ply_viewlimit/<task>/`（三件成套，缺一即 skip）；
+  ② **数据集体检 99g**（Remy 采集包轨迹图 / 视角约束可视化）；
+  ③ **通用工具 99h**（全仓 Python 3.10 语法自查，**默认扫仓根**，som_human 也引用）；
+  ④ **采集包预处理 99k**（2026-10-15 新增，提交 58eb1bb）：Remy 采集包 → 主体居中
+  （球心默认 `sight` 最小二乘视线汇聚，`VL_TARGET=anchor` 可切）+ 视角区间 →
+  `gs_camera_params_final.json`（99b COLMAP 模式消费 `setting.pitch_min/max`、`yaw_min/max`、
+  `pitch_init`、`scene.radius`）+ 居中采集包（`transforms.json`/`pcd.ply`/`image/`）。
+  区间口径与余量常量与 99g 同源（同名 env：`VL_AZ_PAD/EL_PAD/R_PAD/FULL_AZ`），**改一处要同步另一处**；
+  `RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
+  **仰角空洞保护**（2026-10-15，提交 `499a7ee`）：双峰数据（俯视+平视两圈，中间没拍到）
+  原先 `min/max ± pad` 必然横跨空洞 → `PITCH_MODE=peak` 按 gap split 只保留一圈。
+  这一组 env（`PITCH_MODE/EL_GAP_MIN/EL_GAP_K/EL_MIN_FRAMES/EL_PICK/EL_PAD_GAP/EL_TIE_WARN`）
+  在 99k 与 99g **同名同义**，且 99k/99g 各有**逐字同源**的四份函数
+  （`median_of/split_el_segments/pick_el_segment/el_span`）—— **改一处必须同步另一处**，
+  比对法：取 `def median_of` 到 `def compute_view_limit` 之间文本应完全相同。
+  单圈数据下 peak 与 full 结果逐位相同（安全开关，默认 full）；pad 只加数据外侧、
+  洞侧用 `EL_PAD_GAP`；首帧落在被丢圈里时 `pitch_init` 夹进保留区间（记 `init_clamped`）。
+  **出图 = 子进程调 99g**（2026-10-15 定，提交 5b569d0）：99k 的居中包就是 99g 的原生输入
+  （把 `OUT_ROOT` 当 99g 的 `SRC_ROOT`），`OUT_PLOTS`/`PLOT_SRC(centered|origin|both)`/
+  `PLOT_STYLE`/`PLOT_ROOT`/`PLOT_IDS`/`PLOT_PYTHON` 控制；图面默认落 `<批次>/plots/<模式>/`。
+  实测 99g 在居中包上重算的球心 = 原点（1e-16）、Phi/Theta 与 json 逐样本一致（1e-14°）。
+  **不复制 99g 的绘图代码、也不 import**（它是定稿汇报图面，复制必然分叉）。
+  **gs json 的完整 schema**（2026-10-15，提交 eaf6f71）＝
+  `setting{init_fov, yaw_init, yaw_min, yaw_max, pitch_init, pitch_min, pitch_max, roll_init}`
+  + `camera_type:"pinhole"` + `intrinsics{width,height,fx,fy,cx,cy}` + `scene{center,radius}`；
+  **99b 只读其中 5 个键**（四个区间 + `scene.radius`，`pitch_init` 仅做 1° 告警），多写不影响它。
+  取值：`init_fov = 2·atan(h/(2·fx))·INIT_FOV_SCALE`（**与 99b:466 同一式**，默认系数 0.8）；
+  `intrinsics` 取时间序首帧（width/height 写 int）；`roll_init=0`；`scene.center` 居中后为 `[0,0,0]`。
+  输出格式约定：**gs json 与 center_report 用 `indent=4` 缩进，transforms.json 保持紧凑单行**。
+  ⚠️ **Windows 上 `Path.write_text` 会把 `\n` 翻成 `\r\n`**（写出侧 universal newlines），
+  本仓规范是 LF → 写 JSON 一律用 `path.open("w", encoding="utf-8", newline="\n")`。
+  **99 系列路径全部相对 cwd（media_code）解析，与脚本所在目录无关**——这是它能整体搬走的
+  原因；搬走时只改了 99j 一处硬编码绝对路径（已改为基于 `__file__`）与 3 处文档引用。
 
 ## 本机 WSL 网络与下载策略（2026-09-21 实测，跨会话通用）
 - **本机不走代理**。`proxy.env` 里没有 `http_proxy`/`https_proxy`，只有 `HF_ENDPOINT=https://hf-mirror.com`、
@@ -61,11 +95,11 @@
   generate → 三件套 json → 编码 & 封装 → 3DGS 壁纸产出
 - 与本机同族能力对照：正向封装 ≈ 99b、反向解封装 ≈ 99e、轨迹与视角约束可视化 ≈ 99g、
   视角区间收窄回灌 ≈ 99c。术语与算法口径一致，可用 99g/99c 的实现作论据。
-- 汇报页（峰哥汇报用，部门技术评审口径）：`vggt_human/camera_pose_tool_report.html`，
-  配套图面素材 `vggt_human/report_figs/`（4 组同名 svg + 3× png，3540 px 宽）。
-  **图面配色 / 线宽口径已于 2026-09-28 由峰哥定版**（靛蓝 = 数据 · 青 = 核心 · 琥珀 = 附加说明/反馈），
-  速查表见 `.workbuddy/memory/2026-09-28.md`；改这四张图前先读该 HTML 的 `:root` 与
-  「图内样式」两个 CSS 块，按既定口径取色，不要自创色值。
+- 汇报页（峰哥汇报用，部门技术评审口径）**已于 2026-10-16 删除**（峰哥指示，提交 `f1ae570`）：
+  原 `tools_99/camera_pose_tool_report.html` + `report_figs/`（4 组同名 svg + 3× png，3540 px 宽）
+  + 99i/99j 两个脚本一并删掉，README 引用已清理。**历史口径留档**：图面配色 / 线宽曾于
+  2026-09-28 定版（靛蓝 = 数据 · 青 = 核心 · 琥珀 = 附加说明/反馈），速查表见
+  `.workbuddy/memory/2026-09-28.md`；若日后重建汇报页可沿用该配色口径。
 
 ## COLMAP 环境（2026-10-13 建立，som_human 01c 依赖）
 - WSL 无系统 colmap（apt 版 CPU-only 且需 sudo）。已建独立 env：
@@ -77,3 +111,10 @@
 - COLMAP 4.x 的 mapper 要求 `--output_path` 目录**已存在**（3.x 自动建）。
 - 调用时若直接用二进制路径（不经 conda activate），需
   `LD_LIBRARY_PATH=~/miniconda3/envs/colmap/lib`（01c 脚本已自动处理）。
+
+## 文件操作红线（2026-10-15，99k 图链事故）
+- **清场式删除前必须判 `is_symlink()`**：`for p in dst.iterdir(): p.unlink()` 在目标为
+  软链接时会**穿透链接删掉源目录里的真文件**。99k 第一版曾因此把采集包里 82 张
+  HEIC 送进回收站（已逐张恢复）。规则：链接只摘链接、目录非空跳过、只回滚自己创建的文件。
+- 本机删除会被沙箱转入回收站（`os.unlink` 也可救回）：`/d/$RECYCLE.BIN/<SID>/` 下
+  `$I`（元数据，含 UTF-16 原路径）+ `$R`（实体）成对；恢复用 copy 回原路径，回收站留底。
