@@ -125,17 +125,19 @@ gs_camera_params.json 的 schema（4 空格缩进、带换行，便于人工核�
     roll_init 恒 0（本链路无滚转）；scene.center 居中后恒 [0,0,0]。
 
 用法
-    THETA_MODE=peak THETA_PICK=biggest THETA_PAD=0 PHI_PAD=0 THETA_TOP=5 THETA_BOTTOM=5 python tools_99/99k_make_gs_params.py # 两圈数据只保留一圈（避开空洞），保留视角最多的一圈，不外扩，俯仰角裁剪5°
+    FORCE=1 THETA_MODE=peak THETA_PICK=biggest THETA_PAD=0 PHI_PAD=0 THETA_TOP=0 THETA_BOTTOM=0 python tools_99/99k_make_gs_params.py
     python ...                                                  # 跑 main() 里的预设批次，默认 THETA_MODE=full
-    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...      # 更改输入路径
+    SRC=D:/dataset/手部微动样例/01e954...-佳佳抱枕 python ...     # 更改输入路径
     DRY_RUN=1 python ...                                        # 只计算不落盘
-    ONLY=01e954...,10e3ec... python ...                         # 批次里只跑白名单
-    PLOT_STYLE=lim_edges python ...                             # 顺便换一种图面风格
-    THETA_MODE=peak THETA_PICK=init python ...                  # 双峰数据只保留一圈，保留首帧那一圈
+    FORCE=1 python ...                                          # 强制覆盖上一次结果
+    ONLY=01e954...,10e3ec... python ...                         # 批次里只跑白名单样例
+    THETA_MODE=peak THETA_PICK=init python ...                  # 双峰数据只保留一圈（避开空洞），保留首帧那一圈
+    THETA_MODE=peak THETA_PICK=biggest python ...               # 双峰数据只保留一圈（避开空洞），保留视角最多的一圈
     THETA_TOP=8 THETA_BOTTOM=15 python ...                      # 观看约束：仰角两端各收 8° / 15°
-    PHI_LEFT=10 PHI_RIGHT=10 python ...                         # 观看约束：方位角两端各收 10°
+    PHI_LEFT=10 PHI_RIGHT=20 python ...                         # 观看约束：方位角两端各收 10° / 20°
     THETA_PAD=0 PHI_PAD=0 THETA_TOP=5 python ...                # 只要约束、不要外扩余量
     OUT_PLOTS=0 python ...                                      # 只要参数、不出图
+    PLOT_STYLE=lim_edges python ...                             # 换一种图面风格
 
 Env vars
     SRC            单个采集包目录（或直接给 transforms.json 的路径）；设了就忽略 SRC_ROOT
