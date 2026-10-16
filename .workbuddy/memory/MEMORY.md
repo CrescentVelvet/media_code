@@ -49,6 +49,10 @@
   `RADIUS_MODE` 默认 `mid`（令 99b 硬编码的 `[0.9r,1.2r]` 罩住实测半径带）。
   **仰角空洞保护**（2026-10-15，提交 `499a7ee`）：双峰数据（俯视+平视两圈，中间没拍到）
   原先 `min/max ± pad` 必然横跨空洞 → `PITCH_MODE=peak` 按 gap split 只保留一圈。
+  判据 `thr=max(EL_GAP_MIN, EL_GAP_K×中位帧间距)`；**EL_GAP_MIN 默认 2.5°**
+  （2026-10-16 由 8.0 下调，提交 `3e8db9f`）：服务器双峰样例的洞仅 3.29° 被 8.0 卡死；
+  实测 10 包单圈内部最大间隙 0.11~1.71°、相对判据最多 0.41° → 拦门的恒为绝对下限，
+  2.5 对实测最坏值留 46% 余量（1.5 会误切佳佳蹲）。
   这一组 env（`PITCH_MODE/EL_GAP_MIN/EL_GAP_K/EL_MIN_FRAMES/EL_PICK/EL_PAD_GAP/EL_TIE_WARN`）
   在 99k 与 99g **同名同义**，且 99k/99g 各有**逐字同源**的四份函数
   （`median_of/split_el_segments/pick_el_segment/el_span`）—— **改一处必须同步另一处**，
