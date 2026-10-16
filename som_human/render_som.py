@@ -210,12 +210,18 @@ def render_sets(dataset, iteration, pipeline, skip_train, skip_test, mode):
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
         num_frames = len(scene.getTrainCameras()) + len(scene.getTestCameras())
         deform = SoMMotionModel(num_frames=num_frames, num_bases=SOM_NUM_BASES)
-        deform.load_weights(dataset.model_path)
+        # ⚠️ 必须传**实际加载的 ckpt 迭代号**：load_weights 默认 -1 = 取最大迭代号，
+        #    渲染旧 ckpt 时会套上最新运动基权重（2026-10-16 修，A 案复核时踩到：
+        #    exp@10k 被 20k 运动权重「救」了 +0.49dB，见 README 方案 A 节）。
+        deform.load_weights(dataset.model_path, scene.loaded_iter)
         print("[SOM] num_frames={}, num_bases={}".format(num_frames, SOM_NUM_BASES))
 
         # SOM-EXPOSURE：若训练时开了方案 A，渲染同口径应用（无 exposure.pth 则为 None）
         from exposure import ExposureBank
-        exposure = ExposureBank.load(dataset.model_path)
+        # ⚠️ 必须传**实际加载的 ckpt 迭代号**：load() 默认取「最大迭代号」，
+        #    会把最新曝光权重套到旧 ckpt 上（2026-10-16 修，A 案复核时踩到，
+        #    详见 README 方案 A 节「渲染口径坑」）。
+        exposure = ExposureBank.load(dataset.model_path, scene.loaded_iter)
         if exposure is not None:
             print("[EXPOSURE] loaded exposure.pth（渲染将应用逐相机仿射校正）")
 

@@ -129,20 +129,34 @@ class ExposureBank:
     @classmethod
     def load(cls, model_path, iteration=None):
         """从 model_path/exposure/iteration_N/exposure.pth 恢复（评测/渲染用）。
-        iteration=None 取最大迭代号；文件不存在返回 None（未开曝光的模型）。"""
+
+        iteration=None 取最大迭代号；指定 iteration 时**优先精确匹配**，缺失则
+        回退到「不超过该迭代号的最大者」并告警（正常情况不发生：gaussians 与
+        exposure 的 saving_iterations 相同，两者总是成对落盘）。
+        文件/目录不存在返回 None（未开曝光的模型）。"""
         exp_dir = os.path.join(model_path, "exposure")
         if not os.path.isdir(exp_dir):
             return None
+        its = [int(d.split("_")[1]) for d in os.listdir(exp_dir)
+               if d.startswith("iteration_")]
+        if not its:
+            return None
         if iteration is None:
-            its = [int(d.split("_")[1]) for d in os.listdir(exp_dir)
-                   if d.startswith("iteration_")]
-            if not its:
-                return None
             iteration = max(its)
         p = os.path.join(exp_dir, "iteration_{}".format(iteration),
                          "exposure.pth")
         if not os.path.isfile(p):
-            return None
+            cand = [i for i in its if i <= iteration]
+            if not cand:
+                print("[EXPOSURE] ⚠️ 没有 <= iteration_{} 的曝光权重，本次不应用"
+                      .format(iteration))
+                return None
+            pick = max(cand)
+            print("[EXPOSURE] ⚠️ iteration_{} 无曝光权重，回退到 iteration_{}"
+                  "（可能造成 ckpt/权重错配）".format(iteration, pick))
+            iteration = pick
+            p = os.path.join(exp_dir, "iteration_{}".format(iteration),
+                             "exposure.pth")
         ckpt = torch.load(p, map_location="cpu")
         obj = cls.__new__(cls)
         obj.names = ckpt["names"]
