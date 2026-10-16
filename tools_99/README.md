@@ -12,7 +12,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **A. 打包/收尾链** | 99a 99b 99c 99d 99e 99f | 重建产物 ↔ 手机可播放 MP4 的双向封装 | UWA 工具链 + ffmpeg + conda env |
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
-| **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params_final.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
+| **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -284,7 +284,7 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 
 | 文件 | 用途 |
 |---|---|
-| `gs_camera_params_final.json` | 99b 的 COLMAP 模式直接消费：`setting.pitch_min/pitch_max`、`yaw_min/yaw_max`、`pitch_init` + `scene.radius`（其余字段见下） |
+| `gs_camera_params.json` | 相机参数：`setting.pitch_min/pitch_max`、`yaw_min/yaw_max`、`pitch_init` + `scene.radius`（其余字段见下）。字段口径与 99b 的 COLMAP 模式所需**一致**，但 99b 默认找的是重建流程的产物名 `gs_camera_params_final.json` —— 要拿它喂 99b 需改名（99b 侧暂未加文件名覆盖口） |
 | `transforms.json` | 居中后位姿（同名 drop-in），世界原点 = 主体中心 |
 | `pcd.ply` | 居中后点云（按属性偏移平移 xyz，其它属性原样） |
 | `center_report.json` | 球心对照 / 拟合质量 / 区间明细 / 自检（诊断用） |
@@ -294,7 +294,7 @@ PITCH_MODE=peak EL_PICK=init python ...                  # 保留首帧所在的
 **这不影响出图**：99k 出图时透传 `PHOTO_ROOT=<原批次根>`，99g 在本包找不到 `image/` 时按
 同名 ID 回源包读实拍首帧，quad 左栏的贴图照旧（详见 99g 一节的 `PHOTO_ROOT`）。
 
-`gs_camera_params_final.json` / `center_report.json` 落盘为 **4 空格缩进、LF 换行、无 BOM**
+`gs_camera_params.json` / `center_report.json` 落盘为 **4 空格缩进、LF 换行、无 BOM**
 （便于人工核对与 diff）；`transforms.json` 保持**紧凑单行**，与上游采集包书写风格一致
 （两者对 `json.load` 完全等价）。
 

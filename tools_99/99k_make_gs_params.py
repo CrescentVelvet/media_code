@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""99k_make_gs_params.py — 采集包「主体居中 + 视角区间」→ gs_camera_params_final.json。
+"""99k_make_gs_params.py — 采集包「主体居中 + 视角区间」→ gs_camera_params.json。
 
 背景（为什么需要它）
     Remy / HarmonyOS 采集包（transforms.json + image/*.heic + pcd.ply）的世界原点
@@ -9,7 +9,7 @@
     本脚本做四件事：
       1) 求主体中心（球心），把相机位姿与点云整体平移过去 —— 主体落到原点；
       2) 以主体中心为球心逐帧算 方位角 az / 仰角 el / 距离 r，取实测 min/max 各加余量；
-      3) 落盘 gs_camera_params_final.json（99b 的 COLMAP 模式消费它）+ 一份「已居中采集包」；
+      3) 落盘 gs_camera_params.json（99b 的 COLMAP 模式消费它）+ 一份「已居中采集包」；
       4) 出图：子进程调同目录的 99g_plot_capture_trajectory.py，把居中后的轨迹与视角约束
          画成自包含 HTML（默认画居中包；PLOT_SRC=origin/both 可加画原始采集包做对照）。
 
@@ -70,7 +70,7 @@
                                       99g 按同名 ID 回源包读实拍首帧，见 PHOTO_ROOT）
 
 输出（<OUT_ROOT>/<task>/）
-    gs_camera_params_final.json   99b 直接消费的相机参数（schema 见下）
+    gs_camera_params.json   99b 直接消费的相机参数（schema 见下）
     transforms.json               居中后位姿（同名 drop-in，可直接当新采集包用）
     pcd.ply                       居中后点云（binary_little_endian，按属性偏移平移 xyz）
     center_report.json            球心对照 / 拟合质量 / 区间明细 / 自检结果（诊断用）
@@ -81,7 +81,7 @@
     模式 = centered（默认，画居中后的包）| origin（原始采集包，做对照）| both
     关掉出图：OUT_PLOTS=0。绘图失败不影响参数产物，只打印告警。
 
-gs_camera_params_final.json 的 schema（4 空格缩进、带换行，便于人工核对）
+gs_camera_params.json 的 schema（4 空格缩进、带换行，便于人工核对）
     {
       "setting": {"init_fov", "yaw_init", "yaw_min", "yaw_max",
                   "pitch_init", "pitch_min", "pitch_max", "roll_init"},
@@ -133,6 +133,7 @@ Env vars
                    想要原始竖直视场角就设 1.0）
     PHI_NORMALIZE  1(默认) 把 Phi 区间整体平移 k×360，使区间中心落进 (−180,180]
     OUT_CENTERED / OUT_PLY   1(默认) 是否落居中位姿 / 居中点云（源图一律不复制、不挂链）
+    GS_NAME        产物相机 json 的文件名（默认 gs_camera_params.json）
     OUT_PLOTS      1(默认) 跑完是否调 99g 出图；0=不出图
     PLOT_SRC       centered(默认) | origin | both —— 画哪个包（居中包 / 原始包 / 两个都画）
     PLOT_STYLE     透传 99g 的 STYLE（默认 quad；可选 combo/minimal/darkspace/fov/iso/
@@ -583,7 +584,7 @@ def init_fov_deg(intr: dict | None, scale: float):
 
 
 def build_gs_params(vl: dict, cfg: dict, ordered: list):
-    """组装 gs_camera_params_final.json 的对象。
+    """组装 gs_camera_params.json 的对象。
 
     换算（与 99b/99c 一致的权威口径）：
       pitch = el（仰角）      → 99b: maxTheta = 90 − pitch_min、minTheta = 90 − pitch_max
@@ -638,7 +639,7 @@ def build_gs_params(vl: dict, cfg: dict, ordered: list):
 def write_json(path: Path, obj, indent=None) -> bool:
     """UTF-8 落盘（不转义非 ASCII，task 名常带中文）。
 
-    indent=4 → 带换行缩进（gs_camera_params_final.json / center_report.json 用，
+    indent=4 → 带换行缩进（gs_camera_params.json / center_report.json 用，
     便于人工核对与 diff）；indent=None → 单行紧凑（transforms.json 用，保持与上游
     采集包一致的书写风格；json.load 不关心空白，两者功能完全等价）。
     """
@@ -1148,7 +1149,7 @@ def main():
     cfg = {
         "transforms_name": os.environ.get("TRANSFORMS_NAME", "transforms.json"),
         "ply_name": os.environ.get("PLY_NAME", "pcd.ply"),
-        "gs_name": os.environ.get("GS_NAME", "gs_camera_params_final.json"),
+        "gs_name": os.environ.get("GS_NAME", "gs_camera_params.json"),
         "target_mode": os.environ.get("VL_TARGET", "sight").strip().lower(),
         "az_pad": float(os.environ.get("VL_AZ_PAD", "3.0")),
         "el_pad": float(os.environ.get("VL_EL_PAD", "3.0")),
