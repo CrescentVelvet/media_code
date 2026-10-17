@@ -86,6 +86,10 @@ FG_INIT_FILTER="${FG_INIT_FILTER:-1}"        # 1=按 mask 过滤初始点（强�
 FG_INIT_MIN_VIEWS="${FG_INIT_MIN_VIEWS:-3}"  # 至少落入多少帧的 mask 才保留
 FG_INIT_MIN_RATIO="${FG_INIT_MIN_RATIO:-0.3}" # 落入比例下限（投票/可见）
 BG_RANDOM="${BG_RANDOM:-1}"                  # 1=训练时背景色每步随机
+# 手部区域 loss 加权（档 0 判决实验）：需 FG_MASK_DIR 已启用；
+# hand mask 用 01g（SAM3_PROMPT=hand）+ 01i 合并产出。W=1 即关闭。
+HAND_MASK_DIR="${HAND_MASK_DIR:-}"           # 例 <scene>/hands/merged
+HAND_WEIGHT="${HAND_WEIGHT:-1.0}"            # 手部像素相对权重（L1 项）
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -99,6 +103,7 @@ echo "  📈 dens_sched: $USE_DENSIFY_SCHED（mult=$DENSIFY_MOMENTUM_MULT, rate=
 echo "  💡 exposure:   $USE_EXPOSURE（from=${EXPOSURE_FROM_ITER:-warm_up}, lr=$EXPOSURE_LR, reg=$EXPOSURE_REG）"
 echo "  🌊 depth:      λ=$DEPTH_LAMBDA（点级锚定, mask=$DEPTH_USE_MASK, from=${DEPTH_FROM_ITER:-warm_up}）"
 echo "  🎭 fg_mask:    ${FG_MASK_DIR:-（关闭，全图监督）}（init_filter=$FG_INIT_FILTER, bg_random=$BG_RANDOM）"
+echo "  ✋ hand_mask:  ${HAND_MASK_DIR:-（关闭）}（weight=$HAND_WEIGHT）"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -152,7 +157,8 @@ export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
        SOM_DEPTH_USE_MASK="$DEPTH_USE_MASK" SOM_DEPTH_MIN_POINTS="$DEPTH_MIN_POINTS" \
        SOM_FG_MASK_DIR="$FG_MASK_DIR" SOM_FG_INIT_FILTER="$FG_INIT_FILTER" \
        SOM_FG_INIT_MIN_VIEWS="$FG_INIT_MIN_VIEWS" SOM_FG_INIT_MIN_RATIO="$FG_INIT_MIN_RATIO" \
-       SOM_BG_RANDOM="$BG_RANDOM"
+       SOM_BG_RANDOM="$BG_RANDOM" \
+       SOM_HAND_MASK_DIR="$HAND_MASK_DIR" SOM_HAND_WEIGHT="$HAND_WEIGHT"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then

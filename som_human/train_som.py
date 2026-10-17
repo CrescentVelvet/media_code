@@ -126,6 +126,15 @@ SOM_FG_INIT_MIN_VIEWS = int(os.environ.get("SOM_FG_INIT_MIN_VIEWS", "3"))
 SOM_FG_INIT_MIN_RATIO = float(os.environ.get("SOM_FG_INIT_MIN_RATIO", "0.3"))
 SOM_FG_INIT_MAX_CAMS = int(os.environ.get("SOM_FG_INIT_MAX_CAMS", "48"))
 SOM_BG_RANDOM = os.environ.get("SOM_BG_RANDOM", "1") == "1"
+# SOM-HAND：手部区域 loss 加权（2026-10-17 档 0 判决实验）——
+# 目的：手部只占画面 ~2%，静止区（身体/腿/桌面）主导光度梯度，运动基被
+# "大家不动"的信号压倒而塌缩到恒等（见 EXPERIMENTS.md E-01）。给手部 mask
+# 内的像素额外权重，让手部运动信号进入运动基的梯度。
+# 权重图 w = fg * (1 + (HAND_WEIGHT-1) * hand)：手外权重 1，手内 HAND_WEIGHT。
+# 面积归一化按 w.sum()（而不是 fg.sum()），保持 densify 梯度阈值语义。
+# 依赖：SOM_FG_MASK_DIR 已启用；hand mask 目录约定同 FGMaskBank（<stem>.png）。
+SOM_HAND_MASK_DIR = os.environ.get("SOM_HAND_MASK_DIR", "")
+SOM_HAND_WEIGHT = float(os.environ.get("SOM_HAND_WEIGHT", "1.0"))
 
 
 class FGMaskBank:
@@ -256,6 +265,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         else:
             print("[FG] 单人前景监督: dir={} bg_random={} init_filter={}".format(
                 SOM_FG_MASK_DIR, SOM_BG_RANDOM, SOM_FG_INIT_FILTER), flush=True)
+    # SOM-HAND：手部区域加权（仅在 FG 监督基础上有意义）
+    hand_bank = None
+    if SOM_HAND_MASK_DIR and SOM_HAND_WEIGHT != 1.0:
+        hand_bank = FGMaskBank(SOM_HAND_MASK_DIR)
+        if not hand_bank.available:
+            print("[HAND] WARN: {} 下没有 *.png，不加权".format(SOM_HAND_MASK_DIR),
+                  flush=True)
+            hand_bank = None
+        else:
+            print("[HAND] 手部区域加权: dir={} weight={}x".format(
+                SOM_HAND_MASK_DIR, SOM_HAND_WEIGHT), flush=True)
             if SOM_FG_INIT_FILTER:
                 filter_init_points_by_fg(
                     gaussians, scene.getTrainCameras(), fg_bank,
@@ -430,11 +450,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         if fg_bank is not None:
             fg = fg_bank.get(viewpoint_cam.image_name, gt_image.shape[-2:])
         if fg is not None:
+            # SOM-HAND：手部区域加权。w = fg * (1 + (W-1)*hand)，
+            # 面积归一化按 w.sum()（权重和），保持 densify 阈值语义。
+            w = fg
+            if hand_bank is not None:
+                hand = hand_bank.get(viewpoint_cam.image_name, gt_image.shape[-2:])
+                if hand is not None:
+                    w = fg * (1.0 + (SOM_HAND_WEIGHT - 1.0) * hand)
             # 面积归一化：只算 fg 会让 loss 量级按人体占比缩小，而 densify 的
             # 梯度阈值是固定值 → 归一化回「全图同量级」，阈值语义不变。
-            area = fg.sum().clamp_min(1.0)
+            area = w.sum().clamp_min(1.0)
             inv_area = fg.numel() / area
-            Ll1 = l1_loss(image * fg, gt_image * fg) * inv_area
+            # 只加权 L1（像素级监督）；SSIM 的 C1/C2 常数按 [0,1] 值域设定，
+            # 乘权重会破坏其口径 → SSIM 保持 fg 不加权。
+            Ll1 = l1_loss(image * w, gt_image * w) * inv_area
             loss = ((1.0 - opt.lambda_dssim) * Ll1
                     + opt.lambda_dssim * (1.0 - ssim(image * fg, gt_image * fg)))
         else:

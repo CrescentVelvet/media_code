@@ -202,6 +202,26 @@ python som_human/03b_fg_metrics.py --scene <scene>/persons/p02 --model <out>/mod
 用 `person mask − head mask`。两者共享同一份 COLMAP 位姿与运动基配置，
 合成时直接叠加渲染（都是同一世界坐标系下的独立高斯集合）。
 
+### 手部区域加权（档 0 判决实验，2026-10-17，结论：证伪）
+
+```bash
+# 手部 mask：SAM3 prompt=hand（video 模式，左右手各一个 track）
+SCENE_NAME=<scene> SAM3_PROMPT=hand \
+OUT_DIR=<scene>/hands/masks bash som_human/01g_person_masks.sh
+# 合并多实例为逐帧单张（FGMaskBank 的 {stem}.png 约定）
+python som_human/01i_merge_hand_masks.py --masks <scene>/hands/masks
+# 训练加手部权重（需同时给 FG_MASK_DIR）
+... FG_MASK_DIR=<scene>/persons/p00/masks \
+    HAND_MASK_DIR=<scene>/hands/merged HAND_WEIGHT=3 bash som_human/02_train.sh
+# 解剖运动基是否学到运动（判决工具）
+python som_human/01j_som_anatomy.py --model <model_dir>
+```
+
+⚠️ **结论（EXPERIMENTS.md E-06）：手部加权 / basis_lr×5 / smooth÷10 三档
+全部无法让 SOM 学到运动，且调参组（基被强迫微动）手部锐度反而从 38%
+暴跌到 9%。学习式运动（光度梯度驱动 SoM/HiMoR）在手部弱纹理小目标上
+不可用，勿再投入；转向 MANO 手模先验或 2D 对齐。**
+
 ### 实测（hand10 双人招手，2026-10-17）
 
 | 模型 | 点云 初始 → 最终 | 训练耗时 | FG PSNR（该人 mask 内） |
@@ -510,8 +530,10 @@ media_code/som_human/
 ├── 01c_colmap_refine.sh  # COLMAP SfM 精化 VIO 位姿（GPU SIFT+mapper，内参固定）
 ├── 01d_check_refined.py  # 精化质量校验：inlier 分布/重投影误差/轨迹对齐残差
 ├── 01f_depth_maps.sh     # 方案 E 资产：为每帧生成单目深度图（UniDepth）到 <scene>/depths/
-├── 01g_person_masks.sh   # per-person：SAM3 video（prompt=person）逐人 mask + manifest
+├── 01g_person_masks.sh   # per-person：SAM3 video（prompt=person/hand/...）逐实例 mask + manifest
 ├── 01h_build_person_scenes.sh/.py  # per-person：按 pid 拆独立训练场景（images/sparse 软链）
+├── 01i_merge_hand_masks.py # 手部：合并 SAM3 多实例 mask 为逐帧单张（{stem}.png）
+├── 01j_som_anatomy.py    # 判决工具：解剖 SOM 运动基是否学到运动（退化检测）
 ├── 02_train.sh           # SoM 运动基训练
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 03b_fg_metrics.py     # 前景专项指标（fg/bg/all PSNR + 逐视角最差 + 三联拼图）
