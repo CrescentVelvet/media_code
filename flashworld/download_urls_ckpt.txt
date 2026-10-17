@@ -1,0 +1,2 @@
+https://hf-mirror.com/imlixinyang/FlashWorld/resolve/main/model.ckpt
+https://huggingface.co/imlixinyang/FlashWorld/resolve/main/model.ckpt

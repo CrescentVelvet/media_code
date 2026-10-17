@@ -40,10 +40,11 @@ git clone <本仓> && cd media_code && cp proxy.env.example proxy.env
 # 建 env + clone 官方仓（含三个 pin 住的 git 依赖）+ 编译 gsplat/spz
 INSTALL_DEPS=1 bash flashworld/00_setup_env.sh
 
-# 下权重（54 GB；慢就按 download_urls.md 用迅雷，再跑 01b 挂载）
+# 下权重（54 GB）。慢就走迅雷：复制 download_urls.txt 全选粘贴进迅雷批量任务
 bash flashworld/01_download_models.sh
-# 或者：
-# bash flashworld/01b_link_local_weights.sh
+# 或者（迅雷下完）：
+# python flashworld/01c_assemble_flat.py --src <迅雷保存目录>   # 扁平文件归位 + 补小文件
+# bash flashworld/01b_link_local_weights.sh                     # 挂进 HF cache
 ```
 
 权重目录布局（`$MODEL_DIR` 下，HF cache 格式）：
@@ -92,6 +93,9 @@ $MODEL_DIR/
 | `00_setup_env.sh` | 服务器：建 env + clone 官方仓与 git 依赖 + 编译 |
 | `00a_setup_env.sh` | WSL：clone `minimax_h3` 复用 torch 2.6.0+cu124 + 装 nvcc/gxx + 编译 |
 | `01_download_models.sh` / `.py` | 下 54 GB 权重到 HF cache（断点续传 + 完整性校验） |
+| `download_urls.txt` | **一键复制**给迅雷的纯 URL 清单（16 条，modelscope，34.2 GB） |
+| `download_urls_ckpt.txt` | `model.ckpt` 的 2 条候选 URL（HF 独有） |
+| `01c_assemble_flat.py` | 迅雷扁平下载 → HF 仓库子目录结构（按字节校验）+ 补 5 个 KB 级小文件 |
 | `01b_link_local_weights.sh` | 迅雷下好的目录 → 软链接成 HF cache 布局 |
 | `02_make_input.py` / `.sh` | 单图/图目录 → 输入 json（相机轨迹见 NOTES 第 3 节） |
 | `02_run_inference.sh` | 调官方 `cli.py` → PLY / SPZ / MP4 |

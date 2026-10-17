@@ -14,7 +14,7 @@
 | 仓库位置 | `<code-dir>/FlashWorld`（与 media_code 同级） | `~/repos/FlashWorld`（Linux fs，编译快） |
 | 权重位置 | `<code-dir>/../model/flashworld` | `/mnt/d/wheel/flashworld_ms`（D 盘，读一次） |
 | 输出 | `<code-dir>/flashworld_results` | `~/output/flashworld_results`，跑完 08 搬 D 盘 |
-| 网络 | 直连 | github clone 通；huggingface.co **RST**；hf-mirror ~1.9 MB/s；modelscope ~2.3 MB/s |
+| 网络 | 直连 | github clone 通；huggingface.co **RST**；hf-mirror ~2.3 MB/s；modelscope ~2.3 MB/s。⚠️ **Windows 侧反过来**：hf-mirror 502、HF 直链 cdn 域名 TLS 失败，只有 modelscope 通 → 迅雷只能用 modelscope 链接 |
 
 ## 前提条件
 
@@ -32,15 +32,23 @@ cd /mnt/c/code/media_code
 # 约 10-20 min（gsplat 编译占大头）
 bash flashworld/00a_setup_env.sh
 
-# 下权重：54 GB。两条路选一条
-#   A) 自动（hf-mirror ~1.9 MB/s，约 7 h，可断点续传，建议后台跑）
+# 下权重：54 GB。三条路选一条（推荐 B）
+#   A) 全自动（hf-mirror ~2.3 MB/s，约 7 h，可断点续传；可能 ReadTimeout 中断，重跑即可）
 nohup bash flashworld/01_download_models.sh > ~/fw_download.log 2>&1 &
-#   B) 迅雷手动下（快）：按 download_urls.md 下到 /mnt/d/wheel/flashworld_ms/，然后
-# bash flashworld/01b_link_local_weights.sh
+
+#   B) 迅雷加速（推荐）：复制 flashworld/download_urls.txt 全选粘贴进迅雷批量任务，
+#      保存到 D:\wheel\flashworld_ms\thunder，下完执行
+python flashworld/01c_assemble_flat.py --src /mnt/d/wheel/flashworld_ms/thunder
+bash flashworld/01b_link_local_weights.sh
+
+#   C) 混合（当前采用）：迅雷下 Wan 基座（B 的前两步）+ WSL 后台只下 ckpt（19.5 GB，HF 独有）
+SKIP_WAN=1 nohup bash flashworld/01_download_models.sh > ~/fw_download_ckpt.log 2>&1 &
 
 # 校验
 CHECK_ONLY=1 bash flashworld/01_download_models.sh
 ```
+
+清单与通道实测见 [download_urls.md](download_urls.md)（含每条 URL 的真实字节数）。
 
 ## 全流程命令
 

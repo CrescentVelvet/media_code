@@ -1,0 +1,16 @@
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/configuration.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/model_index.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/text_encoder/model-00001-of-00003.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/text_encoder/model-00002-of-00003.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/text_encoder/model-00003-of-00003.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/text_encoder/model.safetensors.index.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/tokenizer/special_tokens_map.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/tokenizer/spiece.model
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/tokenizer/tokenizer.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model-00001-of-00005.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model-00002-of-00005.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model-00003-of-00005.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model-00004-of-00005.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model-00005-of-00005.safetensors
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/transformer/diffusion_pytorch_model.safetensors.index.json
+https://www.modelscope.cn/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/master/vae/diffusion_pytorch_model.safetensors

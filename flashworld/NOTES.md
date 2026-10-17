@@ -120,7 +120,11 @@ FlashWorld（Xiamen Univ. + Tencent，ICLR 2026 Oral）把「多视图生成 →
 | 现象 | 原因 / 处理 |
 |---|---|
 | `from_pretrained` 卡住 / 报连接错误 | 没设 `HF_HOME` 或 cache 里没快照。`02_run_inference.sh` 会 export `HF_HOME` + `HF_HUB_OFFLINE=1` |
-| hf-mirror 只有 ~1.9 MB/s | 本机实测；54 GB 要 7 h。走迅雷（`download_urls.md`）+ `01b_link_local_weights.sh` |
+| hf-mirror 只有 ~2.3 MB/s | 本机实测；54 GB 要 7 h。走迅雷（`download_urls.md`）+ `01c_assemble_flat.py` + `01b_link_local_weights.sh` |
+| 自动下载中途 `httpx.ReadTimeout` | 已实测发生（约 4 GB 处）。`snapshot_download` 可断点续传，直接重跑同一条命令即可 |
+| 迅雷里 hf-mirror 链接下不动 | **Windows 侧 hf-mirror 不通**（`CONNECT tunnel failed, response 502`），且 `huggingface.co` 的 `resolve` 302 到 `cdn-lfs-us-1.hf.co` 后 TLS 握手失败（本机 HTTP 代理只放行了 hf.co 主域）。迅雷只能用 **modelscope** 链接（`download_urls.txt` 就是 modelscope 版） |
+| 迅雷批量下完是平的、结构不对 | 迅雷按 URL 末段平铺保存。跑 `01c_assemble_flat.py --src <迅雷目录>` 归位，它会按字节数校验并自动补 5 个 KB 级小文件 |
+| 迅雷下出 `config(1).json` | 三个组件的 `config.json` 重名。这些**不在** `download_urls.txt` 里，由 `01c` 按完整路径补下；源目录里同名的不会被误用（`01c` 对多重名 basename 直接忽略） |
 | `01b` 之后仍报找不到 | 检查 `$HF_HOME/hub/models--Wan-AI--Wan2.2-TI2V-5B-Diffusers/refs/main` 内容是否为 `local` |
 
 ### 跑推理
