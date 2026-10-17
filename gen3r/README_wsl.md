@@ -8,9 +8,14 @@
 |---|---|---|
 | conda env | `doll` 等已有 env 或新建 | 新建 `gen3r`（python 3.11.2） |
 | torch | 官方 `2.5.1+cu124` | **本地 wheel `2.8.0+cu128`**（见下方坑点） |
-| 官方仓 | `media_code` 同级 | `~/repos/Gen3R`（Linux fs） |
-| 权重 | HF 直连或镜像 | `hf-mirror.com`（**当前不稳定，见坑点**） |
+| attention | 官方 flash-attn 2.7.0 | **预编译 wheel flash_attn 2.8.3.post2**（cu12+torch2.8+cp311+abiTRUE，在 `/mnt/d/wheel/`） |
+| 官方仓 | `media_code` 同级 | `~/repos/Gen3R`（Linux fs，**00a 会自动打本仓补丁**） |
+| 权重 | HF 直连或镜像 | `aifasthub.com`（**hf-mirror 已废，见坑点**） |
 | 输出 | `<algo>_results` | `~/output/gen3r_results`，跑完用 `08_move_output.sh` 搬到 D 盘 |
+
+> ⚠️ **24GB 卡必读**：原版脚本在 3090 上不可用——它先按 fp32 把 37.7GB 权重推上显存再转 bf16，
+> 直接溢出 21.6GB 到主机内存，单步 >20min。本仓两个补丁（`patch_infer_bf16.py` +
+> `patch_pipeline_vram.py`）治好后单步 **9.5s**、显存 16.5GB。`00a_setup_env.sh` 装完依赖会自动打补丁。
 
 ## Windows 路径 → WSL 路径
 
@@ -22,15 +27,22 @@
 ## 首次准备
 
 ```bash
-# 1) clone 官方仓 + 建 env + 装依赖（torch 走本地 wheel）
+# 1) clone 官方仓 + 建 env + 装依赖 + 打 24GB 补丁（torch/flash-attn 走本地 wheel）
 cd /mnt/c/code/media_code
-TORCH_VERSION=2.8.0 TV_VERSION=0.23.0 INSTALL_DEPS=1 \
-  bash gen3r/00a_setup_env.sh
+INSTALL_DEPS=1 bash gen3r/00a_setup_env.sh
 
-# 2) 权重 37.7GB（hf-mirror；断了就重跑，脚本自带断点续传）
-MODEL_DIR=~/model/gen3r WORKERS=4 \
-  bash gen3r/01_download_models.sh
+# 2) 权重 37.7GB。两条路二选一：
+#    a. 脚本自动下（aifasthub，~2MB/s，断点续传）：
+bash gen3r/01_download_models.sh
+#    b. 迅雷批量下（推荐，几分钟）：全选复制 gen3r/download_urls.txt 到迅雷，
+#       目录设 D:\wheel\gen3r_ms（子目录不用管），下完：
+bash gen3r/01b_link_local_weights.sh
 ```
+
+常用 env（推理时）：
+- `GEN3R_STEPS=10`：快速烟测（默认 50，1view 全程约 13min：加载1 + VGGT4.5 + 采样8）
+- `GEN3R_OFFLOAD_ENCODERS=0`：关掉编码器显存卸载（默认开，24GB 必须开）
+- `GEN3R_DTYPE=fp32`：回退官方原版行为（24GB 卡上别用）
 
 ## 全流程命令
 
@@ -94,8 +106,14 @@ bash vggt_human/08_move_output.sh
   加进 `LD_LIBRARY_PATH`（`_env.sh` 已处理）。
 - **opencv 版本**：`opencv-python-headless` 新版（5.x）会把 numpy 顶到 2.x，
   与本仓 `numpy==1.26.0` 冲突 → 固定 `4.10.0.84`。
-- **hf-mirror 抖动**：2026-10-17 实测大文件经常 SSL 握手超时 / read timeout，
-  4 并发约 0.2–2 MB/s 且不稳定。下载器支持断点续传，反复重跑直到 21 个文件齐全。
-  并发 >8 会被 429。
+- **hf-mirror 已废**：2026-10-17 实测大文件 SSL 握手超时 / read timeout，并发 >8 还会被 429。
+  改用 `--endpoint https://aifasthub.com`（`download_models.py` 已伪装 UA，aifasthub 会拦
+  `Python-urllib`）。已验证下载 URL 302 到 `us.aws.cdn.hf.co`（Xet CDN），迅雷吃满带宽。
+- **flash-attn 必须装**：没有它 SDPA 走 math 后端，24GB 卡 49 帧×560² 单步 >4min；
+  装上 2.8.3.post2 预编译 wheel 后单步 9.5s。wheel 已在 `/mnt/d/wheel/`，
+  或从 GitHub releases 下（搜 `flash_attn-2.8.3.post2+cu12torch2.8cxx11abiTRUE-cp311`）。
+- **显存溢出到主机内存的症状**：GPU util 100% 但功率 ~180W、单步 20min+ 不出进度。
+  Windows 侧查 `Get-Counter '\GPU Adapter Memory(*)\Shared Usage'`，
+  >0 GB 就是 WSL 在把显存溢到 PCIe 上跑。
 - **`pkill -f download_models.py` 会杀掉自己**：`bash -lc` 的命令行本身含该字符串，
   要用 `[d]ownload_models` 这类写法或先 `pgrep` 再 kill。

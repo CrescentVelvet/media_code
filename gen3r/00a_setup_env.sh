@@ -52,8 +52,10 @@ PIP_FLAGS=(-i "$PIP_INDEX" --timeout 600 --retries 5)
 
 # ── 3) torch（优先用 /mnt/d/wheel 里的本地 wheel：本机镜像单线程 ~0.4MB/s，
 #       联网装 torch+cu12 依赖要 1.5h+，本地 wheel 2 分钟）──
-TORCH_VERSION="${TORCH_VERSION:-2.5.1}"
-TV_VERSION="${TV_VERSION:-0.20.1}"
+# 实测走通组合：torch 2.8.0+cu128 + torchvision 0.23.0（本地 wheel），
+# flash_attn 2.8.3.post2（预编译 wheel 也在 /mnt/d/wheel）。
+TORCH_VERSION="${TORCH_VERSION:-2.8.0}"
+TV_VERSION="${TV_VERSION:-0.23.0}"
 echo "📦 installing torch ${TORCH_VERSION} + torchvision ${TV_VERSION}"
 if ls "$WHEELS_DIR"/torch-"${TORCH_VERSION}"*.whl >/dev/null 2>&1 && \
    ls "$WHEELS_DIR"/torchvision-"${TV_VERSION}"*.whl >/dev/null 2>&1; then
@@ -75,14 +77,38 @@ else
 fi
 # torchaudio 未被 Gen3R 代码引用（grep 无命中），不装
 
-# ── 4) 推理依赖（不装 flash-attn / pytorch3d：前者代码有 fallback，
-#       后者只被 eval_utils 用于评估指标）──
+# ── 4) 推理依赖（不装 pytorch3d：只被 eval_utils 用于评估指标）──
+# ⚠️ opencv-python-headless 必须 4.10：5.x 会把 numpy 顶到 2.x，和 open3d/torch 冲突。
 echo "📦 installing inference deps"
 "$PY" -m pip install "${PIP_FLAGS[@]}" \
     diffusers==0.33.1 transformers==4.46.3 accelerate==1.0.1 safetensors \
     einops==0.8.0 imageio==2.35.1 imageio-ffmpeg==0.5.1 numpy==1.26.0 \
-    open3d==0.18.0 easydict==1.13 pillow opencv-python-headless || {
+    open3d==0.18.0 easydict==1.13 pillow "opencv-python-headless==4.10.0.84" || {
     echo "❌ deps install failed" >&2; exit 1; }
+
+# ── 4b) open3d 需要 libgomp.so.1（conda 安装，WSL 无 sudo）──
+if ! conda list -n "$CONDA_ENV" libgomp 2>/dev/null | grep -q libgomp; then
+    echo "📦 installing libgomp (open3d 依赖)"
+    conda install -n "$CONDA_ENV" -c conda-forge libgomp -y || {
+        echo "❌ libgomp install failed" >&2; exit 1; }
+fi
+
+# ── 4c) flash-attn：没有它 SDPA 走 math 后端（仅支持 fp16/bf16 的高效后端），
+#        49 帧×560² 在 24GB 卡上单步 >4min；有了它 9.5s/step ──
+if ls "$WHEELS_DIR"/flash_attn-*.whl >/dev/null 2>&1; then
+    echo "📦 installing flash-attn（本地 wheel）"
+    "$PY" -m pip install --no-deps --no-index --find-links "$WHEELS_DIR" flash-attn || {
+        echo "⚠️ flash-attn wheel 安装失败（无对应版本？），继续走 SDPA fallback"; }
+else
+    echo "⚠️ $WHEELS_DIR 无 flash_attn wheel，跳过（可用 SDPA，但慢且吃显存）"
+fi
+
+# ── 4d) 打本仓的 24GB 卡适配补丁（bf16 直载 + 编码器卸载 + 步数覆盖）──
+if [ -f "$SCRIPT_DIR/patch_infer_bf16.py" ]; then
+    echo "📦 applying media_code patches"
+    python3 "$SCRIPT_DIR/patch_infer_bf16.py" || true
+    python3 "$SCRIPT_DIR/patch_pipeline_vram.py" || true
+fi
 
 # ── 5) 验证 ──
 echo "🔍 verifying imports"

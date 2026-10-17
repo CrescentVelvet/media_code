@@ -83,5 +83,19 @@ Gen3R 的 `2view`/`1view` 能"脑补"缺失视角，但生成内容会与真人*
   aifasthub 会按 UA 拦 `Python-urllib`（403），下载器已伪装 `huggingface_hub` UA。
 - 依赖：`opencv-python-headless` 必须 4.10（5.x 会把 numpy 顶到 2.x）；
   `open3d` 需要 `libgomp.so.1`（conda 装 + `LD_LIBRARY_PATH`）。
-- 显存：3090 24GB 跑 49 帧 560×560 / 50 步需实测，OOM 时先降 `--num_frames`
-  或改 `infer.py` 的 `num_inference_steps`。
+- 显存（2026-10-17 实测，3090 24GB，重大发现）：
+  **原版 `from_pretrained()` 不带 dtype → 先按 fp32 把 37.7GB 权重推上显存再转 bf16**，
+  24GB 卡直接溢出到主机共享内存（实测 shared GPU mem 21.6GB），且 fp32 下 SDPA 只能走
+  math 后端（flash 仅支持 fp16/bf16）→ 单步 >20min。
+  **修法（两个 patch，已入库）**：
+  1. `patch_infer_bf16.py`：`from_pretrained(torch_dtype=bf16)` + `.to(device, dtype)`，
+     fp32 阶段留在 CPU、VAE 等子模块统一转 bf16（不然报
+     "Input type (c10::BFloat16) and bias type (float)"）。
+  2. `patch_pipeline_vram.py`：prompt/CLIP 编码完把 text_encoder(11GB)+clip(2.2GB) 挪到 CPU
+     （`GEN3R_OFFLOAD_ENCODERS=0` 可关）；支持 `GEN3R_STEPS` 覆盖步数。
+  3. 另装 `flash_attn 2.8.3.post2`（预编译 wheel：cu12+torch2.8+cp311+abiTRUE，
+     在 `/mnt/d/wheel/`）。
+  **效果：单步 9.5s（此前 >240s），显存 16.5GB（此前 24.2GB+21.6GB 共享）。**
+  50 步 1view 全程约 8 分钟（加载 1min + VGGT 4.5min + 采样 8min + 解码）。
+- 烟测（10 步）：能出 49 帧 560×560 + 44 万点云，结构一致但糊（条纹伪影），
+  50 步质量见 `02_infer/1view/<时间戳>/`。
