@@ -126,6 +126,8 @@ FlashWorld（Xiamen Univ. + Tencent，ICLR 2026 Oral）把「多视图生成 →
 | 迅雷批量下完是平的、结构不对 | 迅雷按 URL 末段平铺保存。跑 `01c_assemble_flat.py --src <迅雷目录>` 归位，它会按字节数校验并自动补 5 个 KB 级小文件 |
 | 迅雷下出 `config(1).json` | 三个组件的 `config.json` 重名。这些**不在** `download_urls.txt` 里，由 `01c` 按完整路径补下；源目录里同名的不会被误用（`01c` 对多重名 basename 直接忽略） |
 | `01b` 之后仍报找不到 | 检查 `$HF_HOME/hub/models--Wan-AI--Wan2.2-TI2V-5B-Diffusers/refs/main` 内容是否为 `local` |
+| 迅雷里 `model.ckpt.xltd` 看着"下完了"却没变成 `.ckpt` | `.xltd` 是**未完成的临时名**，迅雷收尾时才改名。判据别只看体积：`model.ckpt` 官方大小是 **20,936,494,840** 字节；`.xltd` 可能因预分配**比官方还大几百字节**，但仍缺尾部数据——实测 20,936,495,104 的文件尾部 4 KB 与官方不一致，且**没有 zip EOCD**（正常 torch ckpt 末尾必有 `PK\x05\x06`，可用它当完整性快速判据，比 `torch.load` 省 20 GB 内存）。 |
+| 迅雷 ckpt 任务卡住（大小长时间零增长） | 迅雷进程还在但连接已死。回迅雷点「继续/重新校验」，它走自己的通道（实测能到 19.5 GB）。WSL 侧此时往往帮不上：`huggingface.co` 的 `resolve` 会被 RST（只有 `api/` 域通），`hf-mirror` 反复超时；`modelscope` **没有** FlashWorld 镜像（已搜过） |
 
 ### 跑推理
 | 现象 | 原因 / 处理 |
