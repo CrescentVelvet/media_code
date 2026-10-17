@@ -57,6 +57,8 @@ sys.path.insert(0, _DG_DIR)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # som_motion 同目录
 
 import torch
+from collections import OrderedDict
+import numpy as np
 from random import randint
 from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render, network_gui
@@ -114,6 +116,126 @@ SOM_DEPTH_LAMBDA = float(os.environ.get("SOM_DEPTH_LAMBDA", "0"))
 SOM_DEPTH_FROM_ITER = int(os.environ.get("SOM_DEPTH_FROM_ITER", "-1"))  # -1 = warm_up
 SOM_DEPTH_USE_MASK = int(os.environ.get("SOM_DEPTH_USE_MASK", "1"))     # 1=优先用 01d 前景 mask
 SOM_DEPTH_MIN_POINTS = int(os.environ.get("SOM_DEPTH_MIN_POINTS", "2048"))  # 帧内投影点下限
+# SOM-FG：单人前景监督（per-person 独立重建，2026-10-17）——
+# 每个 pid 一个场景（01h 产出），loss 只在该人的 mask 内计算、背景与其他人
+# 一律不产生梯度；COLMAP 初始点按多视角 mask 投票过滤，避免整场景点云里的
+# 背景/他人点占容量。关闭（SOM_FG_MASK_DIR 为空）时行为与历史完全一致。
+SOM_FG_MASK_DIR = os.environ.get("SOM_FG_MASK_DIR", "")
+SOM_FG_INIT_FILTER = os.environ.get("SOM_FG_INIT_FILTER", "1") == "1"
+SOM_FG_INIT_MIN_VIEWS = int(os.environ.get("SOM_FG_INIT_MIN_VIEWS", "3"))
+SOM_FG_INIT_MIN_RATIO = float(os.environ.get("SOM_FG_INIT_MIN_RATIO", "0.3"))
+SOM_FG_INIT_MAX_CAMS = int(os.environ.get("SOM_FG_INIT_MAX_CAMS", "48"))
+SOM_BG_RANDOM = os.environ.get("SOM_BG_RANDOM", "1") == "1"
+
+
+class FGMaskBank:
+    """单人前景软 alpha 的 CPU 缓存（按需上 GPU）。
+
+    目录约定：<mask_dir>/<image_name>.png，灰度 0-255 → 0-1。
+    缺失文件返回 None（调用方退化为全图监督并告警一次）。
+    """
+
+    def __init__(self, mask_dir, cache_size=24):
+        self.dir = mask_dir
+        self._cache = OrderedDict()
+        self._cache_size = int(cache_size)
+        self._missing_reported = False
+        self.available = False
+        if os.path.isdir(mask_dir):
+            self.available = any(f.endswith(".png") for f in os.listdir(mask_dir))
+
+    def get(self, stem, hw):
+        """返回 [1,1,h,w] cuda float32 软 mask；缺失返回 None。"""
+        key = (stem, int(hw[0]), int(hw[1]))
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        path = os.path.join(self.dir, str(stem) + ".png")
+        if not os.path.exists(path):
+            if not self._missing_reported:
+                print("[FG] WARN: 缺 mask {}（该帧退化为全图监督）".format(path), flush=True)
+                self._missing_reported = True
+            self._cache[key] = None
+            return None
+        from PIL import Image
+        m = np.asarray(Image.open(path).convert("L"), dtype=np.float32) / 255.0
+        t = torch.from_numpy(m)[None, None].to("cuda")
+        if tuple(t.shape[-2:]) != (int(hw[0]), int(hw[1])):
+            t = torch.nn.functional.interpolate(
+                t, size=(int(hw[0]), int(hw[1])), mode="bilinear", align_corners=False)
+        self._cache[key] = t
+        if len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
+        return t
+
+
+def filter_init_points_by_fg(gaussians, cams, fg_bank, min_views, min_ratio, max_cams):
+    """按多视角 mask 投票过滤 COLMAP 初始点（per-person 重建必需）。
+
+    每个点投影到抽样帧：可见（z>0.2、落画幅内）且落在 fg 的帧数 ≥ min_views，
+    且 落入比例 ≥ min_ratio → 保留。不过滤的话，整场景点云里的背景/他人点
+    会一直留在模型里（loss 只算 fg → 它们没有梯度、不会被 prune 掉），既占
+    容量也会在合成时浮在人体周围。
+
+    必须在 gaussians.training_setup() **之前**调用（优化器要按新点数建）。
+    """
+    if not cams:
+        return
+    dev = gaussians.get_xyz.device
+    xyz = gaussians.get_xyz.detach()
+    n0 = xyz.shape[0]
+    votes = torch.zeros(n0, device=dev)
+    vis = torch.zeros(n0, device=dev)
+    step = max(1, len(cams) // max(1, int(max_cams)))
+    used = cams[::step]
+    n_used = 0
+    for cam in used:
+        fg = fg_bank.get(cam.image_name, (cam.image_height, cam.image_width))
+        if fg is None:
+            continue
+        n_used += 1
+        ones = torch.ones(n0, 1, device=dev, dtype=xyz.dtype)
+        pts_h = torch.cat([xyz, ones], dim=1)
+        p_view = pts_h @ cam.world_view_transform
+        z_view = p_view[:, 2]
+        clip = pts_h @ cam.full_proj_transform
+        w_clip = clip[:, 3]
+        ndc = clip[:, :3] / w_clip.clamp_min(1e-6).unsqueeze(1)
+        # 与 depth_prior 相同的投影约定（ndc_y>0 = 画面下半部，grid_sample 同向）
+        in_f = ((w_clip > 0) & (ndc[:, 0].abs() <= 1.0) & (ndc[:, 1].abs() <= 1.0)
+                & (z_view > 0.2))
+        grid = torch.stack([ndc[:, 0], ndc[:, 1]], dim=1).view(1, 1, n0, 2)
+        # fg 本身已是 [1,1,h,w]（4D），不能再套 [None]——那会变 5D，grid_sample
+        # 会按 3D 采样解释并要求 grid 末维=3（2026-10-17 冒烟实踩）。
+        a = torch.nn.functional.grid_sample(
+            fg, grid, mode="bilinear", padding_mode="zeros",
+            align_corners=False).view(n0)
+        vis += in_f.to(torch.float32)
+        votes += (in_f & (a > 0.5)).to(torch.float32)
+
+    if n_used == 0:
+        print("[FG] WARN: 没有可用 mask，跳过初始点过滤", flush=True)
+        return
+    ratio = votes / vis.clamp_min(1.0)
+    keep = (votes >= float(min_views)) & (ratio >= float(min_ratio))
+    n_keep = int(keep.sum())
+    print("[FG] init filter: {} -> {} 点（{:.1f}%，{} 帧投票, min_views={}, ratio≥{:.2f}）".format(
+        n0, n_keep, 100.0 * n_keep / max(n0, 1), n_used, min_views, min_ratio), flush=True)
+    if n_keep < 100:
+        print("[FG] WARN: 保留点 <100，判定 mask 与图像未对齐，跳过过滤（请核对 01h 场景）",
+              flush=True)
+        return
+    for attr in ("_xyz", "_features_dc", "_features_rest", "_scaling", "_rotation",
+                 "_opacity"):
+        t = getattr(gaussians, attr, None)
+        if t is None or t.numel() == 0:
+            continue
+        setattr(gaussians, attr,
+                torch.nn.Parameter(t.data[keep].clone().requires_grad_(True)))
+    # ⚠️ max_radii2D 在 create_from_pcd 末尾按**原点数**建的，training_setup
+    # 不会重建它 → 不同步会让第一步 `max_radii2D[visibility_filter]` 直接
+    # IndexError（2026-10-17 冒烟实踩：mask[13925] vs tensor[53676]）。
+    gaussians.max_radii2D = torch.zeros(int(n_keep), device=dev)
 
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
@@ -121,6 +243,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     gaussians = GaussianModel(dataset.sh_degree)
 
     scene = Scene(dataset, gaussians)
+
+    # SOM-FG：单人前景监督（per-person 重建）。必须在 training_setup 之前过滤
+    # 初始点——优化器是按当时的点数建的。
+    fg_bank = None
+    if SOM_FG_MASK_DIR:
+        fg_bank = FGMaskBank(SOM_FG_MASK_DIR)
+        if not fg_bank.available:
+            print("[FG] WARN: {} 下没有 *.png，退化全图监督".format(SOM_FG_MASK_DIR),
+                  flush=True)
+            fg_bank = None
+        else:
+            print("[FG] 单人前景监督: dir={} bg_random={} init_filter={}".format(
+                SOM_FG_MASK_DIR, SOM_BG_RANDOM, SOM_FG_INIT_FILTER), flush=True)
+            if SOM_FG_INIT_FILTER:
+                filter_init_points_by_fg(
+                    gaussians, scene.getTrainCameras(), fg_bank,
+                    SOM_FG_INIT_MIN_VIEWS, SOM_FG_INIT_MIN_RATIO,
+                    SOM_FG_INIT_MAX_CAMS)
+
     gaussians.training_setup(opt)
 
     # SOM：帧数 = 全部注册相机数（COLMAP 场景 fid = int(name)/(num_frames-1)，
@@ -158,6 +299,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+    # SOM-FG：评测/存档用固定背景（训练时若开 SOM_BG_RANDOM 则每步随机，
+    # 防止模型把「背景色」也学进 SH——per-person 模型输出应是纯人，不该带底）
+    eval_background = background.clone()
 
     # SOM-EXPOSURE：方案 A 逐相机曝光仿射（exposure.py）。FROM=-1 → warm_up
     exposure = None
@@ -258,6 +402,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 rotations=gaussians.get_rotation.detach())
 
         # Render
+        # SOM-FG：训练时随机背景色（每步一次），让背景区域的渲染值不进入任何
+        # 稳定拟合；评测用固定色（见 training_report 调用）。
+        if fg_bank is not None and SOM_BG_RANDOM:
+            background = torch.rand(3, device="cuda")
         render_pkg_re = render(viewpoint_cam, gaussians, pipe, background, d_xyz, d_rotation, d_scaling, dataset.is_6dof)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg_re["render"], render_pkg_re[
             "viewspace_points"], render_pkg_re["visibility_filter"], render_pkg_re["radii"]
@@ -276,8 +424,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         exposure_on = exposure is not None and iteration >= exposure_from
         if exposure_on:
             image = exposure.apply(viewpoint_cam.image_name, image)
-        Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        # SOM-FG：只在该人的 mask 内计算光度损失（背景 + 其他人在梯度上不存在，
+        # 于是 densify 也只会往人身上加点）。
+        fg = None
+        if fg_bank is not None:
+            fg = fg_bank.get(viewpoint_cam.image_name, gt_image.shape[-2:])
+        if fg is not None:
+            # 面积归一化：只算 fg 会让 loss 量级按人体占比缩小，而 densify 的
+            # 梯度阈值是固定值 → 归一化回「全图同量级」，阈值语义不变。
+            area = fg.sum().clamp_min(1.0)
+            inv_area = fg.numel() / area
+            Ll1 = l1_loss(image * fg, gt_image * fg) * inv_area
+            loss = ((1.0 - opt.lambda_dssim) * Ll1
+                    + opt.lambda_dssim * (1.0 - ssim(image * fg, gt_image * fg)))
+        else:
+            Ll1 = l1_loss(image, gt_image)
+            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         # SOM-EXPOSURE：拉回恒等正则（防与 SH 颜色互相吸收震荡）
         if exposure_on and SOM_EXPOSURE_REG > 0:
             loss = loss + SOM_EXPOSURE_REG * exposure.reg_loss()
@@ -319,7 +481,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
             # Log and save
             cur_psnr = training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end),
-                                       testing_iterations, scene, render, (pipe, background), deform,
+                                       testing_iterations, scene, render, (pipe, eval_background), deform,
                                        dataset.load2gpu_on_the_fly, dataset.is_6dof,
                                        exposure=exposure if exposure_on else None)
             if iteration in testing_iterations:

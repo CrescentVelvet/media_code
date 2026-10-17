@@ -76,6 +76,16 @@ DEPTH_LAMBDA="${DEPTH_LAMBDA:-0}"            # 方案 E 深度先验权重（0=�
 DEPTH_FROM_ITER="${DEPTH_FROM_ITER:--1}"     # -1 = WARM_UP 后启用（且强制 ≥ warm_up）
 DEPTH_USE_MASK="${DEPTH_USE_MASK:-1}"        # 1=有 01d 前景 mask 就用（<scene>/masks/）
 DEPTH_MIN_POINTS="${DEPTH_MIN_POINTS:-2048}" # 帧内投影点不足则该步跳过深度损失
+# ── 单人前景监督（per-person 独立重建，2026-10-17）─────────────────────────
+# 01g 出 SAM3 多人 mask、01h 拆出每人场景后，把该人的 masks/ 指过来：
+#   FG_MASK_DIR=<scene>/persons/p00/masks
+# loss 只在该 mask 内计算 + COLMAP 初始点按多视角投票过滤，产出**只有这个人**
+# 的高斯（不含背景/他人）。多人场景的每个人各训一个 MODEL_PATH。
+FG_MASK_DIR="${FG_MASK_DIR:-}"               # 空=全图监督（历史行为）
+FG_INIT_FILTER="${FG_INIT_FILTER:-1}"        # 1=按 mask 过滤初始点（强烈建议）
+FG_INIT_MIN_VIEWS="${FG_INIT_MIN_VIEWS:-3}"  # 至少落入多少帧的 mask 才保留
+FG_INIT_MIN_RATIO="${FG_INIT_MIN_RATIO:-0.3}" # 落入比例下限（投票/可见）
+BG_RANDOM="${BG_RANDOM:-1}"                  # 1=训练时背景色每步随机
 
 echo "🚀 [02] 训练 SoM 运动基（canonical + ${NUM_BASES} 条 SE(3) 基凸组合）"
 echo "  🤖 代码:       $DG_DIR（官方仓）+ $SCRIPT_DIR/{som_motion,train_som}.py"
@@ -88,6 +98,7 @@ echo "  🛡️ max_gauss:  $MAX_GAUSSIANS（超过即停止 densify 只 prune�
 echo "  📈 dens_sched: $USE_DENSIFY_SCHED（mult=$DENSIFY_MOMENTUM_MULT, rate=$DENSIFY_MAX_RATE, clamp=$DENSIFY_CNT_CLAMP, prune_after=$DENSIFY_PRUNE_AFTER；0 时上面那就是硬护栏）"
 echo "  💡 exposure:   $USE_EXPOSURE（from=${EXPOSURE_FROM_ITER:-warm_up}, lr=$EXPOSURE_LR, reg=$EXPOSURE_REG）"
 echo "  🌊 depth:      λ=$DEPTH_LAMBDA（点级锚定, mask=$DEPTH_USE_MASK, from=${DEPTH_FROM_ITER:-warm_up}）"
+echo "  🎭 fg_mask:    ${FG_MASK_DIR:-（关闭，全图监督）}（init_filter=$FG_INIT_FILTER, bg_random=$BG_RANDOM）"
 echo ""
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -138,7 +149,10 @@ export DG_DIR SOM_NUM_BASES="$NUM_BASES" SOM_SMOOTH_WEIGHT="$SMOOTH_WEIGHT" \
        SOM_EXPOSURE="$USE_EXPOSURE" SOM_EXPOSURE_FROM_ITER="$EXPOSURE_FROM_ITER" \
        SOM_EXPOSURE_LR="$EXPOSURE_LR" SOM_EXPOSURE_REG="$EXPOSURE_REG" \
        SOM_DEPTH_LAMBDA="$DEPTH_LAMBDA" SOM_DEPTH_FROM_ITER="$DEPTH_FROM_ITER" \
-       SOM_DEPTH_USE_MASK="$DEPTH_USE_MASK" SOM_DEPTH_MIN_POINTS="$DEPTH_MIN_POINTS"
+       SOM_DEPTH_USE_MASK="$DEPTH_USE_MASK" SOM_DEPTH_MIN_POINTS="$DEPTH_MIN_POINTS" \
+       SOM_FG_MASK_DIR="$FG_MASK_DIR" SOM_FG_INIT_FILTER="$FG_INIT_FILTER" \
+       SOM_FG_INIT_MIN_VIEWS="$FG_INIT_MIN_VIEWS" SOM_FG_INIT_MIN_RATIO="$FG_INIT_MIN_RATIO" \
+       SOM_BG_RANDOM="$BG_RANDOM"
 # train_som.py 用官方仓的相对 import → 必须在 $DG_DIR 里跑
 ( cd "$DG_DIR" && python "$SCRIPT_DIR/train_som.py" "${TRAIN_FLAGS[@]}" )
 if [ $? -ne 0 ]; then

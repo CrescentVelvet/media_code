@@ -136,6 +136,93 @@ conda install -n colmap --override-channels -c conda-forge 'openimageio=3.1' -y
 
 训练侧收益见「实验记录」节 ①：同 10k 迭代下 **13.978 → 21.265（+7.29dB）**。
 
+## 按人独立重建（per-person，多人场景，2026-10-17）
+
+多人采集包（双人招手、三人聚餐）整场景一起重建有三个结构性问题，都会直接
+吃掉手部细节：
+
+1. **容量竞争**：`MAX_GAUSSIANS` 是全场景共享，背景与其他人先占满，目标人的
+   手只分到零头。
+2. **运动基竞争**：10 条 SE(3) 基要同时表达多个人的运动，每个人的低秩表达
+   都被稀释。
+3. **评测被背景稀释**：PSNR 里背景占 ~90% 面积，手糊了也看不出来（hand10
+   整场景 21.29dB 看着"还行"，其实是背景在撑）。
+
+per-person 把「一个场景」拆成「每人一个独立模型」：各自独立的容量与运动基，
+互不竞争；评测只在本人 mask 内算。
+
+### 链路
+
+```bash
+# 1) 逐人 mask（SAM3 video 模式，obj_id 跨帧一致）
+SCENE_NAME=hand10_shuangren_zhaoshou bash som_human/01g_person_masks.sh
+
+# 2) 按 pid 拆场景（帧覆盖率 ≥50% 的才是真人）
+SCENE_NAME=hand10_shuangren_zhaoshou bash som_human/01h_build_person_scenes.sh
+
+# 3) 每人一个模型（FG_MASK_DIR 指向该人的 masks/）
+SCENE_NAME=hand10_p02 SOURCE_PATH=<scene>/persons/p02 MODEL_PATH=<out>/model_p02 \
+FG_MASK_DIR=<scene>/persons/p02/masks \
+bash som_human/02_train.sh
+
+# 4) 前景指标（mask 内 PSNR，背景不参与）
+python som_human/03b_fg_metrics.py --scene <scene>/persons/p02 --model <out>/model_p02
+```
+
+### 三个必须注意的点（都是实测踩出来的）
+
+1. **只能 video 模式**：`MASK_MODE=image` 每帧实例 ID 按检测分数排序、跨帧
+   不对应 → 同一人 ID 每帧都变，拆分会把一个人拆成几十个碎片。
+2. **text prompt 会把背景物体误检成 person**：hand10 实测 27 个 track，只有
+   2 个是真人（160/160 帧、占画面 10.2%/10.8%），其余 25 个面积 0.01~1.3%、
+   与真人 mask 的 **IoU 恒为 0**（桌椅之类的误检）。01h 因此用**帧覆盖率
+   ≥50% + 平均面积 ≥0.5%** 双重过滤——不能只看面积（实测有个 1.26% 的误检
+   覆盖了 36% 帧，只按面积会漏进来）。
+3. **初始点必须过滤**：loss 只算 fg 后，落在背景上的 COLMAP 点**永远没有梯度**
+   （既不被 densify 强化、也不会被 prune 掉），会一直占容量并在合成时浮在
+   人体周围。`FG_INIT_FILTER=1` 按多视角 mask 投票过滤（实测 53,676 → 13,925
+   点，25.9%）。
+
+### 实现要点
+
+- **面积归一化**：`Ll1` 只算 mask 内，再乘 `numel/area` 恢复到全图量级 ——
+  不归一化的话 loss 按人体占比（~10%）缩小，而 `densify_grad_threshold` 是
+  固定值，稠密化会整体失准。
+- **随机背景**：`BG_RANDOM=1` 每步随机背景色，防止模型把背景色学进 SH；
+  评测/存档用固定色（`eval_background`）。
+- **mask 尺寸自动对齐**：按 `gt_image` 的 H/W 做 bilinear 缩放（`-r 2` 降采样
+  后仍对齐）。
+- **`max_radii2D` 必须同步重建**：DG 在 `create_from_pcd` 末尾按原点数建它，
+  `training_setup` 不重建 → 过滤后不同步会在第一步 `IndexError`。
+
+### 头身分离（设计，未实测）
+
+同一套机制再套一层：`masks/` 换成 head mask（SAM3 `prompt=head`，或
+`person mask ∩ 3DMM 头包围盒`），`FG_MASK_DIR` 指过去就是 head_gs；body_gs
+用 `person mask − head mask`。两者共享同一份 COLMAP 位姿与运动基配置，
+合成时直接叠加渲染（都是同一世界坐标系下的独立高斯集合）。
+
+### 实测（hand10 双人招手，2026-10-17）
+
+| 模型 | 点云 初始 → 最终 | 训练耗时 | FG PSNR（该人 mask 内） |
+|---|---|---|---|
+| 整场景（基线） | 53,676 → 608,400 | 635 s | p02: 24.492 / p07: 24.497 |
+| per-person p02 | 14,594 → 103,669 | ~320 s | **24.343**（−0.15，噪声内） |
+| per-person p07 | 13,189 → 115,896 | ~320 s | **25.193**（+0.70） |
+
+- **资源**：点数与体积都降到 **~1/6**（10.4~11.6 万 vs 60.8 万），训练速度从
+  ~3 it/s 提到 **~32 it/s**（初始点少了 4 倍，非渲染开销随点数线性）。
+- **质量**：FG PSNR 与整场景持平/略升；**逐视角最差帧 per-person 更好**
+  （p02 的 #1 帧 14.9 vs 基线 13.8，+1.1dB）。全图 PSNR 10 vs 21 不是退化，
+  是背景本来就该是黑（背景误差不该进指标）。
+- **⚠️ 遗留缺陷**：montage 可见人体边缘有**黑色飞溅状飞点**（手/头周围
+  尤甚）。来源：①mask 边缘羽化区仍产生梯度；②双人贴身时 mask 会带对方
+  的衣角；③初始过滤留了 24%（含两人重叠区的点）。后续可做：mask 腐蚀、
+  训练中按 mask 周期性 prune、提高 init ratio。
+- **结论**：可行，且点数/耗时显著省；视觉毛刺需下一轮工程处理，但**不是
+  per-person 架构引入的**——双人招手场景整场景重建在 fg 区域本来就糊
+  （worst 帧 13.8）。
+
 ## 曝光补偿（方案 A，`exposure.py`，默认关闭）
 
 针对手机 auto-exposure 逐帧光度漂移（户外场景 GT 亮度/色温不一致系统性干扰
@@ -423,6 +510,8 @@ media_code/som_human/
 ├── 01c_colmap_refine.sh  # COLMAP SfM 精化 VIO 位姿（GPU SIFT+mapper，内参固定）
 ├── 01d_check_refined.py  # 精化质量校验：inlier 分布/重投影误差/轨迹对齐残差
 ├── 01f_depth_maps.sh     # 方案 E 资产：为每帧生成单目深度图（UniDepth）到 <scene>/depths/
+├── 01g_person_masks.sh   # per-person：SAM3 video（prompt=person）逐人 mask + manifest
+├── 01h_build_person_scenes.sh/.py  # per-person：按 pid 拆独立训练场景（images/sparse 软链）
 ├── 02_train.sh           # SoM 运动基训练
 ├── 03_render.sh          # 渲染 + 评测（render/time/original）
 ├── 03b_fg_metrics.py     # 前景专项指标（fg/bg/all PSNR + 逐视角最差 + 三联拼图）
