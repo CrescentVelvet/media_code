@@ -4,6 +4,55 @@
 > 项目专属的实验结论 / 消融数据 / 踩坑细节归档到各项目目录下。
 > 新实验结论继续追加到本文件，按日期倒序排列。
 
+## 2026-10-17 MHR 手部拓扑探针（决定手部路线走 MHR 还是 MANO）
+
+背景：路线结论称「MHR 的手只有 5 维 identity，做不了手指级形变，手部必须外挂 MANO/HaMer」。
+三件事被混成一句：**identity** 维度、**pose** 自由度、**顶点归属**是否可用。
+探针脚本 `diag_mhr_hand_topology.py`（A/B 模式纯 std 库，无需权重，秒级）。
+
+数据源：sam-3d-body 官方仓 `~/repos/sam-3d-body`（2026-10-17 clone，`--depth 1`）。
+源码位置：`sam_3d_body/models/heads/mhr_head.py:48-97`、
+`sam_3d_body/models/modules/mhr_utils.py:165-246,388-391`、
+`sam_3d_body/metadata/mhr70.py:1-60`、`tools/vis_utils.py:121`。
+
+| 项 | 实测（源码常量） | 出处 |
+|---|---|---|
+| 手部 **pose** 自由度 | **27 DOF / 只**（16 关节，doflist `[3,1,1,3,1,1,3,1,1,3,1,1,2,3,1,1]`）；两只共 54 维，占 `mhr_param` 下标 62..115 | `mhr_utils.py:168,388-389` |
+| 手部 identity | 5 维（45 = 20 body + 20 head + 5 hands） | `mhr_head.py:48`、`DESIGN_face_pipeline.md:102` |
+| 手部 **scale** | **10 维**（`num_hand_scale_comps = num_scale_comps - 18 = 28 - 18`） | `mhr_head.py:80` |
+| 网格 | 18439 顶点 / 36874 面 / 127 关节 / 308 关键点 | `mhr_head.py:88-97` |
+| 手部 2D 观测 | MHR70 含 **21 点/只手**（wrist + 5 指 × 4）→ 每帧每手 42 个标量观测 | `mhr70.py:22-58` |
+| 解算裕量 | 42 obs vs SRT 6 DOF → **7.0**（比 68 点人脸 1.26 宽松得多） | 本脚本计算 |
+| 手部解码器输出 | **整网格**（`-2*18439` 堆叠两只手），不是手部子网格 | `tools/vis_utils.py:121` |
+
+**结论（三条修正 + 一条未决）**
+
+1. **「做不了手指级形变」不成立**：27 DOF/只 全部是手指/腕姿态，比 MANO 的 45（15×3 轴角）
+   少，但远不是「没有」。MHR 用 1-DOF 屈伸替代部分 3-DOF 关节，属建模取舍而非缺失。
+2. **「只有 5 维」只对 identity 成立**：手型还有 10 维 scale。合起来 15 维，够做手型个性化，
+   不够做骨相级差异 —— 但手部外观主要靠高斯自己的颜色/不透明度吸收，够用。
+3. **2D 观测不是瓶颈**：每帧每手 21 点（ratio 7.0）足够解 SRT 对齐；这与手部「占比 1.6%、
+   弱纹理」导致的**梯度**不足是两件事——先验路线不依赖梯度。
+4. **未决：18439 个顶点里哪些属于手**，源码**不暴露**（`hand_joint_idxs_left/right` 是 27 个
+   *关节*索引的 buffer，不是顶点集合）。两条解法：
+   - 正解：读 ckpt 的 skinning 权重反推主导关节 → 需 gated 资产 `assets/mhr_model.pt`
+     （或 mhr 包的 `lod1.fbx` + `compact_v6_1.model`，同一 gated 仓）。
+   - **免资产替代**（推荐先试）：用 npz 里的 `pred_vertices` + `pred_keypoints_3d`（21 手部点），
+     KD-tree 取「到手部关键点距离 < k×中位骨长」的顶点并集当手部集合。几何近似，
+     不需要任何额外权重，缺点是袖口/手腕处要多做一次保守裁切。
+
+复现：
+```bash
+python3 vggt_human/diag_mhr_hand_topology.py --sam3d-dir ~/repos/sam-3d-body \
+  --json /tmp/mhr_hand_probe.json
+# 有资产后补 C 项（二选一）：
+#   --mhr-model <ckpt>/assets/mhr_model.pt      # 枚举 torchscript buffer
+#   --mhr-assets ~/model/mhr/assets             # skinning 权重 → 手部顶点集合
+```
+
+**对路线的影响**：P1（MHR 手 → 绑定高斯）不再被「5 维」挡住，**不需要先上 MANO**；
+MANO 只在「MHR 手指自由度不够用」时作为 fallback。
+
 ## 位姿优化 A/B 对比实验
 
 位姿优化（PoseAdjuster + PoseRefineModule）**默认开启**。以下命令方便跑有/无对比实验，用不同 `OUTPUT_NAME` 隔离结果。
