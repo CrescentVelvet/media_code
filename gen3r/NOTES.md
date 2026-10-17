@@ -1,0 +1,87 @@
+# Gen3R 原理、输出口径与在本仓的用法
+
+> 本文回答两个问题：**它到底产出什么**、**我们怎么把它接进现有 3DGS 链路**。
+> 标注约定：`【代码事实】` 来自官方仓源码（已核对行号）；`【实测】` 来自本机运行结果；
+> `【推测】` 未经验证。
+
+## 1. 方法一句话
+
+把 VGGT（前馈重建）的输出 token 用一个 adapter 压到与 Wan2.1-Fun 视频扩散 latent
+**同构的空间**，然后让扩散模型一次前向同时吐出「外观 latent」和「几何 latent」；
+几何 latent 再喂回 VGGT 的 camera/depth/point head，得到相机、深度、点云。
+
+- `geo_adapter` 把 VGGT token 解码成 `[B,10240,F,40,40]`，与 Wan latent 拼在一起做联合去噪
+  `【代码事实】gen3r/pipeline/pipeline_gen3r.py:439-443`
+- 去噪完 `latents.chunk(2, dim=-1)` 拆回外观/几何两半
+  `【代码事实】pipeline_gen3r.py:439`
+- 相机/深度/点云由 VGGT head 在**生成的几何 latent**上重新预测
+  `【代码事实】pipeline_gen3r.py:445-452`
+- 点云 = 深度 + 相机反投影到世界系，不是网络直接回归的点
+  `【代码事实】pipeline_gen3r.py:449-451` → `models/vggt/utils/geometry.py:unproject_depth_map_to_point_map`
+
+**关键推论**：所谓"点云"是「生成出来的 49 张视图 + 生成的相机 + 生成的深度」三者自洽的
+副产物。它与视频同一套几何，因此天然可做 3DGS 的初始化——但**没有真实尺度、没有真实观测**。
+
+## 2. 输出清单与坐标系
+
+| 文件 | 内容 | 口径 |
+|---|---|---|
+| `rgb.mp4` | 49 帧 560×560 | Wan VAE 解码，`(x/2+0.5).clamp(0,1)` `【代码事实】pipeline:454-455` |
+| `pcds.ply` | 世界系点云 + RGB | 49 帧全像素反投影 → open3d 体素降采样(0.005/0.003) + 统计离群(25 邻域/std 1.25) `【代码事实】utils/common_utils.py:downsample_and_save_pointcloud` |
+| `cameras.json` | `extrinsics[F,4,4]` + `intrinsics[F,3,3]` | **w2c，OpenCV 约定**（VGGT 原生），不是 c2w `【代码事实】infer.py:118-131` |
+| `prompts.txt` | 文本条件 | — |
+
+- **深度图不落盘**：`save_results` 里 depth.mp4 的分支被注释掉了
+  `【代码事实】infer.py:99-105`。要深度得自己改脚本（`results['depth_maps']` 可拿）。
+- **尺度**：`scene_scale = 0.8 * median(depth)` `【代码事实】infer.py:252`，
+  仅用于内置轨迹的位移幅度；世界尺度由 VGGT 决定，**单图任务没有真实米制尺度**。
+- **`--remove_far_points`**：按 z 的 80 分位截掉最远 20% 点 `【代码事实】common_utils.py`，
+  人物/近景主体场景应当开。
+
+## 3. 为什么"只生成点云不生成 3DGS"
+
+- 论文目标是「生成 + 重建共用一套前馈几何」，没有可微渲染/稠密化环节，所以不产 Gaussian。
+- 但它给的东西恰好是 3DGS 训练**所需的全部输入**：多视 RGB + 相机内外参 + 初始化点云。
+  3DGS 要做的只是把这三样喂进优化（我们已有 `vggt_human/04_train_3dgs.sh`）。
+- 所以"利用"不是要它出 Gaussian，而是**把它当成一个"几何自洽的伪数据集生成器"**。
+
+## 4. 接入方案（按落地成本排序）
+
+### 方案 A：直接训 3DGS（已实现，等实测）
+`03_to_colmap.sh` → `vggt_human/04_train_3dgs.sh`。适用：**单图生成 3D 资产**、
+给上级演示"一张图出一个可漫游 3D 场景"。不追求真实感。
+
+### 方案 B：替代 COLMAP 做初始化（待评估）
+我们 `som_human/01c` 的 COLMAP 在 150 帧上要几分钟到十几分钟；Gen3R 的 `allview`
+任务等价于一次 VGGT 前馈重建，几十秒出相机 + 稠密点云。
+**但**：COLMAP 有 BA 精化，VGGT 系相机精度通常低一档，需用我们已有的
+`vggt_human/EXPERIMENTS.md` 里的位姿 A/B 口径做对比（PSNR/位姿误差）后再决定。
+
+### 方案 C：补视角（风险最高，价值也最高）
+Remy 采集包常见问题是**视角覆盖不足**（只拍了大半圈、缺背面/低角度）。
+Gen3R 的 `2view`/`1view` 能"脑补"缺失视角，但生成内容会与真人**不一致**
+（脸、衣物细节都是编的）。可考虑的收敛用法：
+- 只把生成视角当**几何先验**（深度/法向/占据），不做颜色监督；
+- 或只用于 `scene_gs`（背景），人物仍用真实采集。
+
+### 方案 D：场景背景生成（`scene_gs`）
+我们 3DGS 拆分里 `scene_gs` 需要背景覆盖；单图生成场景正好补这一块，
+且生成背景与主体的不一致对观感影响小于人体本身。
+
+## 5. 已知风险
+
+| 风险 | 说明 | 缓解 |
+|---|---|---|
+| 人物主体被场景先验带偏 | 训练数据以 RealEstate10K/Co3D 等场景/物体为主，人体不是主要分布 | 用 `remove_far_points` + 短轨迹 + 人工挑帧 |
+| 无真实尺度 | 跨场景/跨批次不可直接对齐 | 与真实点云做相似变换（Umeyama）后再用 |
+| 生成幻觉 | 背面/遮挡区域是编的 | 只在"可接受编造"的场景用（演示、背景） |
+| 49 帧固定 560×560 | 分辨率低，人脸细节不够 | 后续接我们的 HYPIR 超分链 |
+
+## 6. 排错
+
+- 下载：hf-mirror 2026-10-17 基本不可用（SSL 握手超时），改 `HF_ENDPOINT=https://aifasthub.com`；
+  aifasthub 会按 UA 拦 `Python-urllib`（403），下载器已伪装 `huggingface_hub` UA。
+- 依赖：`opencv-python-headless` 必须 4.10（5.x 会把 numpy 顶到 2.x）；
+  `open3d` 需要 `libgomp.so.1`（conda 装 + `LD_LIBRARY_PATH`）。
+- 显存：3090 24GB 跑 49 帧 560×560 / 50 步需实测，OOM 时先降 `--num_frames`
+  或改 `infer.py` 的 `num_inference_steps`。
