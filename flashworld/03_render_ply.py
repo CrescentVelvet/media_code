@@ -14,6 +14,11 @@ viewmat = diag(1,-1,-1,1) @ inv(c2w)。
 
 用法（WSL，flashworld env）：
   python flashworld/03_render_ply.py <ply> <input_json> <out_dir>
+Env vars:
+  OPACITY_MIN   sigmoid 还原后的 opacity 下限，低于则剪枝（默认 0，不剪）。
+                官方 cli.py 导出不剪枝，实测 96% 高斯近透明 → 单图生成的
+                多深度重影副本会全留在 PLY 里，剪 0.1~0.3 可显著去重影。
+  FRAMES        只渲染这些帧序号，逗号分隔（默认全部）
 """
 import json
 import math
@@ -96,12 +101,27 @@ def main():
     scales = torch.exp(torch.from_numpy(sc).float()).to(device)      # log → 线性
     opac = torch.sigmoid(torch.from_numpy(op).float()).to(device)    # logit → 概率
     colors = torch.from_numpy(sh).float().to(device)
+
+    op_min = float(os.environ.get("OPACITY_MIN", "0"))
+    if op_min > 0:
+        keep = opac >= op_min
+        n0 = len(opac)
+        means, quats, scales, opac, colors = (x[keep] for x in
+                                              (means, quats, scales, opac, colors))
+        print("opacity>=%.3f 剪枝: %d -> %d (%.1f%%)" % (op_min, n0, len(opac), 100.0 * len(opac) / n0))
+
+    frames_env = os.environ.get("FRAMES", "")
+    if frames_env:
+        sel = set(int(x) for x in frames_env.split(","))
+        cams = [c for i, c in enumerate(cams) if i in sel]
     K_t = torch.from_numpy(K).float().to(device)
 
     from gsplat import rasterization
     import imageio.v2 as imageio
 
     for i, c in enumerate(cams):
+        # 有 FRAMES 过滤时 i 是过滤后的序号，文件名要回写真实帧号
+        idx = i if not frames_env else int(frames_env.split(",")[i])
         M = ref_w2c @ cam_to_c2w(c)
         viewmat = torch.from_numpy(FLIP @ np.linalg.inv(M)).float().to(device)[None]
         with torch.no_grad():
@@ -111,7 +131,7 @@ def main():
                 width=W, height=H,
                 sh_degree=int(round(math.sqrt(colors.shape[1]))) - 1,
                 render_mode="RGB", packed=False)
-        p = os.path.join(out_dir, "render_%02d.png" % i)
+        p = os.path.join(out_dir, "render_%02d.png" % idx)
         imageio.imwrite(p, (img[0].clamp(0, 1).cpu().numpy() * 255).astype(np.uint8))
         print("  %s  mean=%.3f" % (os.path.basename(p), img[0].mean().item()))
     print("✅ 输出:", out_dir)
