@@ -124,5 +124,12 @@ sys.exit(0 if ok else 1)
 PY
 [ $? -ne 0 ] && { echo "❌ ERROR: verification failed" >&2; exit 1; }
 
+# 离线模式下 from_pretrained 加载分片权重会去调 model_info() 联网，必须打补丁（幂等）
+echo ""
+echo "🩹 [00b] 给 vendored diffusers 打离线补丁"
+conda run -n "$CONDA_ENV" python "$SCRIPT_DIR/00b_patch_deps.py" || {
+    echo "⚠️ WARNING: 00b 补丁未应用，离线推理会在 from_pretrained 处报 OfflineModeIsEnabled" >&2
+}
+
 echo ""
 echo "🎉 Done. 下一步：bash flashworld/01_download_models.sh"

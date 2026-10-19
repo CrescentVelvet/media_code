@@ -132,11 +132,15 @@ FlashWorld（Xiamen Univ. + Tencent，ICLR 2026 Oral）把「多视图生成 →
 ### 跑推理
 | 现象 | 原因 / 处理 |
 |---|---|
+| `OfflineModeIsEnabled: Cannot reach https://.../api/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers` | `WanTransformer3DModel` 是**分片**权重（5 shard + `.index.json`），diffusers 走 `_get_checkpoint_shard_files` 的「Hub 模型 ID」分支时**无条件调 `model_info()`** 联网；而 `modeling_utils.py` 里 `local_files_only` 默认是 `None` 而非 `HF_HUB_OFFLINE`，于是离线必挂。`00b_patch_deps.py` 已补：`local_files_only is None` 时回退读 `HF_HUB_OFFLINE`（只改 vendored diffusers，不碰官方代码）。重装环境后 00a/00 会自动重打 |
 | CUDA OOM | `REALLY_LOW_VRAM=1`（加 `--offload_vae`，慢到分钟级）；或降 `N_FRAME`（会偏离训练分布）；或确认没有别的进程占卡 |
 | 跑完没有产物、也没报错 | `cli.py: process_generation_request` 出错时**只 return 不抛异常**，看 stdout 有没有 `Processing error`；json 里的 `image_prompt` 必须是**绝对路径且可读** |
 | 输出几何被压扁/尺度异常 | 相机轨迹半径过小或所有相机几乎同点 → `T_norm ≈ 0`；保持 `RADIUS>0.1` 且轨迹有真实位移 |
 | 画面透视不对 | 输入图真实 FOV 与 `FOV=60` 差太多；按观感调 `FOV`（30~90） |
 | PLY 在 viewer 里发黑 | 这是 SH 系数直出的 PLY，部分 viewer 需要 SH degree 顺序匹配；官方也是这个格式 |
+
+**本机实测基线（2026-10-19，RTX 3090 24 GB，480×704×24 帧，单图）**：模型加载 ≈ 2 min（含 858 个张量 fp8 量化 14 s）→ 生成 129 s →
+`gaussians.ply` 588 MB / **4,055,040 个高斯**（38 float/顶点，结构自洽）。显存未打满，`--offload_t5 --offload_transformer_during_vae` 够用。
 
 ## 8. 复现边界（诚实说明）
 

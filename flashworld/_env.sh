@@ -98,7 +98,12 @@ FW_REPO_ID="${FW_REPO_ID:-imlixinyang/FlashWorld}"
 
 # ckpt 在 HF cache 里的快照路径（sha 随仓库更新会变，故用 glob）
 FW_CKPT="${FW_CKPT:-$(ls -d "$HF_HOME"/hub/models--imlixinyang--FlashWorld/snapshots/*/model.ckpt 2>/dev/null | head -1)}"
-WAN_SNAPSHOT="${WAN_SNAPSHOT:-$(ls -d "$HF_HOME"/hub/models--Wan-AI--Wan2.2-TI2V-5B-Diffusers/snapshots/*/ 2>/dev/null | head -1)}"
+# ⚠️ 不能只按 snapshots/* 取第一个：中断过的下载会留下**空快照目录**（实测 b8fff731… 为 0 字节），
+#    取到它会让「基座是否就绪」的判断假阴性/假阳性。改为只认真正有 model_index.json 的那份。
+WAN_SNAPSHOT="${WAN_SNAPSHOT:-$(for d in "$HF_HOME"/hub/models--Wan-AI--Wan2.2-TI2V-5B-Diffusers/snapshots/*/; do [ -f "$d/model_index.json" ] && echo "$d" && break; done)}"
+# refs/main 指向的快照名（diffusers 实际解析用的就是它，仅用于诊断打印）
+WAN_REFS_MAIN="$(cat "$HF_HOME"/hub/models--Wan-AI--Wan2.2-TI2V-5B-Diffusers/refs/main 2>/dev/null || true)"
+export WAN_REFS_MAIN
 
 export REPO_DIR FLASHWORLD_DIR FLASHWORLD_REPO FLASHWORLD_DEPS \
        MODEL_DIR RESULTS_DIR WAN_MODEL_ID FW_REPO_ID FW_CKPT WAN_SNAPSHOT CUDA_HOME
