@@ -5,6 +5,10 @@
 > 两个 README 共存：
 > - [`README.md`](README.md) — 服务器流程（`doll` env clone + 公司代理 + `/usr/local/cuda`）
 > - [`README_wsl.md`](README_wsl.md) — 本文件（WSL 从零建 env + 无代理 + conda 装 CUDA toolkit）
+>
+> 另有两份配套文档：
+> - [`NOTES.md`](NOTES.md) — **原理与排错手册**（显存账、workflow、数值约定、本机已知坑、排错决策树）
+> - [`EXPERIMENTS.md`](EXPERIMENTS.md) — **实验结论与数据**（含马赛克一案的完整定位过程与指标口径勘误）
 
 > 📖 WSL2 + Ubuntu 24.04 + NVIDIA 驱动 + Miniconda 的基础环境搭建见 [`wsl/README.md`](../wsl/README.md)（本文件假设已按它配好 WSL + Miniconda）。
 
@@ -36,7 +40,7 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 
 > **单 RTX 3090 用户**：能跑 **06c**（int8 50 步常驻，能跑但慢）或 **06d**（int8 + Turbo 4 步常驻，最快，推荐）。两者都用 `enable_group_offload(block_level)`——transformer 按 block 搬 CPU，GPU 只占当前 block (~2-3GB) + VAE (~3GB)，24GB 够用；int8 把权重压到 ~62GB，需 ~56GB CPU RAM + swap（`.wslconfig` `memory=56GB`）。06c/06d 加载一次多次请求不重载。
 >
-> **06b 现在能跑**（不再 RAM-OOM）：bf16 全量 ~124GB，64GB RAM 不够，但 `.wslconfig` `swap≥96GB`（memory=56GB + swap=96GB+ = 152GB+ 虚拟）就能靠 swap 撑——慢（每步搬运 ~124GB 走 swap）。⚠️ 但目前 bf16 路径也出噪点（跟 06c/06d 同根因，待查，见下方「脚本区别」），06b 暂不算可用方案。02/06 跑不了（bf16 120GB 需多卡 80GB）。
+> **06b 现在能跑**（不再 RAM-OOM）：bf16 全量 ~124GB，64GB RAM 不够，但 `.wslconfig` `swap≥96GB`（memory=56GB + swap=96GB+ = 152GB+ 虚拟）就能靠 swap 撑——慢（每步搬运 ~124GB 走 swap）。✅ 它曾与 06c/06d 一起出噪点，根因已于 2026-10-08 定案为**权重损坏**并与代码无关；修复后同样正常。但 3090 上它仍是最慢的一档，日常用 06d。02/06 跑不了（bf16 120GB 需多卡 80GB）。
 
 ## 脚本区别（06 / 06a / 06b / 06c / 06d）
 
@@ -52,11 +56,14 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 > **单 3090 选哪个**：要快用 **06d**（int8+Turbo 4 步），要稳/不折腾用 **06c**（int8 50 步原版）。
 > 06b 在 3090 需 `.wslconfig` `swap≥96GB` 才跑得动（bf16 全量 ~124GB 靠 swap 撑，慢）；06d 用 int8 把权重压到 ~62GB 直接塞 56GB RAM。
 >
-> ⚠️ **当前 06b/06c/06d 都出噪点**（彩色方块/雪花，根因未收敛，暂无可用生成路径）。
+> ✅ **已结案（2026-10-08）：曾让 06b/06c/06d 全部出噪点的根因是权重损坏**
+> —— `transformer/00001–00005` 五个分片「文件大小正确、safetensors 头合法、加载不报错，但内容错」。
+> 重下替换、逐片 sha256 复验后，06b/06c/06d/09b 全部正常出片（09b 同参复跑出正常狐狸视频）。
+> 详见 [`EXPERIMENTS.md`](EXPERIMENTS.md) §5/§6 与 [`NOTES.md`](NOTES.md) §7。
 > 06d 的 int8+LoRA 组合是把 06c 的加载与 06b 的 4 步蒸馏拼起来——LoRA 的 A/B 是新增 bf16 参数，
 > 与 int8 量化权重不冲突（独立计算支路）。若运行时 `add_adapter` 与 int8 有兼容问题，退回 06c。
 >
-> 🔬 **排查状态（2026-09-29 中午，按证据强度排序）**：
+> 📚 **排查过程存档（2026-09-29 中午，按证据强度排序；结论已由上条定案，保留供复盘）**：
 > ✅ **决定性外部事实（峰哥提供）：服务器上同一套 06x 脚本 + 同一来源权重，全量版与 int8 版都干净，
 >   只有本机 WSL 出马赛克**（服务器单卡 80GB，也开 offload）。→ 代码/配方/scheduler/LoRA 全部出局，
 >   只剩本机环境差异（库版本 / WSL2 / 驱动 / 内存压力）。
@@ -71,8 +78,9 @@ MiniMax-H3 是 **33B Omni-Transformer + 62GB Qwen3-VL-32B 编码器** ≈ **120G
 > 🔬 进行中：① 全量权重 sha256 核对（已验 audio_vae + text_encoder 12/14 片 OK，transformer 在跑）
 >   ② `09g_realscale_probe.py` 真机小画布（64×64）探针 —— 同进程换 attention backend 二分，
 >   把「每试一次 40min」缩到 3min。
-> ⏭️ 下一步：拿到服务器的 diffusers/transformers/torch/torchao 版本号与本机（0.40.0 / 5.15.1 /
->   2.6.0+cu124 / 0.16.0）对表 —— 这是仅剩变量里最便宜的决定性检查。
+> ⏭️ 下一步（**已完成**）：服务器版本已对表 —— diffusers 0.40.0.dev0 / transformers 5.12.1 /
+>   torch 2.9.1 / torchao 0.15.0，**与本机四个库全不同**；但最终证明与马赛克无关（根因是权重），
+>   版本差异降级为次要变量，仅在修复后仍异常时才需回查 torch 2.6 vs 2.9 的内核差异。
 >
 > ✅ **顺带修的真 bug（但与噪点无关）：`LORA_ALPHA` 写死 128**。
 > PEFT 实际缩放 = `alpha / rank`（rank 均为 128）。权威口径（2026-09-29 定，官方
@@ -362,17 +370,17 @@ LORA_PATH=~/model/MiniMax-H3-Turbo/minimax_h3_fl2v_turbo_4step_v0.1.safetensors 
 > `LORA_ALPHA` **不用设**，留默认 `auto` 即可：544p 的 v0.1 文件没记 alpha → 回退官方默认 8 → scale 0.0625，正是它要的。
 > 详见 [`README.md` Turbo LoRA 参数表](README.md#turbo-lora-06b)。
 
-**2b. 出彩色噪点/马赛克（06b/06c/06d 都中，根因未收敛）**
-- 先核对启动日志里 `🏋️ LoRA alpha = ... → PEFT scale = ...` 那行：544p / v1.2 / 8step 应显示
-  `scale = 0.0625`，768p v1.0/v1.1 应显示 `scale = 1.0000`。若你在命令行显式设了 `LORA_ALPHA` 而日志
-  提示「与文件 `__metadata__['alpha']` 不一致」→ 去掉这个环境变量。（alpha 错会毁掉输出，
-  但历史噪点运行的 alpha 全是对的 —— 见上方状态条。）
-- **排查进度见上方「脚本区别」表下的状态条**。一句话版：服务器同代码同权重干净 → 只剩本机环境；
-  text encoder / VAE / offload / 配置已实测洗清。
-- ⚠️ `09d_analyze_latent.py` 的「零结构噪声」判读**已被推翻**（2026-09-29 两条独立路径复核）：
-  latent 帧间 lag-1 = +0.80（强结构）、24/24 通道 DC 偏移、**残留 44.5% 初始噪声**。
-  真实失败模式是「去噪未收敛」，09d 里相邻帧相关 0.038 的结论不要再引用。
-  复核脚本：任意 python 读 `latent_decode1.pt`，算相邻帧皮尔逊相关即可复现 +0.796。
+**2b. 出彩色噪点/马赛克（**根因已定案：权重损坏，2026-10-08**）**
+- 第一件事：**核对 32 个权重分片的 sha256**（内存空闲时跑，脚本必须打印实际读取字节数）。
+  本次事故的 5 个坏片大小精确、safetensors 头合法、加载不报错，**只有哈希能查出来**。
+  校验脚本模板见 `EXPERIMENTS.md` §5；判读纪律见 §9.4（「OK」可信、「HASHBAD」需复验）。
+- 其次核对启动日志里 `🏋️ LoRA alpha = ... → PEFT scale = ...` 那行：544p / v1.2 / 8step 应显示
+  `scale = 0.0625`，768p v1.0/v1.1 应显示 `scale = 1.0000`。（alpha 错会毁掉输出，
+  但历史噪点运行的 alpha 全是对的。）
+- ⚠️ `09d_analyze_latent.py` 的「零结构噪声」判读**已被推翻**，且「帧间相关」这个指标**本身不能判好坏**：
+  坏权重 latent = +0.796、修复后 = +0.807，几乎相同。可用判据是
+  `z std / RMS(latents_std)=1.925`（1.80× → 1.17×）与「与重放初始噪声的残差相关」（0.44 → 0.085）。
+  详见 `EXPERIMENTS.md` §9。
 
 **3. `06b` 跑得极慢（10-30 分钟一段）**
 正常——auto CPU offload 在 24GB 卡上搬运 60GB 权重，每步去噪都过一次。要快：

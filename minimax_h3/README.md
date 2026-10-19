@@ -9,6 +9,8 @@
 >
 > 即：本目录跑出来的是 **768p / 24fps / 立体声** 的视频。要 2K 需走「Full 2K Workflow」调 API（见文末）。
 
+> 📚 配套文档：[`NOTES.md`](NOTES.md) — 原理与排错手册（显存账 / workflow / 数值约定 / 本机已知坑 / 排错决策树）；[`EXPERIMENTS.md`](EXPERIMENTS.md) — 实验结论与数据（含本机马赛克一案的完整定位过程与指标口径勘误）。
+
 ## 常用命令
 
 > 假设已进入容器、`conda activate minimax_h3`、`cd media_code`。首次跑前先做下方「首次准备」。
