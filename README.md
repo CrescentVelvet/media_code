@@ -8,6 +8,9 @@ Code used for work in the blue zone.
 - ❓❗⁉️⭕❌✅♻️
 - ⛔⚠️☢️😍🥰😭
 
+## 跨项目台账
+- [`HAND_MOTION_LEDGER.md`](HAND_MOTION_LEDGER.md) — **抬手/微动导致重建模糊：跨项目路线台账**。把"糊"拆成 L0~L5 五层，逐条记录 deformable_human / som_human / flame_human / vggt_human / 4danyone / flux_human / pdfgs_human 的假设、实测、死点与**重试条件**，附已证伪清单（10 条）与评估口径纪律。**开新运动/细节路线前必看**，避免换名重试同一假设。
+
 ## Algorithms
 - [`triposplat/`](triposplat/) — one-click TripoSplat image→3D-Gaussian inference. See its [README](triposplat/README.md).
 - [`trellis-2/`](trellis-2/) — one-click TRELLIS.2 image→3D (4B) inference: GLB + PBR turntable video. See its [README](trellis-2/README.md).
