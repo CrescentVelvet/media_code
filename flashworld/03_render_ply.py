@@ -80,6 +80,8 @@ def main():
     fx, fy = cams[0]["fx"], cams[0]["fy"]
     cx, cy = cams[0]["cx"], cams[0]["cy"]
     img_path = meta.get("image_prompt", "")
+    if not img_path and meta.get("image_prompts"):
+        img_path = meta["image_prompts"][0]["path"]  # 多图条件 json：取第一张定 crop scale
     if os.path.exists(img_path):
         from PIL import Image
         iw, ih = Image.open(img_path).size
