@@ -31,6 +31,10 @@ pip install "${PIP_FLAGS[@]}" filelock sympy networkx jinja2 fsspec
 echo "📦 安装 torch 2.8.0（--no-index 纯本地：torch + nvidia-cu12 + triton 均在 $WHEELS_DIR）"
 pip install --no-index --find-links "$WHEELS_DIR" torch==2.8.0
 
+# torchvision 是硬依赖：processor 里的 Qwen3VLVideoProcessor import 时 requires_backends("torchvision")
+echo "📦 安装 torchvision 0.23.0（配套 torch 2.8.0，本地 wheel）"
+pip install --no-index --find-links "$WHEELS_DIR" torchvision==0.23.0
+
 echo "📦 安装 transformers>=5.17 / accelerate / pillow / safetensors"
 pip install "${PIP_FLAGS[@]}" -U "transformers>=5.17" accelerate pillow safetensors
 
