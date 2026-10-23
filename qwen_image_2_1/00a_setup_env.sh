@@ -23,8 +23,13 @@ if ! conda env list | grep -q "^${CONDA_ENV} "; then
 fi
 conda activate "$CONDA_ENV"
 
-echo "📦 安装 torch（优先 $WHEELS_DIR 本地 wheel）"
-pip install "${PIP_FLAGS[@]}" torch==2.8.0
+# torch 必须 --no-index 强制走本地 wheel：--find-links 与 index 并存时
+# pip 可能弃本地选远端，888MB 的 torch 在被限速的 CDN 上会挂数小时（2026-10-23 实测 21.9kB/s）
+echo "📦 安装 torch 小依赖（filelock/sympy/networkx/jinja2/fsspec，走镜像，体积小）"
+pip install "${PIP_FLAGS[@]}" filelock sympy networkx jinja2 fsspec
+
+echo "📦 安装 torch 2.8.0（--no-index 纯本地：torch + nvidia-cu12 + triton 均在 $WHEELS_DIR）"
+pip install --no-index --find-links "$WHEELS_DIR" torch==2.8.0
 
 echo "📦 安装 transformers>=5.17 / accelerate / pillow / safetensors"
 pip install "${PIP_FLAGS[@]}" -U "transformers>=5.17" accelerate pillow safetensors
