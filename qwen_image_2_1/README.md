@@ -46,7 +46,8 @@ GPU=0 MODE=rgba \
 
 # 5) 批量去反光（环绕拍摄数据集预处理，模型只加载一次，断点续跑）
 GPU=0 bash qwen_image_2_1/03_batch_dereflect.sh
-# 冒烟/分批：LIMIT=2（前 2 张）、START=100 LIMIT=50（第 100~149 张）
+# 抽帧验证：SAMPLE=5（全集均匀抽 5 张含首尾，覆盖各视角）、STRIDE=10（每 10 张取 1）
+# 分批：LIMIT=2（前 2 张）、START=100 LIMIT=50（第 100~149 张）
 # 换数据集：INPUT_DIR=/mnt/d/dataset/物体反光数据/<对象>/image \
 #           OUTPUT_DIR=/mnt/d/output/qwen_image_2_1_dereflect/<对象>/image
 ```
