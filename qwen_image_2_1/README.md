@@ -43,7 +43,25 @@ GPU=0 MODE=rgba \
   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
   RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
   bash qwen_image_2_1/02_run_inference.sh
+
+# 5) 批量去反光（环绕拍摄数据集预处理，模型只加载一次，断点续跑）
+GPU=0 bash qwen_image_2_1/03_batch_dereflect.sh
+# 冒烟/分批：LIMIT=2（前 2 张）、START=100 LIMIT=50（第 100~149 张）
+# 换数据集：INPUT_DIR=/mnt/d/dataset/物体反光数据/<对象>/image \
+#           OUTPUT_DIR=/mnt/d/output/qwen_image_2_1_dereflect/<对象>/image
 ```
+
+### 03 批量去反光说明
+- 输入默认 `/mnt/d/dataset/物体反光数据/耳机白/image`（574 张 1080×1920），输出同名 jpg 到
+  `/mnt/d/output/qwen_image_2_1_dereflect/耳机白/image`；**输出已存在则跳过**，中断后直接重跑即续。
+- PROMPT/STEPS/SEED/START/LIMIT/JPG_QUALITY 均可 env 覆盖；每张图种子 = SEED+序号，可复现。
+- 实测（3090，40 步）：**~65s/张，574 张 ≈ 10.5 小时**，建议 nohup/后台跑。
+- ⚠️ edit 模式输出分辨率由 pipeline 自选（1080×1920 → 768×1376），脚本默认 `RESIZE_BACK=1`
+  LANCZOS 缩回原尺寸保内参一致，但细节经一次降采样+放大会有损失；重建侧若发现特征匹配
+  变弱，可考虑改让 COLMAP 直接用 768×1376 输出（内参按 768/1080 缩放）。
+- ⚠️ 逐图独立编辑**不保证跨视角一致性**（同一点在不同图里纹理可能有细微差异），这是
+  扩散模型编辑做重建预处理的根本限制；冒烟 2 张目视高光去除明显、构图/文字保持好。
+- 输出 RGBA→RGB 转换已内置（模型 VAE 原生四通道，jpg 无法直接存 RGBA）。
 
 ## 首次准备
 ```bash

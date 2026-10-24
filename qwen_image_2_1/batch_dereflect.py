@@ -127,6 +127,9 @@ def main():
             t0 = time.time()
             result = pipe(**kwargs).images[0]
             dt = time.time() - t0
+            # 模型 VAE 是 RGBA 四通道，jpg 存不了；去反光场景 alpha 无意义，直接转 RGB
+            if result.mode != "RGB":
+                result = result.convert("RGB")
             if RESIZE_BACK and result.size != in_size:
                 print("  ⚠️ 输出尺寸 " + str(result.size) + " != 输入 " + str(in_size)
                       + "，LANCZOS 缩回")
