@@ -23,6 +23,8 @@ export SEED="${SEED:-42}"
 export CPU_OFFLOAD="${CPU_OFFLOAD:-1}"
 export START="${START:-0}"
 export LIMIT="${LIMIT:-0}"
+export SAMPLE="${SAMPLE:-0}"
+export STRIDE="${STRIDE:-1}"
 export RESIZE_BACK="${RESIZE_BACK:-1}"
 export JPG_QUALITY="${JPG_QUALITY:-98}"
 

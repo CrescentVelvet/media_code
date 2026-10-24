@@ -13,8 +13,11 @@ Env vars:
   SEED           基础种子（默认 42）；每张图实际种子 = SEED + 序号，保证可复现且图间不雷同
   GUIDANCE_SCALE 可选
   CPU_OFFLOAD    1=enable_model_cpu_offload（默认，3090 必需）
-  START          起始序号（默认 0，含）
+  START          起始序号（默认 0，含）；在抽帧后的列表上生效
   LIMIT          最多处理张数（默认 0=全部）；配合 START 分批
+  SAMPLE         均匀抽帧张数（默认 0=不抽）：在全部输入上均匀取 N 张
+                 （含首尾，序号按等间距取整），用于小样本验证视角覆盖
+  STRIDE         步长抽帧（默认 1）：每 k 张取 1 张；与 SAMPLE 同时设时 SAMPLE 优先
   RESIZE_BACK    1（默认）= 输出尺寸与输入不一致时 LANCZOS 缩回原尺寸
                  （重建下游要求内参一致，尺寸必须保持）
   JPG_QUALITY    jpg 输出质量（默认 98，subsampling=0）
@@ -36,6 +39,8 @@ GUIDANCE_SCALE = os.environ.get("GUIDANCE_SCALE", "")
 CPU_OFFLOAD = os.environ.get("CPU_OFFLOAD", "1") == "1"
 START = int(os.environ.get("START", "0"))
 LIMIT = int(os.environ.get("LIMIT", "0"))
+SAMPLE = int(os.environ.get("SAMPLE", "0"))
+STRIDE = int(os.environ.get("STRIDE", "1"))
 RESIZE_BACK = os.environ.get("RESIZE_BACK", "1") == "1"
 JPG_QUALITY = int(os.environ.get("JPG_QUALITY", "98"))
 FAIL_LOG = os.environ.get("FAIL_LOG", "")
@@ -66,6 +71,21 @@ def main():
     if not files:
         sys.exit("❌ 未匹配到输入图: " + INPUT_DIR + " / " + GLOB)
     total_all = len(files)
+    # 抽帧（在全部输入上生效，再切 START/LIMIT 区间）
+    if SAMPLE > 0:
+        if SAMPLE >= len(files):
+            pass  # 抽的比总数还多 = 全量
+        elif SAMPLE == 1:
+            files = [files[0]]
+        else:
+            # 等间距取整，含首尾，保证视角覆盖
+            idx = sorted(set(round(i * (len(files) - 1) / (SAMPLE - 1)) for i in range(SAMPLE)))
+            files = [files[i] for i in idx]
+        print("  🎲 均匀抽帧 " + str(SAMPLE) + " 张（实际 " + str(len(files)) + " 张）: "
+              + ", ".join(os.path.basename(p) for p in files))
+    elif STRIDE > 1:
+        files = files[::STRIDE]
+        print("  🎲 步长抽帧 1/" + str(STRIDE) + "，共 " + str(len(files)) + " 张")
     files = files[START:]
     if LIMIT > 0:
         files = files[:LIMIT]
