@@ -149,6 +149,10 @@ if [ ! -f "$_DGR/third_party/glm/glm/glm.hpp" ]; then
     fi
 fi
 
+# ── 4b. 官方代码补丁（train.py 与 gaussian_model.py 调用/定义不一致）──────
+python3 "$SCRIPT_DIR/00c_patch_official.py" || {
+    echo "❌ official patch failed" >&2; exit 1; }
+
 # ── 5. pip 依赖 ──────────────────────────────────────────────────────────
 PIP_FLAGS=(-i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 600 --retries 5)
 
