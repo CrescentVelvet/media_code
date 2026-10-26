@@ -22,7 +22,9 @@ if [ "${BASELINE:-0}" = "1" ]; then TRAIN_MODE="baseline"; else TRAIN_MODE="spla
 CONFIG_FILE="${CONFIG_FILE:-./arguments/${TRAIN_MODE}.py}"
 PORT="${PORT:-6017}"
 CKPT_EVERY="${CKPT_EVERY:-1500}"
-MAX_RETRIES="${MAX_RETRIES:-8}"
+# 崩溃是随机性的（同一窗口重过大概率能过），允许同一 checkpoint 重试
+SAME_CKPT_LIMIT="${SAME_CKPT_LIMIT:-3}"
+MAX_RETRIES="${MAX_RETRIES:-12}"
 
 if [ ! -d "$SCENE_DIR/sparse" ]; then
     echo "❌ ERROR: $SCENE_DIR/sparse not found — run 01_colmap.sh first" >&2
@@ -43,6 +45,7 @@ cd "$SPLANNEQUIN_DIR"
 CKPT_LIST=$(seq "$CKPT_EVERY" "$CKPT_EVERY" 30000 | tr '\n' ' ')
 
 attempt=0
+same_ckpt_count=0
 START_CKPT=""
 while :; do
     RESUME_ARGS=""
@@ -62,12 +65,21 @@ while :; do
     [ $rc -eq 0 ] && break
     attempt=$((attempt + 1))
     LATEST=$(ls -t "$OUT_DIR"/chkpnt_*.pth 2>/dev/null | head -1)
-    if [ $attempt -gt "$MAX_RETRIES" ] || [ -z "$LATEST" ] || [ "$LATEST" = "$START_CKPT" ]; then
-        echo "❌ FAILED (rc=$rc, attempt=$attempt, ckpt=${LATEST:-none})" >&2
+    if [ -z "$LATEST" ]; then
+        echo "❌ FAILED (rc=$rc, 无 checkpoint 可续)" >&2
+        exit 1
+    fi
+    if [ "$LATEST" = "$START_CKPT" ]; then
+        same_ckpt_count=$((same_ckpt_count + 1))
+    else
+        same_ckpt_count=0
+    fi
+    if [ $attempt -gt "$MAX_RETRIES" ] || [ $same_ckpt_count -ge "$SAME_CKPT_LIMIT" ]; then
+        echo "❌ FAILED (rc=$rc, attempt=$attempt, 同一 ckpt 连崩 $same_ckpt_count 次, ckpt=$LATEST)" >&2
         exit 1
     fi
     START_CKPT="$LATEST"
-    echo "⚠️ train.py rc=$rc — 从 $START_CKPT 续跑（第 $attempt/$MAX_RETRIES 次）"
+    echo "⚠️ train.py rc=$rc — 从 $START_CKPT 续跑（第 $attempt/$MAX_RETRIES 次，同 ckpt 第 $same_ckpt_count/$SAME_CKPT_LIMIT 次）"
     sleep 5
 done
 echo "🎉 Done. Model at $OUT_DIR"

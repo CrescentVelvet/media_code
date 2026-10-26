@@ -30,11 +30,13 @@ OptimizationParams = dict(
     batch_size = 2,
     coarse_iterations = 1500,
     densify_until_iter = 7_500,
-    opacity_reset_interval = 1500,
+    # 保持官方值（不随总迭代减半）：实测崩溃 4/4 集中在 opacity reset 后的
+    # 恢复期（大梯度重建 opacity 时偶发爆炸），减少 reset 次数 = 减少危险窗口。
+    opacity_reset_interval = 3000,
     opacity_threshold_coarse = 0.005,
     opacity_threshold_fine_init = 0.005,
     opacity_threshold_fine_after = 0.005,
-    pruning_interval = 250,
+    pruning_interval = 500,
 
     use_equality=True,
 
