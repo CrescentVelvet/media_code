@@ -3,6 +3,11 @@
 #
 # 默认 splannequin 模式（带 hidden/defective 锚定）；
 # BASELINE=1 跑 4DGaussians 基线（arguments/baseline.py，用于消融对照）。
+# CONFIG_FILE 可覆盖配置（如 arguments_splannequin_15k.py 加速方案 A）。
+#
+# 断点续跑：官方代码遇 NaN 会 execv 从零重跑（进度全丢）；00c 补丁改为
+# exit(42)。本脚本每 CKPT_EVERY iter 存 checkpoint，非零退出时自动从
+# 最近 checkpoint 恢复（最多 MAX_RETRIES 次）。
 #
 # 输出：$EXP_DIR/<mode>/<scene_name>/（官方默认写仓内 ./exp，这里外置）
 set -o pipefail
@@ -16,6 +21,8 @@ if [ "${BASELINE:-0}" = "1" ]; then TRAIN_MODE="baseline"; else TRAIN_MODE="spla
 # CONFIG_FILE：覆盖默认配置（如加速方案 A 的半量 schedule，须为 WSL 内可读路径）
 CONFIG_FILE="${CONFIG_FILE:-./arguments/${TRAIN_MODE}.py}"
 PORT="${PORT:-6017}"
+CKPT_EVERY="${CKPT_EVERY:-1500}"
+MAX_RETRIES="${MAX_RETRIES:-8}"
 
 if [ ! -d "$SCENE_DIR/sparse" ]; then
     echo "❌ ERROR: $SCENE_DIR/sparse not found — run 01_colmap.sh first" >&2
@@ -32,19 +39,36 @@ echo "  🎮 GPU:    ${CUDA_VISIBLE_DEVICES:-auto}"
 export PYTORCH_ALLOC_CONF="max_split_size_mb:512"
 
 cd "$SPLANNEQUIN_DIR"
-python train.py \
-    -s "$SCENE_DIR" \
-    -m "$OUT_DIR" \
-    --port "$PORT" \
-    --eval \
-    --train_mode "$TRAIN_MODE" \
-    --resolution "${RESOLUTION:-1}" \
-    --expname "${SCENE_NAME}_${TRAIN_MODE}" \
-    --configs "$CONFIG_FILE" \
-    $EXTRA_TRAIN_ARGS
-if [ $? -ne 0 ]; then
-    echo "❌ FAILED" >&2
-    exit 1
-fi
+# 覆盖到官方 30k 上限，超出实际 iterations 的项自动不触发
+CKPT_LIST=$(seq "$CKPT_EVERY" "$CKPT_EVERY" 30000 | tr '\n' ' ')
+
+attempt=0
+START_CKPT=""
+while :; do
+    RESUME_ARGS=""
+    [ -n "$START_CKPT" ] && RESUME_ARGS="--start_checkpoint $START_CKPT"
+    python train.py \
+        -s "$SCENE_DIR" \
+        -m "$OUT_DIR" \
+        --port "$PORT" \
+        --eval \
+        --train_mode "$TRAIN_MODE" \
+        --resolution "${RESOLUTION:-1}" \
+        --expname "${SCENE_NAME}_${TRAIN_MODE}" \
+        --configs "$CONFIG_FILE" \
+        --checkpoint_iterations $CKPT_LIST \
+        $RESUME_ARGS $EXTRA_TRAIN_ARGS
+    rc=$?
+    [ $rc -eq 0 ] && break
+    attempt=$((attempt + 1))
+    LATEST=$(ls -t "$OUT_DIR"/chkpnt_*.pth 2>/dev/null | head -1)
+    if [ $attempt -gt "$MAX_RETRIES" ] || [ -z "$LATEST" ] || [ "$LATEST" = "$START_CKPT" ]; then
+        echo "❌ FAILED (rc=$rc, attempt=$attempt, ckpt=${LATEST:-none})" >&2
+        exit 1
+    fi
+    START_CKPT="$LATEST"
+    echo "⚠️ train.py rc=$rc — 从 $START_CKPT 续跑（第 $attempt/$MAX_RETRIES 次）"
+    sleep 5
+done
 echo "🎉 Done. Model at $OUT_DIR"
 echo "  Next: SCENE_DIR=$SCENE_DIR bash $SCRIPT_DIR/03_render.sh"

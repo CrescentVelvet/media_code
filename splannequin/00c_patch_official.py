@@ -11,6 +11,15 @@ color_grad_iter 恒为 0（train.py:327 未传），color_gradient_accum
 补丁 2 — render.py render_fixed_time 帧数越界：
 官方硬编码 frames=300（面向合成数据 300 测试视角），真实场景测试
 视角数 < 300 时 views[idx] IndexError —— 钳制到 len(views)。
+
+补丁 3 — train.py NaN 时 os.execv 从零重跑：
+官方检测到 NaN 直接 execv 自身（进度全丢，且 print 因 execv 不冲刷
+缓冲区而丢失，日志里看不到任何痕迹）。改为 exit(42)，由 02_train.sh
+外层循环从最近 checkpoint 续跑。
+
+补丁 4 — gaussian_model.py restore() 解包数量不匹配：
+capture() 返回 15 元组（含 color_gradient_accum），restore() 只解包
+14 个名字 → --start_checkpoint 恢复必炸 ValueError。补上该字段。
 """
 import io
 import sys
@@ -36,18 +45,47 @@ PATCHES = [
         ),
     ),
     (
-        "/home/velvet/repos/splannequin-gs/render.py",
+        "/home/velvet/repos/splannequin-gs/train.py",
         (
-            '    pbar = tqdm(range(frames), desc=f"Fixed-time rendering (t={time_index})")\n'
-            "    for idx in pbar:\n"
-            "        view = views[idx]\n"
+            "        if torch.isnan(loss).any():\n"
+            '            print("loss is nan,end training, reexecv program now.")\n'
+            "            os.execv(sys.executable, [sys.executable] + sys.argv)"
         ),
         (
-            "    # patched: 官方硬编码 frames=300（合成数据），真实场景测试视角数不足时越界 → 钳制。\n"
-            "    n_frames = min(frames, len(views))\n"
-            '    pbar = tqdm(range(n_frames), desc=f"Fixed-time rendering (t={time_index})")\n'
-            "    for idx in pbar:\n"
-            "        view = views[idx]\n"
+            "        if torch.isnan(loss).any():\n"
+            "            # patched: 官方 execv 从零重跑（进度全丢且 print 被缓冲区吞掉）。\n"
+            "            # 改为 exit(42)，由 02_train.sh 从最近 checkpoint 续跑。\n"
+            '            print("loss is nan, exit(42) for checkpoint resume.", flush=True)\n'
+            "            import sys as _sys\n"
+            "            _sys.exit(42)"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/scene/gaussian_model.py",
+        (
+            "        self.max_radii2D, \n"
+            "        xyz_gradient_accum, \n"
+            "        denom,\n"
+            "        opt_dict, \n"
+            "        self.spatial_lr_scale) = model_args"
+        ),
+        (
+            "        self.max_radii2D, \n"
+            "        xyz_gradient_accum, \n"
+            "        color_gradient_accum,\n"
+            "        denom,\n"
+            "        opt_dict, \n"
+            "        self.spatial_lr_scale) = model_args"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/scene/gaussian_model.py",
+        (
+            "        self.xyz_gradient_accum = xyz_gradient_accum\n"
+        ),
+        (
+            "        self.xyz_gradient_accum = xyz_gradient_accum\n"
+            "        self.color_gradient_accum = color_gradient_accum\n"
         ),
     ),
 ]
