@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/_env.sh"
 SCENE_DIR="${SCENE_DIR:?❌ SCENE_DIR not set (dir with images/ + sparse/, run 01 first)}"
 SCENE_NAME="${SCENE_NAME:-$(basename "$SCENE_DIR")}"
 if [ "${BASELINE:-0}" = "1" ]; then TRAIN_MODE="baseline"; else TRAIN_MODE="splannequin"; fi
+# CONFIG_FILE：覆盖默认配置（如加速方案 A 的半量 schedule，须为 WSL 内可读路径）
+CONFIG_FILE="${CONFIG_FILE:-./arguments/${TRAIN_MODE}.py}"
 PORT="${PORT:-6017}"
 
 if [ ! -d "$SCENE_DIR/sparse" ]; then
@@ -38,7 +40,7 @@ python train.py \
     --train_mode "$TRAIN_MODE" \
     --resolution "${RESOLUTION:-1}" \
     --expname "${SCENE_NAME}_${TRAIN_MODE}" \
-    --configs "./arguments/${TRAIN_MODE}.py" \
+    --configs "$CONFIG_FILE" \
     $EXTRA_TRAIN_ARGS
 if [ $? -ne 0 ]; then
     echo "❌ FAILED" >&2
