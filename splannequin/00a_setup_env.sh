@@ -171,8 +171,9 @@ if [ "${INSTALL_DEPS:-1}" = "1" ]; then
         matplotlib lpips plyfile pyiqa yt-dlp pandas pytorch_msssim \
         open3d "imageio[ffmpeg]" || echo "  ⚠️ some deps failed" >&2
 
-    # py3.8 兼容 pin（conda 装 gcc 时可能动了 numpy）
-    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps "numpy==1.24.4" || true
+    # py3.8 兼容 pin；且必须 <1.24：torch1.13 的 tensorboard make_histogram 用了
+    # np.greater(..., dtype=...)，numpy 1.24 起直接 TypeError（train.py:434 add_histogram 会炸）
+    pip install "${PIP_FLAGS[@]}" --force-reinstall --no-deps "numpy==1.23.5" || true
 fi
 
 # ── 6. 编译 CUDA 扩展 ────────────────────────────────────────────────────
