@@ -38,7 +38,10 @@ echo "🚀 [02] Training ($TRAIN_MODE)"
 echo "  📁 scene:  $SCENE_DIR"
 echo "  💾 output: $OUT_DIR"
 echo "  🎮 GPU:    ${CUDA_VISIBLE_DEVICES:-auto}"
-export PYTORCH_ALLOC_CONF="max_split_size_mb:512"
+# 修正笔误：PYTORCH_ALLOC_CONF 是无效名，正确为 PYTORCH_CUDA_ALLOC_CONF。
+# expandable_segments 缓解 densify 点数暴涨期的显存碎片化（10k_r2 实测
+# 显存顶格 24.2/24GB 时吞吐崩到 ~1 it/s，GPU 利用率却满格——allocator thrashing）
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
 cd "$SPLANNEQUIN_DIR"
 # 覆盖到官方 30k 上限，超出实际 iterations 的项自动不触发

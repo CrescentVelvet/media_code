@@ -41,6 +41,13 @@ occlusion 项爆炸无效；且重启重放同批次会在同点复炸）。保�
 backward 前检查；触发（isnan / inf / > LOSS_GUARD_MAX=1e3）时跳过本 iter 的
 backward / optimizer.step / densify（坏梯度不落盘、权重零污染、轨迹自然
 绕过雷区），连爆 LOSS_GUARD_SKIP_MAX（默认 100）次才 exit(42) 走 ckpt 续跑。
+
+补丁 8 — train.py 最终迭代的 point_cloud 不保存：
+官方在 parse_args 后立即 args.save_iterations.append(args.iterations)，
+但此时 args.iterations 还是命令行默认值（30000），configs 合并发生在其后
+——用 --configs 设 iterations 时 append 的永远是 30000。15k/30k 未暴露是
+因为 15000/30000 恰在默认 save_iterations 列表里；10k 的 10000 不在即漏存。
+把 append 挪到 merge_hparams 之后。
 """
 import io
 import sys
@@ -322,6 +329,30 @@ PATCHES = [
             "                    gaussians.optimizer.step()\n"
             "                    _skip_stats[0] = 0\n"
             "                gaussians.optimizer.zero_grad(set_to_none = True)"
+        ),
+    ),
+    # ---- 补丁 8：save_iterations.append 挪到 configs 合并之后 ----
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "    args = parser.parse_args(sys.argv[1:])\n"
+            "    args.save_iterations.append(args.iterations)\n"
+            "    if args.configs:\n"
+            "        import mmcv\n"
+            "        from utils.params_utils import merge_hparams\n"
+            "        config = mmcv.Config.fromfile(args.configs)\n"
+            "        args = merge_hparams(args, config)"
+        ),
+        (
+            "    args = parser.parse_args(sys.argv[1:])\n"
+            "    if args.configs:\n"
+            "        import mmcv\n"
+            "        from utils.params_utils import merge_hparams\n"
+            "        config = mmcv.Config.fromfile(args.configs)\n"
+            "        args = merge_hparams(args, config)\n"
+            "    # patched: append 挪到 configs 合并之后——原位置在 merge 前，append 的是\n"
+            "    # 命令行默认 iterations(30000)，用 --configs 设迭代数时最终迭代漏存 ply。\n"
+            "    args.save_iterations.append(args.iterations)"
         ),
     ),
 ]
