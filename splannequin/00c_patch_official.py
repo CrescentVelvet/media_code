@@ -48,6 +48,12 @@ backward / optimizer.step / densify（坏梯度不落盘、权重零污染、轨
 ——用 --configs 设 iterations 时 append 的永远是 30000。15k/30k 未暴露是
 因为 15000/30000 恰在默认 save_iterations 列表里；10k 的 10000 不在即漏存。
 把 append 挪到 merge_hparams 之后。
+
+补丁 9 — train.py 分段计时（SPL_PROFILE=1 门控，默认零开销）：
+移植 som_human/profile_step.py 的「先测量再优化」方法论。8 段 cuda event
+成对累积（data / render / loss / bwd1 / ho / report / densify / opt），
+每 50 iter 汇总打印一次 ms 分解。用于定位 10k_r2（19min）剩余时间的去向，
+决定下一轮加速（降点数 / HexPlane 配置 / 数据管线）的优先级。
 """
 import io
 import sys
@@ -353,6 +359,159 @@ PATCHES = [
             "    # patched: append 挪到 configs 合并之后——原位置在 merge 前，append 的是\n"
             "    # 命令行默认 iterations(30000)，用 --configs 设迭代数时最终迭代漏存 ply。\n"
             "    args.save_iterations.append(args.iterations)"
+        ),
+    ),
+    # ---- 补丁 9：SPL_PROFILE=1 分段计时（9 条插桩，均在 train.py）----
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "    _skip_stats = [0, 0]  # patched v2: [连续跳步, 累计跳步]\n"
+        ),
+        (
+            "    _skip_stats = [0, 0]  # patched v2: [连续跳步, 累计跳步]\n"
+            "    # patched: SPL_PROFILE=1 分段计时（事件成对累积，每 50 iter 汇总）\n"
+            "    _PROF = os.environ.get(\"SPL_PROFILE\", \"\") == \"1\"\n"
+            "    _prof_sec = [\"data\", \"render\", \"loss\", \"bwd1\", \"ho\", \"report\", \"densify\", \"opt\"]\n"
+            "    _prof_ev = {k: [] for k in _prof_sec}\n"
+            "    def _prec(k):\n"
+            "        if _PROF:\n"
+            "            _e = torch.cuda.Event(enable_timing=True)\n"
+            "            _e.record()\n"
+            "            _prof_ev[k].append(_e)\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        iter_start.record()\n"
+        ),
+        (
+            "        iter_start.record()\n"
+            "        _prec(\"data\")\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        for viewpoint_cam in viewpoint_cams:\n"
+        ),
+        (
+            "        _prec(\"data\")\n"
+            "        _prec(\"render\")\n"
+            "        for viewpoint_cam in viewpoint_cams:\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        radii = torch.cat(radii_list,0).max(dim=0).values\n"
+        ),
+        (
+            "        _prec(\"render\")\n"
+            "        _prec(\"loss\")\n"
+            "        radii = torch.cat(radii_list,0).max(dim=0).values\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        _skip_step = (not bool(torch.isfinite(loss).all())) or (loss.item() > _loss_guard_max)\n"
+        ),
+        (
+            "        _prec(\"loss\")\n"
+            "        _skip_step = (not bool(torch.isfinite(loss).all())) or (loss.item() > _loss_guard_max)\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        elif h_stage or o_stage:\n"
+            "            loss.backward(retain_graph=True)\n"
+            "        else:\n"
+            "            loss.backward()\n"
+        ),
+        (
+            "        elif h_stage or o_stage:\n"
+            "            _prec(\"bwd1\")\n"
+            "            loss.backward(retain_graph=True)\n"
+            "            _prec(\"bwd1\")\n"
+            "        else:\n"
+            "            _prec(\"bwd1\")\n"
+            "            loss.backward()\n"
+            "            _prec(\"bwd1\")\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        occlusion_loss, hidden_loss = None, None\n"
+        ),
+        (
+            "        _prec(\"ho\")\n"
+            "        occlusion_loss, hidden_loss = None, None\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        iter_end.record()\n"
+        ),
+        (
+            "        _prec(\"ho\")\n"
+            "        iter_end.record()\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        with torch.no_grad():\n"
+        ),
+        (
+            "        with torch.no_grad():\n"
+            "            _prec(\"report\")\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            # Densification\n"
+        ),
+        (
+            "            _prec(\"report\")\n"
+            "            _prec(\"densify\")\n"
+            "            # Densification\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            # Optimizer step\n"
+        ),
+        (
+            "            _prec(\"densify\")\n"
+            "            _prec(\"opt\")\n"
+            "            # Optimizer step\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "                torch.save((gaussians.capture(), iteration), scene.model_path + \"/chkpnt\" +f\"_{stage}_\" + str(iteration) + \".pth\")\n"
+        ),
+        (
+            "                torch.save((gaussians.capture(), iteration), scene.model_path + \"/chkpnt\" +f\"_{stage}_\" + str(iteration) + \".pth\")\n"
+            "            _prec(\"opt\")\n"
+            "            if _PROF and iteration % 50 == 0:\n"
+            "                torch.cuda.synchronize()\n"
+            "                _tot = 0.0\n"
+            "                _parts = []\n"
+            "                for _k in _prof_sec:\n"
+            "                    _evs = _prof_ev[_k]\n"
+            "                    _ms = sum(_a.elapsed_time(_b) for _a, _b in zip(_evs[0::2], _evs[1::2]))\n"
+            "                    _tot += _ms\n"
+            "                    _parts.append(\"{}={:.0f}\".format(_k, _ms))\n"
+            "                    _prof_ev[_k] = []\n"
+            "                print(\"[PROF iter={}] total={:.0f}ms | {}\".format(iteration, _tot, \" \".join(_parts)), flush=True)\n"
         ),
     ),
 ]
