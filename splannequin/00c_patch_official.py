@@ -31,6 +31,16 @@ FoV，内参无需调整。Camera.image_width/height 取自 image tensor shape
 官方只查 isnan，有限但爆炸的 loss（30k 参照实测 1e5~1e8，hidden/occlusion
 正则发散）会空跑数小时不退出。加 isfinite + 幅值（LOSS_GUARD_MAX，默认 1e3，
 正常 loss < 5）三重检查，触发同样 exit(42) 走 checkpoint 续跑。
+⚠️ 已被补丁 7 取代（v1 位置在 backward 之后且只看光度 loss，对 hidden/
+occlusion 项爆炸无效；且重启重放同批次会在同点复炸）。保留仅作兼容链。
+
+补丁 7 — train.py 异常 loss 跳步保护（v2，取代 v1 的 exit(42) 重启）：
+10k_r2 实测：hidden_loss 有限爆炸至 5.8e8 后自愈、最终 NaN；同 ckpt 续跑 3 次
+均以完全相同的 loss 序列在同点复炸（批次顺序确定）。改为「跳步」语义：
+光度 loss 在首次 backward 前检查、含 hidden/occlusion 的总 loss 在第二次
+backward 前检查；触发（isnan / inf / > LOSS_GUARD_MAX=1e3）时跳过本 iter 的
+backward / optimizer.step / densify（坏梯度不落盘、权重零污染、轨迹自然
+绕过雷区），连爆 LOSS_GUARD_SKIP_MAX（默认 100）次才 exit(42) 走 ckpt 续跑。
 """
 import io
 import sys
@@ -177,6 +187,143 @@ PATCHES = [
             "            _sys.exit(42)"
         ),
     ),
+    # ---- 补丁 7：异常 loss 跳步保护 v2（依赖补丁 6 已施加的 v1 文本作为锚点）----
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "    ema_loss_for_log = 0.0\n"
+        ),
+        (
+            "    ema_loss_for_log = 0.0\n"
+            "    _skip_stats = [0, 0]  # patched v2: [连续跳步, 累计跳步]\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        if h_stage or o_stage:\n"
+            "            loss.backward(retain_graph=True)\n"
+            "        else:\n"
+            "            loss.backward()\n"
+            "\n"
+            "        # patched: NaN/非有限/异常大幅值三重保护。官方只查 isnan，有限但爆炸的\n"
+            "        # loss（30k 参照实测 1e5~1e8，hidden/occlusion 正则发散）会空跑数小时不退出。\n"
+            "        # LOSS_GUARD_MAX 阈值可调（默认 1e3，正常 loss < 5）；触发即 exit(42) 续跑。\n"
+            '        _loss_guard_max = float(os.environ.get("LOSS_GUARD_MAX", "1000"))\n'
+            "        if torch.isnan(loss).any() or (not torch.isfinite(loss).all()) or loss.item() > _loss_guard_max:\n"
+            '            print("loss is nan/abnormal({:.4g}), exit(42) for checkpoint resume.".format(loss.item()), flush=True)\n'
+            "            import sys as _sys\n"
+            "            _sys.exit(42)"
+        ),
+        (
+            "        # patched v2: 异常 loss 跳步保护（取代 v1 的 exit(42) 重启）。实测爆炸\n"
+            "        # 来自 hidden/occlusion 正则（有限值 1e5~1e8 → 最终 NaN）；v1 在 backward\n"
+            "        # 后检查且只看光度 loss，对 hidden 爆炸无效；且同 ckpt 重放同批次会在同点\n"
+            "        # 复炸。v2：光度 loss 在首次 backward 前检查；总 loss（含 hidden/occlusion）\n"
+            "        # 在第二次 backward 前检查（见下方 h/o 段）。触发时跳过本 iter 的\n"
+            "        # backward/optimizer.step/densify——坏梯度不落盘、权重零污染、轨迹自然绕过；\n"
+            "        # 连爆 LOSS_GUARD_SKIP_MAX（默认 100）次才 exit(42) 走 ckpt 续跑。\n"
+            '        _loss_guard_max = float(os.environ.get("LOSS_GUARD_MAX", "1000"))\n'
+            "        _skip_step = (not bool(torch.isfinite(loss).all())) or (loss.item() > _loss_guard_max)\n"
+            "        if _skip_step:\n"
+            "            _skip_stats[0] += 1\n"
+            "            _skip_stats[1] += 1\n"
+            '            print("loss is nan/abnormal({:.4g}), skip step (consecutive={}).".format(loss.item(), _skip_stats[0]), flush=True)\n'
+            "        elif h_stage or o_stage:\n"
+            "            loss.backward(retain_graph=True)\n"
+            "        else:\n"
+            "            loss.backward()"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        occlusion_loss, hidden_loss = None, None\n"
+            "        if h_stage or o_stage:"
+        ),
+        (
+            "        occlusion_loss, hidden_loss = None, None\n"
+            "        # patched v2: 光度 loss 已异常时跳过（无有效梯度，hidden 检测无意义）\n"
+            "        if (h_stage or o_stage) and not _skip_step:"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            if hidden_loss is not None or occlusion_loss is not None:\n"
+            "                loss.backward()"
+        ),
+        (
+            "            if hidden_loss is not None or occlusion_loss is not None:\n"
+            "                # patched v2: 总 loss（含 hidden/occlusion）入 backward 前检查——\n"
+            "                # 实测爆炸正发生在 hidden 项（Hidden=5.8e8 后自愈、最终 NaN）\n"
+            "                if (not bool(torch.isfinite(loss).all())) or loss.item() > _loss_guard_max:\n"
+            "                    _skip_step = True\n"
+            "                    _skip_stats[0] += 1\n"
+            "                    _skip_stats[1] += 1\n"
+            '                    print("total loss w/ hidden|occlusion is nan/abnormal({:.4g}), skip step (consecutive={}).".format(loss.item(), _skip_stats[0]), flush=True)\n'
+            "                else:\n"
+            "                    loss.backward()"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log\n"
+        ),
+        (
+            "            if not _skip_step:  # patched v2: 跳步 iter 不污染 EMA 显示\n"
+            "                ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            # Densification\n"
+            "            if iteration < opt.densify_until_iter :"
+        ),
+        (
+            "            # Densification\n"
+            "            if not _skip_step and iteration < opt.densify_until_iter :  # patched v2: 跳步 iter 梯度无效"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        color_point_tensor_grad = torch.zeros(viewspace_point_tensor.shape[0],16, 3).float().cuda()\n"
+            "        viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)\n"
+            "        for idx in range(0, len(viewspace_point_tensor_list)):\n"
+            "            viewspace_point_tensor_grad = viewspace_point_tensor_grad + viewspace_point_tensor_list[idx].grad"
+        ),
+        (
+            "        if not _skip_step:  # patched v2: 跳步 iter 无 backward，.grad 为 None\n"
+            "            color_point_tensor_grad = torch.zeros(viewspace_point_tensor.shape[0],16, 3).float().cuda()\n"
+            "            viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)\n"
+            "            for idx in range(0, len(viewspace_point_tensor_list)):\n"
+            "                viewspace_point_tensor_grad = viewspace_point_tensor_grad + viewspace_point_tensor_list[idx].grad"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "            # Optimizer step\n"
+            "            if iteration < opt.iterations:\n"
+            "                gaussians.optimizer.step()\n"
+            "                gaussians.optimizer.zero_grad(set_to_none = True)"
+        ),
+        (
+            "            # Optimizer step\n"
+            '            if _skip_stats[0] > int(os.environ.get("LOSS_GUARD_SKIP_MAX", "100")):  # patched v2: 熔断\n'
+            '                print("abnormal loss persists ({} consecutive skips), exit(42) for checkpoint resume.".format(_skip_stats[0]), flush=True)\n'
+            "                import sys as _sys\n"
+            "                _sys.exit(42)\n"
+            "            if iteration < opt.iterations:\n"
+            "                if not _skip_step:  # patched v2: 跳步 iter 不更新权重\n"
+            "                    gaussians.optimizer.step()\n"
+            "                    _skip_stats[0] = 0\n"
+            "                gaussians.optimizer.zero_grad(set_to_none = True)"
+        ),
+    ),
 ]
 
 
@@ -186,10 +333,16 @@ def main():
         if new in src:
             print("already patched, skip:", path)
             continue
-        if src.count(old) != 1:
-            sys.exit(f"❌ pattern not found or not unique: {path} — 检查官方代码是否更新")
-        io.open(path, "w", encoding="utf-8", newline="").write(src.replace(old, new))
-        print("🎉 patched:", path)
+        n = src.count(old)
+        if n == 1:
+            io.open(path, "w", encoding="utf-8", newline="").write(src.replace(old, new))
+            print("🎉 patched:", path)
+        elif n == 0:
+            # 链式补丁场景：本补丁的输出已被后续补丁改写（如补丁 3 的 exit(42)
+            # 文本被补丁 6/7 取代），视为已被取代而跳过，不算错误。
+            print("⚠️ anchor gone (superseded by later patch?), skip:", path)
+        else:
+            sys.exit(f"❌ pattern not unique ({n} hits): {path} — 检查官方代码是否更新")
 
 
 if __name__ == "__main__":
