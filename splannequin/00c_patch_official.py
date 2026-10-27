@@ -54,6 +54,14 @@ backward / optimizer.step / densify（坏梯度不落盘、权重零污染、轨
 成对累积（data / render / loss / bwd1 / ho / report / densify / opt），
 每 50 iter 汇总打印一次 ms 分解。用于定位 10k_r2（19min）剩余时间的去向，
 决定下一轮加速（降点数 / HexPlane 配置 / 数据管线）的优先级。
+
+补丁 10 — train.py guard 阈值改自适应（取代补丁 7 的固定 LOSS_GUARD_MAX=1e3）：
+窗口 A 续跑实测：occlusion 爆炸到 ~25（正常 0.045 的 550 倍）但 <1000 不触发
+跳步，一步坏梯度直接把模型打崩（psnr 掉到 4.65）。固定阈值两头不讨好——
+低了 reset 后合法尖峰(~1.0)会误伤，高了中等爆炸(25)拦不住。改为
+max(LOSS_GUARD_MIN=0.5, LOSS_GUARD_RATIO=20 × ema_loss)：正常时阈值 ~0.9，
+爆炸到十几以上全拦；reset 尖峰连带跳几步无害。前 200 iter 只查非有限
+（EMA 未建立，且跳步不更新 EMA，初始高 loss 会造成"永远跳步→熔断"死锁）。
 """
 import io
 import sys
@@ -512,6 +520,36 @@ PATCHES = [
             "                    _parts.append(\"{}={:.0f}\".format(_k, _ms))\n"
             "                    _prof_ev[_k] = []\n"
             "                print(\"[PROF iter={}] total={:.0f}ms | {}\".format(iteration, _tot, \" \".join(_parts)), flush=True)\n"
+        ),
+    ),
+    # ---- 补丁 10：guard 阈值自适应（依赖补丁 7 的 v2 文本作为锚点）----
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "        _loss_guard_max = float(os.environ.get(\"LOSS_GUARD_MAX\", \"1000\"))\n"
+            "        _prec(\"loss\")\n"
+            "        _skip_step = (not bool(torch.isfinite(loss).all())) or (loss.item() > _loss_guard_max)\n"
+        ),
+        (
+            "        # patched v3: 自适应阈值。窗口 A 实测 occlusion 爆炸到 ~25（正常 0.045 的\n"
+            "        # 550 倍）< 固定阈值 1000 不触发，一步坏梯度把模型打崩（psnr 4.65）。\n"
+            "        # 改为 max(下限, ratio*EMA)：正常 ~0.9 全拦爆炸；reset 尖峰(~1.0)误跳无害。\n"
+            "        # 前 200 iter 只查非有限：EMA 未建立且跳步不更新 EMA，否则初始高 loss\n"
+            "        # 会陷入「永远跳步→熔断」死锁。\n"
+            "        _loss_guard_min = float(os.environ.get(\"LOSS_GUARD_MIN\", \"0.5\"))\n"
+            "        _loss_guard_ratio = float(os.environ.get(\"LOSS_GUARD_RATIO\", \"20\"))\n"
+            "        _prec(\"loss\")\n"
+            "        _guard_thr = max(_loss_guard_min, _loss_guard_ratio * ema_loss_for_log)\n"
+            "        _skip_step = (not bool(torch.isfinite(loss).all())) or (iteration > 200 and loss.item() > _guard_thr)\n"
+        ),
+    ),
+    (
+        "/home/velvet/repos/splannequin-gs/train.py",
+        (
+            "                if (not bool(torch.isfinite(loss).all())) or loss.item() > _loss_guard_max:\n"
+        ),
+        (
+            "                if (not bool(torch.isfinite(loss).all())) or (iteration > 200 and loss.item() > _guard_thr):\n"
         ),
     ),
 ]
