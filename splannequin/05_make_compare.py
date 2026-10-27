@@ -38,7 +38,7 @@ def load_triplet(idx):
     if r2.size != gt.size:
         r2 = r2.resize(gt.size, Image.LANCZOS)
     if base.size != gt.size:
-        sys.exit("❌ base {} 尺寸 {} != GT {}".format(idx, base.size, gt.size))
+        base = base.resize(gt.size, Image.LANCZOS)
     return r2, base, gt
 
 
