@@ -35,11 +35,6 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 # Fragmented CUDA allocations -> fewer OOMs (paint stage peaks ~21GB).
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
-# CUDA Toolkit location — needed to compile hy3dpaint/custom_rasterizer and
-# hy3dpaint/DifferentiableRenderer. Tested by upstream with cu124.
-: "${CUDA_HOME:=/usr/local/cuda}"
-export CUDA_HOME
-
 # Activate the existing conda env. Pass "no-activate" as $1 to skip activation
 # (used by 00 when CREATE_ENV=1 creates the env first).
 CONDA_ENV="${CONDA_ENV:-hunyuan3d}"
@@ -63,6 +58,19 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 if [ "${1:-}" != "no-activate" ]; then
     conda activate "$CONDA_ENV" 2>/dev/null || true
 fi
+
+# CUDA Toolkit location — needed to compile hy3dpaint/custom_rasterizer and
+# hy3dpaint/DifferentiableRenderer. Prefer the conda env's own toolkit
+# (envs cloned from vggt_human carry nvcc 12.1 + conda gcc); fall back to a
+# system toolkit at /usr/local/cuda (server default, 12.4 recommended).
+if [ -z "${CUDA_HOME:-}" ]; then
+    if [ -n "${CONDA_PREFIX:-}" ] && [ -x "$CONDA_PREFIX/bin/nvcc" ]; then
+        CUDA_HOME="$CONDA_PREFIX"
+    else
+        CUDA_HOME=/usr/local/cuda
+    fi
+fi
+export CUDA_HOME
 
 # Paths (all overridable). proxy.env 的项目专属变量用 HUNYUAN3D_* 前缀
 # （仓级命名规范），这里映射回本模块的通用名。
