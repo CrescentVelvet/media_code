@@ -47,6 +47,10 @@ if [ ! -f "$HY3D_DIR/requirements.txt" ]; then
 fi
 
 echo "📦 [00] pip install -r requirements.txt"
+# basicsr 的 sdist 构建依赖 torch；pip 构建隔离会重新下载整个 torch（慢且无谓）。
+# 先用 --no-build-isolation 装好它（复用 env 里的 torch），requirements 就不会再触发源码构建。
+pip install --no-build-isolation "basicsr==1.4.2" || {
+    echo "❌ basicsr preinstall failed" >&2; exit 1; }
 pip install -r "$HY3D_DIR/requirements.txt" || exit 1
 
 # Two CUDA extensions ship as source and must be compiled in place.
