@@ -37,18 +37,19 @@ MIN_SCORE="${MIN_SCORE:-0.5}"
 SAM3_PYTHON="${SAM3_PYTHON:-$HOME/miniconda3/envs/sam3/bin/python}"
 SAM3_CKPT="${SAM3_CKPT:-/mnt/d/wheel/vggt_human_ms/sam3/sam3.pt}"
 SAM3_BPE="${SAM3_BPE:-$HOME/repos/sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz}"
-WORKER="${WORKER:-$REPO_DIR/vggt_human/sam3_face_masks_worker.py}"
 
-# ── SAM3 文本 prompt（物体名 → 英文名词短语；SAM3 文本编码器对英文更稳）──
+# ── SAM3 文本 prompt 回退链（物体名 → 英文名词短语，逗号分隔按序尝试）──
+# 实测教训：单一词有盲区（"router" 对 X 形路由器 0/3 全灭，"x shaped router" 命中；
+# 榨汁机某视角 "blender" 全灭，"kitchen appliance" 命中 cov 48%）
 declare -A PROMPTS=(
-    [剃须刀]="electric shaver"
-    [手表]="wrist watch"
-    [榨汁机]="blender"
-    [电动牙刷]="electric toothbrush"
-    [电饭煲]="rice cooker"
-    [耳机]="earbuds"
-    [路由器]="router"
-    [鼠标]="computer mouse"
+    [剃须刀]="electric shaver,razor"
+    [手表]="wrist watch,watch"
+    [榨汁机]="blender,juicer,kitchen appliance"
+    [电动牙刷]="electric toothbrush,toothbrush"
+    [电饭煲]="rice cooker,cooker"
+    [耳机]="earbuds,headphones,earphones"
+    [路由器]="x shaped router,router,wireless router,wifi router,electronic device,device"
+    [鼠标]="computer mouse,mouse"
 )
 
 # ── 前置检查 ───────────────────────────────────────────────────────────────
@@ -56,7 +57,6 @@ declare -A PROMPTS=(
 [ -x "$SAM3_PYTHON" ] || { echo "❌ ERROR: sam3 python 不存在: $SAM3_PYTHON" >&2; exit 1; }
 [ -f "$SAM3_CKPT" ]   || { echo "❌ ERROR: SAM3 权重不存在: $SAM3_CKPT" >&2; exit 1; }
 [ -f "$SAM3_BPE" ]    || { echo "❌ ERROR: SAM3 BPE 不存在: $SAM3_BPE" >&2; exit 1; }
-[ -f "$WORKER" ]      || { echo "❌ ERROR: worker 不存在: $WORKER" >&2; exit 1; }
 
 echo "🚀 [05] SAM3 预处理: $DATASET_DIR"
 echo "  💾 输出根: $OUT_ROOT"
@@ -65,17 +65,17 @@ echo ""
 
 _preprocess_one() {
     local obj="$1" obj_dir="$2"
-    local prompt="${PROMPTS[$obj]:-$obj}"
+    local chain="${PROMPTS[$obj]:-$obj}"
+    local primary="${chain%%,*}"
     local masks_dir="$OUT_ROOT/masks/$obj"
     local out_dir="$OUT_ROOT/$obj"
     mkdir -p "$masks_dir" "$out_dir"
 
-    echo "──── [$obj] prompt='$prompt' ────"
-    # ① SAM3 分割（image 模式；断点友好：已有 mask 的帧 worker 会重算，量小无妨）
-    MASK_MODE=image SAM3_PROMPT="$prompt" SAM3_CKPT="$SAM3_CKPT" \
+    echo "──── [$obj] prompts='$chain' ────"
+    # ① SAM3 分割（回退链驱动；断点友好：量小重算无妨）
+    SAM3_PROMPTS="$chain" SAM3_CKPT="$SAM3_CKPT" \
         SAM3_BPE="$SAM3_BPE" MIN_SCORE="$MIN_SCORE" \
-        "$SAM3_PYTHON" "$WORKER" \
-        --images_dir "$obj_dir" --output_dir "$masks_dir" || {
+        "$SAM3_PYTHON" "$SCRIPT_DIR/05_sam3_masks.py" "$obj_dir" "$masks_dir" || {
         echo "  ❌ $obj SAM3 分割失败" >&2
         return 1
     }
