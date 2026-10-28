@@ -55,19 +55,39 @@ os.chdir(HY3D_DIR)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# The pipeline only auto-masks RGBA inputs; RGB photos must be rembg'd first
+# (officially done in the demo layer, not the pipeline).
+_REMOVER = None
+
+
+def ensure_rgba(path):
+    """Load image as RGBA; run u2net rembg when there is no useful alpha."""
+    global _REMOVER
+    img = Image.open(path)
+    if img.mode == "RGBA":
+        lo, _hi = img.getchannel("A").getextrema()
+        if lo < 250:
+            return img
+    if _REMOVER is None:
+        from hy3dshape.rembg import BackgroundRemover
+        print("✂️ [rembg] loading u2net session (first run downloads ~170MB)")
+        _REMOVER = BackgroundRemover()
+    return _REMOVER(img.convert("RGB"))
+
 
 def build_image_input():
-    """Return (pipeline_image_arg, ref_image_paths, stem)."""
+    """Return (pipeline_image_arg, ref_pil_images, stem). All images RGBA."""
     if MODE == "mv":
         if not VIEWS:
             sys.exit("❌ MODE=mv needs at least one of FRONT/BACK/LEFT/RIGHT")
-        arg = {k: v for k, v in VIEWS.items()}
+        arg = {k: ensure_rgba(v) for k, v in VIEWS.items()}
         stem = OUTPUT_NAME or "mv_model"
-        return arg, list(VIEWS.values()), stem
+        return arg, list(arg.values()), stem
     if not IMAGE:
         sys.exit("❌ MODE=single needs IMAGE=<path>")
+    img = ensure_rgba(IMAGE)
     stem = OUTPUT_NAME or os.path.splitext(os.path.basename(IMAGE))[0]
-    return IMAGE, [IMAGE], stem
+    return img, [img], stem
 
 
 def has_safetensors(model_dir, subfolder):
@@ -114,7 +134,7 @@ def run_shape(image_arg, stem):
     return mesh_path
 
 
-def run_paint(mesh_path, ref_image_paths, stem):
+def run_paint(mesh_path, ref_images, stem):
     from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline
 
     config = Hunyuan3DPaintConfig(max_num_view=TEX_MAX_NUM_VIEW, resolution=TEX_RESOLUTION)
@@ -129,7 +149,6 @@ def run_paint(mesh_path, ref_image_paths, stem):
     print(f"🏋️ [paint] max_num_view={TEX_MAX_NUM_VIEW}, resolution={TEX_RESOLUTION}")
     paint = Hunyuan3DPaintPipeline(config)
 
-    ref_images = [Image.open(p).convert("RGB") for p in ref_image_paths]
     out_obj = os.path.join(OUTPUT_DIR, stem + "_textured.obj")
     t0 = time.time()
     paint(mesh_path=mesh_path, image_path=ref_images, output_mesh_path=out_obj, save_glb=True)

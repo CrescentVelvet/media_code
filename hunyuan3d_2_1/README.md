@@ -30,12 +30,26 @@ GPU=0 MODE=mv \
 GPU=0 MODE=single IMAGE=/path/to/object.png SKIP_TEXTURE=1 \
   OUTPUT_DIR=~/output/hunyuan3d_2_1_results \
   bash hunyuan3d_2_1/02_run_inference.sh
+
+# ── 批量：视频抽帧的三视图（角度未知）──────────────
+# 01b 预处理：rembg 抠图 → VGGT-Omega 估相机位姿 → 方位角吸附到
+# front/left/back/right 槽位（误差>45° 或弧度过窄自动降级单图），产 views.json
+GPU=0 INPUT_ROOT="/mnt/d/dataset/物体三图数据" \
+  bash hunyuan3d_2_1/01b_preprocess_views.sh
+
+# 02b 批量推理（shape 全跑完再统一 paint，模型只加载两次）
+GPU=0 bash hunyuan3d_2_1/02b_run_batch.sh
+# -> $RESULTS_DIR/models/<物体名>/<物体名>_textured.glb
 ```
 
 输出（`OUTPUT_DIR/` 下）：
 - `<stem>_untextured.glb` — shape 阶段的无纹理网格
 - `<stem>_textured.obj` + `<stem>_textured.glb` — PBR 纹理成品（GLB 可直接进 Blender / 3dviewer.net）
 - paint 阶段中间产物 `white_mesh_remesh.obj` 也在同目录
+
+**为什么 01b 必须跑**（官方源码实证）：
+- shape pipeline 对路径输入**不做抠图**（`hy3dshape/preprocessors.py` 的 `load_image` 只在有 alpha 通道时才生成 mask；rembg 在官方 demo 层 `minimal_demo.py` 而不在 pipeline 里）——杂乱背景照片必须预处理成 RGBA PNG
+- mv 模型给每个视图学了一个**槽位 embedding**（`MVImageProcessorV2`：front/left/back/right = 0°/顺时针90°/180°/270°），乱贴标签 = 给错误角度条件 → 几何互相打架。所以 01b 用 VGGT-Omega 估真实方位角再吸附槽位
 
 ## 首次准备
 ```bash
@@ -80,6 +94,13 @@ $MODEL_DIR/
 | `SHAPE_DIR` / `MV_DIR` / `DINO_DIR` | `$MODEL_DIR/{Hunyuan3D-2.1,Hunyuan3D-2mv,dinov2-giant}` | 各权重快照 |
 | `RESULTS_DIR` / `OUTPUT_DIR` | `../hunyuan3d_2_1_results` | 输出目录 |
 | `MODE` | `single` | `single`（IMAGE=）/ `mv`（FRONT/BACK/LEFT/RIGHT 任意子集） |
+| `INPUT_ROOT` | — | 01b：物体文件夹的根目录（每个子文件夹一个物体的多视角图） |
+| `PREP_DIR` | `$RESULTS_DIR/preprocessed` | 01b 抠图与 views.json 输出 |
+| `VGGT_OUT` | `$RESULTS_DIR/vggt` | 01b 的 VGGT-Omega 位姿缓存（已存在则复用） |
+| `VGGT_CONDA_ENV` | `vggt_human` | 01b 第 2 步调 vggt-omega 所用的 conda env |
+| `MAX_SLOT_ERR` | `45` | assign_views：方位角吸附槽位的最大误差（度） |
+| `FLIP_LR` | `0` | 02b：左右互换（VGGT 方位角顺/逆时针约定与模型槽位相反时用） |
+| `FORCE` | `0` | 02b：重跑已有成品 GLB 的物体 |
 | `SEED` | `0` | 同 seed + 同输入 => 同网格 |
 | `NUM_INFERENCE_STEPS` | `50` | shape 采样步数 |
 | `GUIDANCE_SCALE` | `5.0` | shape CFG |

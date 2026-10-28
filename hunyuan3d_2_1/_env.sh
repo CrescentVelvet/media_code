@@ -64,11 +64,11 @@ if [ "${1:-}" != "no-activate" ]; then
     conda activate "$CONDA_ENV" 2>/dev/null || true
 fi
 
-# Paths (all overridable; WSL users typically override in proxy.env, e.g.
-# HY3D_DIR=~/repos/Hunyuan3D-2.1, MODEL_DIR=~/model).
-MODEL_DIR="${MODEL_DIR:-$REPO_DIR/../../model}"
-RESULTS_DIR="${RESULTS_DIR:-$REPO_DIR/../hunyuan3d_2_1_results}"
-HY3D_DIR="${HY3D_DIR:-$REPO_DIR/../Hunyuan3D-2.1}"
+# Paths (all overridable). proxy.env 的项目专属变量用 HUNYUAN3D_* 前缀
+# （仓级命名规范），这里映射回本模块的通用名。
+HY3D_DIR="${HUNYUAN3D_DIR:-${HY3D_DIR:-$REPO_DIR/../Hunyuan3D-2.1}}"
+MODEL_DIR="${HUNYUAN3D_MODEL_DIR:-${MODEL_DIR:-$REPO_DIR/../../model}}"
+RESULTS_DIR="${HUNYUAN3D_RESULTS_DIR:-${RESULTS_DIR:-$REPO_DIR/../hunyuan3d_2_1_results}}"
 export REPO_DIR MODEL_DIR RESULTS_DIR HY3D_DIR
 
 # Pin to a specific physical GPU (0-indexed) via GPU=N. It remaps

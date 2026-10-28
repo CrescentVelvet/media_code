@@ -19,7 +19,7 @@ if [ -f "$SYS_CA" ]; then
     export GIT_SSL_CAINFO
 fi
 
-HY3D_DIR="${HY3D_DIR:-$REPO_DIR/../Hunyuan3D-2.1}"
+HY3D_DIR="${HUNYUAN3D_DIR:-${HY3D_DIR:-$REPO_DIR/../Hunyuan3D-2.1}}"
 HY3D_REPO="${HY3D_REPO:-https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git}"
 
 echo "=== [run_all] Hunyuan3D-2.1 one-click pipeline (conda env: ${CONDA_ENV:-hunyuan3d}) ==="
