@@ -64,6 +64,7 @@ CREATE_ENV=1 bash hunyuan3d_2_1/00_setup_env.sh
 # 或复用已有 CUDA env：CONDA_ENV=<name> bash hunyuan3d_2_1/00_setup_env.sh
 
 # 下权重（2.1 shape+paint ≈ 15 GB，2mv ≈ 5 GB，dinov2-giant ≈ 1.3 GB）
+# HF 不通时自动切 ModelScope（Tencent-Hunyuan/Hunyuan3D-2.1 等三个 repo 均已核实存在）
 bash hunyuan3d_2_1/01_download_models.sh          # SKIP_MV=1 可不下 2mv
 ```
 
