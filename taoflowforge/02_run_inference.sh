@@ -45,6 +45,11 @@ for f in "$TFF_STAGE0" "$TFF_STAGE1" "$TFF_STAGE2"; do
         exit 1
     fi
 done
+# 发布版 stage0 未内嵌 DINO 权重（2026-10-28 实测 mmap 探测确认），必配 --dino-checkpoint
+if [ ! -f "$TFF_DINO_DIR/config.json" ]; then
+    echo "❌ ERROR: DINOv3 目录缺失: $TFF_DINO_DIR（ModelScope facebook/dinov3-vitl16-pretrain-lvd1689m）" >&2
+    exit 1
+fi
 if [ ! -d "$TFF_PKG_DIR/taoflowforge" ]; then
     echo "❌ ERROR: 官方代码不存在: $TFF_PKG_DIR（先跑 taoflowforge/00a_setup_env.sh）" >&2
     exit 1
@@ -61,6 +66,7 @@ echo "  💾 输出:   $OUT_DIR"
 echo "  🏋️ stage0: $TFF_STAGE0"
 echo "  🏋️ stage1: $TFF_STAGE1"
 echo "  🏋️ stage2: $TFF_STAGE2"
+echo "  🧬 DINO:   $TFF_DINO_DIR"
 echo "  🌱 seed:   $SEED   offload: $OFFLOAD"
 if [ -n "$TFF_REMBG_DIR" ]; then
     echo "  ✂️ RMBG:   $TFF_REMBG_DIR"
@@ -77,6 +83,7 @@ ARGS=(run
     --stage0-checkpoint "$TFF_STAGE0"
     --stage1-checkpoint "$TFF_STAGE1"
     --stage2-checkpoint "$TFF_STAGE2"
+    --dino-checkpoint "$TFF_DINO_DIR"
     --output-dir "$OUT_DIR"
     --seed "$SEED"
     --offload "$OFFLOAD"

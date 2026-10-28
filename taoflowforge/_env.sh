@@ -79,9 +79,14 @@ TFF_STAGE1="${TFF_STAGE1:-$MODEL_DIR/stage1.pt}"
 TFF_STAGE2="${TFF_STAGE2:-$MODEL_DIR/stage2.pt}"
 TFF_MODELSCOPE_ID="${TFF_MODELSCOPE_ID:-Taobao3D/TaoFlowForge}"
 
+# DINOv3-L/16 目录（--dino-checkpoint；发布版 stage0 未内嵌 DINO 权重，必配）。
+# ModelScope 镜像 facebook/dinov3-vitl16-pretrain-lvd1689m（非 gated，
+# config.json / model.safetensors 齐全）。
+TFF_DINO_DIR="${TFF_DINO_DIR:-/mnt/d/wheel/dinov3-vitl16}"
+
 # 可选：RMBG-2.0 抠背景（HF gated，需自行申请）；不设置则关闭背景移除。
 TFF_REMBG_DIR="${TFF_REMBG_DIR:-}"
 
 export REPO_DIR TAOFLOWFORGE_REPO TAOFLOWFORGE_DIR TFF_PKG_DIR \
        MODEL_DIR RESULTS_DIR TFF_STAGE0 TFF_STAGE1 TFF_STAGE2 \
-       TFF_MODELSCOPE_ID TFF_REMBG_DIR
+       TFF_MODELSCOPE_ID TFF_DINO_DIR TFF_REMBG_DIR
