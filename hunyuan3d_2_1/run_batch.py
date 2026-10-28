@@ -25,6 +25,18 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 from PIL import Image
 
+# bpy (Blender-as-module, ~330MB) is unavailable on China pypi mirrors; stub it
+# so hy3dpaint's `import bpy` succeeds — the only bpy user is the GLB exporter,
+# which we replace with the trimesh converter (_obj2glb) below.
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    import types
+    sys.modules["bpy"] = types.ModuleType("bpy")
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _obj2glb import patch_hy3dpaint
+
 HY3D_DIR = os.environ["HY3D_DIR"]
 SHAPE_DIR = os.environ["SHAPE_DIR"]
 MV_DIR = os.environ["MV_DIR"]
@@ -151,7 +163,10 @@ def run_shapes(objects):
 
 def run_paints(results):
     """Phase 2: texture every mesh from phase 1 (paint model loads once)."""
-    from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline
+    import textureGenPipeline
+    patch_hy3dpaint(textureGenPipeline)
+    Hunyuan3DPaintConfig = textureGenPipeline.Hunyuan3DPaintConfig
+    Hunyuan3DPaintPipeline = textureGenPipeline.Hunyuan3DPaintPipeline
 
     config = Hunyuan3DPaintConfig(max_num_view=TEX_MAX_NUM_VIEW, resolution=TEX_RESOLUTION)
     config.multiview_pretrained_path = SHAPE_DIR

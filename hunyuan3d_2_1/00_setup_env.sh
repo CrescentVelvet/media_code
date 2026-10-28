@@ -55,10 +55,10 @@ pip install --no-build-isolation --no-deps "basicsr==1.4.2" || {
 pip install addict future lmdb yapf tensorboard || exit 1
 # 推理链路用不到的包（官方 requirements 全量装）：tb_nightly（镜像没有）、
 # deepspeed（训练用）、gradio/fastapi/uvicorn（demo）、cupy-cuda12x/open3d/
-# pythreejs（核心代码未 import）。bpy 必须保留（hy3dpaint 的
-# convert_obj_to_glb 顶层 import），torchdiffeq 保留（diffusion integrators）。
+# pythreejs（核心代码未 import）、bpy（330MB，国内镜像没有；GLB 导出已由
+# 本目录 _obj2glb.py 的 trimesh 实现替代）。
 FILTERED_REQ="$(mktemp)"
-grep -vE '^(tb_nightly|deepspeed|gradio|fastapi|uvicorn|cupy-cuda12x|open3d|pythreejs)([=<>=! ]|$)' \
+grep -vE '^(tb_nightly|deepspeed|gradio|fastapi|uvicorn|cupy-cuda12x|open3d|pythreejs|bpy)([=<>=! ]|$)' \
     "$HY3D_DIR/requirements.txt" > "$FILTERED_REQ"
 pip install -r "$FILTERED_REQ" || exit 1
 
