@@ -48,10 +48,19 @@ fi
 
 echo "📦 [00] pip install -r requirements.txt"
 # basicsr 的 sdist 构建依赖 torch；pip 构建隔离会重新下载整个 torch（慢且无谓）。
-# 先用 --no-build-isolation 装好它（复用 env 里的 torch），requirements 就不会再触发源码构建。
-pip install --no-build-isolation "basicsr==1.4.2" || {
+# 先用 --no-build-isolation --no-deps 装好它（复用 env 里的 torch），
+# 依赖手动补（tb-nightly 不在国内镜像上，用 tensorboard 平替）。
+pip install --no-build-isolation --no-deps "basicsr==1.4.2" || {
     echo "❌ basicsr preinstall failed" >&2; exit 1; }
-pip install -r "$HY3D_DIR/requirements.txt" || exit 1
+pip install addict future lmdb yapf tensorboard || exit 1
+# 推理链路用不到的包（官方 requirements 全量装）：tb_nightly（镜像没有）、
+# deepspeed（训练用）、gradio/fastapi/uvicorn（demo）、cupy-cuda12x/open3d/
+# pythreejs（核心代码未 import）。bpy 必须保留（hy3dpaint 的
+# convert_obj_to_glb 顶层 import），torchdiffeq 保留（diffusion integrators）。
+FILTERED_REQ="$(mktemp)"
+grep -vE '^(tb_nightly|deepspeed|gradio|fastapi|uvicorn|cupy-cuda12x|open3d|pythreejs)([=<>=! ]|$)' \
+    "$HY3D_DIR/requirements.txt" > "$FILTERED_REQ"
+pip install -r "$FILTERED_REQ" || exit 1
 
 # Two CUDA extensions ship as source and must be compiled in place.
 # Needs nvcc (CUDA_HOME) + a C++ toolchain. Paint texture stage will crash
