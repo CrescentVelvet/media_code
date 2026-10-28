@@ -14,6 +14,7 @@ Code used for work in the blue zone.
 ## Algorithms
 - [`triposplat/`](triposplat/) — one-click TripoSplat image→3D-Gaussian inference. See its [README](triposplat/README.md).
 - [`trellis-2/`](trellis-2/) — one-click TRELLIS.2 image→3D (4B) inference: GLB + PBR turntable video. See its [README](trellis-2/README.md).
+- [`hunyuan3d_2_1/`](hunyuan3d_2_1/) — one-click Hunyuan3D-2.1 图生 3D：单图（shape-v2-1 3.3B）或**多视图**（2mv，front/back/left/right 任意子集）→ PBR 纹理 GLB。shape/paint 两段顺序加载，峰值 ~21 GB，单卡 24 GB 可跑。⚠️ 腾讯混元**非商用**协议。See its [README](hunyuan3d_2_1/README.md).
 - [`vggt-omega/`](vggt-omega/) — one-click VGGT-Omega feed-forward scene reconstruction (cameras + depth → point cloud). See its [README](vggt-omega/README.md).
 - [`vggt_human/`](vggt_human/) — VGGT-Omega feed-forward recon (poses+depth→point cloud) → COLMAP → original 3DGS training: combines fast feed-forward init with optimization-based quality. See its [README](vggt_human/README.md).
 - [`hunyuanvideo-1.5/`](hunyuanvideo-1.5/) — one-click HunyuanVideo-1.5 video generation: T2V/I2V inference **and** fine-tuning on your own dataset. See its [README](hunyuanvideo-1.5/README.md).
