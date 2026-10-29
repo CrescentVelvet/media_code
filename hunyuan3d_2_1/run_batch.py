@@ -13,7 +13,8 @@ Env vars: HY3D_DIR, SHAPE_DIR, MV_DIR, DINO_DIR, PREP_DIR, OUTPUT_DIR,
           SEED, NUM_INFERENCE_STEPS, GUIDANCE_SCALE, OCTREE_RESOLUTION,
           NUM_CHUNKS, TEX_MAX_NUM_VIEW, TEX_RESOLUTION, SKIP_TEXTURE,
           FLIP_LR (swap left/right tags), FORCE (redo finished objects),
-          REUSE_SHAPE (reuse existing *_untextured.glb)
+          REUSE_SHAPE (reuse existing *_untextured.glb),
+          PAINT_TARGET_FACES (paint remesh face target, 0 = no decimation)
 """
 import gc
 import json
@@ -68,6 +69,10 @@ FORCE = os.environ.get("FORCE", "0") == "1"
 # 已有 *_untextured.glb 的对象直接复用进 paint 阶段（同种子 shape 可复现，
 # 调 paint 参数时不用每次重算 13 分钟形状）
 REUSE_SHAPE = os.environ.get("REUSE_SHAPE", "0") == "1"
+# paint 阶段 remesh_mesh 硬编码减面到 4 万面（simplify_mesh_utils.py 默认
+# target_count=40000），是成品"糙"的直接原因；用 env 覆盖目标面数。
+# 16 万面 ≈ 保留 shape 输出的近一半细节，UV 展开/光栅化时间仍可控。
+PAINT_TARGET_FACES = int(os.environ.get("PAINT_TARGET_FACES", "40000"))
 
 # The official code resolves cfg/ckpt paths relative to the repo root.
 sys.path.insert(0, os.path.join(HY3D_DIR, "hy3dshape"))
@@ -233,6 +238,21 @@ def run_paints(results):
             return trimesh.load(out_obj, force="mesh")
 
     trimesh.Trimesh.simplify_quadric_decimation = _simplify_quadric_pymeshlab
+
+    # paint 的 remesh 目标面数硬编码 40000（见文件头 env 说明）：包一层注入
+    # PAINT_TARGET_FACES，传 0 表示完全不减面（直接用 shape 原始网格）。
+    if PAINT_TARGET_FACES != 40000:
+        from utils import simplify_mesh_utils as _smu
+
+        _orig_simplify = _smu.mesh_simplify_trimesh
+
+        def _simplify_override(inputpath, outputpath, target_count=40000):
+            return _orig_simplify(
+                inputpath, outputpath,
+                target_count=PAINT_TARGET_FACES if PAINT_TARGET_FACES > 0 else 10**9,
+            )
+
+        _smu.mesh_simplify_trimesh = _simplify_override
 
     # 上游 bug（textureGenPipeline.__call__ ~L95）：image_path 传 list 时
     # image_prompt 两个分支都不命中 → UnboundLocalError。运行时给源码打补丁：
