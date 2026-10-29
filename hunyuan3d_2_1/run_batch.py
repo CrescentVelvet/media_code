@@ -12,7 +12,8 @@ Two phases so each model family loads once:
 Env vars: HY3D_DIR, SHAPE_DIR, MV_DIR, DINO_DIR, PREP_DIR, OUTPUT_DIR,
           SEED, NUM_INFERENCE_STEPS, GUIDANCE_SCALE, OCTREE_RESOLUTION,
           NUM_CHUNKS, TEX_MAX_NUM_VIEW, TEX_RESOLUTION, SKIP_TEXTURE,
-          FLIP_LR (swap left/right tags), FORCE (redo finished objects)
+          FLIP_LR (swap left/right tags), FORCE (redo finished objects),
+          REUSE_SHAPE (reuse existing *_untextured.glb)
 """
 import gc
 import json
@@ -38,11 +39,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _obj2glb import patch_hy3dpaint
 
 HY3D_DIR = os.environ["HY3D_DIR"]
+# 2mv 权重的 config.yaml target 指向 hy3dgen.shapegen.*（2.0 代仓库布局），
+# 2.1 仓的 hy3dshape 没有对应模块——mv 管线必须从 Hunyuan3D-2 仓加载。
+HY3D2_DIR = os.environ["HY3D2_DIR"]
 SHAPE_DIR = os.environ["SHAPE_DIR"]
 MV_DIR = os.environ["MV_DIR"]
 DINO_DIR = os.environ.get("DINO_DIR", "")
 PREP_DIR = os.environ["PREP_DIR"]
 OUTPUT_DIR = os.environ["OUTPUT_DIR"]
+
+# torchvision>=0.20 移除了 functional_tensor，basicsr/realesrgan import 会炸；
+# 官方仓根目录自带补丁（demo.py 同款 apply_fix），必须在 realesrgan 导入前应用。
+sys.path.insert(0, HY3D_DIR)
+from torchvision_fix import apply_fix  # noqa: E402
+
+apply_fix()
 
 SEED = int(os.environ.get("SEED", "0"))
 NUM_INFERENCE_STEPS = int(os.environ.get("NUM_INFERENCE_STEPS", "50"))
@@ -54,6 +65,9 @@ TEX_RESOLUTION = int(os.environ.get("TEX_RESOLUTION", "512"))
 SKIP_TEXTURE = os.environ.get("SKIP_TEXTURE", "0") == "1"
 FLIP_LR = os.environ.get("FLIP_LR", "0") == "1"
 FORCE = os.environ.get("FORCE", "0") == "1"
+# 已有 *_untextured.glb 的对象直接复用进 paint 阶段（同种子 shape 可复现，
+# 调 paint 参数时不用每次重算 13 分钟形状）
+REUSE_SHAPE = os.environ.get("REUSE_SHAPE", "0") == "1"
 
 # The official code resolves cfg/ckpt paths relative to the repo root.
 sys.path.insert(0, os.path.join(HY3D_DIR, "hy3dshape"))
@@ -94,11 +108,15 @@ def has_safetensors(model_dir, subfolder):
 
 
 def load_shape_pipeline(mode):
-    from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-
     if mode == "mv":
+        # hy3dgen（2.0 仓）放最前，避免被 hy3dshape 同名模块遮蔽
+        sys.path.insert(0, HY3D2_DIR)
+        from hy3dgen.shapegen.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+
         model_dir, subfolder = MV_DIR, "hunyuan3d-dit-v2-mv"
     else:
+        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+
         model_dir, subfolder = SHAPE_DIR, "hunyuan3d-dit-v2-1"
     use_st = has_safetensors(model_dir, subfolder)
     print(f"🏋️ [shape:{mode}] {model_dir} (subfolder={subfolder}, safetensors={use_st})")
@@ -138,6 +156,23 @@ def gen_shape(pipeline, spec):
 def run_shapes(objects):
     """Phase 1: generate + save all untextured meshes. Returns {name: (mesh_path, ref_paths)}."""
     results = {}
+    if REUSE_SHAPE:
+        todo = []
+        for spec in objects:
+            out_dir = os.path.join(OUTPUT_DIR, spec["_name"])
+            mesh_path = os.path.join(out_dir, spec["_name"] + "_untextured.glb")
+            if os.path.exists(mesh_path):
+                if spec["mode"] == "mv":
+                    ref_paths = [os.path.join(spec["_dir"], rel) for rel in spec["views"].values()]
+                else:
+                    ref_paths = [os.path.join(spec["_dir"], spec["image"])]
+                results[spec["_name"]] = (mesh_path, ref_paths)
+                print(f"⏭️ {spec['_name']}: reuse existing shape")
+            else:
+                todo.append(spec)
+        objects = todo
+        if not objects:
+            return results
     for mode in ("mv", "single"):
         group = [s for s in objects if s["mode"] == mode]
         if not group:
@@ -163,8 +198,61 @@ def run_shapes(objects):
 
 def run_paints(results):
     """Phase 2: texture every mesh from phase 1 (paint model loads once)."""
+    import huggingface_hub
     import textureGenPipeline
     patch_hy3dpaint(textureGenPipeline)
+
+    # multiview_utils.py 对 multiview_pretrained_path 调 snapshot_download(repo_id=...)
+    # 要的是 HF repo id；我们给的是本地目录，HF CDN 又不通——本地路径直接放行。
+    _orig_snapshot = huggingface_hub.snapshot_download
+
+    def _snapshot_or_local(repo_id, **kw):
+        if os.path.isdir(repo_id):
+            return repo_id
+        return _orig_snapshot(repo_id, **kw)
+
+    huggingface_hub.snapshot_download = _snapshot_or_local
+
+    # trimesh 4.4.7 的 simplify_quadric_decimation 只走 open3d 后端；open3d
+    # wheel ~440MB 国内镜像下载易断。改用已装的 pymeshlab 实现同等
+    # quadric edge collapse，monkeypatch 掉 trimesh 方法。
+    import tempfile
+
+    import pymeshlab
+    import trimesh
+
+    def _simplify_quadric_pymeshlab(self, face_count=None, **kw):
+        with tempfile.TemporaryDirectory() as td:
+            in_ply = os.path.join(td, "in.ply")
+            out_obj = os.path.join(td, "out.obj")
+            self.export(in_ply)
+            ms = pymeshlab.MeshSet()
+            ms.load_new_mesh(in_ply)
+            ms.meshing_decimation_quadric_edge_collapse(targetfacenum=int(face_count))
+            ms.save_current_mesh(out_obj, save_textures=False)
+            return trimesh.load(out_obj, force="mesh")
+
+    trimesh.Trimesh.simplify_quadric_decimation = _simplify_quadric_pymeshlab
+
+    # 上游 bug（textureGenPipeline.__call__ ~L95）：image_path 传 list 时
+    # image_prompt 两个分支都不命中 → UnboundLocalError。运行时给源码打补丁：
+    # list 分支直接 image_prompt = image_path。官方仓不动，重 clone 也安全。
+    # 注意 __call__ 被 @torch.no_grad() 包装，要 unwrap 拿到原函数的 globals。
+    import inspect
+    import textwrap
+
+    _cls = textureGenPipeline.Hunyuan3DPaintPipeline
+    _orig_fn = inspect.unwrap(_cls.__call__)
+    _src = inspect.getsource(_orig_fn)
+    if "isinstance(image_path, list)" not in _src:
+        _src = _src.replace(
+            "if isinstance(image_path, str):",
+            "if isinstance(image_path, list):\n            image_prompt = image_path\n        elif isinstance(image_path, str):",
+            1,
+        )
+        _ns = {}
+        exec(textwrap.dedent(_src), _orig_fn.__globals__, _ns)
+        _cls.__call__ = torch.no_grad()(_ns["__call__"])
     Hunyuan3DPaintConfig = textureGenPipeline.Hunyuan3DPaintConfig
     Hunyuan3DPaintPipeline = textureGenPipeline.Hunyuan3DPaintPipeline
 
@@ -187,8 +275,10 @@ def run_paints(results):
             t0 = time.time()
             paint(mesh_path=mesh_path, image_path=refs, output_mesh_path=out_obj, save_glb=True)
             print(f"  ✅ {name}: textured in {time.time() - t0:.1f}s -> {out_obj[:-4]}.glb")
-        except Exception as e:
-            print(f"  ⚠️ {name}: paint failed: {e}")
+        except Exception:
+            import traceback
+            print(f"  ⚠️ {name}: paint failed:")
+            traceback.print_exc()
             continue
 
 

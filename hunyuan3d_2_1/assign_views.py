@@ -132,7 +132,15 @@ def main():
             result["note"] = "view arc too narrow for multi-view slots; fell back to single"
         with open(os.path.join(obj_dir, "views.json"), "w", encoding="utf-8", newline="\n") as fp:
             json.dump(result, fp, ensure_ascii=False, indent=2)
-        az_str = ", ".join(f"{s}={azs[i]:.0f}°" for s, i in sorted(result.get("views", {}).items(), key=lambda kv: kv[1])) if result["mode"] == "mv" else stems[int(largest_alpha_view(rgba))]
+        if result["mode"] == "mv":
+            # views 的 value 是 "rgba/<stem>.png"，要映射回 azs 的整数索引
+            idx_of = {os.path.basename(p)[: -len(".png")]: i for i, p in enumerate(rgba)}
+            az_str = ", ".join(
+                f"{s}={azs[idx_of[os.path.basename(v)[: -len('.png')]]]:.0f}°"
+                for s, v in sorted(result["views"].items(), key=lambda kv: kv[1])
+            )
+        else:
+            az_str = stems[int(largest_alpha_view(rgba))]
         print(f"🎯 {obj}: mode={result['mode']}  {az_str}")
     print("🎉 [assign] done")
 

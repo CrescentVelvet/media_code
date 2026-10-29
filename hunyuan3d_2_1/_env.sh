@@ -75,9 +75,12 @@ export CUDA_HOME
 # Paths (all overridable). proxy.env 的项目专属变量用 HUNYUAN3D_* 前缀
 # （仓级命名规范），这里映射回本模块的通用名。
 HY3D_DIR="${HUNYUAN3D_DIR:-${HY3D_DIR:-$REPO_DIR/../Hunyuan3D-2.1}}"
+# Hunyuan3D-2（2.0 代）仓：2mv 权重的 config target 是 hy3dgen.shapegen.*，
+# 只有这个仓提供该包；仅 mv 形状的 shape 管线用到。
+HY3D2_DIR="${HUNYUAN3D2_DIR:-${HY3D2_DIR:-$HOME/repos/Hunyuan3D-2}}"
 MODEL_DIR="${HUNYUAN3D_MODEL_DIR:-${MODEL_DIR:-$REPO_DIR/../../model}}"
 RESULTS_DIR="${HUNYUAN3D_RESULTS_DIR:-${RESULTS_DIR:-$REPO_DIR/../hunyuan3d_2_1_results}}"
-export REPO_DIR MODEL_DIR RESULTS_DIR HY3D_DIR
+export REPO_DIR MODEL_DIR RESULTS_DIR HY3D_DIR HY3D2_DIR
 
 # Pin to a specific physical GPU (0-indexed) via GPU=N. It remaps
 # CUDA_VISIBLE_DEVICES so cuda:0 inside the process == physical GPU N.

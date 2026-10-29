@@ -53,6 +53,9 @@ echo "📦 [00] pip install -r requirements.txt"
 pip install --no-build-isolation --no-deps "basicsr==1.4.2" || {
     echo "❌ basicsr preinstall failed" >&2; exit 1; }
 pip install addict future lmdb yapf tensorboard || exit 1
+# lightning_fabric（pytorch_lightning 依赖）import 需要 pkg_resources；
+# setuptools>=81 已移除它，固定到 <81。
+pip install -q "setuptools<81" || exit 1
 # 推理链路用不到的包（官方 requirements 全量装）：tb_nightly（镜像没有）、
 # deepspeed（训练用）、gradio/fastapi/uvicorn（demo）、cupy-cuda12x/open3d/
 # pythreejs（核心代码未 import）、bpy（330MB，国内镜像没有；GLB 导出已由
@@ -65,8 +68,42 @@ pip install -r "$FILTERED_REQ" || exit 1
 # Two CUDA extensions ship as source and must be compiled in place.
 # Needs nvcc (CUDA_HOME) + a C++ toolchain. Paint texture stage will crash
 # without them.
+# --no-build-isolation：setup.py import torch，构建隔离环境里没有 torch
+#（同 basicsr 的坑）；env 里已有 torch 2.5.1 + ninja + pybind11。
+# pip 版 torch 的 CUDA 头文件（cusparse/cublas/cusolver 等）在
+# site-packages/nvidia/*/include，不在 CUDA_HOME/include 里；
+# nvcc/host gcc 编译 ATen CUDAContextLight.h 时找不到 cusparse.h。
+# 通过 CPLUS_INCLUDE_PATH / LIBRARY_PATH 把这些目录补进编译搜索路径。
+NV_PKGS="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia"
+if [ -d "$NV_PKGS" ]; then
+    for d in "$NV_PKGS"/*/include; do
+        [ -d "$d" ] && CPLUS_INCLUDE_PATH="$d${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+    done
+    for d in "$NV_PKGS"/*/lib; do
+        [ -d "$d" ] && LIBRARY_PATH="$d${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    done
+    export CPLUS_INCLUDE_PATH LIBRARY_PATH
+    echo "🔧 [00] CPLUS_INCLUDE_PATH += nvidia pip headers ($(ls -d "$NV_PKGS"/*/include 2>/dev/null | wc -l) dirs)"
+fi
+
+# WSL 无系统 gcc/c++；conda toolchain 只提供 x86_64-conda-linux-gnu-{c++,cc,...}。
+# 官方编译脚本写死 `c++`，这里做一层 shim 软链补齐通用名。
+if ! command -v c++ >/dev/null 2>&1; then
+    SHIM_DIR="$(mktemp -d)"
+    for t in c++ g++ cc gcc; do
+        tc="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-$t"
+        [ -x "$tc" ] && ln -sf "$tc" "$SHIM_DIR/$t"
+    done
+    if [ -x "$SHIM_DIR/c++" ]; then
+        export PATH="$SHIM_DIR:$PATH"
+        echo "🔧 [00] shimmed c++/g++/cc/gcc -> conda toolchain ($CONDA_PREFIX)"
+    else
+        echo "⚠️ [00] no C++ compiler found; compile steps may fail" >&2
+    fi
+fi
+
 echo "🔧 [00] compiling custom_rasterizer (CUDA_HOME=$CUDA_HOME)"
-( cd "$HY3D_DIR/hy3dpaint/custom_rasterizer" && pip install -e . ) || {
+( cd "$HY3D_DIR/hy3dpaint/custom_rasterizer" && pip install --no-build-isolation -e . ) || {
     echo "❌ custom_rasterizer build failed" >&2; exit 1; }
 
 echo "🔧 [00] compiling DifferentiableRenderer (compile_mesh_painter.sh)"
@@ -77,11 +114,21 @@ echo "🔧 [00] compiling DifferentiableRenderer (compile_mesh_painter.sh)"
 ESRGAN_DIR="$HY3D_DIR/hy3dpaint/ckpt"
 ESRGAN_PTH="$ESRGAN_DIR/RealESRGAN_x4plus.pth"
 ESRGAN_URL="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+# GitHub releases 本机不可达时的镜像（实测可用 2026-10-28）
+ESRGAN_MS_URL="https://modelscope.cn/api/v1/models/AI-ModelScope/RealESRGAN_x4plus/repo?Revision=master&FilePath=RealESRGAN_x4plus.pth"
 if [ ! -f "$ESRGAN_PTH" ]; then
     echo "📦 [00] downloading RealESRGAN_x4plus.pth"
     mkdir -p "$ESRGAN_DIR"
-    wget -q "$ESRGAN_URL" -P "$ESRGAN_DIR" || curl -kL "$ESRGAN_URL" -o "$ESRGAN_PTH" || {
-        echo "❌ RealESRGAN download failed (try manual download to $ESRGAN_PTH)" >&2; exit 1; }
+    wget -q --timeout=30 "$ESRGAN_URL" -P "$ESRGAN_DIR" \
+        || curl -kL --max-time 120 "$ESRGAN_URL" -o "$ESRGAN_PTH" \
+        || curl -sL --max-time 300 "$ESRGAN_MS_URL" -o "$ESRGAN_PTH" \
+        || { echo "❌ RealESRGAN download failed (try manual download to $ESRGAN_PTH)" >&2; exit 1; }
+    # 下载失败可能留下 0 字节/小文件（错误页），校验大小 ~64MB
+    SZ=$(stat -c%s "$ESRGAN_PTH" 2>/dev/null || echo 0)
+    if [ "$SZ" -lt 60000000 ]; then
+        echo "❌ RealESRGAN file too small ($SZ bytes), likely an error page" >&2
+        rm -f "$ESRGAN_PTH"; exit 1
+    fi
 fi
 
 echo "🎉 [00] Done. Env '$CONDA_ENV' ready."
