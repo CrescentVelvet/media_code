@@ -39,6 +39,27 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 推理耗时：16 视角 22 s、32 视角 28 s、50 视角 31 s（含 6.6 GB 权重 SHA256 校验），
 产出 2.7 M / 5.3 M / 6.1 M 高斯，峰值显存约 11 GB。
 
+### 三视角自有数据集实测（`D:\dataset\物体三图数据`，8 个物体）
+
+| 项 | 实测 |
+| --- | --- |
+| 端到端（冷启动，含加载） | 20.9–25.2 s，均值 **21.8 s** |
+| 常驻复用单次（warm） | **0.81 s** |
+| 显存峰值（`nvidia-smi`） | 9.72–9.87 GB（基线 1.55 GB，净增 **8.2 GB**） |
+| `torch` allocated 峰值 | 7.09 GB |
+| 高斯数 / PLY | 22–31 万 / 15–21 MB |
+| 自洽 PSNR（3 图全输入） | 15.9–24.5，均值 21.5 |
+| **真实 NVS（2 入 → 1 出）** | **11.3–16.1，均值 13.1** |
+
+⚠️ 三视角有两个硬坑，动手前必读：
+1. **DA3 位姿会静默塌缩**。榨汁机（透明）/ 电饭煲（浅色圆柱）被估成三张同一视角
+   （两两夹角 0.2–0.9°），推理照样 exit 0 输出 PLY，但几何是废的。跑完先执行
+   `python diag_pose.py` 看夹角/基线，或用文件名帧号交叉验证。`pose-free` 不能救，
+   COLMAP 在这批数据上也建不起来（SIFT 太少，无初始像对）。
+2. **自洽 ≠ NVS，差 8.4 dB**。留出视角里物体位置对但未见区域是空洞（alpha 0.47–0.81）。
+
+细节与逐物体数据见 `EXPERIMENTS.md` 的 E-07~E-11。
+
 ⚠️ **自洽 ≠ NVS**：自洽时每个高斯中心就是从该视角反投影来的，只证明"属性学对了 + 渲染器
 接对了"；能对标论文的只有 holdout 那一行。且官方划分未公开、分辨率与目标视角选取都不同，
 **本表与论文表 1 不可直接比较**。推导与逐视角数据见 `EXPERIMENTS.md`。
@@ -75,6 +96,23 @@ RESULT=$HOME/output/infinisplat_v2_results/dtu_provided \
   IMAGES_DIR=$HOME/repos/InfiniSplat/InfiniSplat_v2/examples/data/dtu_provided/images \
   MODE=rerender bash 03_eval_render.sh           # A: 输入视角自洽
 EXAMPLE=dtu_provided MODE=holdout N_INPUT=8 N_TARGET=4 bash 03_eval_render.sh   # B: NVS
+
+# 4) 自有数据集批量（每子目录一个物体）+ 记录显存/耗时
+DATASET_ROOT=/mnt/d/dataset/物体三图数据 bash 04_run_dataset.sh
+DATASET_ROOT=... LONG_SIDE=1022 DO_EVAL=0 bash 04_run_dataset.sh
+
+# 5) 少视角真实 NVS（2 输入 → 1 留出，位姿同源）
+DATASET_ROOT=... CASES="手表 鼠标" N_INPUT=2 N_TARGET=1 bash 06_nvs_holdout.sh
+
+# 6) 位姿自检（判断 DA3 是否塌缩）
+python diag_pose.py --results ~/output/infinisplat_v2_results --prefix threeview
+
+# 7) 拆耗时段 / 测常驻复用成本
+python bench_stages.py --model ~/model/infinisplat_v2/da3 \
+  --images-dir /mnt/d/dataset/物体三图数据/手表 --repeat 6 --out /tmp/stages.json
+
+# 8) COLMAP 供位姿（DA3 塌缩时的备选；本数据集上因纹理太少未能重建）
+IMAGES_DIR=/mnt/d/data/imgs COLMAP_LONG_SIDE=1024 bash 05_pose_colmap.sh
 ```
 
 ## 首次准备
@@ -129,10 +167,18 @@ bash 01_download_models.sh
 ├── 01_download_models.sh            # 权重 + 官方示例（镜像站分块下载）
 ├── 02_run_inference.sh              # 前馈推理 → scene.ply
 ├── 03_eval_render.sh                # 自接 gsplat 渲染 + 两种口径评测
+├── 04_run_dataset.sh                # 批量跑自有数据集 + 逐物体记显存/耗时
+├── 05_pose_colmap.sh                # COLMAP SfM 供位姿 → cameras.npz
+├── 06_nvs_holdout.sh                # 少视角真实 NVS（N 输入 → 留出 M 视角）
+├── 08_move_output.sh                # 结果从 Linux fs 搬到 Windows 盘
 ├── run_all.sh                       # 一键
 ├── hf_download.py                   # 分块并发下载器（断点续传 + SHA256）
 ├── make_holdout.py                  # 输入/目标视角划分
 ├── render_check.py                  # PLY → 渲染 → PSNR/SSIM + 拼图
+├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
+├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
+├── rebuild_bench.py                 # 从已有结果目录重建汇总表（不重跑 GPU）
+├── diag_pose.py                     # 相机几何自检（两两夹角/基线 + 逐视角指标）
 ├── EXPERIMENTS.md                   # 实验记录：实测数值、踩坑、复现边界
 └── README_wsl.md                    # 本文件
 
