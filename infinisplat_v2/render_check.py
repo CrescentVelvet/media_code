@@ -21,8 +21,49 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from plyfile import PlyData
+
+
+def model_preprocess(path, w, h):
+    """复刻 pipeline.prepare_images 的 bicubic 中心裁剪缩放，返回 (图, 内参变换矩阵)。
+
+    评测必须用与模型完全相同的预处理，否则 GT 与渲染之间会差一个裁剪偏移，
+    指标会被系统性拉低（这个坑很隐蔽：直接把 GT resize 到 (w,h) 就错了）。
+    """
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        scale = max(w / im.width, h / im.height)
+        left = max(0.0, (im.width - w / scale) / 2)
+        top = max(0.0, (im.height - h / scale) / 2)
+        box = (left, top, min(float(im.width), left + w / scale),
+               min(float(im.height), top + h / scale))
+        resized = im.resize((w, h), Image.Resampling.BICUBIC, box=box)
+    Km = np.array([[scale, 0, -left * scale], [0, scale, -top * scale], [0, 0, 1]], np.float32)
+    return np.asarray(resized), Km
+
+
+def fit_sim3(src, dst):
+    """Umeyama：求 (s, R, t) 使 dst ≈ s·R·src + t。src/dst 为 [N,3] 相机中心。"""
+    src = np.asarray(src, np.float64)
+    dst = np.asarray(dst, np.float64)
+    mu_s, mu_d = src.mean(0), dst.mean(0)
+    S, D = src - mu_s, dst - mu_d
+    H = S.T @ D / len(src)
+    U, sig, Vt = np.linalg.svd(H)
+    d = np.sign(np.linalg.det(Vt.T @ U.T))
+    R = Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
+    var = (S ** 2).sum() / len(src)
+    s = float((sig * np.array([1.0, 1.0, d])).sum() / var)
+    t = mu_d - s * (R @ mu_s)
+    return s, R, t
+
+
+def apply_sim3(c2w, s, R, t):
+    out = np.array(c2w, dtype=np.float64, copy=True)
+    out[:, :3, :3] = np.einsum("ij,njk->nik", R, out[:, :3, :3])
+    out[:, :3, 3] = s * (out[:, :3, 3] @ R.T) + t
+    return out.astype(np.float32)
 
 
 def load_ply(path):
@@ -44,8 +85,8 @@ def ssim(a, b, sigma=1.5, win=11):
         g = (g / g.sum()).view(-1, 1)
         return (g @ g.t()).expand(ch, 1, win, win).contiguous()
 
-    x = torch.from_numpy(a).permute(2, 0, 1)[None]
-    y = torch.from_numpy(b).permute(2, 0, 1)[None]
+    x = torch.from_numpy(np.ascontiguousarray(a, dtype=np.float32)).permute(2, 0, 1)[None]
+    y = torch.from_numpy(np.ascontiguousarray(b, dtype=np.float32)).permute(2, 0, 1)[None]
     ch = x.shape[1]
     k = gauss_kernel(ch)
     pad = win // 2
@@ -60,7 +101,8 @@ def ssim(a, b, sigma=1.5, win=11):
 
 
 def psnr(a, b):
-    mse = float(np.mean((a.astype(np.float32) - b.astype(np.float32)) ** 2))
+    """a/b 为 [0,1] 的 float 数组。"""
+    mse = float(np.mean((np.asarray(a, np.float32) - np.asarray(b, np.float32)) ** 2))
     return float("inf") if mse <= 1e-12 else 10.0 * np.log10(1.0 / mse)
 
 
@@ -74,8 +116,10 @@ def render(g, c2w, K, w, h, sh_degree=0, eps2d=0.01, near=0.01, far=200.0,
     """
     from gsplat import rasterization
 
+    c2w = np.asarray(c2w, dtype=np.float64).reshape(-1, 4, 4)   # 允许传单帧 [4,4]
+    K = np.asarray(K, dtype=np.float32).reshape(-1, 3, 3)
     viewmats = torch.from_numpy(np.linalg.inv(c2w).astype(np.float32)).to(device)  # [C,4,4] w2c
-    Ks = torch.from_numpy(K.astype(np.float32)).to(device)                          # [C,3,3]
+    Ks = torch.from_numpy(K).to(device)                                            # [C,3,3]
     C = viewmats.shape[0]
     colors = torch.from_numpy(g["sh"]).to(device)[None, :, None, :].expand(C, -1, -1, -1).contiguous()
     bg = torch.full((C, 3), float(background), device=device)
@@ -109,6 +153,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--images-dir", help="原图目录；缺省用 result.json 记录的输入图路径")
     ap.add_argument("--cameras", help="另给相机 npz（holdout 评测用）")
+    ap.add_argument("--ref-cameras", help="输入视角的**原始 GT** 相机 npz；给了就拟合 Sim(3) 把 --cameras 对齐到 RDNorm 空间")
+    ap.add_argument("--align-out-pose", action="store_true",
+                    help="输出 result/cameras.npz（RDNorm）到磁盘，便于排查对齐")
     ap.add_argument("--tag", default="rerender")
     ap.add_argument("--eps2d", type=float, default=0.01, help="论文值 1e-2")
     ap.add_argument("--max-views", type=int, default=32)
@@ -124,7 +171,20 @@ def main():
     g = load_ply(res / "scene.ply")
     cams_path = Path(args.cameras) if args.cameras else res / "cameras.npz"
     cams = np.load(cams_path, allow_pickle=False)
-    c2w_all, K_all = cams["c2w"], cams["intrinsics"]
+    c2w_all, K_all = np.array(cams["c2w"]), np.array(cams["intrinsics"])
+
+    # 输出相机活在 RDNorm 空间（第一相机相对 + 半径归一化），外部 GT 相机活在原始尺度。
+    # 两者差一个 Sim(3)：用输入视角的「输出相机」对「原始 GT 相机」拟合，再搬到目标相机上。
+    if args.ref_cameras:
+        ref = np.load(args.ref_cameras, allow_pickle=False)
+        out_cams = np.load(res / "cameras.npz", allow_pickle=False)
+        if len(ref["c2w"]) != len(out_cams["c2w"]):
+            raise SystemExit(f"❌ ref-cameras 视角数({len(ref['c2w'])}) ≠ 输出相机数({len(out_cams['c2w'])})")
+        s, R, t = fit_sim3(ref["c2w"][:, :3, 3], out_cams["c2w"][:, :3, 3])
+        c2w_all = apply_sim3(c2w_all, s, R, t)
+        print(f"🔗 Sim(3) 对齐: scale={s:.6f} det(R)={np.linalg.det(R):.4f} t={np.round(t,4).tolist()}")
+        if args.align_out_pose:
+            np.savez(out / "aligned_target_c2w.npz", c2w=c2w_all, intrinsics=K_all)
 
     records = meta.get("inputs", [])
     if args.images_dir:
@@ -150,11 +210,14 @@ def main():
         if not (w and h):
             with Image.open(imgs[i]) as im:
                 w, h = im.size
-        rd, al = render(g, c2w_all[i], K_all[i], int(w), int(h), eps2d=args.eps2d,
+        w, h = int(w), int(h)
+        # GT 用与模型相同的中心裁剪缩放；外部 GT 相机的内参也要跟着变到 processed 像素
+        gt, Km = model_preprocess(imgs[i], w, h)
+        K = K_all[i] if args.ref_cameras is None else (Km @ K_all[i])
+        rd, al = render(g, c2w_all[i], K, w, h, eps2d=args.eps2d,
                         background=args.background, device=args.device)
         rd = rd[0]
-        gt = np.asarray(Image.open(imgs[i]).convert("RGB").resize((int(w), int(h)), Image.BICUBIC))
-        p, s = psnr(gt, (rd * 255).round()), ssim(gt / 255.0, rd)
+        p, s = psnr(gt / 255.0, rd), ssim(gt / 255.0, rd)
         ps.append(p); ss.append(s); pairs.append((gt, (rd * 255).round().astype(np.uint8)))
         Image.fromarray((rd * 255).round().astype(np.uint8)).save(out / f"render_{i:03d}.png")
         cov = float(al[0].mean())

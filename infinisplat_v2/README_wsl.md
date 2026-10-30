@@ -27,6 +27,22 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 25.8%/32.9% 提升数字**——那个数字来自训练侧三项手术（冻结几何 + GT 位姿对齐 +
 大角度监督），训练没开源，无法复算。
 
+## 实测结果（本机 3090，长边 518）
+
+| 场景 | 输入 | 口径 | PSNR↑ | SSIM↑ |
+| --- | --- | --- | --- | --- |
+| hypersim_provided | 50 视角（GT 位姿） | 自洽 re-render | **27.05** | **0.918** |
+| hypersim_da3_pose | 32 视角（DA3 预测位姿） | 自洽 re-render | 23.29 | 0.829 |
+| dtu_provided | 16 视角（GT 位姿） | 自洽 re-render | 20.30 | 0.726 |
+| dtu_provided | 16 视角 | **NVS holdout（4 目标）** | 13.10 | 0.585 |
+
+推理耗时：16 视角 22 s、32 视角 28 s、50 视角 31 s（含 6.6 GB 权重 SHA256 校验），
+产出 2.7 M / 5.3 M / 6.1 M 高斯，峰值显存约 11 GB。
+
+⚠️ **自洽 ≠ NVS**：自洽时每个高斯中心就是从该视角反投影来的，只证明"属性学对了 + 渲染器
+接对了"；能对标论文的只有 holdout 那一行。且官方划分未公开、分辨率与目标视角选取都不同，
+**本表与论文表 1 不可直接比较**。推导与逐视角数据见 `EXPERIMENTS.md`。
+
 ## 常用命令
 
 > 以下都在 WSL 里、`cd` 到本目录（`/mnt/c/code/media_code/infinisplat_v2`）执行。
@@ -117,6 +133,7 @@ bash 01_download_models.sh
 ├── hf_download.py                   # 分块并发下载器（断点续传 + SHA256）
 ├── make_holdout.py                  # 输入/目标视角划分
 ├── render_check.py                  # PLY → 渲染 → PSNR/SSIM + 拼图
+├── EXPERIMENTS.md                   # 实验记录：实测数值、踩坑、复现边界
 └── README_wsl.md                    # 本文件
 
 ~/repos/InfiniSplat/InfiniSplat_v2/  # 官方仓（无训练代码）
@@ -147,17 +164,22 @@ bash 01_download_models.sh
 - 体素合并的边长是 **median_scale×1.4 的自适应值**（代码），论文写固定 0.004 ——
   两者关系仓库里无训练代码可证。
 
-**输出坐标系**
+**输出坐标系（最坑的一处）**
 - `scene.ply` 与 `cameras.npz` 都在 **RDNorm 空间**：第一相机为原点，全体反投影点
   的平均径向距离归一化为 1。所以 PLY 的 xyz 不是米，`scale_i` 存 `log(s)`、
   `opacity` 存 logit（标准 3DGS PLY 约定）。
-- 该空间对渲染自洽（相机与点同一套），但要和外部资产（如 COLMAP 稠密点云）对齐时
-  必须先统一尺度。
+- 在这个空间里自洽渲染没问题；但**外部 GT 相机（COLMAP/标定）活在原始尺度**，
+  直接拿来渲染会出现 `alpha=0`、画面全白、PSNR 为负。必须先用输入视角做锚拟合
+  Sim(3) 把目标相机搬过去（`render_check.py --ref-cameras`，实测残差 1e-7 / 0.024°）。
+- 要和外部资产（如 COLMAP 稠密点云）对齐时同理，必须先统一尺度。
 
 **渲染（发布包不带）**
 - `INSTALL.md` 明说不依赖 gsplat；要出图必须自接。`03_eval_render.sh` 用 gsplat
-  `rasterization`，`eps2d=0.01`。sh_degree=0 的输出是 SH 直流项，需按
-  `0.5 + SH_C0*f_dc` 转 RGB。
+  `rasterization`，`eps2d=0.01`（论文值）。
+- **gsplat 1.5.2 的输出已含 `+0.5` 直流偏置**（实测 f_dc=0、alpha≈0.98 → 像素≈0.49），
+  不要再加一次；`colors` 必须给 `[C,N,1,3]`。
+- GT 图必须用与 `prepare_images` 相同的 bicubic 中心裁剪缩放，内参同步乘同一个矩阵，
+  否则 GT 与渲染差一个裁剪偏移，指标被系统性拉低。
 - 只给输入视角的相机 → 想渲染新视角必须自己提供目标相机（provided 模式），
   这正是接入自家 COLMAP 相机的入口。
 

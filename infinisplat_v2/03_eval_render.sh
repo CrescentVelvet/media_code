@@ -50,6 +50,8 @@ if [ "$MODE" = "holdout" ]; then
     fi
 
     echo "🚀 用输入子集重建"
+    # EXAMPLE 必须清空：否则 02 会优先用官方示例的完整图像目录，忽略这里的子集
+    EXAMPLE="" \
     IMAGES_DIR="$SPLIT_DIR/input/images" CAMERAS="$SPLIT_DIR/input/cameras.npz" \
     OUT_NAME="${OUT_NAME}_holdout" MAX_VIEWS=50 LONG_SIDE="${LONG_SIDE:-518}" \
         bash "$SCRIPT_DIR/02_run_inference.sh" || exit 1
@@ -59,11 +61,14 @@ if [ "$MODE" = "holdout" ]; then
     [ -d "$RESULT" ] || RESULT=$(ls -td "$RESULTS_DIR/${OUT_NAME}_holdout"* | head -1)
     EVAL_IMAGES="$SPLIT_DIR/target/images"
     EVAL_CAMS="$SPLIT_DIR/target/cameras.npz"
+    # 目标相机的原始 GT 坐标系与输出的 RDNorm 空间差一个 Sim(3)，必须给出参考相机做对齐
+    REF_CAMS="$SPLIT_DIR/input/cameras.npz"
     TAG=holdout
 else
     RESULT="${RESULT:?ERROR: rerender 模式需要 RESULT（02 的输出目录）}"
     EVAL_IMAGES="${IMAGES_DIR:?ERROR: rerender 模式需要 IMAGES_DIR（原图目录）}"
     EVAL_CAMS=""
+    REF_CAMS=""
     TAG=rerender
 fi
 
@@ -73,6 +78,7 @@ echo "  🖼️  图像: $EVAL_IMAGES"
 
 ARGS=(--result "$RESULT" --out "$RESULT/eval" --images-dir "$EVAL_IMAGES" --tag "$TAG" --eps2d "$EPS2D")
 [ -n "$EVAL_CAMS" ] && ARGS+=(--cameras "$EVAL_CAMS")
+[ -n "$REF_CAMS" ] && ARGS+=(--ref-cameras "$REF_CAMS" --align-out-pose)
 python "$SCRIPT_DIR/render_check.py" "${ARGS[@]}" || exit 1
 
 echo "🎉 Done: $RESULT/eval"
