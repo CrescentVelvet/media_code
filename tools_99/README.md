@@ -615,9 +615,11 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 **f_rest 有两种磁盘排布**（2026-10-31 实测踩坑）：系数主序（官方 3DGS：每基函数的
 RGB 连续 3 列）与通道主序（部分 fork 导出少做一次 transpose：R/G/B 各一块）。排布
 解析错的典型症状是 **DC 颜色大体正常、一动相机就整屏红绿蓝彩虹光影**（SH 系数在
-颜色通道间交叉污染）。`SH_LAYOUT=auto`（默认）按「每 15 列一块、各块尾/头能量比
-的最大值 < 0.30 → channel」自动区分；拿不准时用 `SH_LAYOUT=coef|channel` 强制，
-或用 `99n_diag_ply.py` 先诊断（判据同源）。本机 flashworld / dtu_smoke 的 PLY 恰好
+颜色通道间交叉污染）。`SH_LAYOUT=auto`（默认）按「每 15 列一块、各块尾/头能量比」
+自动区分：中位数（抗重尾）与均值双统计量取「或」，任一显示全块衰减即认 channel；
+真实训练 SH 是重尾分布且有未收敛异常点，单一统计量可能失灵（2026-10-31 实测：
+某 PLY 均值比 0.39 越过 0.30 阈值致 auto 彩虹、强制 channel 正常，改双统计量后解决）。
+拿不准时用 `SH_LAYOUT=coef|channel` 强制，或用 `99n_diag_ply.py` 先诊断（判据同源）。本机 flashworld / dtu_smoke 的 PLY 恰好
 都是系数主序或无 f_rest，这个分支曾长期未被真实数据测到。
 
 **性能参考**（2026-10-31 实测，RTX 3090，WSL，infinisplat_v2 env）：flashworld

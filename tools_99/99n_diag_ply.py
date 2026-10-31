@@ -114,15 +114,23 @@ def diag_ply(ply_path):
         if k % 3 == 0 and math.isqrt(per + 1) ** 2 == per + 1:
             print(f"  f_rest 系数: {k} 个（3 通道 × {per}）→ SH {math.isqrt(per + 1) - 1} 阶（完整）")
             # 排布判据与 99m detect_sh_layout 同源：取各块尾/头能量比的最大值，
-            # 通道主序每块都衰减，系数主序至少有一块（同阶）近似水平
-            a = np.abs(np.stack([np.asarray(v[c]) for c in sh_cols], axis=1)).mean(axis=0)
-            ratios = []
-            for b in range(3):
-                head = float(a[b * per: b * per + 3].mean())
-                tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
-                ratios.append(tail / head if head > 0 else 1.0)
-            worst = max(ratios)
-            print(f"  SH 排布: 各块尾/头能量比 {['%.3f' % r for r in ratios]} → " +
+            # 通道主序每块都衰减，系数主序至少有一块（同阶）近似水平。
+            # 双统计量取「或」（中位 0.30 / 均值 0.25），抗真实数据的重尾与异常点
+            col_abs = np.abs(np.stack([np.asarray(v[c]) for c in sh_cols], axis=1))
+
+            def _ratios(a):
+                out = []
+                for b in range(3):
+                    head = float(a[b * per: b * per + 3].mean())
+                    tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
+                    out.append(tail / head if head > 0 else 1.0)
+                return out
+
+            r_med = _ratios(np.median(col_abs, axis=0))
+            r_mean = _ratios(col_abs.mean(axis=0))
+            worst = min(max(r_med), max(r_mean))
+            print(f"  SH 排布: 块尾/头能量比 中位 {['%.3f' % r for r in r_med]} "
+                  f"均值 {['%.3f' % r for r in r_mean]} → " +
                   ("⚠️ 通道主序（部分 fork 导出，99m SH_LAYOUT=auto 可识别，"
                    "症状=DC 颜色正常但一动相机整屏彩虹）" if worst < 0.30
                    else "✅ 系数主序（官方 3DGS，99m 默认即可）"))

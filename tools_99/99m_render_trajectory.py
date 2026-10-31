@@ -123,26 +123,36 @@ def detect_sh_layout(rest):
     系数主序（官方 3DGS）：每基函数的 RGB 连续 3 列——按每通道 15 个切块时，
     块内各基函数同阶能量接近，至少有一块（同阶）近似水平；
     通道主序（部分 fork 导出）：R/G/B 各一块、块内按基函数阶衰减 → 每块尾部都趋零。
-    取各块衰减比的「最大值」判断：全块都衰减才认 channel。
+    取各块衰减比「最大值」判断：全块都衰减才认 channel。双统计量取「或」：
+    中位数（抗重尾）阈值 0.30，均值（真实数据可能反而更低）阈值 0.25——
+    任一显示全块衰减即认 channel；系数主序的同阶块在任何中心统计量下都近似水平，
+    不会因为「或」规则被误判。
     解析错会在颜色通道间交叉污染 → 整屏彩虹光影。
     """
     import numpy as np
-    a = np.abs(rest).mean(axis=0)
-    k = a.shape[0]
+    x = np.abs(rest)
+    k = x.shape[1]
     if k % 3:
         return "coef"
     per = k // 3  # 每通道系数数 = (deg+1)^2 - 1
     if math.isqrt(per + 1) ** 2 != per + 1:
         return "coef"
-    ratios = []
-    for b in range(3):
-        head = float(a[b * per: b * per + 3].mean())
-        tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
-        ratios.append(tail / head if head > 0 else 1.0)
-    worst = max(ratios)
-    print(f"  🔍 SH 排布检测: 各块尾/头能量比 {['%.3f' % r for r in ratios]} → "
-          f"{'channel（通道主序）' if worst < 0.30 else 'coef（系数主序）'}")
-    return "channel" if worst < 0.30 else "coef"
+
+    def block_ratios(a):
+        out = []
+        for b in range(3):
+            head = float(a[b * per: b * per + 3].mean())
+            tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
+            out.append(tail / head if head > 0 else 1.0)
+        return out
+
+    r_med = block_ratios(np.median(x, axis=0))
+    r_mean = block_ratios(x.mean(axis=0))
+    is_ch = max(r_med) < 0.30 or max(r_mean) < 0.25
+    print(f"  🔍 SH 排布检测: 块尾/头能量比 中位 {['%.3f' % r for r in r_med]} "
+          f"均值 {['%.3f' % r for r in r_mean]} → "
+          f"{'channel（通道主序）' if is_ch else 'coef（系数主序）'}")
+    return "channel" if is_ch else "coef"
 
 
 def load_gaussians(ply_path, rot_order, sh_degree_env, sh_layout_env, device):
