@@ -593,6 +593,11 @@ MAX_FRAMES=16 KEEP_PNG=1 $ENV_PY tools_99/99m_render_trajectory.py
 # ③ 正式出片（超采样抗锯齿）
 PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit \
 OUT=/mnt/d/output/traj/<task>_orbit.mp4 SSAA=2 $ENV_PY tools_99/99m_render_trajectory.py
+
+# ④ 批量：一次渲多条轨迹（逗号分隔；PLY 只加载一次）。
+#    输出固定为 OUT_DIR/<轨迹目录名>.mp4，批量时 OUT 被忽略
+PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit,/mnt/d/output/traj/<task>_dz \
+OUT_DIR=/mnt/d/output/traj/videos $ENV_PY tools_99/99m_render_trajectory.py
 ```
 
 **轨迹格式约定**（99l 写、99m 读，改格式必须两边同步）：
@@ -639,7 +644,9 @@ RGB 连续 3 列）与通道主序（部分 fork 导出少做一次 transpose：
 `R0` / `R1` / `R_AS_MULT`（R0/R1 是 RADIUS 的倍数还是直接米数）、`DZ_SENSOR_H`
 （只影响 dolly_zoom 焦距绝对值，不影响画面效果）。
 
-**99m 其余 env**：`OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
+**99m 其余 env**：`TRAJ_DIR`（支持**逗号分隔多条轨迹**批量渲染，PLY 只加载一次；
+输出固定为 `OUT_DIR/<轨迹目录名>.mp4`，批量时 `OUT` 被忽略；单条时 `OUT` 可自定义
+文件名）/ `OUT_DIR` / `OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
 `SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（auto|coef|channel，
 见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
