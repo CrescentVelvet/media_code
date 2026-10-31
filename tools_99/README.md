@@ -619,13 +619,17 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 **出片质量上限**：取决于训练数据的相机覆盖。渲染相机离训练位置越远（大幅推近/仰角变化），
 画面越容易糊/出伪影——某段突然变糊先怀疑覆盖不足，不是渲染 bug。
 
-**99l 关键 env**：`TYPE`（必填）、`OUT_DIR`（必填）、`PLY`（给了就自动算 CENTER/RADIUS，
-`AUTO_Q` 默认 0.90=主体取景口径、要含环境设 0.98）、`CENTER` / `RADIUS` / `LOOK_AT` / `UP`、
-`N` / `W` / `H` / `FOV_Y`、`EASE`（smoothstep 默认，电影感来源）、`EL` / `AZ0` / `AZ_SWEEP`、
-`EL0` / `EL1`、`R0` / `R1` / `R_AS_MULT`（R0/R1 是 RADIUS 的倍数还是直接米数）、
-`DZ_SENSOR_H`（只影响 dolly_zoom 焦距绝对值，不影响画面效果）。
+**99l / 99m 的路径与参数预设**：与 99a~99f 同风格——`main()` 里有一组预设值
+（PLY 路径、TYPE、OUT_DIR、N 等，注释「改模型/批次时只改这几行」），env 只作覆盖；
+不设 env 直接 `python tools_99/99l_gen_colmap_traj.py` 即可跑通示例。
 
-**99m 关键 env**：`PLY` / `TRAJ_DIR`（必填）、`OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
+**99l 其余 env**：`PLY`（给了就自动算 CENTER/RADIUS，`AUTO_Q` 默认 0.90=主体取景口径、
+要含环境设 0.98）、`CENTER` / `RADIUS` / `LOOK_AT` / `UP`、`N` / `W` / `H` / `FOV_Y`、
+`EASE`（smoothstep 默认，电影感来源）、`EL` / `AZ0` / `AZ_SWEEP`、`EL0` / `EL1`、
+`R0` / `R1` / `R_AS_MULT`（R0/R1 是 RADIUS 的倍数还是直接米数）、`DZ_SENSOR_H`
+（只影响 dolly_zoom 焦距绝对值，不影响画面效果）。
+
+**99m 其余 env**：`OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
 `SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
 （一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。

@@ -1,35 +1,32 @@
 #!/usr/bin/env python3
-"""99m — 按 COLMAP 轨迹渲染 3DGS PLY 为视频（gsplat 离屏渲染）。
+"""99m_render_trajectory.py — 按 COLMAP 轨迹渲染 3DGS PLY 为视频（gsplat 离屏渲染）。
 
 输入：标准 3DGS PLY + 99l（或任何工具）写出的 COLMAP 文本三件套目录。
-约定（与 99l 成对，改格式必须两边同步）：帧序 = IMAGE_ID 升序；images.txt 每条
-记录占两行（位姿行 + POINTS2D 行）；只接受 PINHOLE / SIMPLE_PINHOLE 相机模型，
-OPENCV 等带畸变的直接报错（静默按针孔渲会偏，宁可拒绝）。
+
+环境准备
+    conda env infinisplat_v2（gsplat 1.5.2 + torch 2.6 cu124 + plyfile + cv2），
+    需要 NVIDIA GPU。服务器上按 tools_99/README.md 族 E「服务器运行」建
+    gs_traj_render env。本机无 ffmpeg，视频用 cv2.VideoWriter(mp4v) 直接写。
+
+与 99l 成对，轨迹格式约定（改格式必须两边同步）：帧序 = IMAGE_ID 升序；
+images.txt 每条记录占两行（位姿行 + POINTS2D 行）；只接受 PINHOLE /
+SIMPLE_PINHOLE 相机模型，OPENCV 等带畸变的直接报错（静默按针孔渲会偏，宁可拒绝）。
 
 activation 与原版 3DGS 训练端一致：scale=exp(raw)、opacity=sigmoid(raw)、
 color 走 SH（gsplat 对 SH 输入内部做 sigmoid）。PLY 'rot' 默认按官方 3DGS 约定
 存 (w,x,y,z)，gsplat 要 xyzw，加载时 roll；若渲染出来模型像被「拧散」，先怀疑
 这个顺序，用 ROT_ORDER=xyzw 试。
 
-运行环境：conda env infinisplat_v2（gsplat 1.5.2 + torch 2.6 cu124 + plyfile + cv2）。
-本机无 ffmpeg，视频用 cv2.VideoWriter(mp4v) 直接写；要更小的文件可事后自行转码。
+用法:
+    python tools_99/99m_render_trajectory.py               # 用 main() 里的预设跑
+    MAX_FRAMES=16 KEEP_PNG=1 python ...                    # 小样目检首中尾帧
+    SSAA=2 OUT=<路径.mp4> python ...                       # 超采样正式出片
+    DRY_RUN=1 python ...                                   # 只解析不渲染
 
-Env vars:
-  PLY          输入 PLY（必填）
-  TRAJ_DIR     含 cameras.txt + images.txt 的目录（必填）
-  OUT          输出 MP4 路径，默认 <TRAJ_DIR>/render.mp4
-  FPS          帧率，默认 30
-  SH_DEGREE    渲染用的 SH 阶数，默认 -1 = 按 PLY 系数个数自动
-  SSAA         超采样倍数（1=关，2=渲染 2x 再降到输出分辨率），默认 1
-  EPS2D        gsplat 抗锯齿参数，默认 0.3（gsplat 1.x 的默认抗锯齿）
-  NEAR / FAR   视锥裁剪，默认 0.01 / 200
-  BG           背景色 "r,g,b"（0~1），默认 "0,0,0" 黑
-  ROT_ORDER    PLY 'rot' 的顺序：wxyz（官方 3DGS 默认）| xyzw，默认 wxyz
-  MAX_FRAMES   只渲前 N 帧（小样调试用），0=全部
-  VIEW_CHUNK   一次 rasterization 并行渲染的视角数，默认 8
-  KEEP_PNG     1=把逐帧 PNG 留在 <OUT>.frames/，默认 0
-  W / H        0=跟随 cameras.txt；非 0=强制缩放所有帧到该分辨率
-  DRY_RUN      1=只解析不渲染，打印轨迹/PLY 摘要
+Env vars（不设则用下方 main() 里的默认值）:
+  路径   PLY, TRAJ_DIR, OUT
+  渲染   FPS, SH_DEGREE（-1=按 PLY 系数自动）, SSAA, EPS2D, NEAR, FAR, BG, W, H
+  调试   ROT_ORDER（wxyz|xyzw）, MAX_FRAMES, VIEW_CHUNK, KEEP_PNG, DRY_RUN
 """
 import math
 import os
@@ -174,17 +171,36 @@ def load_gaussians(ply_path, rot_order, sh_degree_env, device):
         "opacities": opacity.to(device),
         "colors": colors.to(device),
         "sh_degree": sh_degree,
-        "center": means.mean(dim=0).cpu(),
     }
 
 
 def main():
-    ply_path = Path(os.environ.get("PLY", "").strip())
-    traj_dir = Path(os.environ.get("TRAJ_DIR", "").strip())
-    if not ply_path or not ply_path.exists():
-        die(f"PLY 未设置或不存在: {ply_path}")
-    if not traj_dir or not traj_dir.exists():
-        die(f"TRAJ_DIR 未设置或不存在: {traj_dir}")
+    # Windows 控制台默认 cp936，直接打印 emoji 会 UnicodeEncodeError；
+    # WSL/Linux 下这个调用无害
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    # ===== 预设路径与参数，改模型/批次时只改这几行 =====
+    # 源：待渲染的 3DGS PLY + 99l 写出的轨迹目录（本机 WSL 示例路径；
+    # 服务器上改成服务器路径）
+    PLY = Path(
+        "/mnt/d/output/flashworld_results/03_gaussians/"
+        "01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕_frame000/gaussians.ply"
+    )
+    TRAJ_DIR = Path("../../output/traj/demo_orbit")   # 相对 cwd=media_code/ 解析
+    OUT = Path("../../output/traj/demo_orbit.mp4")    # 输出 MP4
+    # 常用渲染参数（其余走 env 覆盖，见文件头 Env vars 清单）
+    FPS = 30
+    SSAA = 1            # 2 = 渲染 2x 再降采样（抗 splats 缩放边缘闪烁）
+    # ======================================================
+
+    # env 覆盖（不设则用上面的预设）
+    ply_path = Path(os.environ.get("PLY", str(PLY)).strip())
+    traj_dir = Path(os.environ.get("TRAJ_DIR", str(TRAJ_DIR)).strip())
+    if not ply_path.exists():
+        die(f"PLY 不存在: {ply_path}")
+    if not traj_dir.exists():
+        die(f"TRAJ_DIR 不存在: {traj_dir}")
     cam_path = traj_dir / "cameras.txt"
     img_path = traj_dir / "images.txt"
     if not cam_path.exists() or not img_path.exists():
@@ -193,8 +209,8 @@ def main():
     cams = parse_cameras(cam_path)
     frames = parse_images(img_path)
 
-    fps = int(os.environ.get("FPS", "30"))
-    ssaa = int(os.environ.get("SSAA", "1"))
+    fps = int(os.environ.get("FPS", str(FPS)))
+    ssaa = int(os.environ.get("SSAA", str(SSAA)))
     eps2d = float(os.environ.get("EPS2D", "0.3"))
     near = float(os.environ.get("NEAR", "0.01"))
     far = float(os.environ.get("FAR", "200"))
@@ -230,13 +246,13 @@ def main():
     import torch
 
     if not torch.cuda.is_available():
-        die("torch.cuda 不可用——99m 必须在 WSL GPU 环境跑（infinisplat_v2）")
+        die("torch.cuda 不可用——99m 必须在 GPU 环境跑（infinisplat_v2 / gs_traj_render）")
     device = "cuda"
     from gsplat import rasterization
 
     gs = load_gaussians(ply_path, rot_order, int(os.environ.get("SH_DEGREE", "-1")), device)
 
-    out_path = Path(os.environ.get("OUT", "").strip() or str(traj_dir / "render.mp4"))
+    out_path = Path(os.environ.get("OUT", str(OUT)).strip())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     frames_dir = Path(str(out_path) + ".frames")
     if keep_png:

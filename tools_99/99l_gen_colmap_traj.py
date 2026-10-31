@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
-"""99l — 参数化运镜轨迹生成器：输出 COLMAP 文本三件套（cameras/images/points3D）。
+"""99l_gen_colmap_traj.py — 参数化运镜轨迹生成器：输出 COLMAP 文本三件套
+（cameras.txt / images.txt / points3D.txt），供 99m 渲染、或喂给 99g / COLMAP GUI 目检。
 
-与 99g/99k 同为「纯标准库」实现（PLY 自动定心除外，那一步需要 plyfile+numpy，
-没有就显式给 CENTER/RADIUS）。输出目录可直接被 99m 渲染、也可喂给 99g/ COLMAP GUI 目检。
+环境准备
+    纯标准库，任意 python3 即可（无需 conda）；仅 PLY 自动定心需要 numpy+plyfile。
 
-轨迹格式约定（99m 按此消费，改格式必须两边同步）：
-  * 帧序 = IMAGE_ID 升序（生成器按 1..N 顺序写）；
+与 99m 成对，轨迹格式约定（改格式必须两边同步）：
+  * 帧序 = IMAGE_ID 升序（本脚本按 1..N 顺序写）；
   * images.txt 每条记录**占两行**（位姿行 + POINTS2D 行，后者可为空）——
     漏第二行是 COLMAP 解析错位的第一大坑；
   * qvec = (qw,qx,qy,qz)，tvec 为世界系→相机系（x_c = R x_w + t）；
   * 只写 PINHOLE 相机；dolly_zoom 逐帧一个 CAMERA_ID（焦距随距离等比缩放，
     主体在画面中的高度恒定），其余运镜共用 CAMERA_ID=1。
 
-Env vars:
-  TYPE        orbit | helix | dolly_zoom | push_in | arc（必填）
-  OUT_DIR     输出目录（必填）
-  PLY         给了就自动算 CENTER（中位数中心）与 RADIUS（q90 距离，AUTO_Q 可调）
-  CENTER      "x,y,z"，默认 "0,0,0"（PLY 自动值优先于它）
-  RADIUS      相机半径基准（米），默认 1.0（PLY 自动值优先于它）
-  N           帧数，默认 120
-  W, H        写入 cameras.txt 的分辨率，默认 1920x1080
-  FOV_Y       垂直视场角（度），默认 45
-  EASE        smoothstep（默认）| linear——决定「电影感」的缓动
-  UP          "x,y,z"，默认 "0,1,0"
-  LOOK_AT     "x,y,z"，默认 = CENTER（希区柯克变焦的目标点）
-  -- orbit / arc --
-  EL          相机仰角（度，高于目标），默认 15；arc 默认 5（低角度过肩感）
-  AZ0         起始方位角（度），默认 0
-  AZ_SWEEP    方位角扫过范围（度），orbit 默认 360，arc 默认 120
-  -- helix --
-  EL0 / EL1   起/止仰角（度），默认 5 / 40
-  AZ_SWEEP    同上，默认 360
-  -- push_in / dolly_zoom --
-  R0 / R1     起/止相机到目标距离（= RADIUS 的倍数或直接米数，见 R_AS_MULT）
-  EL / AZ0    同上（push_in 默认 EL=15；dolly_zoom 默认 EL=0 正对主体）
-  R_AS_MULT   1（默认）= R0/R1 是 RADIUS 的倍数；0 = 直接米数
-  DZ_SENSOR_H 等效传感器高度（mm 仅作比值基准），默认 24——只影响 dolly_zoom 的
-              焦距绝对值，不影响画面效果（主体占比恒定的性质与具体值无关）
+用法:
+    python tools_99/99l_gen_colmap_traj.py                 # 用 main() 里的预设跑
+    TYPE=dolly_zoom R0=1.0 R1=0.4 python ...               # env 覆盖单项参数
+    PLY="" CENTER="0,0,0" RADIUS=2 python ...              # 关自动定心、手给中心/半径
+
+Env vars（不设则用下方 main() 里的默认值）:
+  通用        TYPE, OUT_DIR, PLY, CENTER, RADIUS, LOOK_AT, UP, N, W, H, FOV_Y, EASE
+  orbit/arc   EL, AZ0, AZ_SWEEP          # arc 默认 EL=5 / AZ_SWEEP=120（低角度过肩）
+  helix       EL0, EL1, AZ_SWEEP
+  push_in/    R0, R1, R_AS_MULT（1=R0/R1 是 RADIUS 的倍数；0=直接米数）, EL, AZ0,
+  dolly_zoom  DZ_SENSOR_H（只影响 dolly_zoom 焦距绝对值，不影响画面效果）
 """
 import math
 import os
@@ -79,10 +66,6 @@ def norm(v):
 
 def cross(a, b):
     return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-
-
-def dot(a, b):
-    return sum(x * y for x, y in zip(a, b))
 
 
 def look_at_to_w2c(cam, target, up):
@@ -168,55 +151,44 @@ def auto_center_radius(ply_path):
     return center.tolist(), radius
 
 
-def gen_frames():
-    """按 TYPE 生成 [(pos, az_unused, extra)]，返回 (frames, per_frame_focal_scale)。
-
-    per_frame_focal_scale：每帧焦距缩放（dolly_zoom 用，其余全 1.0）。
-    """
-    t_type = os.environ.get("TYPE", "").strip()
-    if not t_type:
-        die("TYPE 未设置（orbit | helix | dolly_zoom | push_in | arc）")
-    n = int(os.environ.get("N", "120"))
+def gen_frames(cfg):
+    """按 cfg["type"] 生成 [(pos, focal_scale)]。focal_scale 只有 dolly_zoom 非 1。"""
+    t_type = cfg["type"]
+    n = cfg["n"]
     if n < 2:
         die("N 至少 2")
 
-    center = parse_vec(os.environ.get("CENTER"), "CENTER", [0.0, 0.0, 0.0])
-    radius = float(os.environ.get("RADIUS", "1.0"))
-    ply = os.environ.get("PLY", "").strip()
-    if ply:
-        c_auto, r_auto = auto_center_radius(Path(ply))
+    center, radius = cfg["center"], cfg["radius"]
+    if cfg.get("ply"):
+        c_auto, r_auto = auto_center_radius(Path(cfg["ply"]))
         print(f"🎯 PLY 自动定心: center=({c_auto[0]:.3f},{c_auto[1]:.3f},{c_auto[2]:.3f}) "
               f"radius={r_auto:.3f}")
         center, radius = c_auto, r_auto
 
-    look_at = parse_vec(os.environ.get("LOOK_AT"), "LOOK_AT", center)
-    up = parse_vec(os.environ.get("UP"), "UP", [0.0, 1.0, 0.0])
-    ease_mode = os.environ.get("EASE", "smoothstep")
-    r_as_mult = os.environ.get("R_AS_MULT", "1") == "1"
+    look_at = cfg["look_at"]
+    up = cfg["up"]
+    ease_mode = cfg["ease"]
+    dist = (lambda v: v * radius) if cfg["r_as_mult"] else (lambda v: v)
 
-    def dist(v):
-        return v * radius if r_as_mult else v
-
-    az0 = float(os.environ.get("AZ0", "0"))
-    frames = []          # (pos, focal_scale)
+    az0 = cfg["az0"]
+    frames = []
     f_scale = [1.0] * n
 
     if t_type in ("orbit", "arc"):
-        el = float(os.environ.get("EL", "15" if t_type == "orbit" else "5"))
-        sweep = float(os.environ.get("AZ_SWEEP", "360" if t_type == "orbit" else "120"))
+        el = cfg["el"]
+        sweep = cfg["az_sweep"]
         for i in range(n):
             t = ease(i / (n - 1), ease_mode)
             frames.append(sphere_pos(center, dist(1.0), az0 + sweep * t, el))
     elif t_type == "helix":
-        el0 = float(os.environ.get("EL0", "5"))
-        el1 = float(os.environ.get("EL1", "40"))
-        sweep = float(os.environ.get("AZ_SWEEP", "360"))
+        el0, el1 = cfg["el0"], cfg["el1"]
+        sweep = cfg["az_sweep"]
         for i in range(n):
             t = ease(i / (n - 1), ease_mode)
             frames.append(sphere_pos(center, dist(1.0), az0 + sweep * t, el0 + (el1 - el0) * t))
     elif t_type in ("push_in", "dolly_zoom"):
-        el = float(os.environ.get("EL", "15" if t_type == "push_in" else "0"))
-        r0, r1 = float(os.environ.get("R0", "1.0")), float(os.environ.get("R1", "0.4"))
+        el = cfg["el"]
+        r0, r1 = cfg["r0"], cfg["r1"]
         cam_dir = norm([sphere_pos(center, 1.0, az0, el)[i] - center[i] for i in range(3)])
         for i in range(n):
             t = ease(i / (n - 1), ease_mode)
@@ -228,24 +200,70 @@ def gen_frames():
     else:
         die(f"未知 TYPE: {t_type}")
 
-    return frames, f_scale, look_at, up, n
+    return frames, f_scale, look_at, up
 
 
 def main():
-    out_dir = Path(os.environ.get("OUT_DIR", "").strip())
-    if not out_dir:
-        die("OUT_DIR 未设置")
+    # Windows 控制台默认 cp936，直接打印 emoji 会 UnicodeEncodeError；
+    # WSL/Linux 下这个调用无害
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    # ===== 预设路径与参数，改模型/批次时只改这几行 =====
+    # 源：待渲染的 3DGS PLY（本机 WSL 示例路径；服务器上改成服务器路径）。
+    # 给了就自动定心；不想自动定心设 PLY="" 并显式给 CENTER / RADIUS
+    PLY = Path(
+        "/mnt/d/output/flashworld_results/03_gaussians/"
+        "01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕_frame000/gaussians.ply"
+    )
+    TYPE = "orbit"                                  # orbit | helix | dolly_zoom | push_in | arc
+    # 输出：COLMAP 三件套目录（相对 cwd=media_code/ 解析，与 99a~99f 同一约定）
+    OUT_DIR = Path("../../output/traj/demo_orbit")
+    # 常用运镜参数（其余走 env 覆盖，见文件头 Env vars 清单）
+    N = 120                 # 帧数（= 时长 × FPS，99m 侧默认 30fps）
+    AZ_SWEEP = 360          # 方位角扫过范围（度）
+    EL = 15                 # 相机仰角（度，高于目标）；arc 建议 5
+    # ======================================================
+
+    # env 覆盖（不设则用上面的预设）
+    ply_s = os.environ.get("PLY", str(PLY)).strip()
+    t_type = os.environ.get("TYPE", TYPE).strip()
+    look_env = os.environ.get("LOOK_AT")
+    cfg = {
+        "type": t_type,
+        "n": int(os.environ.get("N", str(N))),
+        "ply": None if not ply_s else ply_s,
+        "center": parse_vec(os.environ.get("CENTER"), "CENTER", [0.0, 0.0, 0.0]),
+        "radius": float(os.environ.get("RADIUS", "1.0")),
+        # LOOK_AT 不设 = 跟随 CENTER（自动定心时 = 自动中心），不能走 parse_vec 的必填分支
+        "look_at": parse_vec(look_env, "LOOK_AT") if look_env else None,
+        "up": parse_vec(os.environ.get("UP"), "UP", [0.0, 1.0, 0.0]),
+        "ease": os.environ.get("EASE", "smoothstep"),
+        "r_as_mult": os.environ.get("R_AS_MULT", "1") == "1",
+        "az0": float(os.environ.get("AZ0", "0")),
+        "el": float(os.environ.get("EL", str(5 if t_type == "arc" else EL))),
+        "az_sweep": float(os.environ.get("AZ_SWEEP", str(120 if t_type == "arc" else AZ_SWEEP))),
+        "el0": float(os.environ.get("EL0", "5")),
+        "el1": float(os.environ.get("EL1", "40")),
+        "r0": float(os.environ.get("R0", "1.0")),
+        "r1": float(os.environ.get("R1", "0.4")),
+    }
+    if cfg["look_at"] is None:
+        cfg["look_at"] = cfg["center"]      # LOOK_AT 默认 = CENTER（自动定心时 = 自动中心）
+
+    out_dir = Path(os.environ.get("OUT_DIR", str(OUT_DIR)))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     w = int(os.environ.get("W", "1920"))
     h = int(os.environ.get("H", "1080"))
     fov_y = float(os.environ.get("FOV_Y", "45"))
-    sensor_h = float(os.environ.get("DZ_SENSOR_H", "24"))
+    # DZ_SENSOR_H 只影响 dolly_zoom 写入的焦距绝对值（作比值基准），不影响画面效果
     fy0 = h / (2.0 * math.tan(math.radians(fov_y) / 2.0))
     fx0 = fy0 * w / h  # 方形像素
     cx, cy = w / 2.0, h / 2.0
 
-    frames, f_scale, look_at, up, n = gen_frames()
+    frames, f_scale, look_at, up = gen_frames(cfg)
+    n = len(frames)
     dz = any(abs(s - 1.0) > 1e-9 for s in f_scale)
 
     cam_lines = [
@@ -280,8 +298,7 @@ def main():
         "# 3D point list (trajectory file: no points)\n", encoding="utf-8")
 
     first, last = frames[0], frames[-1]
-    print(f"🚀 [99l] TYPE={os.environ.get('TYPE')} N={n} 分辨率 {w}x{h} fov_y={fov_y}° "
-          f"EASE={os.environ.get('EASE', 'smoothstep')}")
+    print(f"🚀 [99l] TYPE={t_type} N={n} 分辨率 {w}x{h} fov_y={fov_y}° EASE={cfg['ease']}")
     print(f"  📷 相机首帧 ({first[0]:.3f},{first[1]:.3f},{first[2]:.3f}) "
           f"末帧 ({last[0]:.3f},{last[1]:.3f},{last[2]:.3f})")
     if dz:
