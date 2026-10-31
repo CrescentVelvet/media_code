@@ -20,6 +20,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--images-dir", required=True)
+    ap.add_argument("--cameras", help="NPZ: c2w[N,4,4] + intrinsics[N,3,3]；给了就走 provided，跳过 DA3 位姿")
     ap.add_argument("--long-side", type=int, default=518)
     ap.add_argument("--max-views", type=int, default=8)
     ap.add_argument("--device", default="cuda:0")
@@ -54,13 +55,23 @@ def main():
     pipe = Pipeline.from_pretrained(args.model, args.device)   # 含 6.6 GB SHA256 校验
     tick("load_s")
 
-    pixels, _, _ = prepare_images(imgs, long_side=args.long_side)
-    tick("preprocess_s")
+    import numpy as np
+    cams = None
+    if args.cameras:
+        with np.load(args.cameras, allow_pickle=False) as z:
+            cams = {k: z[k] for k in ("c2w", "intrinsics")}
+    pose_mode = None if cams is not None else "da3-pose"
 
-    cam = pipe.model.predict_cameras(pixels.to(args.device))
-    tick("da3_pose_s")
+    if cams is None:
+        pixels, _, _ = prepare_images(imgs, long_side=args.long_side)
+        tick("preprocess_s")
+        pipe.model.predict_cameras(pixels.to(args.device))
+        tick("da3_pose_s")
+    else:
+        tick("preprocess_s")   # provided 模式下预处理已含在 reconstruct 内
+        marks["da3_pose_s"] = 0.0
 
-    scene = pipe.reconstruct(imgs, cameras=None, pose_mode="da3-pose",
+    scene = pipe.reconstruct(imgs, cameras=cams, pose_mode=pose_mode,
                              long_side=args.long_side, max_views=args.max_views)
     tick("reconstruct_s")   # 含重复的位姿预检，见下方说明
 
@@ -72,7 +83,7 @@ def main():
     for i in range(max(0, args.repeat - 1)):
         torch.cuda.synchronize()
         t0 = time.time()
-        scene = pipe.reconstruct(imgs, cameras=None, pose_mode="da3-pose",
+        scene = pipe.reconstruct(imgs, cameras=cams, pose_mode=pose_mode,
                                  long_side=args.long_side, max_views=args.max_views)
         torch.cuda.synchronize()
         warm.append(round(time.time() - t0, 2))

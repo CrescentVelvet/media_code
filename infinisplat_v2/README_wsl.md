@@ -60,6 +60,34 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 
 细节与逐物体数据见 `EXPERIMENTS.md` 的 E-07~E-11。
 
+### 人物采集包实测（`D:\dataset\手部微动样例`，10 场景 / 每场景 82 帧）
+
+华为 Remy 采集包（`transforms.json` + `image/*.heic` + `pcd.ply`），带 GT 位姿，
+走 `07_run_capture.sh` 一条命令。三个场景实测：
+
+| 配置 | 视角 | 长边 | 高斯数 | 峰值显存 | 端到端 | 常驻复用 | 自洽 PSNR |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 佳佳抱枕 | 16 | 518 | 3.25 M | 13.4 GB | 25.0 s | — | 19.63 |
+| 佳佳抱枕 | 32 | 518 | 6.50 M | 18.3 GB | 35.5 s | **8.35 s** | 20.72 |
+| 佳佳抱枕 | 50 | 518 | 10.15 M | **23.8 GB** | 37.8 s | — | — |
+| 佳佳抱枕 | 16 | 777 | 7.38 M | 18.5 GB | 29.7 s | 8.05 s | 20.31 |
+| 佳佳抱枕 | 32 | 777 | 14.75 M | 24.1 GB | **73 s** | — | 撞顶降级 |
+| 佳佳抱枕 | 32 | 1036 | 25.5 M | 24.2 GB | **318 s** | — | 撞顶降级 |
+| 三人聚餐 | 16 | 518 | 3.25 M | 12.4 GB | 24.2 s | — | 19.38 |
+| 女生弹琴 | 16 | 518 | 3.25 M | 12.4 GB | 23.9 s | — | 20.15 |
+
+**显存 ≈ 8.5 + 1.51 × raw高斯(百万) GB**，24 GB 卡 raw 上限约 **1000 万**：
+
+| 长边 | 处理尺寸 | 最多视角 |
+| --- | --- | --- |
+| 518 | 392×518 | 50 |
+| 777 | 588×784 | 21 |
+| 1036 | 770×1036 | 12 |
+
+超过上限不会 OOM，而是**静默变慢 10 倍**（峰值卡在 24.1–24.2 GB）。判据就是这个。
+⚠️ 手部只保留 GT 锐度的 5%（518）/ 13%（777）——**手部糊是像素预算不够，不是动态没处理**；
+手部微动使自洽 PSNR 掉 1.6 dB，但这个尺度下看不见幽灵，只表现为更糊。
+
 ⚠️ **自洽 ≠ NVS**：自洽时每个高斯中心就是从该视角反投影来的，只证明"属性学对了 + 渲染器
 接对了"；能对标论文的只有 holdout 那一行。且官方划分未公开、分辨率与目标视角选取都不同，
 **本表与论文表 1 不可直接比较**。推导与逐视角数据见 `EXPERIMENTS.md`。
@@ -107,12 +135,23 @@ DATASET_ROOT=... CASES="手表 鼠标" N_INPUT=2 N_TARGET=1 bash 06_nvs_holdout.
 # 6) 位姿自检（判断 DA3 是否塌缩）
 python diag_pose.py --results ~/output/infinisplat_v2_results --prefix threeview
 
-# 7) 拆耗时段 / 测常驻复用成本
+# 7) 拆耗时段 / 测常驻复用成本（--cameras 走 provided，跳过 DA3 位姿）
 python bench_stages.py --model ~/model/infinisplat_v2/da3 \
   --images-dir /mnt/d/dataset/物体三图数据/手表 --repeat 6 --out /tmp/stages.json
+python bench_stages.py --model ~/model/infinisplat_v2/da3 \
+  --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
+  --cameras  ~/output/infinisplat_v2_results/_captures/jiajia/cameras.npz \
+  --long-side 518 --max-views 32 --repeat 4 --out /tmp/stages_cap.json
 
-# 8) COLMAP 供位姿（DA3 塌缩时的备选；本数据集上因纹理太少未能重建）
+# 8) COLMAP 供位姿（DA3 塌缩时的备选；物体数据集上因纹理太少未能重建）
 IMAGES_DIR=/mnt/d/data/imgs COLMAP_LONG_SIDE=1024 bash 05_pose_colmap.sh
+
+# 9) 手机采集包（transforms.json + HEIC + pcd.ply）→ 推理 + 显存耗时
+RAW_DIR="/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕" \
+  OUT_NAME=jiajia N_VIEWS=32 LONG_SIDE=518 bash 07_run_capture.sh
+RAW_DIR=... OUT_NAME=jiajia777 N_VIEWS=16 LONG_SIDE=777 bash 07_run_capture.sh  # 手部更清，但更吃显存
+RAW_DIR=... OUT_NAME=jiajia N_VIEWS=32 SKIP_INFER=1 bash 07_run_capture.sh      # 只转换不推理
+RAW_DIR=... OUT_NAME=jiajia N_VIEWS=32 RENDER=1 bash 07_run_capture.sh          # 转换+推理+自洽渲染
 ```
 
 ## 首次准备
@@ -170,11 +209,13 @@ bash 01_download_models.sh
 ├── 04_run_dataset.sh                # 批量跑自有数据集 + 逐物体记显存/耗时
 ├── 05_pose_colmap.sh                # COLMAP SfM 供位姿 → cameras.npz
 ├── 06_nvs_holdout.sh                # 少视角真实 NVS（N 输入 → 留出 M 视角）
+├── 07_run_capture.sh                # 手机采集包 → 转换 + 推理 + 显存耗时（一条命令）
 ├── 08_move_output.sh                # 结果从 Linux fs 搬到 Windows 盘
 ├── run_all.sh                       # 一键
 ├── hf_download.py                   # 分块并发下载器（断点续传 + SHA256）
 ├── make_holdout.py                  # 输入/目标视角划分
 ├── render_check.py                  # PLY → 渲染 → PSNR/SSIM + 拼图
+├── 07_capture_to_npz.py             # transforms.json + HEIC → PNG + cameras.npz（含去畸变）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
 ├── rebuild_bench.py                 # 从已有结果目录重建汇总表（不重跑 GPU）
