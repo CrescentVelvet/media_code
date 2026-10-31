@@ -612,6 +612,14 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 加载时 roll（`ROT_ORDER=xyzw` 可切）；`scale`/`rot` 兼容向量属性与 `scale_0..2` /
 `rot_0..3` 逐分量两种写法。若渲染出来模型像被「拧散」，先怀疑 rot 顺序。
 
+**f_rest 有两种磁盘排布**（2026-10-31 实测踩坑）：系数主序（官方 3DGS：每基函数的
+RGB 连续 3 列）与通道主序（部分 fork 导出少做一次 transpose：R/G/B 各一块）。排布
+解析错的典型症状是 **DC 颜色大体正常、一动相机就整屏红绿蓝彩虹光影**（SH 系数在
+颜色通道间交叉污染）。`SH_LAYOUT=auto`（默认）按「每 15 列一块、各块尾/头能量比
+的最大值 < 0.30 → channel」自动区分；拿不准时用 `SH_LAYOUT=coef|channel` 强制，
+或用 `99n_diag_ply.py` 先诊断（判据同源）。本机 flashworld / dtu_smoke 的 PLY 恰好
+都是系数主序或无 f_rest，这个分支曾长期未被真实数据测到。
+
 **性能参考**（2026-10-31 实测，RTX 3090，WSL，infinisplat_v2 env）：flashworld
 `gaussians.ply`（**405 万**高斯、degree-0 颜色）120 帧 1920x1080@30fps 渲染 **4.6s**
 （≈26 it/s 全分辨率）——性能完全不是瓶颈，瓶颈只在运镜设计本身。
@@ -631,7 +639,8 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 
 **99m 其余 env**：`OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
-`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
+`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（auto|coef|channel，
+见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
 （一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。
 
 > 本机无 ffmpeg，99m 用 `cv2.VideoWriter(mp4v)` 直接写 MP4（体积偏大、播放器兼容一般）；

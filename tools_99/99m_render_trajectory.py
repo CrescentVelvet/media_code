@@ -17,6 +17,10 @@ color 走 SH（gsplat 对 SH 输入内部做 sigmoid）。PLY 'rot' 默认按官
 存 (w,x,y,z)，gsplat 要 xyzw，加载时 roll；若渲染出来模型像被「拧散」，先怀疑
 这个顺序，用 ROT_ORDER=xyzw 试。
 
+f_rest 有两种磁盘排布：系数主序（官方 3DGS，每基函数 RGB 连续 3 列）与通道
+主序（部分 fork 导出少做一次 transpose，R/G/B 各一块）。SH_LAYOUT=auto 按块内
+能量衰减自动区分；解析错的典型症状是 DC 颜色正常、一动相机就整屏彩虹光影。
+
 用法:
     python tools_99/99m_render_trajectory.py               # 用 main() 里的预设跑
     MAX_FRAMES=16 KEEP_PNG=1 python ...                    # 小样目检首中尾帧
@@ -26,7 +30,8 @@ color 走 SH（gsplat 对 SH 输入内部做 sigmoid）。PLY 'rot' 默认按官
 Env vars（不设则用下方 main() 里的默认值）:
   路径   PLY, TRAJ_DIR, OUT
   渲染   FPS, SH_DEGREE（-1=按 PLY 系数自动）, SSAA, EPS2D, NEAR, FAR, BG, W, H
-  调试   ROT_ORDER（wxyz|xyzw）, MAX_FRAMES, VIEW_CHUNK, KEEP_PNG, DRY_RUN
+  调试   ROT_ORDER（wxyz|xyzw）, SH_LAYOUT（auto|coef|channel）, MAX_FRAMES,
+         VIEW_CHUNK, KEEP_PNG, DRY_RUN
 """
 import math
 import os
@@ -112,7 +117,35 @@ def parse_images(path):
     return [entries[k] for k in sorted(entries)]
 
 
-def load_gaussians(ply_path, rot_order, sh_degree_env, device):
+def detect_sh_layout(rest):
+    """按块内能量衰减区分 f_rest 磁盘排布（与 99n 的判据同源）。
+
+    系数主序（官方 3DGS）：每基函数的 RGB 连续 3 列——按每通道 15 个切块时，
+    块内各基函数同阶能量接近，至少有一块（同阶）近似水平；
+    通道主序（部分 fork 导出）：R/G/B 各一块、块内按基函数阶衰减 → 每块尾部都趋零。
+    取各块衰减比的「最大值」判断：全块都衰减才认 channel。
+    解析错会在颜色通道间交叉污染 → 整屏彩虹光影。
+    """
+    import numpy as np
+    a = np.abs(rest).mean(axis=0)
+    k = a.shape[0]
+    if k % 3:
+        return "coef"
+    per = k // 3  # 每通道系数数 = (deg+1)^2 - 1
+    if math.isqrt(per + 1) ** 2 != per + 1:
+        return "coef"
+    ratios = []
+    for b in range(3):
+        head = float(a[b * per: b * per + 3].mean())
+        tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
+        ratios.append(tail / head if head > 0 else 1.0)
+    worst = max(ratios)
+    print(f"  🔍 SH 排布检测: 各块尾/头能量比 {['%.3f' % r for r in ratios]} → "
+          f"{'channel（通道主序）' if worst < 0.30 else 'coef（系数主序）'}")
+    return "channel" if worst < 0.30 else "coef"
+
+
+def load_gaussians(ply_path, rot_order, sh_degree_env, sh_layout_env, device):
     """标准 3DGS PLY → gsplat 输入张量。"""
     import numpy as np
     import torch
@@ -152,7 +185,12 @@ def load_gaussians(ply_path, rot_order, sh_degree_env, device):
                         key=lambda s: int(s.split("_")[-1]))
     if rest_names:
         rest = np.stack([col(nm) for nm in rest_names], axis=1).astype(np.float32)
-        rest = rest.reshape(n, -1, 3)  # 3DGS 按 (N,(deg+1)^2-1,3) 展平存储
+        layout = detect_sh_layout(rest) if sh_layout_env == "auto" else sh_layout_env
+        if layout == "channel":
+            # 通道主序展平 (N,3,K-1) → 转回 gsplat 要的系数主序 (N,K-1,3)
+            rest = rest.reshape(n, 3, -1).transpose(0, 2, 1)
+        else:
+            rest = rest.reshape(n, -1, 3)  # 系数主序：(N,(deg+1)^2-1,3)
         shs = np.concatenate([dc[:, None, :], rest], axis=1)
     else:
         shs = dc[:, None, :]
@@ -224,6 +262,9 @@ def main():
     rot_order = os.environ.get("ROT_ORDER", "wxyz")
     if rot_order not in ("wxyz", "xyzw"):
         die("ROT_ORDER 只能是 wxyz | xyzw")
+    sh_layout = os.environ.get("SH_LAYOUT", "auto")
+    if sh_layout not in ("auto", "coef", "channel"):
+        die("SH_LAYOUT 只能是 auto | coef | channel")
     max_frames = int(os.environ.get("MAX_FRAMES", "0"))
     chunk = int(os.environ.get("VIEW_CHUNK", "8"))
     keep_png = os.environ.get("KEEP_PNG", "0") == "1"
@@ -254,7 +295,8 @@ def main():
     device = "cuda"
     from gsplat import rasterization
 
-    gs = load_gaussians(ply_path, rot_order, int(os.environ.get("SH_DEGREE", "-1")), device)
+    gs = load_gaussians(ply_path, rot_order, int(os.environ.get("SH_DEGREE", "-1")),
+                        sh_layout, device)
 
     out_path = Path(os.environ.get("OUT", str(OUT)).strip())
     out_path.parent.mkdir(parents=True, exist_ok=True)

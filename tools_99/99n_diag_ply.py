@@ -14,6 +14,7 @@ SH 系数约定不符、还是 NaN/Inf 污染。纯只读，不渲染。
 Env vars（不设则用 main() 里的默认值）：
   PLY         要诊断的 PLY 路径（必填）
 """
+import math
 import os
 import sys
 
@@ -103,17 +104,30 @@ def diag_ply(ply_path):
                 verdict = "⚠️ 这是普通 RGB 颜色字段而非 SH DC 项"
             print(f"  {key}: [{fmt(lo)}, {fmt(hi)}]  {verdict}")
 
-    # 4) SH 系数个数 → 阶数
-    sh_cols = [c for c in names if c.startswith("f_rest")]
+    # 4) SH 系数：f_rest 按 3 通道展平，每通道 (d+1)^2-1 个 → 阶数与磁盘排布
+    #    （排布判据与 99m detect_sh_layout 同源：通道主序每块尾部趋零）
+    sh_cols = sorted((c for c in names if c.startswith("f_rest")),
+                     key=lambda s: int(s.split("_")[-1]))
     if sh_cols:
         k = len(sh_cols)
-        deg = None
-        for d in range(4):
-            if (d + 1) ** 2 == k + 1:
-                deg = d
-        print(f"  f_rest 系数: {k} 个 → " +
-              (f"SH {deg} 阶（完整，标准排布）" if deg is not None
-               else "⚠️ 个数不是 (d+1)^2-1，排布可能非标"))
+        per = k // 3
+        if k % 3 == 0 and math.isqrt(per + 1) ** 2 == per + 1:
+            print(f"  f_rest 系数: {k} 个（3 通道 × {per}）→ SH {math.isqrt(per + 1) - 1} 阶（完整）")
+            # 排布判据与 99m detect_sh_layout 同源：取各块尾/头能量比的最大值，
+            # 通道主序每块都衰减，系数主序至少有一块（同阶）近似水平
+            a = np.abs(np.stack([np.asarray(v[c]) for c in sh_cols], axis=1)).mean(axis=0)
+            ratios = []
+            for b in range(3):
+                head = float(a[b * per: b * per + 3].mean())
+                tail = float(a[(b + 1) * per - 3: (b + 1) * per].mean())
+                ratios.append(tail / head if head > 0 else 1.0)
+            worst = max(ratios)
+            print(f"  SH 排布: 各块尾/头能量比 {['%.3f' % r for r in ratios]} → " +
+                  ("⚠️ 通道主序（部分 fork 导出，99m SH_LAYOUT=auto 可识别，"
+                   "症状=DC 颜色正常但一动相机整屏彩虹）" if worst < 0.30
+                   else "✅ 系数主序（官方 3DGS，99m 默认即可）"))
+        else:
+            print(f"  f_rest 系数: {k} 个 → ⚠️ 个数不是 3×((d+1)^2-1)，排布可能非标")
     elif "f_dc_0" in names:
         print("  无 f_rest → 纯 DC 颜色（视角无关），排除了 SH 约定问题")
 
