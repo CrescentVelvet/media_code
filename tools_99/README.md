@@ -13,7 +13,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
-| **E. 运镜渲染** | 99l 99m | 参数化运镜 → COLMAP 三件套 → PLY 渲染 MP4 | 99l 纯标准库；99m 需 WSL `infinisplat_v2` env（gsplat 1.5.2 + torch 2.6） |
+| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 六种运镜三件套 → PLY 渲染 MP4；99n = PLY 约定诊断 | 均需 `infinisplat_v2` env（99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6） |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -569,35 +569,34 @@ env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `tra
 
 ## E. 运镜轨迹生成与渲染（99l / 99m）
 
-给重建出来的 3DGS PLY 设计运镜轨迹（orbit 环绕 / helix 螺旋升降 / dolly_zoom 希区柯克 /
-push_in 推拉 / arc 低角度过肩），渲染成 MP4。99l 生成 COLMAP 文本三件套，99m 用 gsplat
-离屏渲染——轨迹文件可以用 99g 画图目检、用 COLMAP GUI 核对后再渲视频。
+99l 读重建输出里的 COLMAP 相机（`refined_camera/`），取某台真实相机作起点，沿
+orbit_left / orbit_right / orbit_up / dolly_out / hitchcock / grammy 六种电影感轨迹
+生成新位姿（COLMAP 三件套，写到 `<场景根>/traj_camera/<效果名>/`）；99m 用 gsplat
+离屏渲染成 MP4。轨迹文件可以用 99g 画图目检、用 COLMAP GUI 核对后再渲视频。
+**轨迹位置/尺度来自训练相机本身，天然与场景对齐**——渲糊了先怀疑覆盖不足（见下）。
 
 ```bash
 cd /mnt/c/code/media_code
 ENV_PY=~/miniconda3/envs/infinisplat_v2/bin/python
 
-# ① 生成轨迹（给了 PLY 就自动定心：中位数中心 + q90 半径，对离散远点鲁棒）
-PLY=/mnt/d/output/flashworld_results/03_gaussians/<task>/gaussians.ply \
-TYPE=orbit N=120 AZ_SWEEP=360 EL=15 \
-OUT_DIR=/mnt/d/output/traj/<task>_orbit python tools_99/99l_gen_colmap_traj.py
+# ① 生成轨迹（默认批量全部 6 种；EFFECT= 可只跑单条）
+SCENE=/path/to/<场景根> N=120 $ENV_PY tools_99/99l_gen_colmap_traj.py
 
-# 希区柯克变焦（每帧一台相机、焦距随距离等比缩放，主体占比恒定）
-PLY=$PLY TYPE=dolly_zoom R0=1.0 R1=0.4 EL=0 \
-OUT_DIR=/mnt/d/output/traj/<task>_dz python tools_99/99l_gen_colmap_traj.py
+# 中心点三种：固定坐标（默认 0,0,0）/ 沿初始相机视线 / 俯仰看向 y 轴
+SCENE=$SCENE CENTER=forward $ENV_PY tools_99/99l_gen_colmap_traj.py
+SCENE=$SCENE CENTER=yaxis PITCH=10 EFFECT=orbit_left $ENV_PY tools_99/99l_gen_colmap_traj.py
+
+# 初始相机选择：默认 01 组中间帧；INIT_INDEX 支持负数（倒数）
+SCENE=$SCENE GROUP=02 INIT_INDEX=-1 $ENV_PY tools_99/99l_gen_colmap_traj.py
 
 # ② 渲染（小样先验：MAX_FRAMES=16 + KEEP_PNG=1 目检首中尾帧）
-PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit \
+PLY=/path/to/gaussians.ply TRAJ_DIR=$SCENE/traj_camera/orbit_left \
 MAX_FRAMES=16 KEEP_PNG=1 $ENV_PY tools_99/99m_render_trajectory.py
 
-# ③ 正式出片（超采样抗锯齿）
-PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit \
-OUT=/mnt/d/output/traj/<task>_orbit.mp4 SSAA=2 $ENV_PY tools_99/99m_render_trajectory.py
-
-# ④ 批量：一次渲多条轨迹（逗号分隔；PLY 只加载一次）。
+# ③ 批量：一次渲多条轨迹（逗号分隔；PLY 只加载一次）。
 #    输出固定为 OUT_DIR/<轨迹目录名>.mp4，批量时 OUT 被忽略
-PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit,/mnt/d/output/traj/<task>_dz \
-OUT_DIR=/mnt/d/output/traj/videos $ENV_PY tools_99/99m_render_trajectory.py
+PLY=$PLY TRAJ_DIR=$SCENE/traj_camera/orbit_left,$SCENE/traj_camera/hitchcock \
+OUT_DIR=$SCENE/traj_camera/videos $ENV_PY tools_99/99m_render_trajectory.py
 ```
 
 **轨迹格式约定**（99l 写、99m 读，改格式必须两边同步）：
@@ -635,21 +634,27 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 画面越容易糊/出伪影——某段突然变糊先怀疑覆盖不足，不是渲染 bug。
 
 **99l / 99m 的路径与参数预设**：与 99a~99f 同风格——`main()` 里有一组预设值
-（PLY 路径、TYPE、OUT_DIR、N 等，注释「改模型/批次时只改这几行」），env 只作覆盖；
-不设 env 直接 `python tools_99/99l_gen_colmap_traj.py` 即可跑通示例。
+（SCENE 路径、EFFECTS、N、CENTER 等，注释「改场景/批次时只改这几行」），env 只作覆盖；
+不设 env 直接 `python tools_99/99l_gen_colmap_traj.py` 即可跑预设批量。
 
-**99l 其余 env**：`PLY`（给了就自动算 CENTER/RADIUS，`AUTO_Q` 默认 0.90=主体取景口径、
-要含环境设 0.98）、`CENTER` / `RADIUS` / `LOOK_AT` / `UP`、`N` / `W` / `H` / `FOV_Y`、
-`EASE`（smoothstep 默认，电影感来源）、`EL` / `AZ0` / `AZ_SWEEP`、`EL0` / `EL1`、
-`R0` / `R1` / `R_AS_MULT`（R0/R1 是 RADIUS 的倍数还是直接米数）、`DZ_SENSOR_H`
-（只影响 dolly_zoom 焦距绝对值，不影响画面效果）。
+**99l 其余 env**：`SCENE`（场景根或 refined_camera 目录本身）、`GROUP`（01|02，
+图像名前两字符分组，名字必须匹配 `^(01|02).+\.(jpe?g)$`）、`INIT_INDEX`（初始相机
+序号，默认组内中间帧 `len//2`，负数=倒数，越界报错）、`CENTER`（`"x,y,z"` 默认 0,0,0
+| `forward`/`view`：沿初始相机原视线前移 ||C0|| | `yaxis`/`y_axis`/`y轴`：
+`center=(0, C0y+h·tan(pitch), 0)`，`h=hypot(C0x,C0z)`）、`PITCH`（yaxis 俯仰角，度）、
+`N` / `ANGLE`（orbit_* 角度，度；orbit_up 越限自动截断并 WARN）/ `PARAM`
+（dolly_out/hitchcock 默认 1.5、grammy 默认 2.0；m≤0 报错、m<1 或 ≈1 WARN）、
+`EFFECT`（单条快捷方式）/ `EFFECTS`（批量列表）、`OUT`（单条=效果目录，多条=父目录；
+缺省 `<场景根>/traj_camera/`）、`PREFIX`（图像名前缀，默认 03→`03000001.jpg`）、
+`NO_POINTS3D`（=1 不拷贝 points3D.txt/.ply）。输出浮点一律 `%.12g`；
+hitchcock 每帧一台相机、`fscale` 只缩放 fx/fy（cx/cy 不变），dolly_out fscale 恒 1。
+姿态一律重新 look-at 中心点（不沿用原拍摄朝向）；首帧位置 = 初始相机位置。
 
 **99m 其余 env**：`TRAJ_DIR`（支持**逗号分隔多条轨迹**批量渲染，PLY 只加载一次；
 输出固定为 `OUT_DIR/<轨迹目录名>.mp4`，批量时 `OUT` 被忽略；单条时 `OUT` 可自定义
 文件名）/ `OUT_DIR` / `OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
-`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（channel 默认，见上节排布坑；
-见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
+`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（channel 默认，见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
 （一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。
 
 > 本机无 ffmpeg，99m 用 `cv2.VideoWriter(mp4v)` 直接写 MP4（体积偏大、播放器兼容一般）；

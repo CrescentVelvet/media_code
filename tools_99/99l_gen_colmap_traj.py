@@ -1,309 +1,460 @@
 #!/usr/bin/env python3
-"""99l_gen_colmap_traj.py — 参数化运镜轨迹生成器：输出 COLMAP 文本三件套
-（cameras.txt / images.txt / points3D.txt），供 99m 渲染、或喂给 99g / COLMAP GUI 目检。
+"""99l_gen_colmap_traj.py — 读取 3DGS 重建的 COLMAP 相机位姿，生成电影感运镜轨迹。
 
-环境准备
-    纯标准库，任意 python3 即可（无需 conda）；仅 PLY 自动定心需要 numpy+plyfile。
+输入：场景目录（内含 refined_camera/，或直接传 refined_camera/ 目录）。
+      refined_camera 含 cameras.txt（PINHOLE / SIMPLE_PINHOLE，支持每帧独立内参）
+      与 images.txt（图像名必须匹配 ^(01|02).+\\.(jpe?g)$）。
+输出：COLMAP 文本三件套（cameras.txt / images.txt + 拷贝的 points3D），
+      目录 <场景根>/traj_camera/<效果名>/，可直接被 99m 渲染。
 
-与 99m 成对，轨迹格式约定（改格式必须两边同步）：
-  * 帧序 = IMAGE_ID 升序（本脚本按 1..N 顺序写）；
-  * images.txt 每条记录**占两行**（位姿行 + POINTS2D 行，后者可为空）——
-    漏第二行是 COLMAP 解析错位的第一大坑；
-  * qvec = (qw,qx,qy,qz)，tvec 为世界系→相机系（x_c = R x_w + t）；
-  * 只写 PINHOLE 相机；dolly_zoom 逐帧一个 CAMERA_ID（焦距随距离等比缩放，
-    主体在画面中的高度恒定），其余运镜共用 CAMERA_ID=1。
+单条与批量都在本脚本内（不要 bash 批量）：EFFECTS 预设列表默认全部 6 种，
+env EFFECT=orbit_left 可只跑单条。
+
+环境准备：Python 3 + numpy（渲染 env 有；不再依赖 plyfile）。
+
+坐标约定（严格遵守，改动必须与 99m 同步验证）：
+- 世界系右手系：y 向上、z 向左、x 向后；世界向上轴 UP=(0,1,0)。
+- COLMAP 相机系（OpenCV）：x 图像右、y 图像下、z 视线。images.txt 存 world→cam
+  的四元数 (QW,QX,QY,QZ) 与平移；相机中心 C=-R^T t，视线 = R 第三行 R[2,:]。
+- 四元数↔旋转矩阵用标准 COLMAP 公式（Shepperd，返回归一化四元数）。
+- look_at：fwd=normalize(target-pos)；right=normalize(cross(fwd,UP))；
+  down=cross(fwd,right)；R=按行堆叠[right;down;fwd]；t=-R@pos。
+  ⚠️ 第二个基向量是 down（-up）：OpenCV y 轴向下，用 +up 画面上下颠倒
+  （2026-10-31 实测踩过）。
 
 用法:
-    python tools_99/99l_gen_colmap_traj.py                 # 用 main() 里的预设跑
-    TYPE=dolly_zoom R0=1.0 R1=0.4 python ...               # env 覆盖单项参数
-    PLY="" CENTER="0,0,0" RADIUS=2 python ...              # 关自动定心、手给中心/半径
+    python tools_99/99l_gen_colmap_traj.py                    # 预设批量全部 6 种
+    EFFECT=orbit_left python ...                              # 单条
+    CENTER=forward python ...                                 # 中心=沿初始相机视线
+    CENTER=yaxis PITCH=10 python ...                          # 中心=俯仰看向 y 轴
+    INIT_INDEX=-1 GROUP=02 python ...                         # 指定初始相机
+    OUT=/tmp/x EFFECT=orbit_left python ...                   # 单条时 --out 即效果目录
 
-Env vars（不设则用下方 main() 里的默认值）:
-  通用        TYPE, OUT_DIR, PLY, CENTER, RADIUS, LOOK_AT, UP, N, W, H, FOV_Y, EASE
-  orbit/arc   EL, AZ0, AZ_SWEEP          # arc 默认 EL=5 / AZ_SWEEP=120（低角度过肩）
-  helix       EL0, EL1, AZ_SWEEP
-  push_in/    R0, R1, R_AS_MULT（1=R0/R1 是 RADIUS 的倍数；0=直接米数）, EL, AZ0,
-  dolly_zoom  DZ_SENSOR_H（只影响 dolly_zoom 焦距绝对值，不影响画面效果）
+Env vars（不设则用下方 main() 预设；多值用逗号分隔）:
+  输入   SCENE（场景根或 refined_camera 目录）, GROUP（01|02）, INIT_INDEX（整数，负数=倒数）
+  中心   CENTER（"x,y,z" | forward/view | yaxis/y_axis/y轴）, PITCH（yaxis 用，度）
+  轨迹   EFFECTS（效果列表）, EFFECT（单条快捷方式）, N, ANGLE（orbit_* 角度°）,
+         PARAM（dolly_out/hitchcock 默认 1.5，grammy 默认 2.0）
+  输出   OUT（单条=效果目录；多条=父目录）, PREFIX（图像名前缀，默认 03）,
+         NO_POINTS3D（=1 不拷贝 points3D.txt/.ply）
 """
 import math
 import os
+import re
+import shutil
 import sys
 from pathlib import Path
+
+import numpy as np
+
+IMG_NAME_RE = re.compile(r"^(01|02).+\.(jpe?g)$", re.IGNORECASE)
+EFFECTS_ALL = ("orbit_left", "orbit_right", "orbit_up",
+               "dolly_out", "hitchcock", "grammy")
+UP = np.array([0.0, 1.0, 0.0])
+DOLLY_DEFAULT_M = 1.5
+GRAMMY_DEFAULT_M = 2.0
 
 
 def die(msg):
     sys.exit(f"❌ {msg}")
 
 
-def parse_vec(s, name, default=None):
-    if s is None or not str(s).strip():
-        if default is not None:
-            return default
-        die(f"{name} 未设置")
+def warn(msg):
+    print(f"  ⚠️ WARN: {msg}")
+
+
+# ============ 旋转 / 位姿数学（与 99m 的 qvec2rotmat 同式） ============
+
+def qvec2rotmat(q):
+    """COLMAP (w,x,y,z) → 3x3 旋转矩阵（与 99b:313 / 99m 同式）。"""
+    w, x, y, z = q
+    return np.array([
+        [1 - 2 * y * y - 2 * z * z, 2 * x * y - 2 * z * w, 2 * x * z + 2 * y * w],
+        [2 * x * y + 2 * z * w, 1 - 2 * x * x - 2 * z * z, 2 * y * z - 2 * x * w],
+        [2 * x * z - 2 * y * w, 2 * y * z + 2 * x * w, 1 - 2 * x * x - 2 * y * y],
+    ])
+
+
+def rotmat2qvec(R):
+    """3x3 旋转矩阵 → COLMAP 归一化四元数 (w,x,y,z)（Shepperd 最大迹分支）。"""
+    t = float(np.trace(R))
+    if t > 0.0:
+        s = math.sqrt(1.0 + t) * 2.0
+        q = np.array([s / 4.0, (R[2, 1] - R[1, 2]) / s,
+                      (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s])
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2.0
+        q = np.array([(R[2, 1] - R[1, 2]) / s, s / 4.0,
+                      (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s])
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2.0
+        q = np.array([(R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s,
+                      s / 4.0, (R[1, 2] + R[2, 1]) / s])
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2.0
+        q = np.array([(R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s,
+                      (R[1, 2] + R[2, 1]) / s, s / 4.0])
+    return q / np.linalg.norm(q)
+
+
+def axis_angle_rotmat(axis, theta):
+    """Rodrigues：绕轴 axis 转 theta（弧度）。axis 内部归一化。"""
+    a = np.asarray(axis, dtype=np.float64)
+    a = a / np.linalg.norm(a)
+    x, y, z = a
+    c, s = math.cos(theta), math.sin(theta)
+    C = 1.0 - c
+    return np.array([
+        [c + x * x * C, x * y * C - z * s, x * z * C + y * s],
+        [y * x * C + z * s, c + y * y * C, y * z * C - x * s],
+        [z * x * C - y * s, z * y * C + x * s, c + z * z * C],
+    ])
+
+
+def look_at(pos, target):
+    """OpenCV 约定 look-at → world→cam (R, t)。pos/target 为世界系 3 向量。"""
+    pos = np.asarray(pos, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    fwd = target - pos
+    d = float(np.linalg.norm(fwd))
+    if d < 1e-12:
+        die("相机位置与目标重合，无法确定视线方向")
+    fwd /= d
+    if abs(float(fwd @ UP)) > 1.0 - 1e-9:
+        die("look-at 退化：视线与 UP 平行")
+    right = np.cross(fwd, UP)
+    right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd])
+    return R, -R @ pos
+
+
+# ============ COLMAP 文本解析 ============
+
+def parse_cameras(path):
+    """cameras.txt → {id: (w, h, fx, fy, cx, cy)}。只认 PINHOLE / SIMPLE_PINHOLE。"""
+    cams = {}
+    for ln, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.split()
+        if len(f) < 4:
+            die(f"cameras.txt 第 {ln} 行字段不足: {line!r}")
+        cid, model = f[0], f[1]
+        w, h = int(f[2]), int(f[3])
+        try:
+            params = [float(x) for x in f[4:]]
+        except ValueError:
+            die(f"cameras.txt 第 {ln} 行内参不是数字: {line!r}")
+        if model == "PINHOLE" and len(params) == 4:
+            fx, fy, cx, cy = params
+        elif model == "SIMPLE_PINHOLE" and len(params) == 3:
+            fx = fy = params[0]
+            cx, cy = params[1], params[2]
+        else:
+            die(f"cameras.txt 第 {ln} 行: 只支持 PINHOLE/SIMPLE_PINHOLE，"
+                f"收到 {model}（{len(params)} 参数）")
+        cams[cid] = (w, h, fx, fy, cx, cy)
+    if not cams:
+        die(f"cameras.txt 没有任何相机: {path}")
+    return cams
+
+
+def parse_images(path):
+    """images.txt → [{'id', 'qvec', 'tvec', 'cam', 'name'}]，按文件序。
+
+    每条记录两行（位姿行 + POINTS2D 行，后者可为空）。图像名校验
+    ^(01|02).+\\.(jpe?g)$（不区分大小写），不匹配即报错。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    imgs = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("#") or not line.strip():
+            i += 1
+            continue
+        f = line.split()
+        if len(f) < 10:
+            die(f"images.txt 第 {i + 1} 行不是合法位姿行（需 ≥10 字段）: {line!r}")
+        try:
+            entry = {
+                "id": int(f[0]),
+                "qvec": [float(x) for x in f[1:5]],
+                "tvec": [float(x) for x in f[5:8]],
+                "cam": f[8],
+                "name": f[9],
+            }
+        except ValueError:
+            die(f"images.txt 第 {i + 1} 行数字解析失败: {line!r}")
+        if not IMG_NAME_RE.match(entry["name"]):
+            die(f"图像名 {entry['name']!r} 不匹配 ^(01|02).+\\.(jpe?g)$")
+        imgs.append(entry)
+        i += 2  # 跳过 POINTS2D 行（可为空，下一轮会被 blank 跳过）
+    if not imgs:
+        die(f"images.txt 没有任何图像: {path}")
+    return imgs
+
+
+def pick_initial(imgs, group, init_index):
+    """按名字前 2 字符分组、文件名排序，选初始相机。默认 01 组第 len//2 帧
+    （偶数帧数取后半段首帧）；init_index 支持负数（倒数），越界报错。"""
+    glist = sorted((im for im in imgs if im["name"][:2] == group),
+                   key=lambda im: im["name"])
+    if not glist:
+        die(f"{group} 组没有任何图像")
+    n = len(glist)
+    idx = n // 2 if init_index is None else (
+        n + init_index if init_index < 0 else init_index)
+    if not (0 <= idx < n):
+        die(f"init_index={init_index} 越界（{group} 组共 {n} 帧，有效范围 "
+            f"[{-n}, {n - 1}]）")
+    print(f"  📷 初始相机: {group} 组第 {idx}/{n} 帧 → {glist[idx]['name']}")
+    return glist[idx]
+
+
+# ============ 中心点解析（forward/yaxis 在选定初始相机后才解析） ============
+
+def resolve_center(mode, C0, R0, pitch):
+    """mode: "x,y,z" | forward/view | yaxis/y_axis/y轴。"""
+    if mode in ("forward", "view"):
+        n = float(np.linalg.norm(C0))
+        if n < 1e-12:
+            die("相机在原点，forward 模式无法定中心（前移距离 = ||C0|| = 0）")
+        fwd0 = R0[2, :]
+        return C0 + fwd0 / np.linalg.norm(fwd0) * n
+    if mode in ("yaxis", "y_axis", "y轴"):
+        h = math.hypot(C0[0], C0[2])
+        if h < 1e-12:
+            die("相机在 y 轴上，yaxis 模式无法定中心（h = hypot(x,z) = 0）")
+        if not (-90.0 < pitch < 90.0):
+            die(f"pitch={pitch} 越界，须在 (-90, 90) 内")
+        return np.array([0.0, C0[1] + h * math.tan(math.radians(pitch)), 0.0])
     try:
-        v = [float(x) for x in str(s).split(",")]
+        parts = [float(x) for x in str(mode).split(",")]
     except ValueError:
-        die(f"{name} 格式应为 x,y,z，实际: {s!r}")
-    if len(v) != 3:
-        die(f"{name} 需要 3 个数，实际 {len(v)} 个: {s!r}")
-    return v
+        die(f"CENTER 无法解析为 x,y,z: {mode!r}")
+    if len(parts) != 3:
+        die(f"CENTER 需要 3 个数（x,y,z）: {mode!r}")
+    return np.array(parts)
 
 
-def smoothstep(t):
-    return t * t * (3.0 - 2.0 * t)
+# ============ 六种运镜（输入 C0/center/参数/N，返回 [(pos, fscale), ...]） ============
+
+def gen_traj(effect, C0, center, n, angle_deg, param):
+    d = np.asarray(C0, dtype=np.float64) - np.asarray(center, dtype=np.float64)
+    d0 = float(np.linalg.norm(d))
+    if d0 < 1e-12:
+        die("初始相机与中心点重合")
+    dhat = d / d0
+    forward0 = -dhat
+    u = np.linspace(0.0, 1.0, n)
+
+    if effect in ("orbit_left", "orbit_right"):
+        # 绕 +y 正角度旋转时相机向自身右侧移动，故向左取负号（Rodrigues 已验证）
+        sign = -1.0 if effect == "orbit_left" else 1.0
+        total = sign * math.radians(angle_deg)
+        return [(center + axis_angle_rotmat(UP, total * ui) @ d, 1.0) for ui in u]
+
+    if effect == "orbit_up":
+        axis = np.cross(UP, forward0)
+        na = float(np.linalg.norm(axis))
+        if na < 1e-12:
+            die("orbit_up 退化：初始视线与 UP 平行")
+        axis /= na
+        e0 = math.asin(min(1.0, max(-1.0, float(dhat @ UP))))
+        lim = math.radians(89.0)
+        if e0 >= lim - 1e-6:
+            die(f"初始仰角 {math.degrees(e0):.1f}° 已过 89°，无法 orbit_up")
+        total = math.radians(angle_deg)
+        lo, hi = -(lim - e0), lim - e0
+        if total > hi or total < lo:
+            clipped = min(max(total, lo), hi)
+            warn(f"orbit_up 角度 {angle_deg}° 超出可行范围 "
+                 f"({math.degrees(lo):.1f}, {math.degrees(hi):.1f})，截断为 "
+                 f"{math.degrees(clipped):.1f}°")
+            total = clipped
+        return [(center + axis_angle_rotmat(axis, total * ui) @ d, 1.0) for ui in u]
+
+    if effect in ("dolly_out", "hitchcock"):
+        m = DOLLY_DEFAULT_M if param is None else param
+        if m <= 0:
+            die(f"{effect}: param 必须 > 0，收到 {m}")
+        if m < 1:
+            warn(f"{effect}: m={m} < 1，拉远变成推近")
+        elif abs(m - 1.0) < 1e-9:
+            warn(f"{effect}: m≈1，轨迹静止")
+        fs = 1.0 + (m - 1.0) * u
+        pos = [center + dhat * (d0 * f) for f in fs]
+        if effect == "dolly_out":
+            return [(p, 1.0) for p in pos]
+        return [(p, float(f)) for p, f in zip(pos, fs)]  # hitchcock: 焦距同比增大
+
+    if effect == "grammy":
+        m = GRAMMY_DEFAULT_M if param is None else param
+        if m <= 0:
+            die(f"grammy: param 必须 > 0，收到 {m}")
+        if m < 1:
+            warn(f"grammy: m={m} < 1，推近变成拉远")
+        elif abs(m - 1.0) < 1e-9:
+            warn(f"grammy: m≈1，轨迹静止")
+        ss = u * u * (3.0 - 2.0 * u)                    # smoothstep
+        ss = 1.0 + (1.0 / m - 1.0) * ss
+        return [(center + dhat * (d0 * s), 1.0) for s in ss]
+
+    die(f"未知效果 {effect!r}，可选: {'/'.join(EFFECTS_ALL)}")
 
 
-def ease(t, mode):
-    return smoothstep(t) if mode == "smoothstep" else t
+# ============ 输出（COLMAP 文本格式，浮点一律 %.12g） ============
+
+CAMERAS_HEADER = (
+    "# Camera list with one line of data per camera:\n"
+    "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n"
+    "# Number of cameras: {n}\n"
+)
+IMAGES_HEADER = (
+    "# Image list with two lines of data per image:\n"
+    "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n"
+    "# Number of images: {n}, mean observations per image: 0.0\n"
+)
 
 
-def norm(v):
-    n = math.sqrt(sum(x * x for x in v))
-    if n < 1e-12:
-        die("零向量无法归一化（UP 与视线方向平行？）")
-    return [x / n for x in v]
+def fmt(x):
+    return f"{x:.12g}"
 
 
-def cross(a, b):
-    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+def write_effect(out_dir, traj, init_cam, center, prefix, points3d_files):
+    """写一条轨迹的 COLMAP 三件套。traj = [(pos, fscale)]；init_cam 提供 W/H/内参。"""
+    out_dir = Path(out_dir)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        warn(f"{out_dir} 已存在非空，覆盖写入")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    w, h, fx0, fy0, cx, cy = init_cam
+    cam_lines, img_lines = [], []
+    for i, (pos, fscale) in enumerate(traj, 1):
+        R, t = look_at(pos, center)          # 姿态一律重新 look-at 中心
+        q = rotmat2qvec(R)
+        name = f"{prefix}{i:06d}.jpg"
+        cam_lines.append(f"{i} PINHOLE {w} {h} {fmt(fx0 * fscale)} {fmt(fy0 * fscale)} "
+                         f"{fmt(cx)} {fmt(cy)}")
+        img_lines.append(" ".join([str(i)] + [fmt(v) for v in q] +
+                                  [fmt(v) for v in t] + [str(i), name]))
+        img_lines.append("")                 # 空 POINTS2D 行（必须存在）
+
+    n = len(traj)
+    (out_dir / "cameras.txt").write_text(
+        CAMERAS_HEADER.format(n=n) + "\n".join(cam_lines) + "\n",
+        encoding="utf-8", newline="\n")
+    (out_dir / "images.txt").write_text(
+        IMAGES_HEADER.format(n=n) + "\n".join(img_lines) + "\n",
+        encoding="utf-8", newline="\n")
+    for src in points3d_files:
+        shutil.copy2(src, out_dir / src.name)
 
 
-def look_at_to_w2c(cam, target, up):
-    """OpenCV 相机约定（z 前、x 右、y 向下）的 look-at → (R_w2c, t_w2c)。
+# ============ 主流程 ============
 
-    w2c 旋转的行 = 相机三个基向量在世界系的坐标：[right, down, fwd]。
-    ⚠️ 两个易错点（2026-10-31 实测踩过）：
-    * 行基向量组成的矩阵**就是** w2c 旋转，不能再转置；
-    * OpenCV 的 y 轴向下，第二个基向量是 -up（down = cross(fwd, right)），
-      用 +up 画面会上下颠倒且仍能通过「相机中心回算」检查。
-    """
-    fwd = norm([target[i] - cam[i] for i in range(3)])
-    right = norm(cross(fwd, up))
-    down = cross(fwd, right)                    # = -up 方向
-    R_w2c = [right, down, fwd]
-    t = [-sum(R_w2c[i][j] * cam[j] for j in range(3)) for i in range(3)]
-    return R_w2c, t
-
-
-def rotmat_to_qvec_wxyz(R):
-    """R(3x3 行主序) → 单位四元数 (w,x,y,z)。Shepperd 法，R 接近对称时数值稳定。"""
-    m00, m01, m02 = R[0]
-    m10, m11, m12 = R[1]
-    m20, m21, m22 = R[2]
-    tr = m00 + m11 + m22
-    if tr > 0:
-        s = math.sqrt(tr + 1.0) * 2.0
-        w = 0.25 * s
-        x = (m21 - m12) / s
-        y = (m02 - m20) / s
-        z = (m10 - m01) / s
-    elif m00 > m11 and m00 > m22:
-        s = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
-        w = (m21 - m12) / s
-        x = 0.25 * s
-        y = (m01 + m10) / s
-        z = (m02 + m20) / s
-    elif m11 > m22:
-        s = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
-        w = (m02 - m20) / s
-        x = (m01 + m10) / s
-        y = 0.25 * s
-        z = (m12 + m21) / s
+def resolve_refined_dir(scene):
+    """--scene 传场景根（内含 refined_camera/）或 refined_camera/ 本身。"""
+    scene = Path(scene)
+    if (scene / "cameras.txt").exists() and (scene / "images.txt").exists():
+        ref, root = scene, scene.parent
+    elif (scene / "refined_camera").is_dir():
+        ref, root = scene / "refined_camera", scene
     else:
-        s = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
-        w = (m10 - m01) / s
-        x = (m02 + m20) / s
-        y = (m12 + m21) / s
-        z = 0.25 * s
-    return norm([w, x, y, z])
+        die(f"{scene} 既不是 refined_camera 目录，也不内含 refined_camera/")
+    return ref, root
 
 
-def sphere_pos(center, radius, az_deg, el_deg):
-    """方位角 az（绕 +Y，度）、仰角 el（高于水平面，度）→ 世界坐标。"""
-    az = math.radians(az_deg)
-    el = math.radians(el_deg)
-    r_xy = radius * math.cos(el)
-    return [
-        center[0] + r_xy * math.sin(az),
-        center[1] + radius * math.sin(el),
-        center[2] + r_xy * math.cos(az),
-    ]
+def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
+        group, init_index, out, no_points3d):
+    ref, root = resolve_refined_dir(scene)
+    cams = parse_cameras(ref / "cameras.txt")
+    imgs = parse_images(ref / "images.txt")
 
+    init = pick_initial(imgs, group, init_index)
+    R0 = qvec2rotmat(init["qvec"])
+    C0 = -R0.T @ np.asarray(init["tvec"], dtype=np.float64)
+    if init["cam"] not in cams:
+        die(f"初始相机引用的 CAMERA_ID {init['cam']} 不在 cameras.txt 里")
+    init_cam = cams[init["cam"]]
+    center = resolve_center(center_mode, C0, R0, pitch)
+    print(f"  🎯 中心点({center_mode}): ({fmt(center[0])}, {fmt(center[1])}, "
+          f"{fmt(center[2])})，初始距离 {float(np.linalg.norm(C0 - center)):.3f}")
 
-def auto_center_radius(ply_path):
-    """PLY 自动定心：中位数中心 + q90 距离半径。需要 plyfile+numpy。
+    points3d_files = [] if no_points3d else [
+        ref / nm for nm in ("points3D.txt", "points3D.ply") if (ref / nm).exists()]
 
-    不用包围盒：实测 flashworld 场景拉离散远点，bbox 半径 20m、主体在 1m 级
-    （中位数中心与彩色点质心距离 <0.3m）；中位数 + 分位数对离散点鲁棒。
-    q 用 AUTO_Q 覆盖（默认 0.90 = 「主体取景」口径；要含环境用 0.98）。
-    """
-    try:
-        import numpy as np
-        from plyfile import PlyData
-    except ImportError:
-        die("PLY 自动定心需要 plyfile+numpy（99m 的 conda env 有）；"
-            "或在普通解释器里显式设 CENTER/RADIUS 并去掉 PLY")
-    q = float(os.environ.get("AUTO_Q", "0.90"))
-    data = PlyData.read(str(ply_path))["vertex"]
-    xyz = np.stack([np.asarray(data[c]) for c in ("x", "y", "z")], axis=1)
-    center = np.median(xyz, axis=0)
-    radius = float(np.quantile(np.linalg.norm(xyz - center, axis=1), q))
-    return center.tolist(), radius
-
-
-def gen_frames(cfg):
-    """按 cfg["type"] 生成 [(pos, focal_scale)]。focal_scale 只有 dolly_zoom 非 1。"""
-    t_type = cfg["type"]
-    n = cfg["n"]
-    if n < 2:
-        die("N 至少 2")
-
-    center, radius = cfg["center"], cfg["radius"]
-    if cfg.get("ply"):
-        c_auto, r_auto = auto_center_radius(Path(cfg["ply"]))
-        print(f"🎯 PLY 自动定心: center=({c_auto[0]:.3f},{c_auto[1]:.3f},{c_auto[2]:.3f}) "
-              f"radius={r_auto:.3f}")
-        center, radius = c_auto, r_auto
-
-    look_at = cfg["look_at"]
-    up = cfg["up"]
-    ease_mode = cfg["ease"]
-    dist = (lambda v: v * radius) if cfg["r_as_mult"] else (lambda v: v)
-
-    az0 = cfg["az0"]
-    frames = []
-    f_scale = [1.0] * n
-
-    if t_type in ("orbit", "arc"):
-        el = cfg["el"]
-        sweep = cfg["az_sweep"]
-        for i in range(n):
-            t = ease(i / (n - 1), ease_mode)
-            frames.append(sphere_pos(center, dist(1.0), az0 + sweep * t, el))
-    elif t_type == "helix":
-        el0, el1 = cfg["el0"], cfg["el1"]
-        sweep = cfg["az_sweep"]
-        for i in range(n):
-            t = ease(i / (n - 1), ease_mode)
-            frames.append(sphere_pos(center, dist(1.0), az0 + sweep * t, el0 + (el1 - el0) * t))
-    elif t_type in ("push_in", "dolly_zoom"):
-        el = cfg["el"]
-        r0, r1 = cfg["r0"], cfg["r1"]
-        cam_dir = norm([sphere_pos(center, 1.0, az0, el)[i] - center[i] for i in range(3)])
-        for i in range(n):
-            t = ease(i / (n - 1), ease_mode)
-            d = dist(r0) + (dist(r1) - dist(r0)) * t
-            frames.append([center[j] + cam_dir[j] * d for j in range(3)])
-            if t_type == "dolly_zoom":
-                # 主体画面高度 ∝ 焦距/距离：距离变焦距同比变，主体占比恒定
-                f_scale[i] = d / dist(r0)
+    if out:
+        base = Path(out)
+        # 单效果：--out 即效果目录；多效果：--out 视为父目录
+        dirs = {eff: (base if len(effects) == 1 else base / eff)
+                for eff in effects}
     else:
-        die(f"未知 TYPE: {t_type}")
+        dirs = {eff: root / "traj_camera" / eff for eff in effects}
 
-    return frames, f_scale, look_at, up
+    for eff in effects:
+        traj = gen_traj(eff, C0, center, n, angle, param)
+        write_effect(dirs[eff], traj, init_cam, center, prefix, points3d_files)
+        p0, p1 = traj[0][0], traj[-1][0]
+        print(f"  ✅ {eff}: {n} 帧 → {dirs[eff]}")
+        print(f"     首帧 ({fmt(p0[0])},{fmt(p0[1])},{fmt(p0[2])}) "
+              f"末帧 ({fmt(p1[0])},{fmt(p1[1])},{fmt(p1[2])})")
 
 
 def main():
-    # Windows 控制台默认 cp936，直接打印 emoji 会 UnicodeEncodeError；
-    # WSL/Linux 下这个调用无害
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    # ===== 预设路径与参数，改模型/批次时只改这几行 =====
-    # 源：待渲染的 3DGS PLY（本机 WSL 示例路径；服务器上改成服务器路径）。
-    # 给了就自动定心；不想自动定心设 PLY="" 并显式给 CENTER / RADIUS
-    PLY = Path(
-        "/mnt/d/output/flashworld_results/03_gaussians/"
-        "01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕_frame000/gaussians.ply"
+    # ===== 预设路径与参数，改场景/批次时只改这几行 =====
+    SCENE = Path(
+        "../../output/2025.11.27-HMSD-Lisidani_out/"
+        "action_01/result_gs/2025-11-28--00-27-09---4khq_scene"
     )
-    TYPE = "orbit"                                  # orbit | helix | dolly_zoom | push_in | arc
-    # 输出：COLMAP 三件套目录（相对 cwd=media_code/ 解析，与 99a~99f 同一约定）
-    OUT_DIR = Path("../../output/traj/demo_orbit")
-    # 常用运镜参数（其余走 env 覆盖，见文件头 Env vars 清单）
-    N = 120                 # 帧数（= 时长 × FPS，99m 侧默认 30fps）
-    AZ_SWEEP = 360          # 方位角扫过范围（度）
-    EL = 15                 # 相机仰角（度，高于目标）；arc 建议 5
+    EFFECTS = list(EFFECTS_ALL)   # 批量默认全部 6 种；env EFFECT= 可只跑单条
+    N = 120                       # 每条轨迹帧数
+    CENTER = "0,0,0"              # "x,y,z" | forward/view | yaxis/y_axis/y轴
+    PITCH = 10.0                  # CENTER=yaxis 时的俯仰角（度，(-90,90)）
+    ANGLE = 90.0                  # orbit_left/right/up 的角度（度）
+    PARAM = None                  # None=各效果默认（dolly_out/hitchcock 1.5，grammy 2.0）
+    PREFIX = "03"                 # 输出图像名前缀：03000001.jpg
+    GROUP = "01"                  # 初始相机组
+    INIT_INDEX = None             # 初始相机序号（None=组内中间帧；负数=倒数）
+    OUT = None                    # None=<场景根>/traj_camera；单条=效果目录，多条=父目录
+    NO_POINTS3D = False           # True 不拷贝 points3D.txt/.ply
     # ======================================================
 
-    # env 覆盖（不设则用上面的预设）
-    ply_s = os.environ.get("PLY", str(PLY)).strip()
-    t_type = os.environ.get("TYPE", TYPE).strip()
-    look_env = os.environ.get("LOOK_AT")
-    cfg = {
-        "type": t_type,
-        "n": int(os.environ.get("N", str(N))),
-        "ply": None if not ply_s else ply_s,
-        "center": parse_vec(os.environ.get("CENTER"), "CENTER", [0.0, 0.0, 0.0]),
-        "radius": float(os.environ.get("RADIUS", "1.0")),
-        # LOOK_AT 不设 = 跟随 CENTER（自动定心时 = 自动中心），不能走 parse_vec 的必填分支
-        "look_at": parse_vec(look_env, "LOOK_AT") if look_env else None,
-        "up": parse_vec(os.environ.get("UP"), "UP", [0.0, 1.0, 0.0]),
-        "ease": os.environ.get("EASE", "smoothstep"),
-        "r_as_mult": os.environ.get("R_AS_MULT", "1") == "1",
-        "az0": float(os.environ.get("AZ0", "0")),
-        "el": float(os.environ.get("EL", str(5 if t_type == "arc" else EL))),
-        "az_sweep": float(os.environ.get("AZ_SWEEP", str(120 if t_type == "arc" else AZ_SWEEP))),
-        "el0": float(os.environ.get("EL0", "5")),
-        "el1": float(os.environ.get("EL1", "40")),
-        "r0": float(os.environ.get("R0", "1.0")),
-        "r1": float(os.environ.get("R1", "0.4")),
-    }
-    if cfg["look_at"] is None:
-        cfg["look_at"] = cfg["center"]      # LOOK_AT 默认 = CENTER（自动定心时 = 自动中心）
+    def env(k, d):
+        v = os.environ.get(k, "").strip()
+        return d if v == "" else v
 
-    out_dir = Path(os.environ.get("OUT_DIR", str(OUT_DIR)))
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    w = int(os.environ.get("W", "1920"))
-    h = int(os.environ.get("H", "1080"))
-    fov_y = float(os.environ.get("FOV_Y", "45"))
-    # DZ_SENSOR_H 只影响 dolly_zoom 写入的焦距绝对值（作比值基准），不影响画面效果
-    fy0 = h / (2.0 * math.tan(math.radians(fov_y) / 2.0))
-    fx0 = fy0 * w / h  # 方形像素
-    cx, cy = w / 2.0, h / 2.0
-
-    frames, f_scale, look_at, up = gen_frames(cfg)
-    n = len(frames)
-    dz = any(abs(s - 1.0) > 1e-9 for s in f_scale)
-
-    cam_lines = [
-        "# Camera list with one line of data per camera:",
-        "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]",
-    ]
-    if dz:
-        # dolly_zoom：每帧一台相机，焦距随距离等比缩放
-        for i in range(n):
-            cam_lines.append(
-                f"{i + 1} PINHOLE {w} {h} {fx0 * f_scale[i]:.6f} {fy0 * f_scale[i]:.6f} {cx:.6f} {cy:.6f}")
+    effects = env("EFFECT", "")
+    if effects:
+        effects = [effects]
     else:
-        cam_lines.append(f"1 PINHOLE {w} {h} {fx0:.6f} {fy0:.6f} {cx:.6f} {cy:.6f}")
+        effects = [e.strip() for e in env("EFFECTS", ",".join(EFFECTS)).split(",")
+                   if e.strip()]
+    for e in effects:
+        if e not in EFFECTS_ALL:
+            die(f"未知效果 {e!r}，可选: {'/'.join(EFFECTS_ALL)}")
 
-    img_lines = [
-        "# Image list with two lines of data per image:",
-        "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME",
-        "#   POINTS2D[] (空行即可，但行必须存在)",
-    ]
-    for i, pos in enumerate(frames):
-        R_w2c, t = look_at_to_w2c(pos, look_at, up)
-        qw, qx, qy, qz = rotmat_to_qvec_wxyz(R_w2c)
-        cid = i + 1 if dz else 1
-        img_lines.append(
-            f"{i + 1} {qw:.8f} {qx:.8f} {qy:.8f} {qz:.8f} "
-            f"{t[0]:.8f} {t[1]:.8f} {t[2]:.8f} {cid} frame_{i:06d}.jpg")
-        img_lines.append("")  # POINTS2D 行：空，但必须有
-
-    (out_dir / "cameras.txt").write_text("\n".join(cam_lines) + "\n", encoding="utf-8")
-    (out_dir / "images.txt").write_text("\n".join(img_lines) + "\n", encoding="utf-8")
-    (out_dir / "points3D.txt").write_text(
-        "# 3D point list (trajectory file: no points)\n", encoding="utf-8")
-
-    first, last = frames[0], frames[-1]
-    print(f"🚀 [99l] TYPE={t_type} N={n} 分辨率 {w}x{h} fov_y={fov_y}° EASE={cfg['ease']}")
-    print(f"  📷 相机首帧 ({first[0]:.3f},{first[1]:.3f},{first[2]:.3f}) "
-          f"末帧 ({last[0]:.3f},{last[1]:.3f},{last[2]:.3f})")
-    if dz:
-        print(f"  🔭 dolly_zoom: 焦距缩放 {f_scale[0]:.3f} → {f_scale[-1]:.3f}（每帧一台相机）")
-    print(f"✅ 写出 {out_dir}/cameras.txt images.txt points3D.txt")
+    init_index = env("INIT_INDEX", INIT_INDEX)
+    param = env("PARAM", PARAM)
+    out = env("OUT", OUT)
+    run(
+        scene=Path(env("SCENE", str(SCENE))),
+        effects=effects,
+        n=int(env("N", str(N))),
+        center_mode=env("CENTER", str(CENTER)),
+        pitch=float(env("PITCH", str(PITCH))),
+        angle=float(env("ANGLE", str(ANGLE))),
+        param=None if param is None else float(param),
+        prefix=env("PREFIX", str(PREFIX)),
+        group=env("GROUP", str(GROUP)),
+        init_index=None if init_index is None else int(init_index),
+        out=None if out is None else Path(out),
+        no_points3d=env("NO_POINTS3D", "1" if NO_POINTS3D else "0") == "1",
+    )
 
 
 if __name__ == "__main__":
