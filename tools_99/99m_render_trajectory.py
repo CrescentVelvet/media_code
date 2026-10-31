@@ -306,7 +306,7 @@ def main():
     # 服务器上改成服务器路径）。批量：PLY 只加载一次，逐条轨迹渲成独立 MP4。
     PLY = Path(
         "../../output/2025.11.27-HMSD-Lisidani_out/"
-        "action_01/result_gs/2025-11-28--00-27-09---4khq_scene/point_cloud/iteration_60/lisi01.ply"
+        "action_01/result_gs/2025-11-28--00-27-09---4khq_scene/point_cloud/iteration_60/point_cloud.ply"
     )
     TRAJ_DIRS = [Path(
         "../../output/2025.11.27-HMSD-Lisidani_out/"
