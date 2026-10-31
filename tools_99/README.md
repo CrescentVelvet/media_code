@@ -633,6 +633,30 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 > 本机无 ffmpeg，99m 用 `cv2.VideoWriter(mp4v)` 直接写 MP4（体积偏大、播放器兼容一般）；
 > 要更小的文件可事后用 ffmpeg 转 H.264：`ffmpeg -i render.mp4 -c:v libx264 -crf 18 out.mp4`。
 
+### 服务器运行（PLY 资产在服务器侧时）
+
+代码**零改动**——所有路径都是 env 传入、相对 cwd 解析，与 99a~99c 同一约定。
+唯一前置：服务器建一个独立的 gsplat 渲染 env（别污染现有训练 env）：
+
+```bash
+source ~/miniconda3/etc/profile.d/conda.sh
+conda create -y -n gs_traj_render python=3.10
+conda activate gs_traj_render
+# 公司代理 TLS 拦截：照 proxy.env 约定 export PIP_CERT / SSL_CERT_FILE 后再装
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install gsplat plyfile opencv-python-headless numpy
+
+# 验证（须为 True；False = 驱动/CUDA 不匹配）
+python -c "import gsplat, torch; print(torch.cuda.is_available())"
+```
+
+- 99l 服务器上用系统 `python3` 即可（纯标准库；`PLY=` 自动定心才需要 numpy+plyfile，
+  用新 env 跑也一样）。
+- 99m 用新 env 跑，命令与 WSL 完全一致：`PLY=... TRAJ_DIR=... python tools_99/99m_render_trajectory.py`。
+- ⚠️ `pip install gsplat` 优先走预编译 wheel；若服务器 CUDA/驱动组合没有对应 wheel 会退回
+  源码编译（需要 nvcc，耗时长）。【待核实】服务器驱动版本能否直接吃 torch 2.6+cu124 的 wheel
+  （需驱动 ≥ 525.60），装前先在服务器跑 `nvidia-smi` 确认。
+
 ---
 
 ## 首次准备（族 A 需要）
