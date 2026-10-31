@@ -18,8 +18,10 @@ color 走 SH（gsplat 对 SH 输入内部做 sigmoid）。PLY 'rot' 默认按官
 这个顺序，用 ROT_ORDER=xyzw 试。
 
 f_rest 有两种磁盘排布：系数主序（官方 3DGS，每基函数 RGB 连续 3 列）与通道
-主序（部分 fork 导出少做一次 transpose，R/G/B 各一块）。SH_LAYOUT=auto 按块内
-能量衰减自动区分；解析错的典型症状是 DC 颜色正常、一动相机就整屏彩虹光影。
+主序（部分 fork 导出少做一次 transpose，R/G/B 各一块）。解析错的典型症状是 DC
+颜色正常、一动相机就整屏彩虹光影。**默认按通道主序（channel）**——本仓实际资产
+（HMSD 等 fork）实测全是通道主序；官方 3DGS 导出的 PLY 才需要 SH_LAYOUT=coef；
+auto 自动检测在真实重尾数据上不可靠（2026-10-31 两次误判），仅作参考。
 
 用法:
     python tools_99/99m_render_trajectory.py               # 用 main() 里的预设批量跑
@@ -37,7 +39,7 @@ Env vars（不设则用下方 main() 里的默认值）:
   路径   PLY, TRAJ_DIR（单个目录，或逗号分隔多个）, OUT（单条时的输出）,
          OUT_DIR（批量输出目录）
   渲染   FPS, SH_DEGREE（-1=按 PLY 系数自动）, SSAA, EPS2D, NEAR, FAR, BG, W, H
-  调试   ROT_ORDER（wxyz|xyzw）, SH_LAYOUT（auto|coef|channel）, MAX_FRAMES,
+  调试   ROT_ORDER（wxyz|xyzw）, SH_LAYOUT（channel 默认|coef|auto）, MAX_FRAMES,
          VIEW_CHUNK, KEEP_PNG, DRY_RUN
 """
 import math
@@ -319,6 +321,8 @@ def main():
     # 常用渲染参数（其余走 env 覆盖，见文件头 Env vars 清单）
     FPS = 30
     SSAA = 1            # 2 = 渲染 2x 再降采样（抗 splats 缩放边缘闪烁）
+    SH_LAYOUT = "channel"   # f_rest 排布：本仓资产（HMSD 等 fork）实测全是通道主序；
+                            # 官方 3DGS 导出改 "coef"；auto 在真实重尾数据上不可靠
     # ======================================================
 
     # env 覆盖（不设则用上面的预设）
@@ -344,7 +348,7 @@ def main():
     rot_order = os.environ.get("ROT_ORDER", "wxyz")
     if rot_order not in ("wxyz", "xyzw"):
         die("ROT_ORDER 只能是 wxyz | xyzw")
-    sh_layout = os.environ.get("SH_LAYOUT", "auto")
+    sh_layout = os.environ.get("SH_LAYOUT", SH_LAYOUT)
     if sh_layout not in ("auto", "coef", "channel"):
         die("SH_LAYOUT 只能是 auto | coef | channel")
 

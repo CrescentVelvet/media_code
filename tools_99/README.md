@@ -620,12 +620,12 @@ gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w
 **f_rest 有两种磁盘排布**（2026-10-31 实测踩坑）：系数主序（官方 3DGS：每基函数的
 RGB 连续 3 列）与通道主序（部分 fork 导出少做一次 transpose：R/G/B 各一块）。排布
 解析错的典型症状是 **DC 颜色大体正常、一动相机就整屏红绿蓝彩虹光影**（SH 系数在
-颜色通道间交叉污染）。`SH_LAYOUT=auto`（默认）按「每 15 列一块、各块尾/头能量比」
-自动区分：中位数（抗重尾）与均值双统计量取「或」，任一显示全块衰减即认 channel；
-真实训练 SH 是重尾分布且有未收敛异常点，单一统计量可能失灵（2026-10-31 实测：
-某 PLY 均值比 0.39 越过 0.30 阈值致 auto 彩虹、强制 channel 正常，改双统计量后解决）。
-拿不准时用 `SH_LAYOUT=coef|channel` 强制，或用 `99n_diag_ply.py` 先诊断（判据同源）。本机 flashworld / dtu_smoke 的 PLY 恰好
-都是系数主序或无 f_rest，这个分支曾长期未被真实数据测到。
+颜色通道间交叉污染）。**`SH_LAYOUT` 默认 `channel`**——本仓实际资产（HMSD 等
+fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / dtu_smoke）才需要
+`SH_LAYOUT=coef`；`auto` 按「每 15 列一块、各块尾/头能量比」双统计量（中位/均值
+取或）自动区分，但真实训练 SH 是重尾分布且有未收敛异常点，**auto 在真实数据上
+不可靠**（2026-10-31 两次误判：单均值失灵 → 改双统计量仍误判），仅作参考。
+拿不准时用 `99n_diag_ply.py` 先诊断。
 
 **性能参考**（2026-10-31 实测，RTX 3090，WSL，infinisplat_v2 env）：flashworld
 `gaussians.ply`（**405 万**高斯、degree-0 颜色）120 帧 1920x1080@30fps 渲染 **4.6s**
@@ -648,7 +648,7 @@ RGB 连续 3 列）与通道主序（部分 fork 导出少做一次 transpose：
 输出固定为 `OUT_DIR/<轨迹目录名>.mp4`，批量时 `OUT` 被忽略；单条时 `OUT` 可自定义
 文件名）/ `OUT_DIR` / `OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
-`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（auto|coef|channel，
+`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（channel 默认，见上节排布坑；
 见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
 （一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。
 

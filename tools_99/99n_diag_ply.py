@@ -131,9 +131,9 @@ def diag_ply(ply_path):
             worst = min(max(r_med), max(r_mean))
             print(f"  SH 排布: 块尾/头能量比 中位 {['%.3f' % r for r in r_med]} "
                   f"均值 {['%.3f' % r for r in r_mean]} → " +
-                  ("⚠️ 通道主序（部分 fork 导出，99m SH_LAYOUT=auto 可识别，"
+                  ("⚠️ 通道主序（部分 fork 导出——99m 现默认 channel，直接渲即可；"
                    "症状=DC 颜色正常但一动相机整屏彩虹）" if worst < 0.30
-                   else "✅ 系数主序（官方 3DGS，99m 默认即可）"))
+                   else "⚠️ 系数主序（官方 3DGS，99m 需 SH_LAYOUT=coef）"))
         else:
             print(f"  f_rest 系数: {k} 个 → ⚠️ 个数不是 3×((d+1)^2-1)，排布可能非标")
     elif "f_dc_0" in names:
