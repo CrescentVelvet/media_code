@@ -13,7 +13,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
-| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 六种运镜三件套 → PLY 渲染 MP4；99n = PLY 约定诊断 | 均需 `infinisplat_v2` env（99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6） |
+| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 六种运镜三件套 → PLY 渲染 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6；99n 纯标准库 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -567,7 +567,7 @@ env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `tra
 
 ---
 
-## E. 运镜轨迹生成与渲染（99l / 99m）
+## E. 运镜轨迹生成与渲染（99l / 99m / 99n）
 
 99l 读重建输出里的 COLMAP 相机（`refined_camera/`），取某台真实相机作起点，沿
 orbit_left / orbit_right / orbit_up / dolly_out / hitchcock / grammy 六种电影感轨迹
@@ -597,6 +597,17 @@ MAX_FRAMES=16 KEEP_PNG=1 $ENV_PY tools_99/99m_render_trajectory.py
 #    输出固定为 OUT_DIR/<轨迹目录名>.mp4，批量时 OUT 被忽略
 PLY=$PLY TRAJ_DIR=$SCENE/traj_camera/orbit_left,$SCENE/traj_camera/hitchcock \
 OUT_DIR=$SCENE/traj_camera/videos $ENV_PY tools_99/99m_render_trajectory.py
+
+# ④ 多场景批量（99n 编排）：遍历 BATCH_ROOT 自身 + 一层子目录，找出同时含
+#    point_cloud/ 与 refined_camera/ 的场景，逐个 99l 生成六种轨迹、99m 渲染，
+#    视频写 <场景>/traj_videos/<效果名>.mp4；PLY 取 point_cloud/iteration_* 中
+#    最大号（无迭代目录则退回 point_cloud/point_cloud.ply）。
+BATCH_ROOT=/path/to/batch_root $ENV_PY tools_99/99n_batch_traj_render.py
+
+# 99n 常用 env：DRY_RUN=1 只列场景；MAX_SCENES=1 先试跑一个；NO_GEN=1 轨迹已有
+# 只渲染；SKIP_EXISTING=1 视频齐了的场景跳过；STOP_ON_ERROR=1 遇错即停
+# （默认记录后跳过、最后汇总退出码 1）。99l/99m 侧参数（N/CENTER/FPS/SSAA/
+# SH_LAYOUT/...）在环境里设了就自动透传给子进程。
 ```
 
 **轨迹格式约定**（99l 写、99m 读，改格式必须两边同步）：
@@ -624,7 +635,8 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 `SH_LAYOUT=coef`；`auto` 按「每 15 列一块、各块尾/头能量比」双统计量（中位/均值
 取或）自动区分，但真实训练 SH 是重尾分布且有未收敛异常点，**auto 在真实数据上
 不可靠**（2026-10-31 两次误判：单均值失灵 → 改双统计量仍误判），仅作参考。
-拿不准时用 `99n_diag_ply.py` 先诊断。
+（诊断脚本 99n_diag_ply.py 已于 2026-10-31 删除，其判据保留在 99m 的
+`detect_sh_layout()` 里。）
 
 **性能参考**（2026-10-31 实测，RTX 3090，WSL，infinisplat_v2 env）：flashworld
 `gaussians.ply`（**405 万**高斯、degree-0 颜色）120 帧 1920x1080@30fps 渲染 **4.6s**
@@ -677,8 +689,7 @@ pip install gsplat plyfile opencv-python-headless numpy
 python -c "import gsplat, torch; print(torch.cuda.is_available())"
 ```
 
-- 99l 服务器上用系统 `python3` 即可（纯标准库；`PLY=` 自动定心才需要 numpy+plyfile，
-  用新 env 跑也一样）。
+- 99l / 99n 服务器上用新 env 跑即可（99l 需 numpy；99n 纯标准库只编排子进程）。
 - 99m 用新 env 跑，命令与 WSL 完全一致：`PLY=... TRAJ_DIR=... python tools_99/99m_render_trajectory.py`。
 - ⚠️ `pip install gsplat` 优先走预编译 wheel；若服务器 CUDA/驱动组合没有对应 wheel 会退回
   源码编译（需要 nvcc，耗时长）。【待核实】服务器驱动版本能否直接吃 torch 2.6+cu124 的 wheel
