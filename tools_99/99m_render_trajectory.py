@@ -184,10 +184,14 @@ def main():
     # 源：待渲染的 3DGS PLY + 99l 写出的轨迹目录（本机 WSL 示例路径；
     # 服务器上改成服务器路径）
     PLY = Path(
-        "/mnt/d/output/flashworld_results/03_gaussians/"
-        "01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕_frame000/gaussians.ply"
+        # "/mnt/d/output/flashworld_results/03_gaussians/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕_frame000/gaussians.ply"
+        "../../output/2025.11.27-HMSD-Lisidani_out/"
+        "action_01/result_gs/2025-11-28--00-27-09---4khq_human/point_cloud/iteration_60/lisi01.ply"
     )
-    TRAJ_DIR = Path("../../output/traj/demo_orbit")   # 相对 cwd=media_code/ 解析
+    TRAJ_DIR = Path(
+        "../../output/2025.11.27-HMSD-Lisidani_out/"
+        "action_01/result_gs/2025-11-28--00-27-09---4khq_human/refined_camera"
+    )
     OUT = Path("../../output/traj/demo_orbit.mp4")    # 输出 MP4
     # 常用渲染参数（其余走 env 覆盖，见文件头 Env vars 清单）
     FPS = 30
