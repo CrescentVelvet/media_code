@@ -5,7 +5,7 @@ vggt_human 的下游「99 系列」，但它们的服务对象已超出人脸重
 UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 Remy 采集包的居中预处理。
 脚本文件名一律未改（保留 99 前缀的连续性）。
 
-## 四个族
+## 五个族
 
 | 族 | 脚本 | 用途 | 运行依赖 |
 |---|---|---|---|
@@ -13,6 +13,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
+| **E. 运镜渲染** | 99l 99m | 参数化运镜 → COLMAP 三件套 → PLY 渲染 MP4 | 99l 纯标准库；99m 需 WSL `infinisplat_v2` env（gsplat 1.5.2 + torch 2.6） |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -563,6 +564,74 @@ env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `tra
 时会穿透链接删掉**源目录里的真图**（实测把 01e954…佳佳抱枕 的 82 张 HEIC 送进回收站，
 已逐张恢复）。该功能已于 2026-10-16 整体删除；教训仍然通用——**清场式删除前先判
 `is_symlink()`，链接只摘链接、不按目录内容清理**（见 `.workbuddy/memory/MEMORY.md`）。
+
+---
+
+## E. 运镜轨迹生成与渲染（99l / 99m）
+
+给重建出来的 3DGS PLY 设计运镜轨迹（orbit 环绕 / helix 螺旋升降 / dolly_zoom 希区柯克 /
+push_in 推拉 / arc 低角度过肩），渲染成 MP4。99l 生成 COLMAP 文本三件套，99m 用 gsplat
+离屏渲染——轨迹文件可以用 99g 画图目检、用 COLMAP GUI 核对后再渲视频。
+
+```bash
+cd /mnt/c/code/media_code
+ENV_PY=~/miniconda3/envs/infinisplat_v2/bin/python
+
+# ① 生成轨迹（给了 PLY 就自动定心：中位数中心 + q90 半径，对离散远点鲁棒）
+PLY=/mnt/d/output/flashworld_results/03_gaussians/<task>/gaussians.ply \
+TYPE=orbit N=120 AZ_SWEEP=360 EL=15 \
+OUT_DIR=/mnt/d/output/traj/<task>_orbit python tools_99/99l_gen_colmap_traj.py
+
+# 希区柯克变焦（每帧一台相机、焦距随距离等比缩放，主体占比恒定）
+PLY=$PLY TYPE=dolly_zoom R0=1.0 R1=0.4 EL=0 \
+OUT_DIR=/mnt/d/output/traj/<task>_dz python tools_99/99l_gen_colmap_traj.py
+
+# ② 渲染（小样先验：MAX_FRAMES=16 + KEEP_PNG=1 目检首中尾帧）
+PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit \
+MAX_FRAMES=16 KEEP_PNG=1 $ENV_PY tools_99/99m_render_trajectory.py
+
+# ③ 正式出片（超采样抗锯齿）
+PLY=$PLY TRAJ_DIR=/mnt/d/output/traj/<task>_orbit \
+OUT=/mnt/d/output/traj/<task>_orbit.mp4 SSAA=2 $ENV_PY tools_99/99m_render_trajectory.py
+```
+
+**轨迹格式约定**（99l 写、99m 读，改格式必须两边同步）：
+
+- 帧序 = `IMAGE_ID` 升序；`images.txt` 每条记录**占两行**（位姿行 + POINTS2D 行，后者可为空
+  但行必须存在）——漏第二行是 COLMAP 解析错位的第一大坑；99m 按「位姿行字段数 ≡ 1 (mod 3)、
+  POINTS2D 行 ≡ 0 (mod 3)」双重判据防错位吞行。
+- `qvec = (qw,qx,qy,qz)`，`tvec` 为世界系→相机系（`x_c = R·x_w + t`，`qvec2rotmat` 与
+  `99b_pack_ply_to_mp4.py:313` 同式）；相机中心 = `-Rᵀt`。
+- 只写/只认 PINHOLE / SIMPLE_PINHOLE 相机（OPENCV 带畸变的直接报错，防止静默按针孔渲偏）。
+- 99l 的位姿约定 OpenCV 相机系（z 前、y 下）：`look_at_to_w2c` 的第二个基向量是
+  **`-up`（down）**，用 `+up` 画面会上下颠倒、且仍能通过「相机中心回算」检查（2026-10-31
+  实测踩过，已写进该函数 docstring）。
+
+**PLY 加载约定**（99m）：标准 3DGS activation（scale=exp、opacity=sigmoid、color 走 SH，
+gsplat 对 SH 输入内部做 sigmoid）；`rot` 默认官方 3DGS 约定存 `(w,x,y,z)`，gsplat 要 xyzw，
+加载时 roll（`ROT_ORDER=xyzw` 可切）；`scale`/`rot` 兼容向量属性与 `scale_0..2` /
+`rot_0..3` 逐分量两种写法。若渲染出来模型像被「拧散」，先怀疑 rot 顺序。
+
+**性能参考**（2026-10-31 实测，RTX 3090，WSL，infinisplat_v2 env）：flashworld
+`gaussians.ply`（**405 万**高斯、degree-0 颜色）120 帧 1920x1080@30fps 渲染 **4.6s**
+（≈26 it/s 全分辨率）——性能完全不是瓶颈，瓶颈只在运镜设计本身。
+
+**出片质量上限**：取决于训练数据的相机覆盖。渲染相机离训练位置越远（大幅推近/仰角变化），
+画面越容易糊/出伪影——某段突然变糊先怀疑覆盖不足，不是渲染 bug。
+
+**99l 关键 env**：`TYPE`（必填）、`OUT_DIR`（必填）、`PLY`（给了就自动算 CENTER/RADIUS，
+`AUTO_Q` 默认 0.90=主体取景口径、要含环境设 0.98）、`CENTER` / `RADIUS` / `LOOK_AT` / `UP`、
+`N` / `W` / `H` / `FOV_Y`、`EASE`（smoothstep 默认，电影感来源）、`EL` / `AZ0` / `AZ_SWEEP`、
+`EL0` / `EL1`、`R0` / `R1` / `R_AS_MULT`（R0/R1 是 RADIUS 的倍数还是直接米数）、
+`DZ_SENSOR_H`（只影响 dolly_zoom 焦距绝对值，不影响画面效果）。
+
+**99m 关键 env**：`PLY` / `TRAJ_DIR`（必填）、`OUT` / `FPS` / `SSAA`（1=关，2=渲染 2x 再降采样，
+抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
+`SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
+（一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。
+
+> 本机无 ffmpeg，99m 用 `cv2.VideoWriter(mp4v)` 直接写 MP4（体积偏大、播放器兼容一般）；
+> 要更小的文件可事后用 ffmpeg 转 H.264：`ffmpeg -i render.mp4 -c:v libx264 -crf 18 out.mp4`。
 
 ---
 
