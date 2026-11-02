@@ -165,6 +165,13 @@ python 09_diag_ghost.py \
   --result ~/output/infinisplat_v2_results/jiajia \
   --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
   --out ~/output/infinisplat_v2_results/_diag --tag jiajia --selftest
+
+# 11) 扫体素合并参数（只跑一次前向，本地反复合并+渲染）
+python 10_sweep_merge.py --model ~/model/infinisplat_v2/da3 \
+  --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
+  --cameras    ~/output/infinisplat_v2_results/_captures/jiajia/cameras.npz \
+  --long-side 518 --max-views 32 --voxels 1.4,1.0,0.7,0.5 \
+  --out ~/output/infinisplat_v2_results/_sweep --tag jiajia
 ```
 
 ## 首次准备
@@ -230,7 +237,8 @@ bash 01_download_models.sh
 ├── render_check.py                  # PLY → 渲染 → PSNR/SSIM + 拼图
 ├── 07_capture_to_npz.py             # transforms.json + HEIC → PNG + cameras.npz（含去畸变）
 ├── 09_diag_ghost.py                 # 糊/重影量化（σ_eff / 分块锐度 / 边缘双峰）
-├── ghost_metrics.py                 # 上者的指标库（09/10 共用，口径只改这一处）
+├── 10_sweep_merge.py                # 扫 voxel_multiplier / opacity（一次前向 + 反复合并）
+├── ghost_metrics.py                 # 上两者的指标库（口径只改这一处）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
 ├── rebuild_bench.py                 # 从已有结果目录重建汇总表（不重跑 GPU）
