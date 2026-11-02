@@ -116,8 +116,16 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 - 分辨率涨 1.51×，**绝对锐度只涨 1.2–1.3×**（σ_eff 1.50 → 1.75 px，等比放大本应 2.27）：
   高斯半径跟着 pixel footprint 走，提分辨率只是把高斯排得更密，单个高斯并不更锐。
 
-**采集建议**：拍摄视角回放 → 32–48 视角 @518；手/脸近景 → **ROI 裁剪 @777–1036 单独重建**，
-不要整图提分辨率（2.27× 预算只换 1.2× 锐度，且 1036 撞顶要 318 s）。
+**采集建议**：拍摄视角回放 → 32–48 视角 @518。
+
+⚠️ **手/脸近景不要靠 ROI 裁剪**（Step 4 实测否定，E-25~E-28）：手部像素涨 3.3×
+（52.7→175.6 px）后 σ@160 反而从 3.12 升到 3.88、手部 PSNR 降 0.77 dB —— 深度精度才是瓶颈，
+加像素只是"把同样的糊涂等比放大"。整图提分辨率也不划算（2.27× 预算只换 1.2× 锐度，
+1036 撞顶 318 s）。
+
+另一个更该记住的坑：**任何 ROI/跟踪窗口都必须固定视场**。框跟着目标移动会让
+`geometry.py:188` 的 per-view Umeyama scale 被拉开、破坏相机间距，0.70 框实测掉 **1.84 dB**
+且渲染出现横向涂抹；改成固定中心立刻恢复。
 
 ⚠️ **自洽 ≠ NVS**：自洽时每个高斯中心就是从该视角反投影来的，只证明"属性学对了 + 渲染器
 接对了"；能对标论文的只有 holdout 那一行。且官方划分未公开、分辨率与目标视角选取都不同，
@@ -204,6 +212,25 @@ python 11_budget_compare.py \
   --b-result ~/output/infinisplat_v2_results/jiajia_s2_v21_518 --b-tag "21v@518" \
   --b-images ~/output/infinisplat_v2_results/_captures/jiajia_s2_v21/images \
   --out ~/output/infinisplat_v2_results/_diag
+
+# 13) 手部 ROI 裁切重建（先跑 SAM3 手部 mask，再裁切 + 推理 + 自洽渲染）
+#     ⚠️ FIXED_CENTER=1 是必须的：框跟随目标会破坏相机间距（E-26）
+SAM3_PROMPT=hand MASK_MODE=video \
+  ~/miniconda3/envs/sam3/bin/python ../vggt_human/sam3_face_masks_worker.py \
+  --images_dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
+  --output_dir ~/output/infinisplat_v2_results/_masks/hand_32v
+
+RAW_DIR="/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕" \
+  MASK_MANIFEST=~/output/infinisplat_v2_results/_masks/hand_32v/masks_manifest.json \
+  OUT_NAME=jiajia_roifix030 ROI_SOURCE=mask ROI_FRAC=0.30 FIXED_CENTER=1 \
+  N_VIEWS=32 TARGET_LONG=518 RENDER=1 bash 12_run_roi.sh
+
+# 14) 手部区域统一口径对比（σ@160 / σ_native / PSNR@160，可跨分辨率比）
+python 13_roi_eval.py \
+  --mask-manifest ~/output/infinisplat_v2_results/_masks/hand_32v/masks_manifest.json \
+  --group "full32=~/output/.../_captures/jiajia=~/output/.../jiajia" \
+  --group "fix030=~/output/.../_captures/jiajia_roifix030=~/output/.../jiajia_roifix030" \
+  --hand-width 160 --out ~/output/infinisplat_v2_results/_diag/roi_eval.json
 ```
 
 ## 首次准备
@@ -271,6 +298,9 @@ bash 01_download_models.sh
 ├── 09_diag_ghost.py                 # 糊/重影量化（σ_eff / 分块锐度 / 边缘双峰）
 ├── 10_sweep_merge.py                # 扫 voxel_multiplier / opacity（一次前向 + 反复合并）
 ├── 11_budget_compare.py             # 同预算「加视角 vs 加分辨率」（统一重采样后比）
+├── 12_run_roi.sh                    # 手/脸 ROI 裁切 → 推理 → 显存耗时（一条命令）
+├── 12_make_roi_capture.py           # 原图裁 ROI + 内参三处修正（**必须固定视场**，见 E-26）
+├── 13_roi_eval.py                   # 手部区域统一口径对比（σ@160 / σ_native / PSNR@160）
 ├── ghost_metrics.py                 # 上几者的指标库（口径只改这一处）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
