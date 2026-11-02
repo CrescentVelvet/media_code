@@ -13,7 +13,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
-| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 七种运镜三件套 → PLY 渲染 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6；99n 纯标准库 |
+| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 七种运镜三件套 → PLY 渲染 H.264 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6 + ffmpeg（可用 imageio-ffmpeg）；99n 纯标准库 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -711,9 +711,23 @@ hitchcock 每帧一台相机、`fscale` 只缩放 fx/fy（cx/cy 不变），doll
 抗 splats 缩放边缘闪烁）/ `EPS2D`（gsplat 抗锯齿，默认 0.3）/ `NEAR` / `FAR` / `BG`、
 `SH_DEGREE`（默认按 PLY 系数个数自动）、`ROT_ORDER` / `SH_LAYOUT`（channel 默认，见上节排布坑）/ `MAX_FRAMES`（小样调试）/ `VIEW_CHUNK`
 （一次并行渲染的视角数，默认 8）/ `KEEP_PNG` / `W` / `H`（0=跟随 cameras.txt）/ `DRY_RUN`。
+编码参数：`CODEC`（`h264` 默认 | `mp4v`）、`CRF`（h264 质量，默认 18）、`ENC_PRESET`
+（libx264 preset，默认 medium；`ultrafast` 快而大）、`FFMPEG`（ffmpeg 可执行路径）。
 
-> 本机无 ffmpeg，99m 用 `cv2.VideoWriter(mp4v)` 直接写 MP4（体积偏大、播放器兼容一般）；
-> 要更小的文件可事后用 ffmpeg 转 H.264：`ffmpeg -i render.mp4 -c:v libx264 -crf 18 out.mp4`。
+> **输出编码默认 H.264**（2026-11-02）：BGR 原始帧直接喂 ffmpeg 管道，`libx264 + yuv420p
+> + faststart`，VSCode 内置预览和浏览器都能直接播。**没有中间文件、没有二次编码损失**。
+> ffmpeg 查找顺序：`FFMPEG` env → `PATH` → `imageio-ffmpeg` 自带静态包。一个都没有时
+> 先试 cv2 的 `avc1`（多数 pip 版 OpenCV 不支持），最后退回 `mp4v` 并打印提示——
+> mp4v 是 MPEG-4 Part 2，**VSCode 打不开**，看到提示说明该环境缺 ffmpeg。
+>
+> ```bash
+> pip install imageio-ffmpeg     # 免 sudo，wheel 里自带带 libx264 的静态 ffmpeg
+> # 或者 sudo apt install ffmpeg / conda install -c conda-forge ffmpeg
+> ```
+>
+> 老版本（≤ 2026-11-01）产出的 mp4v 文件不会自动改，重渲一遍即可；确实要转就
+> `ffmpeg -i old.mp4 -c:v libx264 -crf 18 -pix_fmt yuv420p out.mp4`。奇数宽高会自动
+> `pad` 到偶数（H.264 yuv420p 的硬要求），输出比 `W/H` 大 1 px 属正常。
 
 ### 服务器运行（PLY 资产在服务器侧时）
 
@@ -726,7 +740,8 @@ conda create -y -n gs_traj_render python=3.10
 conda activate gs_traj_render
 # 公司代理 TLS 拦截：照 proxy.env 约定 export PIP_CERT / SSL_CERT_FILE 后再装
 pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install gsplat plyfile opencv-python-headless numpy
+pip install gsplat plyfile opencv-python-headless numpy imageio-ffmpeg
+# imageio-ffmpeg 供 99m 编码 H.264；服务器若已有系统 ffmpeg 可省（脚本自动找）
 
 # 验证（须为 True；False = 驱动/CUDA 不匹配）
 python -c "import gsplat, torch; print(torch.cuda.is_available())"

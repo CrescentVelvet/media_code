@@ -25,8 +25,8 @@
 Env vars（不设则用下方 main() 预设）:
   编排  BATCH_ROOT, MAX_SCENES（0=不限）, STOP_ON_ERROR（=1 遇错即停）
   生成  NO_GEN（=1 不调 99l）, EFFECTS, N, CENTER, PITCH, ANGLE, PARAM, GROUP, INIT_INDEX
-  渲染  SKIP_EXISTING（=1 六条视频都在则跳过渲染）；FPS / SSAA / SH_LAYOUT /
-        MAX_FRAMES 等其余渲染参数直接透传给 99m 子进程（在环境里设了就生效）
+  渲染  SKIP_EXISTING（=1 六条视频都在则跳过渲染）；FPS / SSAA / SH_LAYOUT / CODEC /
+        CRF / FFMPEG / MAX_FRAMES 等其余渲染参数直接透传给 99m 子进程（设了就生效）
 
 退出码：全部场景成功 = 0；有场景失败 = 1；DRY_RUN = 0。
 批次结束后打印每个场景的结果目录 <场景>/traj_videos/ 及视频清单（含大小）。

@@ -6,7 +6,10 @@
 环境准备
     conda env infinisplat_v2（gsplat 1.5.2 + torch 2.6 cu124 + plyfile + cv2），
     需要 NVIDIA GPU。服务器上按 tools_99/README.md 族 E「服务器运行」建
-    gs_traj_render env。本机无 ffmpeg，视频用 cv2.VideoWriter(mp4v) 直接写。
+    gs_traj_render env。视频默认 H.264（CODEC=h264），需要 ffmpeg：优先 PATH 里的
+    ffmpeg，其次 imageio-ffmpeg 自带的静态包（pip install imageio-ffmpeg 即可，
+    无需 sudo），也可用 FFMPEG=/path/to/ffmpeg 指定。找不到 ffmpeg 时自动退回
+    cv2.VideoWriter(mp4v)——mp4v 是 MPEG-4 Part 2，**VSCode 预览打不开**，只作兜底。
 
 与 99l 成对，轨迹格式约定（改格式必须两边同步）：帧序 = IMAGE_ID 升序；
 images.txt 每条记录占两行（位姿行 + POINTS2D 行）；只接受 PINHOLE /
@@ -29,6 +32,7 @@ auto 自动检测在真实重尾数据上不可靠（2026-10-31 两次误判）�
     TRAJ_DIR=<目录> OUT=<路径.mp4> python ...              # 单条：OUT 可自定义文件名
     MAX_FRAMES=16 KEEP_PNG=1 python ...                    # 小样目检首中尾帧
     SSAA=2 python ...                                      # 超采样正式出片
+    CODEC=mp4v python ...                                  # 退回老编码（老播放器/VSCode 打不开）
     DRY_RUN=1 python ...                                   # 只解析不渲染
 
 批量语义：PLY 只加载一次，逐条轨迹渲成独立 MP4；批量时输出固定为
@@ -39,12 +43,18 @@ Env vars（不设则用下方 main() 里的默认值）:
   路径   PLY, TRAJ_DIR（单个目录，或逗号分隔多个）, OUT（单条时的输出）,
          OUT_DIR（批量输出目录）
   渲染   FPS, SH_DEGREE（-1=按 PLY 系数自动）, SSAA, EPS2D, NEAR, FAR, BG, W, H
+  编码   CODEC（h264 默认 | mp4v）, CRF（h264 质量，默认 18）, ENC_PRESET（libx264
+         preset，默认 medium）, FFMPEG（ffmpeg 可执行路径，缺省自动查找）
   调试   ROT_ORDER（wxyz|xyzw）, SH_LAYOUT（channel 默认|coef|auto）, MAX_FRAMES,
          VIEW_CHUNK, KEEP_PNG, DRY_RUN
 """
 import math
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -231,6 +241,132 @@ def load_gaussians(ply_path, rot_order, sh_degree_env, sh_layout_env, device):
     }
 
 
+def find_ffmpeg():
+    """找 ffmpeg 可执行文件：FFMPEG env → PATH → imageio-ffmpeg 自带静态包。
+
+    imageio-ffmpeg 是 pip 包（`pip install imageio-ffmpeg`），wheel 里自带带 libx264
+    的静态 ffmpeg，服务器没 sudo 也能装——这是最省事的兜底。
+    """
+    cand = os.environ.get("FFMPEG", "").strip()
+    if cand:
+        if shutil.which(cand) or Path(cand).exists():
+            return cand
+        print(f"⚠️ FFMPEG={cand} 不存在，继续按默认顺序查找")
+    p = shutil.which("ffmpeg")
+    if p:
+        return p
+    try:
+        import imageio_ffmpeg
+        p = imageio_ffmpeg.get_ffmpeg_exe()
+        if p and Path(p).exists():
+            return p
+    except Exception:
+        pass
+    return None
+
+
+class _FfmpegWriter:
+    """BGR 原始帧 → libx264 管道。直出 H.264，无中间文件、无二次编码损失。
+
+    H.264 的 yuv420p 要求宽高为偶数，奇数时用 pad 补 1 px（右下），避免编码直接失败。
+    stderr 落到临时文件而不是管道：不读管道会在报错刷屏时把 64KB 缓冲写满、互相卡死。
+    """
+
+    def __init__(self, path, w, h, fps, exe, crf, preset):
+        self.path = Path(path)
+        self._err = tempfile.TemporaryFile()
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}",
+               "-r", str(fps), "-i", "-", "-an",
+               "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+               "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
+               "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+               str(self.path)]
+        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                      stdout=subprocess.DEVNULL, stderr=self._err)
+        time.sleep(0.05)              # 参数错时立刻失败，别等渲完几千帧才发现
+        if self._proc.poll() is not None:
+            raise RuntimeError(self._err_text() or f"ffmpeg 退出码 {self._proc.returncode}")
+
+    def _err_text(self):
+        self._err.flush()
+        self._err.seek(0)
+        return self._err.read().decode("utf-8", "replace").strip()
+
+    def _discard(self):
+        """编码失败时删掉半成品——否则 SKIP_EXISTING 会把坏文件当成已完成。"""
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def write(self, frame):
+        try:
+            self._proc.stdin.write(frame.tobytes())
+        except (BrokenPipeError, OSError):
+            self._proc.wait()
+            msg = self._err_text()
+            self._discard()
+            die(f"ffmpeg 编码中断（{self.path.name}）: {msg[:500]}")
+
+    def close(self):
+        try:
+            self._proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        ret = self._proc.wait()
+        err = self._err_text()
+        self._err.close()
+        if ret != 0:
+            self._discard()
+            die(f"ffmpeg 编码失败（{self.path.name}，退出码 {ret}）: {err[:500]}")
+
+
+class _Cv2Writer:
+    """cv2.VideoWriter 包装，接口与 _FfmpegWriter 一致。"""
+
+    def __init__(self, writer):
+        self._w = writer
+
+    def write(self, frame):
+        self._w.write(frame)
+
+    def close(self):
+        self._w.release()
+
+
+def open_writer(path, w, h, fps, codec, crf, preset):
+    """按 CODEC 建写视频器。返回 (writer, 说明文字)。
+
+    h264 优先 ffmpeg 管道；没有 ffmpeg 再试 cv2 的 avc1（要系统装有 openh264，
+    多数 pip 版 OpenCV 不行）；都不可用才退回 mp4v（MPEG-4 Part 2，VSCode 打不开）。
+    """
+    import cv2
+
+    if codec == "h264":
+        exe = find_ffmpeg()
+        if exe:
+            try:
+                return (_FfmpegWriter(path, w, h, fps, exe, crf, preset),
+                        f"H.264/libx264（crf {crf}，{Path(exe).name}）")
+            except Exception as e:
+                print(f"⚠️ ffmpeg 启动失败：{e}，退回其他编码")
+        else:
+            print("⚠️ 未找到 ffmpeg → 视频会退成 mp4v（VSCode 预览打不开）。"
+                  "补装：pip install imageio-ffmpeg（免 sudo），"
+                  "或 apt install ffmpeg，或 FFMPEG=/path/to/ffmpeg 指定")
+        wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"avc1"), fps, (w, h))
+        if wr.isOpened():
+            return _Cv2Writer(wr), "H.264（cv2 avc1）"
+        wr.release()
+        print("⚠️ cv2 的 avc1 也不可用 → 退回 mp4v")
+
+    wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    if not wr.isOpened():
+        die(f"cv2.VideoWriter 打不开: {path}")
+    return _Cv2Writer(wr), "MPEG-4 Part 2（mp4v）"
+
+
 def render_traj(gs, cams, frames, out_path, P):
     """渲染一条轨迹为 MP4。gs 已加载（PLY 只读一次，批量时共用），P 为参数字典。"""
     import cv2
@@ -247,10 +383,9 @@ def render_traj(gs, cams, frames, out_path, P):
     frames_dir = Path(str(out_path) + ".frames")
     if P["keep_png"]:
         frames_dir.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"),
-                             P["fps"], (out_w, out_h))
-    if not writer.isOpened():
-        die(f"cv2.VideoWriter 打不开: {out_path}")
+    writer, codec_note = open_writer(out_path, out_w, out_h, P["fps"],
+                                     P["codec"], P["crf"], P["enc_preset"])
+    print(f"  🎞️ {codec_note} → {out_path.name}")
 
     bg_t = torch.tensor([P["bg"]], device=gs["means"].device, dtype=torch.float32)
     t0 = __import__("time").time()
@@ -292,7 +427,7 @@ def render_traj(gs, cams, frames, out_path, P):
             done = min(s + P["chunk"], n_frames)
             print(f"  🎬 {done}/{n_frames} 帧（{(__import__('time').time() - t0):.1f}s）")
     finally:
-        writer.release()
+        writer.close()
     print(f"  🎉 {out_path.name}（{n_frames / P['fps']:.1f}s, "
           f"{(__import__('time').time() - t0):.1f}s）")
 
@@ -323,6 +458,10 @@ def main():
     SSAA = 1            # 2 = 渲染 2x 再降采样（抗 splats 缩放边缘闪烁）
     SH_LAYOUT = "channel"   # f_rest 排布：本仓资产（HMSD 等 fork）实测全是通道主序；
                             # 官方 3DGS 导出改 "coef"；auto 在真实重尾数据上不可靠
+    CODEC = "h264"      # h264=VSCode/浏览器可直接预览（ffmpeg 管道直写）；
+                        # mp4v=老行为（MPEG-4 Part 2，VSCode 打不开）
+    CRF = 18            # h264 质量：18 视觉无损、23 体积更小（只对 h264 生效）
+    ENC_PRESET = "medium"   # libx264 preset：ultrafast 快而大 | medium 默认 | slow 更小
     # ======================================================
 
     # env 覆盖（不设则用上面的预设）
@@ -351,6 +490,9 @@ def main():
     sh_layout = os.environ.get("SH_LAYOUT", SH_LAYOUT)
     if sh_layout not in ("auto", "coef", "channel"):
         die("SH_LAYOUT 只能是 auto | coef | channel")
+    codec = os.environ.get("CODEC", CODEC).strip().lower()
+    if codec not in ("h264", "mp4v"):
+        die("CODEC 只能是 h264 | mp4v")
 
     P = {
         "fps": int(os.environ.get("FPS", str(FPS))),
@@ -364,6 +506,9 @@ def main():
         "keep_png": os.environ.get("KEEP_PNG", "0") == "1",
         "force_w": int(os.environ.get("W", "0")),
         "force_h": int(os.environ.get("H", "0")),
+        "codec": codec,
+        "crf": int(os.environ.get("CRF", str(CRF))),
+        "enc_preset": os.environ.get("ENC_PRESET", ENC_PRESET).strip(),
     }
 
     # 先全部解析校验（缺 cameras.txt / images.txt 的目录直接报错），
