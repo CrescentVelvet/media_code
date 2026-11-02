@@ -23,18 +23,26 @@ env EFFECT=orbit_left 可只跑单条。
   （2026-10-31 实测踩过）。
 
 用法:
-    python tools_99/99l_gen_colmap_traj.py                    # 预设批量全部 6 种
+    python tools_99/99l_gen_colmap_traj.py                    # 预设批量全部 7 种
     EFFECT=orbit_left python ...                              # 单条
+    EFFECT=bullet_time ANGLE=120 ELEV=12 python ...            # 子弹时间蒙太奇式运镜
     CENTER=forward python ...                                 # 中心=沿初始相机视线
     CENTER=yaxis PITCH=10 python ...                          # 中心=俯仰看向 y 轴
     INIT_INDEX=-1 GROUP=02 python ...                         # 指定初始相机
     OUT=/tmp/x EFFECT=orbit_left python ...                   # 单条时 --out 即效果目录
 
+七种效果：orbit_left / orbit_right / orbit_up（纯环绕）、dolly_out（拉远）、
+hitchcock（拉远 + 焦距同比 = dolly zoom）、grammy（缓起缓收推近）、
+bullet_time（绕人环绕 + 推近 + 机位下降，默认快起收尾的变速，参考 VOGUE Ball
+子弹时间蒙太奇；EASE/ORBIT_DIR/ELEV 可调）。
+
 Env vars（不设则用下方 main() 预设；多值用逗号分隔）:
   输入   SCENE（场景根或 refined_camera 目录）, GROUP（01|02）, INIT_INDEX（整数，负数=倒数）
   中心   CENTER（"x,y,z" | forward/view | yaxis/y_axis/y轴）, PITCH（yaxis 用，度）
-  轨迹   EFFECTS（效果列表）, EFFECT（单条快捷方式）, N, ANGLE（orbit_* 角度°）,
-         PARAM（dolly_out/hitchcock 默认 1.5，grammy 默认 2.0）
+  轨迹   EFFECTS（效果列表）, EFFECT（单条快捷方式）, N, ANGLE（orbit_*/bullet_time 角度°）,
+         PARAM（dolly_out/hitchcock 默认 1.5，grammy/bullet_time 默认 2.0）
+  变速   EASE（linear|smooth|accel|decel；bullet_time 默认 decel，orbit_* 默认 linear）,
+         ORBIT_DIR（bullet_time 环绕方向 right|left）, ELEV（bullet_time 机位下降角，度）
   输出   OUT（单条=效果目录；多条=父目录）, PREFIX（图像名前缀，默认 03）,
          NO_POINTS3D（=1 不拷贝 points3D.txt/.ply）
 """
@@ -49,10 +57,11 @@ import numpy as np
 
 IMG_NAME_RE = re.compile(r"^(01|02).+\.(jpe?g)$", re.IGNORECASE)
 EFFECTS_ALL = ("orbit_left", "orbit_right", "orbit_up",
-               "dolly_out", "hitchcock", "grammy")
+               "dolly_out", "hitchcock", "grammy", "bullet_time")
 UP = np.array([0.0, 1.0, 0.0])
 DOLLY_DEFAULT_M = 1.5
 GRAMMY_DEFAULT_M = 2.0
+BULLET_DEFAULT_M = 2.0        # bullet_time：末态距离 = 初始 ÷ 2（与 grammy 同口径）
 
 
 def die(msg):
@@ -238,9 +247,27 @@ def resolve_center(mode, C0, R0, pitch):
     return np.array(parts)
 
 
-# ============ 六种运镜（输入 C0/center/参数/N，返回 [(pos, fscale), ...]） ============
+# ============ 七种运镜（输入 C0/center/参数/N，返回 [(pos, fscale), ...]） ============
 
-def gen_traj(effect, C0, center, n, angle_deg, param):
+def ease_progress(u, mode):
+    """线性进度 u∈[0,1] → 变速曲线（「子弹时间」那种慢-快-慢靠这个）。
+
+    linear 匀速 | smooth 缓起缓收 | accel 慢起加速 | decel 快起减速（bullet_time 默认）。
+    曲线只改时间分布、不改起止位置，所以首末帧与匀速版完全重合。
+    """
+    if mode in ("linear", "none"):
+        return u
+    if mode in ("smooth", "smoothstep", "ease_in_out"):
+        return u * u * (3.0 - 2.0 * u)
+    if mode in ("accel", "ease_in"):
+        return u * u
+    if mode in ("decel", "ease_out"):
+        return 1.0 - (1.0 - u) ** 2
+    die(f"未知 EASE {mode!r}，可选: linear/smooth/accel/decel")
+
+
+def gen_traj(effect, C0, center, n, angle_deg, param, ease=None, orbit_dir="right",
+             elev_deg=0.0):
     d = np.asarray(C0, dtype=np.float64) - np.asarray(center, dtype=np.float64)
     d0 = float(np.linalg.norm(d))
     if d0 < 1e-12:
@@ -253,7 +280,8 @@ def gen_traj(effect, C0, center, n, angle_deg, param):
         # 绕 +y 正角度旋转时相机向自身右侧移动，故向左取负号（Rodrigues 已验证）
         sign = -1.0 if effect == "orbit_left" else 1.0
         total = sign * math.radians(angle_deg)
-        return [(center + axis_angle_rotmat(UP, total * ui) @ d, 1.0) for ui in u]
+        s = ease_progress(u, ease or "linear")
+        return [(center + axis_angle_rotmat(UP, total * si) @ d, 1.0) for si in s]
 
     if effect == "orbit_up":
         axis = np.cross(UP, forward0)
@@ -273,7 +301,8 @@ def gen_traj(effect, C0, center, n, angle_deg, param):
                  f"({math.degrees(lo):.1f}, {math.degrees(hi):.1f})，截断为 "
                  f"{math.degrees(clipped):.1f}°")
             total = clipped
-        return [(center + axis_angle_rotmat(axis, total * ui) @ d, 1.0) for ui in u]
+        s = ease_progress(u, ease or "linear")
+        return [(center + axis_angle_rotmat(axis, total * si) @ d, 1.0) for si in s]
 
     if effect in ("dolly_out", "hitchcock"):
         m = DOLLY_DEFAULT_M if param is None else param
@@ -300,6 +329,39 @@ def gen_traj(effect, C0, center, n, angle_deg, param):
         ss = u * u * (3.0 - 2.0 * u)                    # smoothstep
         ss = 1.0 + (1.0 / m - 1.0) * ss
         return [(center + dhat * (d0 * s), 1.0) for s in ss]
+
+    if effect == "bullet_time":
+        # 参考片（VOGUE Ball 子弹时间蒙太奇）实测运镜：同一镜头内 ①绕人水平转动
+        # ②半径推近 ③机位下降（26.0s 俯看平台 → 27.25s 平视略仰），速度中段快、
+        # 末段收住。三者必须共用同一条进度曲线，否则会变成「先转完再靠近」的
+        # 两段动作拼接；曲线分开走也做不出「甩过去再钉住」的观感。
+        m = BULLET_DEFAULT_M if param is None else param      # 末态距离 = d0 / m
+        if m <= 0:
+            die(f"bullet_time: param 必须 > 0（末态距离 = 初始 ÷ param），收到 {m}")
+        if m < 1:
+            warn(f"bullet_time: m={m} < 1，推近变成拉远")
+        elif abs(m - 1.0) < 1e-9:
+            warn(f"bullet_time: m≈1，半径不变（退化为纯环绕）")
+        sign = -1.0 if orbit_dir == "left" else 1.0
+        total = sign * math.radians(angle_deg)
+        s = ease_progress(u, ease or "decel")
+
+        # 仰角：e0 = 初始机位相对中心的高度角；ELEV 度 = 整段下降量（0 = 不改机位高度）
+        e0 = math.asin(min(1.0, max(-1.0, float(dhat @ UP))))
+        horiz = dhat - float(dhat @ UP) * UP
+        nh = float(np.linalg.norm(horiz))
+        if nh < 1e-9:
+            die("bullet_time: 初始机位在中心正上/正下方，无法做水平环绕")
+        hdir = horiz / nh
+        drop = math.radians(elev_deg)
+        lim = math.radians(89.0)
+        out = []
+        for si in s:
+            e = max(-lim, min(lim, e0 - drop * si))
+            dirv = math.cos(e) * hdir + math.sin(e) * UP
+            radius = d0 * (1.0 + (1.0 / m - 1.0) * si)
+            out.append((center + (axis_angle_rotmat(UP, total * si) @ dirv) * radius, 1.0))
+        return out
 
     die(f"未知效果 {effect!r}，可选: {'/'.join(EFFECTS_ALL)}")
 
@@ -367,7 +429,8 @@ def resolve_refined_dir(scene):
 
 
 def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
-        group, init_index, out, no_points3d):
+        group, init_index, out, no_points3d, ease=None, orbit_dir="right",
+        elev_deg=0.0):
     ref, root = resolve_refined_dir(scene)
     cams = parse_cameras(ref / "cameras.txt")
     imgs = parse_images(ref / "images.txt")
@@ -394,10 +457,14 @@ def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
         dirs = {eff: root / "traj_camera" / eff for eff in effects}
 
     for eff in effects:
-        traj = gen_traj(eff, C0, center, n, angle, param)
+        traj = gen_traj(eff, C0, center, n, angle, param, ease, orbit_dir, elev_deg)
         write_effect(dirs[eff], traj, init_cam, center, prefix, points3d_files)
         p0, p1 = traj[0][0], traj[-1][0]
         print(f"  ✅ {eff}: {n} 帧 → {dirs[eff]}")
+        if eff == "bullet_time":
+            m = BULLET_DEFAULT_M if param is None else param
+            print(f"     环绕 {angle}°（向{orbit_dir}）+ 推近 {m:.2f}× + 机位下降 "
+                  f"{elev_deg:.0f}°，变速 {ease or 'decel'}")
         print(f"     首帧 ({fmt(p0[0])},{fmt(p0[1])},{fmt(p0[2])}) "
               f"末帧 ({fmt(p1[0])},{fmt(p1[1])},{fmt(p1[2])})")
 
@@ -409,14 +476,17 @@ def main():
     # ===== 预设路径与参数，改场景/批次时只改这几行 =====
     SCENE = Path(
         "../../output/2025.11.27-HMSD-Lisidani_out/"
-        "action_01/result_gs/2025-11-28--00-27-09---4khq_scene"
+        "action_01/result_gs/2025-11-28--00-27-09---4khq_human"
     )
     EFFECTS = list(EFFECTS_ALL)   # 批量默认全部 6 种；env EFFECT= 可只跑单条
     N = 120                       # 每条轨迹帧数
     CENTER = "0,0,0"              # "x,y,z" | forward/view | yaxis/y_axis/y轴
     PITCH = 10.0                  # CENTER=yaxis 时的俯仰角（度，(-90,90)）
-    ANGLE = 90.0                  # orbit_left/right/up 的角度（度）
-    PARAM = None                  # None=各效果默认（dolly_out/hitchcock 1.5，grammy 2.0）
+    ANGLE = 90.0                  # orbit_left/right/up/bullet_time 的环绕角度（度）
+    PARAM = None                  # None=各效果默认（dolly_out/hitchcock 1.5，grammy/bullet_time 2.0）
+    EASE = None                   # 变速曲线：None=bullet_time 用 decel、orbit_* 用 linear
+    ORBIT_DIR = "right"           # bullet_time 环绕方向：right | left
+    ELEV = 0.0                    # bullet_time 机位下降角（度，0=不升降；参考片同一镜头约 10~15）
     PREFIX = "03"                 # 输出图像名前缀：03000001.jpg
     GROUP = "01"                  # 初始相机组
     INIT_INDEX = None             # 初始相机序号（None=组内中间帧；负数=倒数）
@@ -441,6 +511,10 @@ def main():
     init_index = env("INIT_INDEX", INIT_INDEX)
     param = env("PARAM", PARAM)
     out = env("OUT", OUT)
+    ease = env("EASE", EASE)
+    orbit_dir = env("ORBIT_DIR", ORBIT_DIR)
+    if orbit_dir not in ("left", "right"):
+        die(f"ORBIT_DIR 只能是 left | right，收到 {orbit_dir!r}")
     run(
         scene=Path(env("SCENE", str(SCENE))),
         effects=effects,
@@ -454,6 +528,9 @@ def main():
         init_index=None if init_index is None else int(init_index),
         out=None if out is None else Path(out),
         no_points3d=env("NO_POINTS3D", "1" if NO_POINTS3D else "0") == "1",
+        ease=ease,
+        orbit_dir=orbit_dir,
+        elev_deg=float(env("ELEV", str(ELEV))),
     )
 
 

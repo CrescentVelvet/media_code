@@ -40,7 +40,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 GEN_SCRIPT = TOOLS_DIR / "99l_gen_colmap_traj.py"
 RENDER_SCRIPT = TOOLS_DIR / "99m_render_trajectory.py"
 EFFECTS_ALL = ("orbit_left", "orbit_right", "orbit_up",
-               "dolly_out", "hitchcock", "grammy")
+               "dolly_out", "hitchcock", "grammy", "bullet_time")
 VIDEOS_DIR_NAME = "traj_videos"
 
 

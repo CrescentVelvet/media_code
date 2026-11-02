@@ -315,7 +315,7 @@ def main():
         "action_01/result_gs/2025-11-27--22-57-31---4khq_scene/traj_camera/" + name
     ) for name in (
         "dolly_out", "grammy", "hitchcock",
-        "orbit_left", "orbit_right", "orbit_up",
+        "orbit_left", "orbit_right", "orbit_up", "bullet_time",
     )]
     OUT_DIR = Path("../../output/traj/videos")   # 批量输出目录：<轨迹目录名>.mp4
     # 常用渲染参数（其余走 env 覆盖，见文件头 Env vars 清单）

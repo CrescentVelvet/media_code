@@ -13,7 +13,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **B. 数据集体检** | 99g | Remy 采集包轨迹图 / 视角约束可视化 | **纯标准库**，Python ≥ 3.8 |
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
-| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 六种运镜三件套 → PLY 渲染 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6；99n 纯标准库 |
+| **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 七种运镜三件套 → PLY 渲染 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6；99n 纯标准库 |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -570,8 +570,8 @@ env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `tra
 ## E. 运镜轨迹生成与渲染（99l / 99m / 99n）
 
 99l 读重建输出里的 COLMAP 相机（`refined_camera/`），取某台真实相机作起点，沿
-orbit_left / orbit_right / orbit_up / dolly_out / hitchcock / grammy 六种电影感轨迹
-生成新位姿（COLMAP 三件套，写到 `<场景根>/traj_camera/<效果名>/`）；99m 用 gsplat
+orbit_left / orbit_right / orbit_up / dolly_out / hitchcock / grammy / bullet_time 七种
+电影感轨迹生成新位姿（COLMAP 三件套，写到 `<场景根>/traj_camera/<效果名>/`）；99m 用 gsplat
 离屏渲染成 MP4。轨迹文件可以用 99g 画图目检、用 COLMAP GUI 核对后再渲视频。
 **轨迹位置/尺度来自训练相机本身，天然与场景对齐**——渲糊了先怀疑覆盖不足（见下）。
 
@@ -589,6 +589,10 @@ SCENE=$SCENE CENTER=yaxis PITCH=10 EFFECT=orbit_left $ENV_PY tools_99/99l_gen_co
 # 初始相机选择：默认 01 组中间帧；INIT_INDEX 支持负数（倒数）
 SCENE=$SCENE GROUP=02 INIT_INDEX=-1 $ENV_PY tools_99/99l_gen_colmap_traj.py
 
+# 子弹时间蒙太奇（环绕 + 推近 + 机位下降，默认 decel 快起收住）
+SCENE=$SCENE EFFECT=bullet_time ANGLE=120 PARAM=2 ELEV=12 \
+  $ENV_PY tools_99/99l_gen_colmap_traj.py
+
 # ② 渲染（小样先验：MAX_FRAMES=16 + KEEP_PNG=1 目检首中尾帧）
 PLY=/path/to/gaussians.ply TRAJ_DIR=$SCENE/traj_camera/orbit_left \
 MAX_FRAMES=16 KEEP_PNG=1 $ENV_PY tools_99/99m_render_trajectory.py
@@ -599,7 +603,7 @@ PLY=$PLY TRAJ_DIR=$SCENE/traj_camera/orbit_left,$SCENE/traj_camera/hitchcock \
 OUT_DIR=$SCENE/traj_camera/videos $ENV_PY tools_99/99m_render_trajectory.py
 
 # ④ 多场景批量（99n 编排）：遍历 BATCH_ROOT 自身 + 一层子目录，找出同时含
-#    point_cloud/ 与 refined_camera/ 的场景，逐个 99l 生成六种轨迹、99m 渲染，
+#    point_cloud/ 与 refined_camera/ 的场景，逐个 99l 生成七种轨迹、99m 渲染，
 #    视频写 <场景>/traj_videos/<效果名>.mp4；PLY 取 point_cloud/iteration_* 中
 #    最大号（无迭代目录则退回 point_cloud/point_cloud.ply）。
 BATCH_ROOT=/path/to/batch_root $ENV_PY tools_99/99n_batch_traj_render.py
@@ -654,13 +658,23 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 序号，默认组内中间帧 `len//2`，负数=倒数，越界报错）、`CENTER`（`"x,y,z"` 默认 0,0,0
 | `forward`/`view`：沿初始相机原视线前移 ||C0|| | `yaxis`/`y_axis`/`y轴`：
 `center=(0, C0y+h·tan(pitch), 0)`，`h=hypot(C0x,C0z)`）、`PITCH`（yaxis 俯仰角，度）、
-`N` / `ANGLE`（orbit_* 角度，度；orbit_up 越限自动截断并 WARN）/ `PARAM`
-（dolly_out/hitchcock 默认 1.5、grammy 默认 2.0；m≤0 报错、m<1 或 ≈1 WARN）、
+`N` / `ANGLE`（orbit_* / bullet_time 角度，度；orbit_up 越限自动截断并 WARN）/ `PARAM`
+（dolly_out/hitchcock 默认 1.5、grammy/bullet_time 默认 2.0；m≤0 报错、m<1 或 ≈1 WARN）、
+`EASE`（变速曲线：`decel` 快起收住=bullet_time 默认 | `smooth` 缓起缓收 | `accel` 渐加速 |
+`linear` 匀速；只作用于 orbit_* 与 bullet_time，orbit_* 默认 linear 即老行为不变）、
+`ORBIT_DIR`（bullet_time 环绕方向 `right`|`left`，默认 right）、`ELEV`（bullet_time 机位
+下降角，度，默认 0=不升降；参考片同一镜头约 10~15）、
 `EFFECT`（单条快捷方式）/ `EFFECTS`（批量列表）、`OUT`（单条=效果目录，多条=父目录；
 缺省 `<场景根>/traj_camera/`）、`PREFIX`（图像名前缀，默认 03→`03000001.jpg`）、
 `NO_POINTS3D`（=1 不拷贝 points3D.txt/.ply）。输出浮点一律 `%.12g`；
 hitchcock 每帧一台相机、`fscale` 只缩放 fx/fy（cx/cy 不变），dolly_out fscale 恒 1。
 姿态一律重新 look-at 中心点（不沿用原拍摄朝向）；首帧位置 = 初始相机位置。
+
+**bullet_time 的来历**（2026-11-02，参考 B 站 VOGUE Ball 子弹时间蒙太奇 00:23–00:30 段）：
+逐帧截图 + 亮度 bbox 量化后确认，同一个镜头内同时发生 ①绕人水平转动 ②半径推近
+③机位下降（26.0s 俯看平台 → 27.25s 平视略仰），且**中段快、末段收住**。所以三者
+共用同一条进度曲线（分开走会变成「先转完再靠近」的两段动作拼接），`EASE` 默认 `decel`。
+纯环绕 = `orbit_left/right`，缓起缓收纯推近 = `grammy`，三者互不替代。
 
 **99m 其余 env**：`TRAJ_DIR`（支持**逗号分隔多条轨迹**批量渲染，PLY 只加载一次；
 输出固定为 `OUT_DIR/<轨迹目录名>.mp4`，批量时 `OUT` 被忽略；单条时 `OUT` 可自定义
