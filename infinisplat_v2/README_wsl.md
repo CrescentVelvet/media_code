@@ -155,6 +155,13 @@ SH / scale / opacity / quat，3000 步 **161 s、峰值显存 6.3 GB**。判据�
 - 边界：留出视角只是 32 视角环绕内部的 ~5.7° 插值，**远视点外推未测**；只测了佳佳抱枕一个场景。
   它擦掉的是「糊」，不是「缺信息」——手部细节仍不如 GT。
 
+**已接进默认流程**：`02_run_inference.sh` 出完 PLY 自动调 `02b_finetune.sh`，结果落
+`<结果目录>/ft/`（**不覆盖原始导出**，两版并存才能对照）。`03_eval_render.sh` 见 ft 自动优先评测它。
+代价是每次重建多 160 s；`FINETUNE=0` 跳过，`FINETUNE_ITERS=N` 换步数，
+`FINETUNE_EXTRA_ARGS="--opt sh"` 做消融，`EVAL_FT=0` 强制评原始导出。
+图像↔相机配对走 `result.json` 的 `inputs[i].sha256` 硬映射（命中率 <80% 才退回文件名排序）——
+精调接进默认流程后，配错图不会再被肉眼兜住，只会把高斯往错方向拉而 PSNR 曲线照样上涨。
+
 ## 常用命令
 
 > 以下都在 WSL 里、`cd` 到本目录（`/mnt/c/code/media_code/infinisplat_v2`）执行。
@@ -171,10 +178,12 @@ CONDA_ENV=infinisplat_v2 PY_VER=3.11 TORCH_VER=2.7.1 bash 00_setup_env.sh
 HF_BASE_URL=https://aifasthub.com DOWNLOAD_JOBS=8 bash 01_download_models.sh
 SKIP_EXAMPLES=1 bash 01_download_models.sh     # 只下权重
 
-# 2) 推理：官方三示例
+# 2) 推理：官方三示例（默认会串一步 161 s 精调，结果在 <输出>/ft/）
 EXAMPLE=dtu_provided        LONG_SIDE=518 MAX_VIEWS=32 bash 02_run_inference.sh
 EXAMPLE=hypersim_provided   LONG_SIDE=518 MAX_VIEWS=50 bash 02_run_inference.sh
 EXAMPLE=hypersim_da3_pose   LONG_SIDE=518 MAX_VIEWS=32 bash 02_run_inference.sh
+FINETUNE=0 EXAMPLE=dtu_provided bash 02_run_inference.sh        # 只要原始导出
+EXAMPLE=dtu_provided FINETUNE_ITERS=1000 bash 02_run_inference.sh  # 省时间的半程精调
 
 # 2') 自有图像
 IMAGES_DIR=/mnt/d/data/myscene/images CAMERAS=/mnt/d/data/myscene/cameras.npz \
@@ -257,10 +266,12 @@ python 13_roi_eval.py \
   --hand-width 160 --out ~/output/infinisplat_v2_results/_diag/roi_eval.json
 
 # 15) 后处理精调（位置冻结、位姿不动，只调 SH/scale/opacity/quat；161 s / 6.3 GB）
-python 14_finetune_gs.py --result ~/output/infinisplat_v2_results/jiajia \
-  --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
-  --out ~/output/infinisplat_v2_results/jiajia_ft --iters 3000
-# 消融：--opt sh 或 --opt scale,opacity,quat；干跑 --iters 0 应与基线 PSNR 完全一致
+#     02 默认已经调它了；这里是单跑 / 换参数时的入口
+RESULT=~/output/infinisplat_v2_results/jiajia \
+  IMAGES_DIR=~/output/infinisplat_v2_results/_captures/jiajia/images \
+  bash 02b_finetune.sh                                  # 默认 3000 步 → <RESULT>/ft
+RESULT=... IMAGES_DIR=... FINETUNE_ITERS=1000 bash 02b_finetune.sh
+RESULT=... IMAGES_DIR=... FINETUNE_EXTRA_ARGS="--opt sh" bash 02b_finetune.sh   # 只调颜色
 
 # 16) 严格留出（25 训 / 7 留）—— 只有这个数能报
 #     两个包共享 AR 世界坐标系，所以 --ref-cameras 可直接用训练包的 GT 相机
@@ -318,6 +329,11 @@ bash 01_download_models.sh
 | `EPS2D` | `0.01` | 论文值 1e-2；gsplat 默认 0.3，渲染时显式覆盖 |
 | `MODE` | `holdout` | `03` 的评测口径：holdout（NVS）/ rerender（自洽） |
 | `N_INPUT` / `N_TARGET` | `8` / `4` | holdout 划分；4 对齐论文"每例 4 个目标视角" |
+| `FINETUNE` | `1` | `02` 末尾是否串 `02b` 精调；0 = 只要原始导出 |
+| `FINETUNE_ITERS` | `3000` | 精调步数（161 s）；0 = 干跑只 eval |
+| `FINETUNE_EXTRA_ARGS` | 空 | 透传给 `14_finetune_gs.py`，如 `--opt sh` |
+| `FT_SUBDIR` | `ft` | 精调结果落在 `<结果目录>/<FT_SUBDIR>`，不覆盖原始导出 |
+| `EVAL_FT` | `1` | `03` 见 `<结果>/ft` 时优先评它；0 = 强制评原始导出 |
 
 ## 目录布局
 
@@ -326,8 +342,9 @@ bash 01_download_models.sh
 ├── _env.sh                          # 共享环境（proxy / conda / GPU / 路径）
 ├── 00_setup_env.sh                  # 建 env + torch + infinisplat + DA3 + gsplat
 ├── 01_download_models.sh            # 权重 + 官方示例（镜像站分块下载）
-├── 02_run_inference.sh              # 前馈推理 → scene.ply
-├── 03_eval_render.sh                # 自接 gsplat 渲染 + 两种口径评测
+├── 02_run_inference.sh              # 前馈推理 → scene.ply（默认串一步 02b 精调）
+├── 02b_finetune.sh                  # 推理后精调包装（落 <结果>/ft/，可单独跑/换参数）
+├── 03_eval_render.sh                # 自接 gsplat 渲染 + 两种口径评测（自动优先评 ft/）
 ├── 04_run_dataset.sh                # 批量跑自有数据集 + 逐物体记显存/耗时
 ├── 05_pose_colmap.sh                # COLMAP SfM 供位姿 → cameras.npz
 ├── 06_nvs_holdout.sh                # 少视角真实 NVS（N 输入 → 留出 M 视角）

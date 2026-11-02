@@ -30,6 +30,7 @@
   <out>/finetune.json      超参、逐次 eval 曲线、耗时、峰值显存
 """
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -95,6 +96,44 @@ def write_ply(path, means, scales, opacities, quats, sh):
     PlyData([PlyElement.describe(data, "vertex")], text=False).write(str(path))
 
 
+def sha256_file(path, chunk=1 << 20):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for blk in iter(lambda: f.read(chunk), b""):
+            h.update(blk)
+    return h.hexdigest()
+
+
+def resolve_images(records, images_dir, n, min_hit=0.8):
+    """把「相机序号」映射到「图像文件」，**不靠文件名排序假设**。
+
+    result.json 的 inputs[i].sha256 就是当初送进模型的原始字节哈希，按它硬映射。
+    为什么非做不可：精调一旦接进默认流程，配错图不会再被"我看一眼"兜住 ——
+    错的 GT 只会让优化器把高斯往错误方向拉，而且 PSNR 曲线看起来照样在涨。
+
+    退回条件：记录里没 sha（老 result.json）或命中率 <80%（图为重编码过的副本），
+    这时退回按文件名排序并在打印里明示，别让调用方以为还是硬映射。
+    """
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+    files = sorted(p for p in Path(images_dir).iterdir()
+                   if p.is_file() and p.suffix.lower() in exts)
+    by_sha = {}
+    for p in files:
+        by_sha.setdefault(sha256_file(p), p)
+
+    picks, hit = [], 0
+    for i in range(n):
+        rec = records[i] if i < len(records) else {}
+        p = by_sha.get(rec.get("sha256", "")) if rec.get("sha256") else None
+        if p is not None:
+            hit += 1
+        picks.append(p)
+
+    if files and hit >= min_hit * n:
+        return picks, f"sha256 硬映射 {hit}/{n}"
+    return files[:n], f"⚠️ 按文件名排序（sha 命中 {hit}/{n}，判据 {min_hit:.0%}）"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--result", required=True, help="含 scene.ply / cameras.npz / result.json")
@@ -130,11 +169,11 @@ def main():
     cams = np.load(res / "cameras.npz", allow_pickle=False)
     c2w_all, K_all = np.array(cams["c2w"]), np.array(cams["intrinsics"]).astype(np.float32)
     records = meta.get("inputs", [])
-    exts = {".jpg", ".jpeg", ".png", ".webp"}
-    imgs = sorted(p for p in Path(args.images_dir).iterdir()
-                  if p.is_file() and p.suffix.lower() in exts)
-    n = min(len(c2w_all), args.max_views, len(imgs))
+    n_max = min(len(c2w_all), args.max_views)
+    imgs, pair_note = resolve_images(records, Path(args.images_dir), n_max)
+    n = min(n_max, len(imgs))
     print(f"🚀 [14] 精调 | 高斯 {len(g['means']):,} | 视角 {n} | iters {args.iters}")
+    print(f"   图像配对: {pair_note}")
 
     # ---- 逐视角 GT（与 render_check 同一预处理，避免裁剪偏移）----
     gts, whs = [], []
@@ -284,6 +323,7 @@ def main():
     delta_sh = float(np.mean(np.abs(sh - g["sh"])))
     rep = dict(result=str(res), images_dir=str(args.images_dir), iters=args.iters,
                opt=sorted(opt_set), holdout_every=args.holdout_every,
+               image_pairing=pair_note,
                n_train=len(train), n_hold=len(hold), wh=[w, h],
                gaussians=int(len(g["means"])),
                init=dict(train=base_train, hold=base_hold),

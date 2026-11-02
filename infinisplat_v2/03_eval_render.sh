@@ -12,6 +12,10 @@
 #
 #   # B) 从示例里划出 holdout，重跑推理并评测
 #   EXAMPLE=dtu_provided MODE=holdout N_INPUT=8 N_TARGET=4 bash 03_eval_render.sh
+#
+# Env:
+#   EVAL_FT=1           # <RESULT>/ft 存在时优先评测精调结果（0 = 强制评测原始导出）
+#   FINETUNE=0          # 传给内部调用的 02，跳过精调（holdout 模式省 161 s）
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,6 +74,13 @@ else
     EVAL_CAMS=""
     REF_CAMS=""
     TAG=rerender
+fi
+
+# 02 默认会串一步精调并落在 <RESULT>/ft。评测默认跟着走，否则会出现
+# 「02 报了 +2 dB、03 量出来却是原始导出」的口径错位（这正是 E-19 那类误报的来源）。
+if [ -f "$RESULT/ft/scene.ply" ] && [ "${EVAL_FT:-1}" = "1" ]; then
+    echo "🔧 评测目标切到精调结果: $RESULT/ft（EVAL_FT=0 可回退到原始导出）"
+    RESULT="$RESULT/ft"
 fi
 
 echo "🎨 [03] 渲染评测 ($TAG)"

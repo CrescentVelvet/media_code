@@ -7,6 +7,7 @@
 #   SKIP_DOWNLOAD=1        # 跳过 01（权重已就绪）
 #   MODE=holdout           # 03 的评测口径：holdout / rerender
 #   N_INPUT=8 N_TARGET=4   # holdout 划分规模
+#   FINETUNE=1             # 02 后是否串精调（默认开；03 会自动评测 <RESULT>/ft）
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

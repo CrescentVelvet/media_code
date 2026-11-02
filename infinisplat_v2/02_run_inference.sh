@@ -14,6 +14,7 @@
 #   IMAGES_DIR=/path/to/images POSE_MODE=da3-pose OUT_NAME=myscene bash 02_run_inference.sh
 #
 # 输出：$RESULTS_DIR/<OUT_NAME>/{scene.ply, cameras.npz, result.json}
+#       默认再串一步 02b 精调 → $RESULTS_DIR/<OUT_NAME>/ft/（FINETUNE=0 可跳过）
 #
 # Env (all optional):
 #   EXAMPLE=            # 官方示例名；与 IMAGES_DIR 二选一
@@ -24,6 +25,9 @@
 #   LONG_SIDE=518       # 长边像素，112–2044，对齐 14 的倍数
 #   MAX_VIEWS=32        # 上限 2–50；50 视角示例需显式给 50
 #   HTML=0              # 1 = 额外导出 scene.html（需 npm splat-transform）
+#   FINETUNE=1          # 1 = 推理后自动跑 02b 精调（3000 步 / 161 s / 6.3 GB）
+#   FINETUNE_ITERS=3000 # 精调步数，0 = 只 eval 不训练
+#   FINETUNE_EXTRA_ARGS=# 透传给 14_finetune_gs.py（如 "--opt sh"）
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +37,8 @@ source "$SCRIPT_DIR/_env.sh"
 : "${LONG_SIDE:=518}"
 : "${MAX_VIEWS:=32}"
 : "${HTML:=0}"
+: "${FINETUNE:=1}"
+: "${FINETUNE_ITERS:=3000}"
 
 if [ ! -f "$WEIGHTS_DIR/model.safetensors" ] || [ ! -f "$WEIGHTS_DIR/config.json" ]; then
     echo "❌ ERROR: 权重缺失（$WEIGHTS_DIR）" >&2
@@ -109,4 +115,18 @@ ply = d / 'scene.ply'
 print(f"  📄 scene.ply {ply.stat().st_size/1e6:.1f} MB")
 print(f"  📷 相机数: {len(meta.get('inputs', []))}  pose_mode={meta.get('pose_mode')}")
 PY
+
+# ---- 后处理精调（默认开）----
+# 放在 02 里的理由：精调需要的两样东西（重建结果 + 同源原图）只有这里同时在场，
+# 交给调用方自己拼路径迟早会拼错场景。想拿原始导出的指标就 FINETUNE=0。
+if [ "$FINETUNE" = "1" ]; then
+    RESULT="$OUT_DIR" IMAGES_DIR="$IMAGES_DIR" FINETUNE_ITERS="$FINETUNE_ITERS" \
+        bash "$SCRIPT_DIR/02b_finetune.sh"
+    if [ $? -ne 0 ]; then
+        echo "❌ 精调失败；原始导出仍可用（$OUT_DIR）" >&2
+        exit 1
+    fi
+else
+    echo "⏭️  跳过精调（FINETUNE=0）。要补：RESULT=$OUT_DIR IMAGES_DIR=$IMAGES_DIR bash $SCRIPT_DIR/02b_finetune.sh"
+fi
 echo "🎉 Done: $OUT_DIR"
