@@ -51,6 +51,9 @@ def main():
     ap.add_argument("--raw-dir", required=True)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--n-views", type=int, default=32)
+    ap.add_argument("--frames", default=None,
+                    help="显式指定帧号（逗号分隔，覆盖 --n-views）。用于严格 train/holdout 切分："
+                         "训练包与留出包共享同一 AR 世界坐标系，所以两包的 cameras.npz 可直接互为参照")
     ap.add_argument("--no-undistort", action="store_true")
     args = ap.parse_args()
 
@@ -61,10 +64,15 @@ def main():
         sys.exit(f"❌ 缺 transforms.json: {tj}")
     d = json.loads(tj.read_text(encoding="utf-8"))
     frames = d["frames"]
-    if not 2 <= args.n_views <= 50:
-        sys.exit("❌ n_views 必须在 2..50")
-
-    picked = pick_frames(len(frames), args.n_views)
+    if args.frames:
+        picked = sorted({int(s) for s in args.frames.split(",") if s.strip()})
+        bad = [i for i in picked if not 0 <= i < len(frames)]
+        if bad:
+            sys.exit(f"❌ 帧号越界 {bad}（总帧数 {len(frames)}）")
+    else:
+        if not 2 <= args.n_views <= 50:
+            sys.exit("❌ n_views 必须在 2..50")
+        picked = pick_frames(len(frames), args.n_views)
     (out / "images").mkdir(parents=True, exist_ok=True)
 
     c2ws, Ks, names, records = [], [], [], []

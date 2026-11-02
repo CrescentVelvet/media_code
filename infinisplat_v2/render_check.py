@@ -160,6 +160,10 @@ def main():
     ap.add_argument("--eps2d", type=float, default=0.01, help="论文值 1e-2")
     ap.add_argument("--max-views", type=int, default=32)
     ap.add_argument("--background", type=float, default=1.0, help="渲染背景亮度（1=白，常见 3DGS 评测口径）")
+    ap.add_argument("--scale-mult", type=float, default=1.0,
+                    help="加载后统一缩放高斯半径（<1 更锐、>1 更糊；仅调参不训练，用于分离"
+                         "「高斯足迹过大」与「优化不足」两种成因）")
+    ap.add_argument("--opacity-mult", type=float, default=1.0, help="加载后统一缩放不透明度")
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
@@ -169,6 +173,10 @@ def main():
 
     meta = json.loads((res / "result.json").read_text())
     g = load_ply(res / "scene.ply")
+    if args.scale_mult != 1.0 or args.opacity_mult != 1.0:
+        g["scales"] = (g["scales"] * args.scale_mult).astype(np.float32)
+        g["opacities"] = np.clip(g["opacities"] * args.opacity_mult, 0.0, 1.0).astype(np.float32)
+        print(f"🔧 后处理缩放: scale×{args.scale_mult}  opacity×{args.opacity_mult}")
     cams_path = Path(args.cameras) if args.cameras else res / "cameras.npz"
     cams = np.load(cams_path, allow_pickle=False)
     c2w_all, K_all = np.array(cams["c2w"]), np.array(cams["intrinsics"])
@@ -224,6 +232,7 @@ def main():
         print(f"  [{i:02d}] {imgs[i].name[:40]:42s} {w}x{h}  PSNR {p:6.3f}  SSIM {s:.4f}  alpha {cov:.3f}")
 
     summary = dict(tag=args.tag, views=n, gaussians=int(len(g["means"])), eps2d=args.eps2d,
+                   scale_mult=args.scale_mult, opacity_mult=args.opacity_mult,
                    psnr_mean=float(np.mean(ps)), ssim_mean=float(np.mean(ss)),
                    per_view=dict(psnr=ps, ssim=ss))
     (out / f"metrics_{args.tag}.json").write_text(json.dumps(summary, indent=2))

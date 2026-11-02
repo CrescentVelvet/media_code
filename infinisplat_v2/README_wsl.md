@@ -97,8 +97,12 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 | 1036 | 770×1036 | 12 |
 
 超过上限不会 OOM，而是**静默变慢 10 倍**（峰值卡在 24.1–24.2 GB）。判据就是这个。
-⚠️ 手部只保留 GT 锐度的 5%（518）/ 13%（777）——**手部糊是像素预算不够，不是动态没处理**；
-手部微动使自洽 PSNR 掉 1.6 dB，但这个尺度下看不见幽灵，只表现为更糊。
+⚠️ 手部只保留 GT 锐度的 5%（518）/ 13%（777）；手部微动使自洽 PSNR 掉 1.6 dB，
+但这个尺度下看不见幽灵，只表现为更糊。
+⚠️ **归因更正（Step 3）**：这里原先把「手部糊」归因为像素预算不足，**该归因已被推翻** ——
+同一份重建只做后处理精调（位置冻结、位姿不动）就能把 σ_eff 从 1.5 px 压到 0.5 px、
+锐度保留 0.66→0.91，分辨率和高斯数都没变。真正的原因是**默认导出参数造成的合成模糊**
+（平均不透明度 0.27、一个像素被多次叠加平均）与弱纹理区的深度精度。见下节。
 
 ### 同一笔预算：加视角还是加分辨率（E-22 / E-23）
 
@@ -130,6 +134,26 @@ DA3（Depth-Anything-3）**冻结**、位置全程钉死在深度反投影上，
 ⚠️ **自洽 ≠ NVS**：自洽时每个高斯中心就是从该视角反投影来的，只证明"属性学对了 + 渲染器
 接对了"；能对标论文的只有 holdout 那一行。且官方划分未公开、分辨率与目标视角选取都不同，
 **本表与论文表 1 不可直接比较**。推导与逐视角数据见 `EXPERIMENTS.md`。
+
+### 后处理精调：从已导出的高斯里还能榨出多少（E-29~E-34）
+
+`14_finetune_gs.py`：**位置冻结**（不 densify、不 prune）、**位姿不动**，只优化
+SH / scale / opacity / quat，3000 步 **161 s、峰值显存 6.3 GB**。判据用**严格留出**
+（另建一个只用 25 视角的重建，7 个视角的像素完全不参与重建、也不参与精调）：
+
+| | 自洽(25 视角) | 留出(7 视角) | σ_eff | 锐度保留 | 双峰率 |
+| --- | --- | --- | --- | --- | --- |
+| 原始导出 | 20.67 | 19.05 | 1.50 px | 0.662 | 24.8% |
+| 精调后 | 28.78 | **21.15（+2.11）** | **0.50 px** | **0.914** | **15.9%** |
+
+- 留出 **7/7 视角全为正**（+0.58～+4.13 dB）；换随机种子复跑只差 **0.004 dB**。
+- ⚠️ **自洽涨的 8.1 dB 只有 26% 迁移到新视角**，读自洽数字一律按这个折扣。
+- 增益主要来自几何（scale/opacity/quat 占 88%，只调颜色 +1.85 dB）：优化把合成从
+  「多次低不透明度叠加平均」变成「最近高斯主导」，所以半径变大 1.26× 反而更锐。
+- 单独手调这两个旋钮都是负收益（scale 0.7× → −2.5 dB，opacity 1.5× → −0.23 dB）：
+  参数是**逐个失准**，全局乘数修不了，所以只能靠优化。
+- 边界：留出视角只是 32 视角环绕内部的 ~5.7° 插值，**远视点外推未测**；只测了佳佳抱枕一个场景。
+  它擦掉的是「糊」，不是「缺信息」——手部细节仍不如 GT。
 
 ## 常用命令
 
@@ -231,6 +255,25 @@ python 13_roi_eval.py \
   --group "full32=~/output/.../_captures/jiajia=~/output/.../jiajia" \
   --group "fix030=~/output/.../_captures/jiajia_roifix030=~/output/.../jiajia_roifix030" \
   --hand-width 160 --out ~/output/infinisplat_v2_results/_diag/roi_eval.json
+
+# 15) 后处理精调（位置冻结、位姿不动，只调 SH/scale/opacity/quat；161 s / 6.3 GB）
+python 14_finetune_gs.py --result ~/output/infinisplat_v2_results/jiajia \
+  --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
+  --out ~/output/infinisplat_v2_results/jiajia_ft --iters 3000
+# 消融：--opt sh 或 --opt scale,opacity,quat；干跑 --iters 0 应与基线 PSNR 完全一致
+
+# 16) 严格留出（25 训 / 7 留）—— 只有这个数能报
+#     两个包共享 AR 世界坐标系，所以 --ref-cameras 可直接用训练包的 GT 相机
+RAW=/mnt/d/dataset/手部微动样例/<包名>
+CAP=~/output/infinisplat_v2_results/_captures
+python 07_capture_to_npz.py --raw-dir "$RAW" --out-dir "$CAP/jiajia_tr25" \
+  --frames 0,3,5,10,13,16,21,24,26,31,34,37,42,44,47,52,55,57,63,65,68,73,76,78,81
+python 07_capture_to_npz.py --raw-dir "$RAW" --out-dir "$CAP/jiajia_ho7" \
+  --frames 8,18,29,39,50,60,71
+# 只用 25 视角重建 → 精调 → 用留出相机渲染比 PSNR
+python render_check.py --result <精调后的目录> --images-dir "$CAP/jiajia_ho7/images" \
+  --cameras "$CAP/jiajia_ho7/cameras.npz" --ref-cameras "$CAP/jiajia_tr25/cameras.npz" \
+  --out <精调后的目录>/eval_hold --tag hold_ft --max-views 7
 ```
 
 ## 首次准备
@@ -301,6 +344,8 @@ bash 01_download_models.sh
 ├── 12_run_roi.sh                    # 手/脸 ROI 裁切 → 推理 → 显存耗时（一条命令）
 ├── 12_make_roi_capture.py           # 原图裁 ROI + 内参三处修正（**必须固定视场**，见 E-26）
 ├── 13_roi_eval.py                   # 手部区域统一口径对比（σ@160 / σ_native / PSNR@160）
+├── 14_finetune_gs.py                # 位置冻结的 3DGS 后处理精调（自带写盘→回读对拍）
+├── 15_step3_compare.py              # 精调前后 + 消融的对照图（含 |diff| 列）
 ├── ghost_metrics.py                 # 上几者的指标库（口径只改这一处）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
