@@ -159,6 +159,12 @@ RAW_DIR="/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳�
 RAW_DIR=... OUT_NAME=jiajia777 N_VIEWS=16 LONG_SIDE=777 bash 07_run_capture.sh  # 手部更清，但更吃显存
 RAW_DIR=... OUT_NAME=jiajia N_VIEWS=32 SKIP_INFER=1 bash 07_run_capture.sh      # 只转换不推理
 RAW_DIR=... OUT_NAME=jiajia N_VIEWS=32 RENDER=1 bash 07_run_capture.sh          # 转换+推理+自洽渲染
+
+# 10) 糊 / 重影量化（纯 CPU，读已有渲染；--selftest 先验指标灵敏度）
+python 09_diag_ghost.py \
+  --result ~/output/infinisplat_v2_results/jiajia \
+  --images-dir ~/output/infinisplat_v2_results/_captures/jiajia/images \
+  --out ~/output/infinisplat_v2_results/_diag --tag jiajia --selftest
 ```
 
 ## 首次准备
@@ -223,6 +229,8 @@ bash 01_download_models.sh
 ├── make_holdout.py                  # 输入/目标视角划分
 ├── render_check.py                  # PLY → 渲染 → PSNR/SSIM + 拼图
 ├── 07_capture_to_npz.py             # transforms.json + HEIC → PNG + cameras.npz（含去畸变）
+├── 09_diag_ghost.py                 # 糊/重影量化（σ_eff / 分块锐度 / 边缘双峰）
+├── ghost_metrics.py                 # 上者的指标库（09/10 共用，口径只改这一处）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
 ├── rebuild_bench.py                 # 从已有结果目录重建汇总表（不重跑 GPU）
