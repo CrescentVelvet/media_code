@@ -26,6 +26,7 @@ env EFFECT=orbit_left 可只跑单条。
     python tools_99/99l_gen_colmap_traj.py                    # 预设批量全部 7 种
     EFFECT=orbit_left python ...                              # 单条
     EFFECT=bullet_time ANGLE=120 ELEV=12 python ...            # 子弹时间蒙太奇式运镜
+    ANCHOR=cam python ...                                     # 老行为：从初始相机出发
     CENTER=forward python ...                                 # 中心=沿初始相机视线
     CENTER=yaxis PITCH=10 python ...                          # 中心=俯仰看向 y 轴
     INIT_INDEX=-1 GROUP=02 python ...                         # 指定初始相机
@@ -36,9 +37,20 @@ hitchcock（拉远 + 焦距同比 = dolly zoom）、grammy（缓起缓收推近�
 bullet_time（绕人环绕 + 推近 + 机位下降，默认快起收尾的变速，参考 VOGUE Ball
 子弹时间蒙太奇；EASE/ORBIT_DIR/ELEV 可调）。
 
+两种锚点（ANCHOR）：
+- coverage（默认）：先统计拍摄相机的球坐标（方位/仰角/半径），取方位覆盖主段
+  （gap-split 后帧数最多那段）的中点作基准方向、主段内仰角与半径的中位数作基准；
+  轨迹以它为中心向两侧各展开 ANGLE/2，仰角与半径也从这里出发。ANGLE 超过覆盖
+  可用范围时自动截断并 WARN。整圈数据（跨度≈360°）会自动退回初始相机方向。
+- cam（老行为）：轨迹首帧 = 初始相机位姿。若初始相机在拍摄覆盖边缘，转 ANGLE
+  度会有一半跑到没拍到的方向 → 画面糊/伪影，这就是 coverage 要解决的问题。
+
 Env vars（不设则用下方 main() 预设；多值用逗号分隔）:
   输入   SCENE（场景根或 refined_camera 目录）, GROUP（01|02）, INIT_INDEX（整数，负数=倒数）
   中心   CENTER（"x,y,z" | forward/view | yaxis/y_axis/y轴）, PITCH（yaxis 用，度）
+  锚点   ANCHOR（coverage=对准覆盖中心，默认 | cam=从初始相机出发）,
+         COVERAGE_GROUP（覆盖统计用哪组，空=跟 GROUP，all=01+02）,
+         COVERAGE_PAD（覆盖两侧余量，度，默认 3）
   轨迹   EFFECTS（效果列表）, EFFECT（单条快捷方式）, N, ANGLE（orbit_*/bullet_time 角度°）,
          PARAM（dolly_out/hitchcock 默认 1.5，grammy/bullet_time 默认 2.0）
   变速   EASE（linear|smooth|accel|decel；bullet_time 默认 decel，orbit_* 默认 linear）,
@@ -136,6 +148,118 @@ def look_at(pos, target):
     down = np.cross(fwd, right)
     R = np.stack([right, down, fwd])
     return R, -R @ pos
+
+
+# ============ 球坐标（以 center 为心，方位绕 UP 量） ============
+
+def unit_h(v):
+    """取向量的水平分量并归一化；水平分量退化（正上/正下）时返回 None。"""
+    v = np.asarray(v, dtype=np.float64)
+    h = v - float(v @ UP) * UP
+    n = float(np.linalg.norm(h))
+    return None if n < 1e-9 else h / n
+
+
+def wrap180(a):
+    """角度归一到 (-180, 180]，并把 -180 显示成 +180（同一方向，只是好读）。"""
+    a = (a + 180.0) % 360.0 - 180.0
+    return 180.0 if a <= -180.0 + 1e-9 else a
+
+
+def az_relative(h, ref_h):
+    """h 相对 ref_h 的方位角（度，绕 UP 右手为正）。"""
+    return math.degrees(math.atan2(float(np.cross(ref_h, h) @ UP), float(ref_h @ h)))
+
+
+def dir_from(az_deg, el_deg, ref_h):
+    """(方位°, 仰角°) → 单位方向向量（center→cam）。方位相对 ref_h 绕 UP 量。"""
+    h = axis_angle_rotmat(UP, math.radians(az_deg)) @ ref_h
+    e = math.radians(el_deg)
+    return math.cos(e) * h + math.sin(e) * UP
+
+
+def main_arc(azs, gap_min=30.0):
+    """环形 gap-split：反复切掉 > gap_min 的洞，返回**帧数最多**那段 (lo, hi, span)。
+
+    azs 升序（度）。hi 可能 >180（已解缠，保持连续）。为什么不是只切一次：方位是
+    环形的，两组数据（如 01/02 各一段弧）之间会有**两个**洞，只切最大洞后剩下的
+    序列里横跨另一个洞，中点就落到没拍过的方向上了。整圈数据（最大洞 < gap_min）
+    直接返回 span=360。
+    """
+    n = len(azs)
+    if n == 1:
+        return azs[0], azs[0], 0.0
+    gaps = [((azs[(i + 1) % n] - azs[i]) % 360.0) for i in range(n)]
+    k = int(np.argmax(gaps))
+    # 整圈判据用「最大洞 vs 中位帧间距」的相对倍数，不能只看绝对阈值：
+    # 12 台均匀整圈的洞正好 30°，用 gap_min 卡边界会误判成两段。
+    if gaps[k] < max(gap_min, 3.0 * float(np.median(gaps))):
+        return azs[0], azs[0] + 360.0, 360.0      # 整圈
+    seq, prev = [], None
+    for i in range(n):
+        a = azs[(k + 1 + i) % n]                  # 从最大洞之后开始绕一圈
+        if prev is not None and a < prev - 1e-9:
+            a += 360.0                            # 跨 0° 时解缠，保证单调
+        seq.append(a)
+        prev = a
+    segs, cur = [], [seq[0]]
+    for a in seq[1:]:
+        if a - cur[-1] > gap_min:
+            segs.append(cur)
+            cur = [a]
+        else:
+            cur.append(a)
+    segs.append(cur)
+    best = max(segs, key=len)                     # 帧数最多的一段 = 覆盖最齐的位置
+    return best[0], best[-1], best[-1] - best[0]
+
+
+def on_arc(a, lo, hi):
+    """a（度）是否落在已解缠的区间 [lo, hi] 内（含 ±360 的等价写法）。"""
+    return any(lo - 1e-6 <= a + d <= hi + 1e-6 for d in (0.0, 360.0, -360.0))
+
+
+def collect_spherical(imgs, center):
+    """每台拍摄相机 → {name, h(水平单位向量), el(度), r(米)}；退化的跳过。"""
+    rows = []
+    for im in imgs:
+        R = qvec2rotmat(im["qvec"])
+        C = -R.T @ np.asarray(im["tvec"], dtype=np.float64)
+        d = C - center
+        r = float(np.linalg.norm(d))
+        if r < 1e-9:
+            continue
+        h = unit_h(d)
+        if h is None:
+            continue                              # 正上方/正下方：没有方位
+        el = math.degrees(math.asin(max(-1.0, min(1.0, float(d @ UP) / r))))
+        rows.append({"name": im["name"], "h": h, "el": el, "r": r})
+    return rows
+
+
+def resolve_anchor(rows, ref_h):
+    """coverage 锚点：方位覆盖主段中点 + 主段内仰角/半径中位数。
+
+    中位数而非均值：采集里常有单帧离群（手持抖动、跟踪丢帧），均值会被拽走。
+    """
+    azs = sorted(az_relative(r["h"], ref_h) for r in rows)
+    lo, hi, span = main_arc(azs)
+    kept = [r for r in rows if on_arc(az_relative(r["h"], ref_h), lo, hi)]
+    if not kept:                                  # 理论上不会（lo/hi 就来自这些点）
+        kept = rows
+    els = np.array([r["el"] for r in kept], dtype=np.float64)
+    rs = np.array([r["r"] for r in kept], dtype=np.float64)
+    # 整圈时「中点」没有定义（哪个方向都拍到了），退回初始相机方位（相对量 = 0）。
+    az_mid = 0.0 if span >= 350.0 else wrap180((lo + hi) / 2.0)
+    return {
+        "az": az_mid,
+        "el": float(np.median(els)),
+        "r": float(np.median(rs)),
+        "span": span, "az_lo": lo, "az_hi": hi,
+        "el_lo": float(els.min()), "el_hi": float(els.max()),
+        "r_lo": float(rs.min()), "r_hi": float(rs.max()),
+        "n_main": len(kept), "n_all": len(rows),
+    }
 
 
 # ============ COLMAP 文本解析 ============
@@ -266,43 +390,43 @@ def ease_progress(u, mode):
     die(f"未知 EASE {mode!r}，可选: linear/smooth/accel/decel")
 
 
-def gen_traj(effect, C0, center, n, angle_deg, param, ease=None, orbit_dir="right",
-             elev_deg=0.0):
-    d = np.asarray(C0, dtype=np.float64) - np.asarray(center, dtype=np.float64)
-    d0 = float(np.linalg.norm(d))
-    if d0 < 1e-12:
-        die("初始相机与中心点重合")
-    dhat = d / d0
-    forward0 = -dhat
+def gen_traj(effect, base, ref_h, center, n, angle_deg, param, ease=None,
+             orbit_dir="right", elev_deg=0.0, symmetric=False):
+    """从锚点 base={az,el,r} 生成一条轨迹，返回 [(pos, fscale), ...]。
+
+    symmetric=True（ANCHOR=coverage）：方位/仰角的扫掠以 base 为中点、向两侧各展开
+    angle/2，整段都落在拍摄覆盖内；False（ANCHOR=cam）沿用老行为，从 base 单向走。
+    """
+    az0 = float(base["az"])
+    el0 = float(base["el"])
+    r0 = float(base["r"])
+    if r0 < 1e-9:
+        die("基准半径 ≈ 0（相机与中心点重合）")
     u = np.linspace(0.0, 1.0, n)
+
+    def P(az, el, r):
+        """(方位°, 仰角°, 半径) → 世界坐标。"""
+        return center + dir_from(az, el, ref_h) * r
 
     if effect in ("orbit_left", "orbit_right"):
         # 绕 +y 正角度旋转时相机向自身右侧移动，故向左取负号（Rodrigues 已验证）
         sign = -1.0 if effect == "orbit_left" else 1.0
-        total = sign * math.radians(angle_deg)
+        total = sign * angle_deg
+        start = az0 - total / 2.0 if symmetric else az0
         s = ease_progress(u, ease or "linear")
-        return [(center + axis_angle_rotmat(UP, total * si) @ d, 1.0) for si in s]
+        return [(P(start + total * si, el0, r0), 1.0) for si in s]
 
     if effect == "orbit_up":
-        axis = np.cross(UP, forward0)
-        na = float(np.linalg.norm(axis))
-        if na < 1e-12:
-            die("orbit_up 退化：初始视线与 UP 平行")
-        axis /= na
-        e0 = math.asin(min(1.0, max(-1.0, float(dhat @ UP))))
-        lim = math.radians(89.0)
-        if e0 >= lim - 1e-6:
-            die(f"初始仰角 {math.degrees(e0):.1f}° 已过 89°，无法 orbit_up")
-        total = math.radians(angle_deg)
-        lo, hi = -(lim - e0), lim - e0
-        if total > hi or total < lo:
-            clipped = min(max(total, lo), hi)
-            warn(f"orbit_up 角度 {angle_deg}° 超出可行范围 "
-                 f"({math.degrees(lo):.1f}, {math.degrees(hi):.1f})，截断为 "
-                 f"{math.degrees(clipped):.1f}°")
-            total = clipped
+        lim = 89.0
+        start = el0 - angle_deg / 2.0 if symmetric else el0
+        stop = start + angle_deg
+        if start < -lim or stop > lim:
+            c0, c1 = max(-lim, start), min(lim, stop)
+            warn(f"orbit_up 角度 {angle_deg}° 超出可行仰角范围（±{lim:.0f}°），"
+                 f"截断为 {c1 - c0:.1f}°（{c0:.1f}° → {c1:.1f}°）")
+            start, stop = c0, c1
         s = ease_progress(u, ease or "linear")
-        return [(center + axis_angle_rotmat(axis, total * si) @ d, 1.0) for si in s]
+        return [(P(az0, start + (stop - start) * si, r0), 1.0) for si in s]
 
     if effect in ("dolly_out", "hitchcock"):
         m = DOLLY_DEFAULT_M if param is None else param
@@ -313,7 +437,7 @@ def gen_traj(effect, C0, center, n, angle_deg, param, ease=None, orbit_dir="righ
         elif abs(m - 1.0) < 1e-9:
             warn(f"{effect}: m≈1，轨迹静止")
         fs = 1.0 + (m - 1.0) * u
-        pos = [center + dhat * (d0 * f) for f in fs]
+        pos = [P(az0, el0, r0 * f) for f in fs]
         if effect == "dolly_out":
             return [(p, 1.0) for p in pos]
         return [(p, float(f)) for p, f in zip(pos, fs)]  # hitchcock: 焦距同比增大
@@ -328,39 +452,28 @@ def gen_traj(effect, C0, center, n, angle_deg, param, ease=None, orbit_dir="righ
             warn(f"grammy: m≈1，轨迹静止")
         ss = u * u * (3.0 - 2.0 * u)                    # smoothstep
         ss = 1.0 + (1.0 / m - 1.0) * ss
-        return [(center + dhat * (d0 * s), 1.0) for s in ss]
+        return [(P(az0, el0, r0 * s), 1.0) for s in ss]
 
     if effect == "bullet_time":
         # 参考片（VOGUE Ball 子弹时间蒙太奇）实测运镜：同一镜头内 ①绕人水平转动
         # ②半径推近 ③机位下降（26.0s 俯看平台 → 27.25s 平视略仰），速度中段快、
         # 末段收住。三者必须共用同一条进度曲线，否则会变成「先转完再靠近」的
         # 两段动作拼接；曲线分开走也做不出「甩过去再钉住」的观感。
-        m = BULLET_DEFAULT_M if param is None else param      # 末态距离 = d0 / m
+        m = BULLET_DEFAULT_M if param is None else param      # 末态距离 = r0 / m
         if m <= 0:
-            die(f"bullet_time: param 必须 > 0（末态距离 = 初始 ÷ param），收到 {m}")
+            die(f"bullet_time: param 必须 > 0（末态距离 = 基准 ÷ param），收到 {m}")
         if m < 1:
             warn(f"bullet_time: m={m} < 1，推近变成拉远")
         elif abs(m - 1.0) < 1e-9:
             warn(f"bullet_time: m≈1，半径不变（退化为纯环绕）")
         sign = -1.0 if orbit_dir == "left" else 1.0
-        total = sign * math.radians(angle_deg)
+        start = az0 - sign * angle_deg / 2.0 if symmetric else az0
         s = ease_progress(u, ease or "decel")
-
-        # 仰角：e0 = 初始机位相对中心的高度角；ELEV 度 = 整段下降量（0 = 不改机位高度）
-        e0 = math.asin(min(1.0, max(-1.0, float(dhat @ UP))))
-        horiz = dhat - float(dhat @ UP) * UP
-        nh = float(np.linalg.norm(horiz))
-        if nh < 1e-9:
-            die("bullet_time: 初始机位在中心正上/正下方，无法做水平环绕")
-        hdir = horiz / nh
-        drop = math.radians(elev_deg)
-        lim = math.radians(89.0)
         out = []
         for si in s:
-            e = max(-lim, min(lim, e0 - drop * si))
-            dirv = math.cos(e) * hdir + math.sin(e) * UP
-            radius = d0 * (1.0 + (1.0 / m - 1.0) * si)
-            out.append((center + (axis_angle_rotmat(UP, total * si) @ dirv) * radius, 1.0))
+            el = max(-89.0, min(89.0, el0 - elev_deg * si))   # ELEV 度 = 整段下降量
+            r = r0 * (1.0 + (1.0 / m - 1.0) * si)
+            out.append((P(start + sign * angle_deg * si, el, r), 1.0))
         return out
 
     die(f"未知效果 {effect!r}，可选: {'/'.join(EFFECTS_ALL)}")
@@ -430,7 +543,7 @@ def resolve_refined_dir(scene):
 
 def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
         group, init_index, out, no_points3d, ease=None, orbit_dir="right",
-        elev_deg=0.0):
+        elev_deg=0.0, anchor_mode="cam", coverage_group="", coverage_pad=3.0):
     ref, root = resolve_refined_dir(scene)
     cams = parse_cameras(ref / "cameras.txt")
     imgs = parse_images(ref / "images.txt")
@@ -442,8 +555,53 @@ def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
         die(f"初始相机引用的 CAMERA_ID {init['cam']} 不在 cameras.txt 里")
     init_cam = cams[init["cam"]]
     center = resolve_center(center_mode, C0, R0, pitch)
+
+    # 方位基准取初始相机的水平方向：打印出来的角度天然就是「相对初始相机」的偏移。
+    d0v = C0 - center
+    r_init = float(np.linalg.norm(d0v))
+    if r_init < 1e-9:
+        die("初始相机与中心点重合")
+    ref_h = unit_h(d0v)
+    if ref_h is None:
+        die("初始相机在中心点正上/正下方，无法确定方位基准（改 CENTER 或 INIT_INDEX）")
+    el_init = math.degrees(math.asin(max(-1.0, min(1.0, float(d0v @ UP) / r_init))))
     print(f"  🎯 中心点({center_mode}): ({fmt(center[0])}, {fmt(center[1])}, "
-          f"{fmt(center[2])})，初始距离 {float(np.linalg.norm(C0 - center)):.3f}")
+          f"{fmt(center[2])})，初始距离 {r_init:.3f}")
+
+    anchor = {"az": 0.0, "el": el_init, "r": r_init}      # ANCHOR=cam：老行为
+    symmetric = anchor_mode == "coverage"
+    st = None
+    if symmetric:
+        cov_group = (coverage_group or "").strip() or group
+        if cov_group.lower() in ("all", "*"):
+            cov_imgs, cov_label = imgs, "01+02 全部"
+        else:
+            cov_imgs = [im for im in imgs if im["name"][:2] == cov_group]
+            cov_label = f"{cov_group} 组"
+            if not cov_imgs:
+                die(f"COVERAGE_GROUP={cov_group} 没有任何相机")
+        rows = collect_spherical(cov_imgs, center)
+        if len(rows) < 2:
+            die(f"覆盖统计只有 {len(rows)} 台可用相机（在中心正上/正下方的被跳过），"
+                f"无法定中心；改用 ANCHOR=cam")
+        st = resolve_anchor(rows, ref_h)
+        anchor = {"az": st["az"], "el": st["el"], "r": st["r"]}
+        full = st["span"] >= 350.0
+        arc = "整圈覆盖 360°（对准哪都行，方位退回初始相机）" if full else \
+              (f"方位 {st['az_lo']:.1f}° ~ {st['az_hi']:.1f}°"
+               f"（跨度 {st['span']:.1f}°，主段 {st['n_main']} 台）")
+        print(f"  📐 拍摄覆盖（{cov_label}，可用 {st['n_all']} 台）：{arc}")
+        print(f"     仰角 {st['el_lo']:.1f}° ~ {st['el_hi']:.1f}°，半径 "
+              f"{st['r_lo']:.3f} ~ {st['r_hi']:.3f}")
+        print(f"  ⚓ 锚点 coverage：方位 {st['az']:+.1f}°（相对初始相机）、"
+              f"仰角 {st['el']:.1f}°、半径 {st['r']:.3f}")
+        if full:
+            warn("覆盖接近整圈，对齐收益有限（但不会变差）")
+        if st["n_main"] < st["n_all"]:
+            hint = "" if cov_group.lower() in ("all", "*") else \
+                   "；两组都该用的话设 COVERAGE_GROUP=all"
+            warn(f"有 {st['n_all'] - st['n_main']} 台相机在覆盖主段之外，"
+                 f"已按 gap-split 丢弃{hint}")
 
     points3d_files = [] if no_points3d else [
         ref / nm for nm in ("points3D.txt", "points3D.ply") if (ref / nm).exists()]
@@ -457,13 +615,35 @@ def run(scene, effects, n, center_mode, pitch, angle, param, prefix,
         dirs = {eff: root / "traj_camera" / eff for eff in effects}
 
     for eff in effects:
-        traj = gen_traj(eff, C0, center, n, angle, param, ease, orbit_dir, elev_deg)
+        ang = angle
+        if symmetric:
+            # 覆盖对齐只放行「覆盖得住的」幅度：方位看 span，仰角看 el 跨度，
+            # 各留 COVERAGE_PAD 余量。截断而非放任，否则等于没解决穿帮。
+            what, cap = None, None
+            if eff in ("orbit_left", "orbit_right", "bullet_time"):
+                what, cap = "方位", st["span"] - 2.0 * coverage_pad
+            elif eff == "orbit_up":
+                what, cap = "仰角", st["el_hi"] - st["el_lo"] - 2.0 * coverage_pad
+            if cap is not None:
+                cap = max(0.0, cap)
+                if ang > cap + 1e-9:
+                    extra = ("；截断为 0° 后轨迹全程静止，"
+                             "要强行升降请改 ANCHOR=cam") if cap < 1e-6 else ""
+                    warn(f"{eff}: ANGLE={angle:g}° 超出{what}覆盖可用 {cap:.1f}°"
+                         f"（覆盖跨度 − 2×COVERAGE_PAD({coverage_pad:g})）{extra}")
+                    ang = cap
+            if eff == "bullet_time" and elev_deg > 0 and \
+                    anchor["el"] - elev_deg < st["el_lo"] - 1e-6:
+                warn(f"bullet_time: 末态仰角 {anchor['el'] - elev_deg:.1f}° 低于覆盖下限 "
+                     f"{st['el_lo']:.1f}°，画面可能露伪影")
+        traj = gen_traj(eff, anchor, ref_h, center, n, ang, param, ease,
+                        orbit_dir, elev_deg, symmetric)
         write_effect(dirs[eff], traj, init_cam, center, prefix, points3d_files)
         p0, p1 = traj[0][0], traj[-1][0]
         print(f"  ✅ {eff}: {n} 帧 → {dirs[eff]}")
         if eff == "bullet_time":
             m = BULLET_DEFAULT_M if param is None else param
-            print(f"     环绕 {angle}°（向{orbit_dir}）+ 推近 {m:.2f}× + 机位下降 "
+            print(f"     环绕 {ang:g}°（向{orbit_dir}）+ 推近 {m:.2f}× + 机位下降 "
                   f"{elev_deg:.0f}°，变速 {ease or 'decel'}")
         print(f"     首帧 ({fmt(p0[0])},{fmt(p0[1])},{fmt(p0[2])}) "
               f"末帧 ({fmt(p1[0])},{fmt(p1[1])},{fmt(p1[2])})")
@@ -478,7 +658,7 @@ def main():
         "../../output/2025.11.27-HMSD-Lisidani_out/"
         "action_01/result_gs/2025-11-28--00-27-09---4khq_human"
     )
-    EFFECTS = list(EFFECTS_ALL)   # 批量默认全部 6 种；env EFFECT= 可只跑单条
+    EFFECTS = list(EFFECTS_ALL)   # 批量默认全部 7 种；env EFFECT= 可只跑单条
     N = 120                       # 每条轨迹帧数
     CENTER = "0,0,0"              # "x,y,z" | forward/view | yaxis/y_axis/y轴
     PITCH = 10.0                  # CENTER=yaxis 时的俯仰角（度，(-90,90)）
@@ -490,6 +670,9 @@ def main():
     PREFIX = "03"                 # 输出图像名前缀：03000001.jpg
     GROUP = "01"                  # 初始相机组
     INIT_INDEX = None             # 初始相机序号（None=组内中间帧；负数=倒数）
+    ANCHOR = "coverage"           # coverage=对准拍摄覆盖中心（默认）| cam=从初始相机出发（老行为）
+    COVERAGE_GROUP = ""           # 覆盖统计用哪组：空=跟 GROUP；all=01+02；也可写 01/02
+    COVERAGE_PAD = 3.0            # 覆盖两侧余量（度），ANCHOR=coverage 时用于截断角度
     OUT = None                    # None=<场景根>/traj_camera；单条=效果目录，多条=父目录
     NO_POINTS3D = False           # True 不拷贝 points3D.txt/.ply
     # ======================================================
@@ -515,6 +698,12 @@ def main():
     orbit_dir = env("ORBIT_DIR", ORBIT_DIR)
     if orbit_dir not in ("left", "right"):
         die(f"ORBIT_DIR 只能是 left | right，收到 {orbit_dir!r}")
+    anchor_mode = env("ANCHOR", ANCHOR).strip().lower()
+    if anchor_mode not in ("cam", "coverage"):
+        die(f"ANCHOR 只能是 cam | coverage，收到 {anchor_mode!r}")
+    coverage_pad = float(env("COVERAGE_PAD", str(COVERAGE_PAD)))
+    if coverage_pad < 0:
+        die(f"COVERAGE_PAD 不能为负，收到 {coverage_pad}")
     run(
         scene=Path(env("SCENE", str(SCENE))),
         effects=effects,
@@ -531,6 +720,9 @@ def main():
         ease=ease,
         orbit_dir=orbit_dir,
         elev_deg=float(env("ELEV", str(ELEV))),
+        anchor_mode=anchor_mode,
+        coverage_group=env("COVERAGE_GROUP", COVERAGE_GROUP),
+        coverage_pad=coverage_pad,
     )
 
 

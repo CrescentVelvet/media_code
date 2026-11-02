@@ -569,18 +569,28 @@ env（`THETA_TOP` 等）一起透传 —— 99g 是独立进程、自己从 `tra
 
 ## E. 运镜轨迹生成与渲染（99l / 99m / 99n）
 
-99l 读重建输出里的 COLMAP 相机（`refined_camera/`），取某台真实相机作起点，沿
+99l 读重建输出里的 COLMAP 相机（`refined_camera/`），沿
 orbit_left / orbit_right / orbit_up / dolly_out / hitchcock / grammy / bullet_time 七种
 电影感轨迹生成新位姿（COLMAP 三件套，写到 `<场景根>/traj_camera/<效果名>/`）；99m 用 gsplat
 离屏渲染成 MP4。轨迹文件可以用 99g 画图目检、用 COLMAP GUI 核对后再渲视频。
 **轨迹位置/尺度来自训练相机本身，天然与场景对齐**——渲糊了先怀疑覆盖不足（见下）。
 
+轨迹默认**对准拍摄覆盖中心**（`ANCHOR=coverage`）：先统计全部拍摄相机的方位/仰角/半径，
+取方位覆盖主段的中点作基准、主段内仰角与半径的中位数作基准，再向两侧各展开 ANGLE/2。
+这样转一圈都落在拍得最全的方向上；ANGLE 超过覆盖跨度时自动截断并 WARN。
+要老行为（首帧 = 初始相机）设 `ANCHOR=cam`。
+
 ```bash
 cd /mnt/c/code/media_code
 ENV_PY=~/miniconda3/envs/infinisplat_v2/bin/python
 
-# ① 生成轨迹（默认批量全部 6 种；EFFECT= 可只跑单条）
+# ① 生成轨迹（默认批量全部 7 种；EFFECT= 可只跑单条）
 SCENE=/path/to/<场景根> N=120 $ENV_PY tools_99/99l_gen_colmap_traj.py
+
+# 覆盖对齐（默认）vs 从初始相机出发：后者在覆盖边缘时会转到没拍过的方向
+SCENE=$SCENE ANCHOR=cam EFFECT=orbit_right ANGLE=90 $ENV_PY tools_99/99l_gen_colmap_traj.py
+# 两组（01/02）都算覆盖；PAD 调小可多用到边缘 3°
+SCENE=$SCENE COVERAGE_GROUP=all COVERAGE_PAD=1 $ENV_PY tools_99/99l_gen_colmap_traj.py
 
 # 中心点三种：固定坐标（默认 0,0,0）/ 沿初始相机视线 / 俯仰看向 y 轴
 SCENE=$SCENE CENTER=forward $ENV_PY tools_99/99l_gen_colmap_traj.py
@@ -610,8 +620,9 @@ BATCH_ROOT=/path/to/batch_root $ENV_PY tools_99/99n_batch_traj_render.py
 
 # 99n 常用 env：DRY_RUN=1 只列场景；MAX_SCENES=1 先试跑一个；NO_GEN=1 轨迹已有
 # 只渲染；SKIP_EXISTING=1 视频齐了的场景跳过；STOP_ON_ERROR=1 遇错即停
-# （默认记录后跳过、最后汇总退出码 1）。99l/99m 侧参数（N/CENTER/FPS/SSAA/
-# SH_LAYOUT/...）在环境里设了就自动透传给子进程。
+# （默认记录后跳过、最后汇总退出码 1）。99l/99m 侧参数（N/CENTER/ANGLE/ANCHOR/
+# COVERAGE_GROUP/FPS/SSAA/SH_LAYOUT/...）在环境里设了就自动透传给子进程。
+# 例：ANCHOR=coverage COVERAGE_GROUP=all BATCH_ROOT=... $ENV_PY tools_99/99n_...
 ```
 
 **轨迹格式约定**（99l 写、99m 读，改格式必须两边同步）：
@@ -647,7 +658,8 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 （≈26 it/s 全分辨率）——性能完全不是瓶颈，瓶颈只在运镜设计本身。
 
 **出片质量上限**：取决于训练数据的相机覆盖。渲染相机离训练位置越远（大幅推近/仰角变化），
-画面越容易糊/出伪影——某段突然变糊先怀疑覆盖不足，不是渲染 bug。
+画面越容易糊/出伪影——某段突然变糊先怀疑覆盖不足，不是渲染 bug。99l 的默认
+`ANCHOR=coverage` 就是照这条来的（把轨迹钉在覆盖最全的方位上，越界还截断）。
 
 **99l / 99m 的路径与参数预设**：与 99a~99f 同风格——`main()` 里有一组预设值
 （SCENE 路径、EFFECTS、N、CENTER 等，注释「改场景/批次时只改这几行」），env 只作覆盖；
@@ -658,7 +670,10 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 序号，默认组内中间帧 `len//2`，负数=倒数，越界报错）、`CENTER`（`"x,y,z"` 默认 0,0,0
 | `forward`/`view`：沿初始相机原视线前移 ||C0|| | `yaxis`/`y_axis`/`y轴`：
 `center=(0, C0y+h·tan(pitch), 0)`，`h=hypot(C0x,C0z)`）、`PITCH`（yaxis 俯仰角，度）、
-`N` / `ANGLE`（orbit_* / bullet_time 角度，度；orbit_up 越限自动截断并 WARN）/ `PARAM`
+`ANCHOR`（`coverage` 默认=对准拍摄覆盖中心 | `cam`=从初始相机出发）、
+`COVERAGE_GROUP`（覆盖统计用哪组：空=跟 `GROUP`；`all`=01+02 全用；也可写 `01`/`02`）、
+`COVERAGE_PAD`（覆盖区间两侧余量，度，默认 3；轨迹两端各留这么多，再据此截断 ANGLE）、
+`N` / `ANGLE`（orbit_* / bullet_time 角度，度；越限自动截断并 WARN）/ `PARAM`
 （dolly_out/hitchcock 默认 1.5、grammy/bullet_time 默认 2.0；m≤0 报错、m<1 或 ≈1 WARN）、
 `EASE`（变速曲线：`decel` 快起收住=bullet_time 默认 | `smooth` 缓起缓收 | `accel` 渐加速 |
 `linear` 匀速；只作用于 orbit_* 与 bullet_time，orbit_* 默认 linear 即老行为不变）、
@@ -668,7 +683,21 @@ fork）实测全是通道主序；官方 3DGS 导出的 PLY（如 flashworld / d
 缺省 `<场景根>/traj_camera/`）、`PREFIX`（图像名前缀，默认 03→`03000001.jpg`）、
 `NO_POINTS3D`（=1 不拷贝 points3D.txt/.ply）。输出浮点一律 `%.12g`；
 hitchcock 每帧一台相机、`fscale` 只缩放 fx/fy（cx/cy 不变），dolly_out fscale 恒 1。
-姿态一律重新 look-at 中心点（不沿用原拍摄朝向）；首帧位置 = 初始相机位置。
+姿态一律重新 look-at 中心点（不沿用原拍摄朝向）；`ANCHOR=cam` 时首帧位置 = 初始相机位置，
+`coverage` 时首帧 = 覆盖区一侧端点（半径/仰角取覆盖中位数）。
+
+**覆盖对齐（ANCHOR=coverage）怎么算**（2026-11-02）：
+① 把参与统计的相机按 `center` 转球坐标：方位 az（绕 UP，基准取初始相机的水平方向，
+所以打印出来的角度就是「相对初始相机」）、仰角 el、半径 r；
+② 方位做**环形 gap-split**：反复切掉大于 `max(30°, 3×中位帧间距)` 的洞，取帧数最多的
+那段当主段（两组数据之间会有两个洞，只切一次会让中点落到空的方位上）；整圈数据
+（最大洞很小）直接判整圈、方位退回初始相机方向；
+③ 基准 = 主段方位中点 + 主段内 el/r 的**中位数**（不是均值：手持抖动/跟踪丢帧的单帧
+离群会把均值拽走）；
+④ 可用幅度 = 主段跨度 − 2×`COVERAGE_PAD`（方位）、el 跨度 − 2×`COVERAGE_PAD`（仰角），
+`ANGLE` 超了自动截断并 WARN；`bullet_time` 的 `ELEV` 让末态仰角跌破覆盖下限时也 WARN。
+判据：合成场景实测覆盖 −50°~+40°、初始相机在 +10°，`ANGLE=90` 时 cam 模式转到
++90°（越界 50°），coverage 模式截断为 84°、方位 −47°~+37° 全部落在覆盖内。
 
 **bullet_time 的来历**（2026-11-02，参考 B 站 VOGUE Ball 子弹时间蒙太奇 00:23–00:30 段）：
 逐帧截图 + 亮度 bbox 量化后确认，同一个镜头内同时发生 ①绕人水平转动 ②半径推近
