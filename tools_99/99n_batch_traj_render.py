@@ -98,7 +98,8 @@ def main():
 
     # ===== 预设路径与参数，改批次时只改这几行 =====
     BATCH_ROOT = Path(
-        "../../output/2025.11.27-HMSD-Lisidani_out/action_01/result_gs"
+        # "../../output/2025.11.27-HMSD-Lisidani_out/action_01/result_gs"
+        "../../output/2025.12.16-HMSD_Remy_Sisi_out/01/result_gs"
     )
     EFFECTS = list(EFFECTS_ALL)   # 每个场景跑哪些运镜（env EFFECTS 可覆盖）
     NO_GEN = False                # True 不调 99l（traj_camera/ 已有轨迹）
