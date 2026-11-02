@@ -15,7 +15,8 @@
 用法:
     python tools_99/99n_batch_traj_render.py                 # 预设 BATCH_ROOT 批量
     BATCH_ROOT=/path/to/batch MAX_SCENES=1 python ...        # 先小规模试跑
-    EFFECTS=orbit_left,grammy python ...                     # 只跑部分运镜
+    EFFECTS=bullet_time python ...                           # 只跑部分运镜
+    PARAM=2 ANGLE=120 ELEV=12 python ...                     # 调整半径+方位角+俯仰角变化
     NO_GEN=1 python ...                                      # 跳过 99l（轨迹已生成）
     SKIP_EXISTING=1 python ...                               # 视频齐了的场景跳过渲染
     DRY_RUN=1 python ...                                     # 只列出将处理哪些场景
