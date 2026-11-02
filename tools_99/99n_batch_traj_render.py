@@ -28,6 +28,7 @@ Env vars（不设则用下方 main() 预设）:
         MAX_FRAMES 等其余渲染参数直接透传给 99m 子进程（在环境里设了就生效）
 
 退出码：全部场景成功 = 0；有场景失败 = 1；DRY_RUN = 0。
+批次结束后打印每个场景的结果目录 <场景>/traj_videos/ 及视频清单（含大小）。
 """
 import os
 import subprocess
@@ -138,7 +139,7 @@ def main():
         return
 
     # 99l / 99m 的生成侧参数走 env 透传：在环境里设了 N/CENTER/... 就自动生效
-    results = []   # [(场景名, 状态, 说明)]
+    results = []   # [(场景 Path, 状态, 说明)]
     t_all = time.time()
     for i, scene in enumerate(scenes, 1):
         ply = find_ply(scene)
@@ -146,7 +147,7 @@ def main():
               f"{fmt_dur(time.time() - t_all)}）\n{'=' * 60}", flush=True)
         if ply is None:
             print(f"  ⏭️ 跳过：{scene}/point_cloud 下没有 point_cloud.ply")
-            results.append((scene.name, "跳过", "无 PLY"))
+            results.append((scene, "跳过", "无 PLY"))
             continue
 
         ok = True
@@ -182,7 +183,7 @@ def main():
             note.append(f"99m {'✅' if ok_r else '❌'} {fmt_dur(dt)}")
             ok = ok_r
 
-        results.append((scene.name, "✅" if ok else "❌", "；".join(note)))
+        results.append((scene, "✅" if ok else "❌", "；".join(note)))
         if not ok and stop_on_error:
             print("🛑 STOP_ON_ERROR=1，终止批次")
             break
@@ -190,8 +191,19 @@ def main():
     n_ok = sum(1 for _, s, _ in results if s == "✅")
     print(f"\n{'=' * 60}\n🏁 批次完成：{n_ok}/{len(results)} 成功，"
           f"总耗时 {fmt_dur(time.time() - t_all)}\n{'=' * 60}")
-    for name, status, note in results:
-        print(f"  {status} {name}  {note}")
+    for scene, status, note in results:
+        print(f"  {status} {scene.name}  {note}")
+
+    print("\n📂 结果目录：")
+    for scene, _status, _note in results:
+        vdir = scene / VIDEOS_DIR_NAME
+        vids = sorted(vdir.glob("*.mp4")) if vdir.is_dir() else []
+        if vids:
+            print(f"  {vdir}")
+            for v in vids:
+                print(f"    • {v.name}（{v.stat().st_size / 1e6:.1f} MB）")
+        else:
+            print(f"  {vdir}（无视频）")
     sys.exit(0 if n_ok == len(results) else 1)
 
 
