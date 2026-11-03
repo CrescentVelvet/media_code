@@ -8,12 +8,12 @@
 
 ## 0. 总表（勾选台账）
 
-用法：`☐` → `☑` 表示已下载入库；「存储路径」填相对 `media_code/` 的路径（WSL 内数据写 `/mnt/d/...` 或 `~/output/...`）；「负责人」写人名。
+用法：`☐` → `☑` 表示已确认存在（路径待填时写「同事已下（待取）」）；「存储路径」填相对 `media_code/` 的路径（WSL 内数据写 `/mnt/d/...` 或 `~/output/...`）；「负责人」写人名。
 **行序 = 建议投入优先级**（级别内按性价比排），详细参数见第 2~4 节。
 
 | # | 级 | 数据集 | 一句话用途 | 体量 | 门槛 | 已下载 | 存储路径 | 负责人 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | **S** | HuMMan | 1,000 身份 × 10 视角 RGB-D，跨身份泛化主力 | 724.7 GB（子集） | 登录即下 ✅ | ☐ | | |
+| 1 | **S** | HuMMan | 1,000 身份 × 10 视角 RGB-D，跨身份泛化主力 | 724.7 GB（子集） | 登录即下 ✅ | ☑ | 同事已下（待取） | 同事 |
 | 2 | **S** | SynBody | 10k 合成身份，视角/位姿/深度全可控，补长尾 | 379.2 GB | HF 直下 ✅ | ☐ | | |
 | 3 | **S** | GeneBody | 100 人 × 48 视角真实数据，逐帧 SMPL-X | 数 TB（Test10 免费） | Test10 直下；Train40 签协议 | ☐ | | |
 | 4 | **S** | DNA-Rendering | 500 演员 × 60 视角 4K + SMPL-X，保真度上限 | 192 GB（Part1）～10.8 TB | 签 PDF + 邮件，每周五批 ⚠️ | ☐ | | |
@@ -23,42 +23,43 @@
 | 8 | A1 | AvatarReX | 4 人 × 16 视角，验跨身份与伪 GT 流程 | 60 GB | 直下 ✅ | ☐ | | |
 | 9 | A1 | ActorsHQ | 8 人 × 160 台 12MP，测高分辨率上限 | TB 级 | PI 签 release form ⚠️ | ☐ | | |
 | 10 | A1 | ZJU-MoCap | 9 人 × 23 相机，稀疏视角对照组 | 【待核实】 | 签协议 + 邮件 ⚠️ | ☐ | | |
-| 11 | A2 | BEDLAM | 10,450 段合成人体，SMPL-X + 深度（**单目**） | 数 TB（有 6fps 子集） | MPI 注册 ⚠️ | ☐ | | |
-| 12 | A2 | Dynamic Replica | 1,451 段合成动态场景，带 SMPL + 深度 | 1.8 TB / test 328 GB | 签协议拿 links.json ⚠️ | ☐ | | |
-| 13 | A2 | iPER | 30 人单目视频，SMPL，姿态多样性 | 【待核实】 | 学术直下 ✅ | ☐ | | |
-| 14 | A2 | GTA-Human | 20K 单目视频 1.4M 帧，量大便宜 | 【待核实】 | 学术直下 ✅ | ☐ | | |
-| 15 | A3 | X-Humans | 20 人扫描 **+ 已渲染 RGB-D + 相机参数**，省自渲染 | 【待核实】 | Google Drive 申请 | ☐ | | |
-| 16 | A3 | THUman2.0/2.1 | 2,500 扫描，**唯一规模化背面来源** | 【待核实】 | 网格填表换密码（SMPL-X fitting 免申请）⚠️ | ☐ | | |
-| 17 | A3 | THuman 3.0 | 20 组服装扫描，衣物褶皱细节 | 【待核实】 | 非商用 | ☐ | | |
-| 18 | A3 | MultiHuman | 453 个 1-3 人扫描，**唯一多人遮挡** | 【待核实】 | 非商用 | ☐ | | |
-| 19 | A3 | THuman 原始版 | 200 人 × 30 姿态，mesh 与 SMPL 配对 | 【待核实】 | 非商用 | ☐ | | |
-| 20 | A3 | 4D-DRESS | 64 套服装 4D 扫描，动态衣物几何 | 【待核实】 | 机构邮箱注册 ⚠️ | ☐ | | |
-| 21 | A4 | MVS-Synth | 120 序列 × 100 帧，内外参最干净，**先打通 dataloader** | 9 GB（540p） | 直下 ✅ | ☐ | | |
-| 22 | A4 | CO3Dv2 | 19K 环绕视频，真实域多视角 | 8.9 GB（单序列）～5.5 TB | 直下 ✅ | ☐ | | |
-| 23 | A4 | BlendedMVS | 113 场景 MVS，**CC BY 4.0 可商用** | 27.5 GB（低清） | 直下 ✅ | ☐ | | |
-| 24 | A4 | DL3DV-10K | 10,510 场景 51M 帧，backbone 预训练主力 | 730 GB(480P)～2.8 TB(960P) | HF 申请 | ☐ | | |
-| 25 | A4 | RealEstate10K | 10K 视频 SfM 位姿，室内漫游 | 【待核实】 | 学术直下 ✅ | ☐ | | |
-| 26 | A4 | WildRGBD | 8,000+ 物体级 RGB-D 环绕 | 【待核实】 | 学术直下 ✅ | ☐ | | |
-| 27 | A4 | MVImgNet | 219K 视频 238 类，物体环绕量大 | 【待核实】 | 学术申请 | ☐ | | |
-| 28 | A4 | EDEN | 合成花园多视角，位姿精确无噪声 | 38 GB（样本）～1.4 TB | 直下 ✅ | ☐ | | |
-| 29 | B1 | Hypersim | 室内几何 + 逐图内外参，深度/法线辅助头 | 1.9 TB（可只取子集） | 脚本直下 ✅ | ☐ | | |
-| 30 | B1 | TartanAir | 百万图逐帧位姿，**可商用** | ~3 TB（按环境取） | 直下 ✅ | ☐ | | |
-| 31 | B1 | Virtual KITTI 2 | 街景深度，轻量辅助 | 15 GB（RGB+深度） | 直下 ✅ | ☐ | | |
-| 32 | B1 | UrbanSyn | 街景深度 EXR，**可商用** | 10-40 GB | 直下 ✅ | ☐ | | |
-| 33 | B1 | Synscapes | 25K 街景深度，**禁再分发** | 337 GB | 直下 ✅ | ☐ | | |
-| 34 | B1 | UnrealStereo4K | 4K 合成立体，边缘锐度 | 570 GB（1/4 版在 HF） | 直下 ✅ | ☐ | | |
-| 35 | B1 | 3D Ken Burns | 合成视差深度 | ~200 GB | 直下 ✅ | ☐ | | |
-| 36 | B1 | IRS | 10 万室内立体样本 | 【待核实】 | OneDrive ✅ | ☐ | | |
-| 37 | B1 | HRWSI | 21K 真实立体对 | 7.6 GB | 直下 ✅ | ☐ | | |
-| 38 | B1 | SAIL-VOS 3D | GTA-V 帧，**须自购游戏** | 【待核实】 | 邮件联系作者 ❌ | ☐ | | |
-| 39 | B2 | ScanNet++ | 1,000+ 室内场景，iPhone 视角最贴"手机拍人" | TB 级 | 注册 + token | ☐ | | |
-| 40 | B2 | ARKitScenes | 1,661 室内场景 iPhone RGB-D | ~1.5 TB | 同意许可后脚本下 | ☐ | | |
-| 41 | B2 | ScanNet v2 | 707 场景 RGB-D，室内背景增广 | ~1.3 TB | 签协议 | ☐ | | |
-| 42 | B2 | DIML Indoor | 1,500 帧双目 RGB-D | 2.8 GB（sample） | 链接可疑 ⚠️ | ☐ | | |
-| 43 | ❌ | SmartPortraits | 真实人像 + 深度（本可是 S 级唯一） | 【待核实】 | **已失效**，无替代品 | ☐ | | |
+| 11 | A1 | PKU-DyMVHumans | 32 人 × 45 场景 × **56-60 机位** 4K，多人交互 + 抠像齐 | 8.2M 帧（体量【待核实】） | 百度网盘 / HF，非商用，禁再分发 ✅ | ☑ | 同事已下（待取） | 同事 |
+| 12 | A2 | BEDLAM | 10,450 段合成人体，SMPL-X + 深度（**单目**） | 数 TB（有 6fps 子集） | MPI 注册 ⚠️ | ☐ | | |
+| 13 | A2 | Dynamic Replica | 1,451 段合成动态场景，带 SMPL + 深度 | 1.8 TB / test 328 GB | 签协议拿 links.json ⚠️ | ☐ | | |
+| 14 | A2 | iPER | 30 人单目视频，SMPL，姿态多样性 | 【待核实】 | 学术直下 ✅ | ☐ | | |
+| 15 | A2 | GTA-Human | 20K 单目视频 1.4M 帧，量大便宜 | 【待核实】 | 学术直下 ✅ | ☐ | | |
+| 16 | A3 | X-Humans | 20 人扫描 **+ 已渲染 RGB-D + 相机参数**，省自渲染 | 【待核实】 | Google Drive 申请 | ☐ | | |
+| 17 | A3 | THUman2.0/2.1 | 2,500 扫描，**唯一规模化背面来源** | 【待核实】 | 网格填表换密码（SMPL-X fitting 免申请）⚠️ | ☑ | 同事已下（待取） | 同事 |
+| 18 | A3 | THuman 3.0 | 20 组服装扫描，衣物褶皱细节 | 【待核实】 | 非商用 | ☑ | 同事已下（待取） | 同事 |
+| 19 | A3 | MultiHuman | 453 个 1-3 人扫描，**唯一多人遮挡** | 【待核实】 | 非商用 | ☐ | | |
+| 20 | A3 | THuman 原始版 | 200 人 × 30 姿态，mesh 与 SMPL 配对 | 【待核实】 | 非商用 | ☐ | | |
+| 21 | A3 | 4D-DRESS | 64 套服装 4D 扫描，动态衣物几何 | 【待核实】 | 机构邮箱注册 ⚠️ | ☐ | | |
+| 22 | A4 | MVS-Synth | 120 序列 × 100 帧，内外参最干净，**先打通 dataloader** | 9 GB（540p） | 直下 ✅ | ☐ | | |
+| 23 | A4 | CO3Dv2 | 19K 环绕视频，真实域多视角 | 8.9 GB（单序列）～5.5 TB | 直下 ✅ | ☐ | | |
+| 24 | A4 | BlendedMVS | 113 场景 MVS，**CC BY 4.0 可商用** | 27.5 GB（低清） | 直下 ✅ | ☐ | | |
+| 25 | A4 | DL3DV-10K | 10,510 场景 51M 帧，backbone 预训练主力 | 730 GB(480P)～2.8 TB(960P) | HF 申请 | ☑ | 同事已下（待取） | 同事 |
+| 26 | A4 | RealEstate10K | 10K 视频 SfM 位姿，室内漫游 | 【待核实】 | 学术直下 ✅ | ☐ | | |
+| 27 | A4 | WildRGBD | 8,000+ 物体级 RGB-D 环绕 | 【待核实】 | 学术直下 ✅ | ☐ | | |
+| 28 | A4 | MVImgNet | 219K 视频 238 类，物体环绕量大 | 【待核实】 | 学术申请 | ☐ | | |
+| 29 | A4 | EDEN | 合成花园多视角，位姿精确无噪声 | 38 GB（样本）～1.4 TB | 直下 ✅ | ☐ | | |
+| 30 | B1 | Hypersim | 室内几何 + 逐图内外参，深度/法线辅助头 | 1.9 TB（可只取子集） | 脚本直下 ✅ | ☐ | | |
+| 31 | B1 | TartanAir | 百万图逐帧位姿，**可商用** | ~3 TB（按环境取） | 直下 ✅ | ☐ | | |
+| 32 | B1 | Virtual KITTI 2 | 街景深度，轻量辅助 | 15 GB（RGB+深度） | 直下 ✅ | ☐ | | |
+| 33 | B1 | UrbanSyn | 街景深度 EXR，**可商用** | 10-40 GB | 直下 ✅ | ☐ | | |
+| 34 | B1 | Synscapes | 25K 街景深度，**禁再分发** | 337 GB | 直下 ✅ | ☐ | | |
+| 35 | B1 | UnrealStereo4K | 4K 合成立体，边缘锐度 | 570 GB（1/4 版在 HF） | 直下 ✅ | ☑ | 同事已下（待取） | 同事 |
+| 36 | B1 | 3D Ken Burns | 合成视差深度 | ~200 GB | 直下 ✅ | ☐ | | |
+| 37 | B1 | IRS | 10 万室内立体样本 | 【待核实】 | OneDrive ✅ | ☐ | | |
+| 38 | B1 | HRWSI | 21K 真实立体对 | 7.6 GB | 直下 ✅ | ☐ | | |
+| 39 | B1 | SAIL-VOS 3D | GTA-V 帧，**须自购游戏** | 【待核实】 | 邮件联系作者 ❌ | ☐ | | |
+| 40 | B2 | ScanNet++ | 1,000+ 室内场景，iPhone 视角最贴"手机拍人" | TB 级 | 注册 + token | ☑ | 同事已下（待取） | 同事 |
+| 41 | B2 | ARKitScenes | 1,661 室内场景 iPhone RGB-D | ~1.5 TB | 同意许可后脚本下 | ☐ | | |
+| 42 | B2 | ScanNet v2 | 707 场景 RGB-D，室内背景增广 | ~1.3 TB | 签协议 | ☐ | | |
+| 43 | B2 | DIML Indoor | 1,500 帧双目 RGB-D | 2.8 GB（sample） | 链接可疑 ⚠️ | ☐ | | |
+| 44 | ❌ | SmartPortraits | 真实人像 + 深度（本可是 S 级唯一） | 【待核实】 | **已失效**，无替代品 | ☐ | | |
 
 **合计**：S 级 6 项约 **1.5 TB 起**（不含 DNA-Rendering 全量 10.8 TB）；A1 跑通三件套（7+8+21）**188 GB / 零审批**；B 级全部只做辅助，按需再取，不必先下。
-**当前进度**：0 / 43 已入库。
+**当前进度**：**7 / 44 已确认可取得**（均来自同事：HuMMan、THUman2.0/2.1、THuman3.0、PKU-DyMVHumans、DL3DV、ScanNet++、UnrealStereo4K，路径待取）；另有 Objaverse 资产同样已下。
 
 ## 1. 分级判据（不同意判据就不用看表）
 
@@ -83,7 +84,7 @@
 
 ```
 S 级  6 个   DNA-Rendering / RenBody / HuMMan / GeneBody / SynBody / MVP-Human
-A 级 22 个   A1 身份少的多视角人体 4｜A2 人体但视角≤3 4｜A3 扫描型 6｜A4 通用多视角 8
+A 级 23 个   A1 身份少的多视角人体 5｜A2 人体但视角≤3 4｜A3 扫描型 6｜A4 通用多视角 8
 B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失效，不计入）
 ```
 
@@ -95,7 +96,7 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 |---|---|---|---|---|---|---|
 | **DNA-Rendering** | 500 演员 / 527 套服装 / 269 日常 + 153 特殊动作 / 25,320 序列 / 67.5M 帧 | **60 同步 RGB**（最高 4096×3000 @15fps）+ 8 Kinect | 标定、matting、2D/3D keypoints、**SMPL-X** | Part1 ~192 GB；全量 ~10.8 TB | 签 License PDF + 机构邮箱，**每周五批**（`luohuiwen@pjlab.org.cn`，抄送 wuwenyan0503 / linjunyi9335） | https://dna-rendering.github.io/ ；代码 https://github.com/DNA-Rendering/DNA-Rendering |
 | **RenBody** | 1,500 ID / 5,000+ 序列 | **60 RGB（3000×4096）+ 8 Kinect** | 标定、前后景分割、参数化模型、手工标签 | TB 级【待核实】 | OpenDataLab 申请；CC BY-NC-SA 4.0 | https://opendatalab.com/OpenXD-RenBody |
-| **HuMMan** | 1,000 人 / 500 动作 / 400K 序列 / 60M 帧 | **10 台 Azure Kinect**（硬件同步 + 两级标定）+ iPhone | RGB-D、点云、2D/3D keypoints、SMPL、纹理网格 | 子集 **724.7 GB**；全量数 TB | CC BY-NC-SA 4.0，登录可下 ✅ | https://caizhongang.github.io/projects/HuMMan/ ；https://opendatalab.com/OpenXD-HuMMan |
+| **HuMMan** | 1,000 人 / 500 动作 / 400K 序列 / 60M 帧 | **10 台 Azure Kinect 固定阵列**（八角棱柱框架，硬件同步 + 两级标定）+ iPhone 12 Pro Max **移动视角**（唯一会动的相机，33ms 内同步） | RGB-D、点云、2D/3D keypoints、SMPL、纹理网格 | 子集 **724.7 GB**；全量数 TB | CC BY-NC-SA 4.0，登录可下 ✅ | https://caizhongang.github.io/projects/HuMMan/ ；https://opendatalab.com/OpenXD-HuMMan |
 | **GeneBody** | 100 人 / 370 序列 / 2.95M 帧 | **48 视角** | **逐帧 SMPL-X**、前景分割 | 数 TB【待核实】 | Test10 直下；Train40 需签协议 + 机构邮箱换密码（非商用，SenseTime + 上海 AI Lab） | Test10：https://github.com/generalizable-neural-performer/gnr/blob/main/docs/Dataset.md ；全量 https://opendatalab.com/GeneBody |
 | **SynBody**（合成） | 10,000 人体模型 / 1,187 动作 / 1.2M 图 | 虚拟多视角（UE5 + XRFeitoria，视角数未标） | SMPL/SMPLX、分层服装、深度/法线/光流/分割 | **379.2 GB** | CC BY-NC-SA 4.0，**直接下** ✅ | https://synbody.github.io/ ；HF https://huggingface.co/datasets/caizhongang/SynBody |
 | **MVP-Human** | 400 人 × 15 姿态 × 8 视角 = 6,000 扫描 / 48K 图 | **8 视角静态扫描** | 3D 扫描 + LBS 权重 + SMPL fit | 【待核实】 | Google 表单申请 ⚠️ | 表单 https://docs.google.com/forms/d/e/1FAIpQLSfN2ISu7B1CaO2QvLI1UMZ4YQL-RWZ01jbYtgSSFYc04VSiow/viewform ；代码 https://github.com/TingtingLiao/MVPHuman |
@@ -111,7 +112,7 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 5. **RenBody** — 规模最大，但公开信息最少，得先确认实际可下的子集体量。
 6. **MVP-Human** — 结构最贴合任务，但申请表单的通过率未知，先提交不阻塞。
 
-## 3. A 级：环节级主力（22 个）
+## 3. A 级：环节级主力（23 个）
 
 ### 3.1 A1｜多视角人体，但身份 <100（跑通与评测）
 
@@ -123,8 +124,10 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 | **AvatarReX** | 4 人 / 1,801-2,001 帧 | **16 标定 RGB**，1500×2048 @30fps | 图、mask(pha)、`calibration_full.json`、SMPL-X | **~60 GB**（21+12+11+16） | 非商用，**直下** ✅ | https://github.com/0iui0/AnimatableGaussians/blob/master/AVATARREX_DATASET.md |
 | **ActorsHQ** | 8 人 × 2 段 = 16 序列 / **39,765 帧** | **160 台** Ximea 12MP @25fps，快门 650us，420 颗 LED | 逐帧 mesh（50 万顶点）、`calibration.csv`、occupancy grid、SMPL-X | 全分辨率极大（TB 级） | **PI/组长**签 release form + 单位邮箱发 `dataset@actors-hq.com` ⚠️ | https://actors-hq.com/ |
 | **ZJU-MoCap** | 9-10 人 / 23 相机（部分子集 4 相机） | 23 同步相机，1024×1024 | 逐帧 SMPL、mask | 【待核实】 | 签协议 + 邮件 ⚠️ | https://github.com/zju3dv/EasyMocap/blob/master/doc/zju_mocap.md |
+| **PKU-DyMVHumans** | 32 人 / 45 场景 / **8.2M 帧**；4 类动作（dance/kungfu/sport/fashion show），含多人交互与烟气/光影 | **56-60 台同步相机**（1080P/4K），**固定阵列** | `cams/*_cam.txt` 内外参、BackgroundMattingV2 抠像（RGBA + pha）、**COLMAP / NeuS2 / 3DGS 现成格式** | 【待核实】（Part1 8 场景 benchmark + Part2 37 场景序列） | 非商用、禁再分发；百度网盘（提取码 `g2xw`）+ HF 直下 ✅ | https://github.com/zhengxyun/PKU-DyMVHumans ；HF `zxyun/PKU-DyMVHumans` |
 
 **用法**：THUman4.0 + AvatarReX 是"第 0 步"（合计 179 GB、零审批、两天可跑通 dataloader）；ActorsHQ 只用来测"160 视角 12MP 时模型还撑不撑得住"，ZJU-MoCap 只在需要 4 相机稀疏设定时用。
+**PKU-DyMVHumans 是本组性价比最高的一项**：56-60 机位、4K、带内外参和现成 COLMAP/3DGS 格式、网盘直下，32 个身份也够跑"多机位 leave-one-out"；唯一缺口是无 SMPL-X GT（判据④），需自造伪 GT。它和 THUman4.0 一样是**固定阵列 + 人物运动**，用法见第 6 节第 7 条。
 
 ### 3.2 A2｜有人体，但视角 ≤3（单图分支与先验）
 
@@ -233,13 +236,18 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 4. **GT 两条路**。①数据集自带（DNA-Rendering、HuMMan、ActorsHQ、GeneBody、BEDLAM、MVP-Human）；②现成 3DGS 逐场景优化当伪 GT（THUman4.0、AvatarReX 走这条，注意伪 GT 会把过平滑一起学进去——正是 som_human 已经踩过的坑）。
 5. **评估口径**。mask 内 FG PSNR 抓不到幽灵/透明（幽灵落在 GT mask 之外），必须配 mask 外泄漏指标或 alpha 渲染。
 6. **许可红线**。S/A 级人体数据**全部非商用**（含合成的 SynBody）；Hypersim 的 CC BY-SA 3.0 有传染性，Synscapes 禁止再分发；真正可商用的只有 TartanAir / BlendedMVS / UrbanSyn。商用模型需另找付费扫描资产（如 RenderPeople）。
+7. **"相机静止 + 人物在动"是主流人体数据的默认形态，要按它的规矩用**。HuMMan（10 机位固定）、PKU-DyMVHumans（56-60 机位固定）、DNA-Rendering（60 机位）、RenBody、THUman4.0、AvatarReX 全部如此；只有 ActorsHQ 与 iPhone 类数据是手持移动视角。由此三条硬性后果：
+   - **评测只能 leave-one-camera-out**：你能测的是"留出一个已知机位"，不是"任意新视角"。想验证真实自由视角泛化，必须另配移动轨迹数据（DL3DV、RealEstate10K）或自采手机环绕。
+   - **不能整段当静态场景训**：同一条序列里人物在走、在换姿态，整段喂给静态 3DGS 就是 som_human 那个"两态几何冲突"的放大版，必须严格按帧切"同帧 N 视角"。
+   - **pose-free 前馈要防"人动当机"**：相机不动时，画面里的所有视差都来自人体运动，模型容易把人体位移解成相机位移。训练时要么显式给相机位姿监督，要么在采样中混入真的相机运动数据。
 
 ## 7. 落地顺序（按级别排）
 
 ```
-第 0 步 · 跑通（~190 GB，零审批，1-2 天）
+第 0 步 · 跑通（~190 GB 新增，零审批，1-2 天）
   A1  THUman4.0          119 GB   24 视角 × 3 身份，先验 4-8 图输入 → 3DGS
   A1  AvatarReX           60 GB   16 视角 × 4 身份，验证跨身份
+  A1  PKU-DyMVHumans      ~?     同事已下，56-60 机位 + 现成 COLMAP/3DGS 格式，**先跑这个最省事**
   A4  MVS-Synth 540p       9 GB   JSON 内外参最干净，打通 dataloader
 
 第 1 步 · 上主训练集（~1.1 TB，登录/直下）
@@ -294,7 +302,7 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 
 | 资产库 | 内容 | 规模 | 许可 | 下载 |
 |---|---|---|---|---|
-| **Objaverse** | 通用 3D 物体（含大量扫描与生成体） | **~800K 物体**；XL 版号称 10M+ | **逐物体混合** CC-BY / CC0，必须按元数据过滤 | HF `allenai/objaverse` |
+| **Objaverse** | 通用 3D 物体（含大量扫描与生成体） | **~800K 物体**；XL 版号称 10M+ | **逐物体混合** CC-BY / CC0，必须按元数据过滤 | HF `allenai/objaverse` ✅ **同事已下（待取）** |
 | **Google Scanned Objects (GSO)** | 真实扫描家居物品 | 1,030 个 | CC BY 4.0 | https://app.gazebosim.org/GoogleResearch/fuel/collections/Scanned%20Objects%20by%20Google%20Research |
 
 ### 8.3 三条使用纪律
