@@ -235,7 +235,8 @@ B 级 14 个   单目立体深度 10｜真实室内 RGB-D 4（另有 1 个已失
 3. **身份数比帧数重要**。这就是 ③ 判据的来源：THUman4.0 有 2,500+5,060+3,110 帧但只有 3 个人，只能评测；SynBody 10,000 身份才是泛化来源。
 4. **GT 两条路**。①数据集自带（DNA-Rendering、HuMMan、ActorsHQ、GeneBody、BEDLAM、MVP-Human）；②现成 3DGS 逐场景优化当伪 GT（THUman4.0、AvatarReX 走这条，注意伪 GT 会把过平滑一起学进去——正是 som_human 已经踩过的坑）。
 5. **评估口径**。mask 内 FG PSNR 抓不到幽灵/透明（幽灵落在 GT mask 之外），必须配 mask 外泄漏指标或 alpha 渲染。
-6. **许可红线**。S/A 级人体数据**全部非商用**（含合成的 SynBody）；Hypersim 的 CC BY-SA 3.0 有传染性，Synscapes 禁止再分发；真正可商用的只有 TartanAir / BlendedMVS / UrbanSyn。商用模型需另找付费扫描资产（如 RenderPeople）。
+6. **许可红线**。S/A 级人体数据**全部非商用**（含合成的 SynBody）；Hypersim 的 CC BY-SA 3.0 有传染性，Synscapes 禁止再分发；真正可商用的只有 TartanAir / BlendedMVS / UrbanSyn。
+   ⚠️ **不要以为"买个商业资产库就能训"**：RenderPeople 零售条款 §4.2(a) 明确把"创建数据集、训练神经网络与机器学习模型"列为**默认禁止**，需单独书面许可。可行的付费路径与其条款对比见 **`PORTRAIT_DATA_SOURCING.md`**（同目录）。
 7. **"相机静止 + 人物在动"是主流人体数据的默认形态，要按它的规矩用**。HuMMan（10 机位固定）、PKU-DyMVHumans（56-60 机位固定）、DNA-Rendering（60 机位）、RenBody、THUman4.0、AvatarReX 全部如此；只有 ActorsHQ 与 iPhone 类数据是手持移动视角。由此三条硬性后果：
    - **评测只能 leave-one-camera-out**：你能测的是"留出一个已知机位"，不是"任意新视角"。想验证真实自由视角泛化，必须另配移动轨迹数据（DL3DV、RealEstate10K）或自采手机环绕。
    - **不能整段当静态场景训**：同一条序列里人物在走、在换姿态，整段喂给静态 3DGS 就是 som_human 那个"两态几何冲突"的放大版，必须严格按帧切"同帧 N 视角"。
