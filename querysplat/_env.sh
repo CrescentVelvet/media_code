@@ -54,3 +54,8 @@ export QUERYSPLAT_REPO="${QUERYSPLAT_REPO:-$HOME/repos/QuerySplat}"
 # QuerySplat 权重约定死在官方仓 checkpoints/ 下（yaml 里的 vggt_checkpoint 是相对路径）
 export QS_CHECKPOINT_DIR="$QUERYSPLAT_REPO/checkpoints"
 export RESULTS_DIR="${QUERYSPLAT_RESULTS_DIR:-$HOME/output/querysplat_results}"
+# 权重复用池（2026-11-05 峰哥约定）：下载模型前先在 D:\wheel 搜，
+# 新下载的模型落盘到 D:\wheel 下对应子目录，消费侧一律软链，不复制
+export WHEEL_DIR="${WHEEL_DIR:-/mnt/d/wheel}"
+export WHEEL_QUERYSPLAT_DIR="${WHEEL_QUERYSPLAT_DIR:-$WHEEL_DIR/querysplat}"
+export WHEEL_VGGT_OMEGA_DIR="${WHEEL_VGGT_OMEGA_DIR:-$WHEEL_DIR/vggt_human_ms/VGGT-Omega}"

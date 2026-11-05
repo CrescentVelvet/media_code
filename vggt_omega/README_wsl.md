@@ -8,6 +8,12 @@ VGGT-Ω（CVPR 2026 Oral，Meta/VGG，1B 参数）前馈预测相机位姿 + 深
 - 官方仓：<https://github.com/facebookresearch/vggt-omega>（代码已 clone 到 `~/repos/vggt-omega`）
 - 权重：<https://huggingface.co/facebook/VGGT-Omega>（⚠️ **gated，需申请**，CC-BY-NC 4.0）
 
+## 权重复用池（D:\wheel）
+
+**下载模型前先搜 `D:\wheel`，新下载的模型也落盘到 `D:\wheel` 下对应子目录，消费侧一律软链**（2026-11-05 峰哥约定）。
+
+本权重复用池位置：`D:\wheel\vggt_human_ms\VGGT-Omega\vggt_omega_1b_512.pt`（SHA256 已对照官方校验）。`01_download_models.sh` 会按 wheel → 消费侧 → 下载到 wheel 的顺序自动处理；下载前会做 SHA256 校验。
+
 ## 常用命令
 
 ```bash

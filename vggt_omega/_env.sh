@@ -54,4 +54,8 @@ fi
 # 5. 路径
 export VGGT_OMEGA_REPO="${VGGT_OMEGA_REPO:-$HOME/repos/vggt-omega}"
 export MODEL_DIR="${VGGT_OMEGA_MODEL_DIR:-$HOME/model/VGGT-Omega}"
+# 权重复用池（2026-11-05 峰哥约定）：下载模型前先在 D:\wheel 搜，
+# 新下载的模型也落盘到 D:\wheel 下对应子目录，消费侧一律软链，不复制
+export WHEEL_DIR="${WHEEL_DIR:-/mnt/d/wheel}"
+export WHEEL_VGGT_OMEGA_DIR="${WHEEL_VGGT_OMEGA_DIR:-$WHEEL_DIR/vggt_human_ms/VGGT-Omega}"
 export RESULTS_DIR="${VGGT_OMEGA_RESULTS_DIR:-$HOME/output/vggt_omega_results}"

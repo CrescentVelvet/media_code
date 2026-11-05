@@ -10,6 +10,17 @@
 - 权重：<https://huggingface.co/inspatio/querysplat>（公开）+
   **<https://huggingface.co/facebook/VGGT-Omega>（⚠️ gated，需申请授权）**
 
+## 权重复用池（D:\wheel）
+
+**下载模型前先搜 `D:\wheel`，新下载的模型也落盘到 `D:\wheel` 下对应子目录，消费侧一律软链**（2026-11-05 峰哥约定）。
+
+- QuerySplat 本体 → `D:\wheel\querysplat\`
+- VGGT-Ω 骨干 → `D:\wheel\vggt_human_ms\VGGT-Omega\`（与 vggt_human / vggt_omega 共用，
+  仓内只放软链到 `~/repos/QuerySplat/checkpoints/`）
+
+`01_download_models.sh` 按 wheel → 消费侧 → 下载到 wheel 的顺序自动处理，
+已有实体文件会"收编"进 wheel（mv + 软链回指），结尾统一 SHA256 校验。
+
 ## 常用命令
 
 ```bash

@@ -1,5 +1,12 @@
 # media_code 项目长期约定
 
+## 权重复用池 D:\wheel（2026-11-05 峰哥约定，通用）
+- **下载模型前先在 `D:\wheel` 里搜**（如 `D:\wheel\vggt_human_ms\VGGT-Omega\` 早有
+  VGGT-Ω 权重，别重复申请/下载）；**新下载的模型落盘到 `D:\wheel\<方法名>/`**，
+  消费侧（`~/model/`、各 repo `checkpoints/`）一律软链指向 /mnt/d/wheel，不复制。
+- querysplat / vggt_omega 的 `01_download_models.sh` 已内置三段式（wheel → 消费侧 →
+  下载到 wheel）+ SHA256 校验 + 「收编」逻辑（消费侧已有实体文件自动 mv 进 wheel）。
+
 ## 工程纪律
 - **commit**：中文，`<项目名>: <简短描述>`（英文冒号+空格）；默认只写标题行，正文最多 1-2 行。
   规范原文 AGENTS.md §8；远端操作禁令见 §11（**AI 不 push**）。
