@@ -49,9 +49,18 @@ if [ $? -ne 0 ]; then echo "❌ pip deps 失败" >&2; exit 1; fi
 echo "📦 pip install gsplat（torch 2.8 会源码编译 CUDA 扩展，耗时几分钟）"
 pip install $PIP_SRC --no-build-isolation gsplat
 if [ $? -ne 0 ]; then echo "❌ gsplat 编译失败（查 CUDA_HOME=$CUDA_HOME 是否指向 conda nvcc）" >&2; exit 1; fi
-echo "📦 pip install fused-ssim（官方钉死的源码 tar）"
-pip install $PIP_SRC --no-build-isolation \
-    "fused-ssim @ https://github.com/rahul-goel/fused-ssim/archive/a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38.tar.gz"
+# fused-ssim 源码 tar：走 D:\wheel 复用池缓存（github/codeload 直连经常超时，
+# curl 带重试；代理已随 _env.sh 从 proxy.env 导出）
+FUSED_SSIM_COMMIT="a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38"
+FUSED_SSIM_TARBALL="${WHEEL_QUERYSPLAT_DIR}/fused-ssim-${FUSED_SSIM_COMMIT}.tar.gz"
+if [ ! -f "$FUSED_SSIM_TARBALL" ]; then
+    echo "📦 下载 fused-ssim 源码包 → D:\\wheel 复用池"
+    curl -fL --retry 3 --retry-delay 5 --connect-timeout 15 -o "$FUSED_SSIM_TARBALL" \
+        "https://github.com/rahul-goel/fused-ssim/archive/${FUSED_SSIM_COMMIT}.tar.gz"
+    if [ $? -ne 0 ]; then echo "❌ fused-ssim 源码包下载失败（查代理）" >&2; exit 1; fi
+fi
+echo "📦 pip install fused-ssim（官方钉死的源码 tar，本地缓存安装）"
+pip install $PIP_SRC --no-build-isolation "$FUSED_SSIM_TARBALL"
 if [ $? -ne 0 ]; then echo "❌ fused-ssim 编译失败" >&2; exit 1; fi
 
 # 4) 验证
