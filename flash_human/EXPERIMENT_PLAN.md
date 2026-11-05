@@ -30,6 +30,7 @@
 | **DA3** | `../da3_human/` | 深度补充/交叉验证;scene_gs 初始化 | Apache 2.0(权重 HF) |
 | **MiniMax H3(33B)** | `../minimax_h3/` | 质量源/教师:开源视频模型榜第一;Ref2VA 多参考(≤9 图+3 视频)锁人物身份 | ⚠️ 社区许可:排除美/欧/英/韩;商用 <2000 万美元年收入免费、**需署名** |
 | **vggt_human 管线** | `../vggt_human/` | head_gs/body_gs/scene_gs 拆分架构 + MHR 3DMM 对齐 | — |
+| **FlashWorld 推理** | `../flashworld/` | 单图→场景 GS 基线;3090 offload 参数已调好 | ⚠️ CC BY-NC-SA 4.0 仅学术研究 |
 | **HYPIR / OSEDiff** | `../hypir/`、`../osediff/` | 2D 增强后处理(贴输出路线,台账已验证有效) | 各自 LICENSE,用前核对 |
 | **ArtiFixer** | `../artifixer/` | 现成"扩散校正 3D 重建 + 蒸馏"参照实现,阶段 1 直接作对照 | 核对原仓库协议 |
 | **flux_human** | `../flux_human/` | 已验证"生成模型造多视角静止图→无模糊重建",与本路线互补 | — |
@@ -83,7 +84,7 @@
 | 脚本 | 内容 | 回答的问题 |
 |---|---|---|
 | `02_run_vggt_omega.sh` | 调用 `../vggt-omega/` 对低质输入推理 → 点云+位姿+深度;3090 显存/耗时落盘 | Ω 人脸几何精度?动态(转头/微表情)行为如何【台账 L2 相关】 |
-| `03_run_flashworld.sh` | 单图 → 场景 GS(调 media_paper 笔记 §12 推理参数) | 人脸特写 scale 是否崩(笔记标过【待核实】) |
+| `03_run_flashworld.sh` | 调 `../flashworld/`(`02_make_input.sh` 轨道参数 + `02_run_inference.sh`,自带 3090 offload) | 人脸特写 scale 是否崩(笔记标过【待核实】) |
 | `04_run_photometric_gs.sh` | 复用 `../vggt_human/` 管线:Ω 位姿 + 光度优化 head_gs | 当前 pipeline 质量上限(台账已有部分数据,补齐渲染 GT 上的口径) |
 
 ### 4.3 产出与决策门 G0
