@@ -98,6 +98,31 @@ for o in list(bpy.context.scene.objects):
     if o.type in ("LIGHT", "CAMERA"):
         bpy.data.objects.remove(o, do_unlink=True)
 
+
+def _has_texture(obj):
+    for slot in obj.material_slots:
+        mat = slot.material
+        if mat and mat.use_nodes and mat.node_tree and any(
+                n.type == "TEX_IMAGE" and n.image for n in mat.node_tree.nodes):
+            return True
+    return False
+
+
+# 防御:FBX 可能夹带默认名辅助几何(地台/展示台),会污染 alpha mask、深度与
+# bbox 归一化,按「默认名 + 无贴图」剔除。注意 Rosemary FBX 实测无夹带(上面的
+# read_factory_settings 已挡掉启动场景物体;探测脚本里见过的 'Cube' 来自未清场
+# 的 Blender 默认启动场景,不是 FBX 内容)——此过滤留给其它资产防身。
+import re as _re
+_junk_re = _re.compile(r"^(Cube|Plane|Sphere|Circle|Grid)([._]\d+)?$")
+removed = []
+for o in list(imported):
+    if _junk_re.match(o.name) and not _has_texture(o):
+        removed.append(o.name)
+        bpy.data.objects.remove(o, do_unlink=True)
+        imported.remove(o)
+if removed:
+    print(f"[warn] 剔除无贴图辅助几何: {removed}")
+
 # ---------------------------------------------------------------- 贴图重连
 # FBX 内嵌的图片路径常失效:按 basename 在 texdir 递归匹配,重设 filepath。
 TEX_KEYWORDS = {  # 色彩空间判定
@@ -142,9 +167,14 @@ for mat in bpy.data.materials:
         img.colorspace_settings.name = _colorspace_for(img.name)
     # EEVEE Next(Blender 4.2+):毛发/睫毛类含 alpha 贴图的材质需开启 DITHERED
     try:
+        # DITHERED 条件:贴图名含 opacity,或 Principled 的 Alpha 输入有连接
+        # (Rosemary 的头发是后一种:Alpha 有连线但贴图名无 opacity,不透明渲染会
+        # 把发片的黑色镂空区域渲成实体黑块)
         has_alpha_tex = any(
             n.type == "TEX_IMAGE" and n.image and "opacity" in n.image.name.lower()
-            for n in mat.node_tree.nodes)
+            for n in mat.node_tree.nodes) or any(
+            l.to_node.type == "BSDF_PRINCIPLED" and l.to_socket.name == "Alpha"
+            for l in mat.node_tree.links)
         if has_alpha_tex:
             mat.surface_render_method = "DITHERED"
     except (AttributeError, TypeError):
@@ -200,11 +230,12 @@ wl = world.node_tree.links
 wn.clear()
 w_out = wn.new("ShaderNodeOutputWorld")
 w_bg = wn.new("ShaderNodeBackground")
-w_env = wn.new("ShaderNodeTexEnvironment")
+# ⚠️ 不要挂无图的 ShaderNodeTexEnvironment:EEVEE 里它会输出占位品红色,
+# 世界强度 0.8 等于给全场打品红环境光(2026-11-05 实测:皮肤/头发/金属全体偏紫)。
+# 无 HDRI 期间用中性灰环境色兜底,强度由 jitter_lights 随机化。
+w_bg.inputs["Color"].default_value = (0.05, 0.05, 0.05, 1.0)
 w_bg.inputs["Strength"].default_value = 0.8
-wl.new(w_env.outputs["Color"], w_bg.inputs["Color"])
 wl.new(w_bg.outputs["Background"], w_out.inputs["Surface"])
-# 无 HDRI 时环境为黑色 → 用强度兜底(透明背景下只影响人物暗部)
 
 key = bpy.data.lights.new("Key", "SUN")
 key.energy = 4.0

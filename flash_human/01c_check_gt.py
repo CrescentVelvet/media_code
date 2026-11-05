@@ -13,6 +13,8 @@
   2. normal EXR: 有效像素法线模长 ≈ 1
   3. cameras.json: cam0 到 target 距离 ≈ meta.distance_m
   4. rgb/depth/normal 文件数一致
+  5. rgb 色彩 sanity: 品红污染像素占比(2026-11-05 事故:无图环境纹理节点
+     输出占位品红,全场偏紫;几何/深度检查全部 PASS 但色彩全废)
 """
 import json
 import os
@@ -54,6 +56,23 @@ for i in (1, meta["n_views"] // 2, meta["n_views"]):
     nmed = float(np.median(nv)) if nv.size else 0
     print(f"[normal {i:06d}] 模长中位={nmed:.4f}")
     ok &= abs(nmed - 1.0) < 0.02
+
+# 色彩 sanity:人物像素(alpha>200)里品红(R、B 显著高于 G)占比应≈0
+for i in (1, meta["n_views"] // 2, meta["n_views"]):
+    p = os.path.join(BASE, "rgb", f"{i:06d}.png")
+    inp = oiio.ImageInput.open(p)
+    rgba = inp.read_image(format="float")
+    rgb, a = rgba[..., :3], rgba[..., 3]
+    person = a > 0.8
+    if person.sum() == 0:
+        print(f"[color {i:06d}] 无人物像素(全透明)?")
+        ok = False
+        continue
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    magenta = person & (r > 0.45) & (b > 0.45) & (r > g + 0.25) & (b > g + 0.25)
+    frac = float(magenta.sum()) / float(person.sum())
+    print(f"[color {i:06d}] 品红像素占比={frac:.4f}")
+    ok &= frac < 0.01
 
 c0 = np.array(cams["cameras"][0]["transform_cam2world"])
 tgt = np.array(meta["target"])

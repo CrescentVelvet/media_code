@@ -34,4 +34,25 @@
 
 **单视角耗时**:512² EEVEE 约 2~3s(含三 sun 灯光抖动),72 视角 1024² 预估 5~8 分钟/角色,批量工厂成本可接受。
 
-**下一步**:72 视角 1024² 正式渲染 + face 特写档验证。
+## 2026-11-05 根因修复:渲染全员偏紫 = 无图环境纹理节点输出占位品红
+
+**现象**:峰哥检视冒烟产物发现人物呈紫色(头发/脸/金属剑最重),疑材质缺失。
+
+**排查链**(全部实测,工具脚本留档):
+1. 贴图探测(`_t_probe_tex.py`):FBX 内嵌路径全部有效,relinked=0 missing=0 → **排除贴图丢失**。
+2. 贴图真值:头发 basecolor 是米白(非粉)、身体 avg(182,155,149) 正常肤色 → **排除设计如此**。
+3. 干净对照渲染(`_t_probe_color.py`,无 texdir/无 compositor/无 jitter):同一 FBX 颜色全正常 → 问题在 01 脚本自身。
+4. 开关矩阵二分(`_t_bisect2.py`,头部均值 RGB 定量):SKIP_CS / SKIP_DITHER / SKIP_COMP / SKIP_JITTER / SKIP_PASSES+COMP 全关仍紫 (178,109,167);FILM_OPAQUE 更紫 (207,110,209)。
+5. 定位:01 脚本世界节点挂了**无图的 ShaderNodeTexEnvironment**——EEVEE 里它输出占位品红,强度 0.8 = 全场品红环境光;金属剑最敏感(紫得最深),与现象完全吻合。对照脚本没挂该节点故正常。
+
+**修复**(01_render_gt.py):删 env 节点,世界背景改显式中性灰 (0.05)×0.8 兜底;jitter_lights 的 Strength 抖动照旧。修复后同机位头部均值 (106,99,97),白发/正常肤色/金剑全部还原(证据 `_t_probe/head_zoom{,_fixed}.png`)。
+
+(原记录"冒烟 PASS / 贴图全连"结论修正:01c 只质检深度/法线/相机几何,**色彩无自动判据**,人工检视漏检——后续 01c 应加头部区域色彩 sanity 检查,如均值 R-B 差超阈值报警。)
+
+**附带发现**:
+- **hair 材质 Base Color 未接贴图**(FBX 只有 Alpha 连线),渲染出默认灰白——该资产设计如此(米白毛发),非缺陷。
+- **头发/睫毛 Alpha 连线但渲染不透明**:DITHERED 判定从"贴图名含 opacity"扩为"或 Principled.Alpha 有连接",防发片镂空变黑块。
+- **探测脚本里的 'Cube'/'Material'/'Dots Stroke' 是 Blender 默认启动场景物体**(probe 脚本没做 read_factory_settings,与 FBX 无关);01 脚本早有空场,FBX 本身无夹带。仍保留「默认名+无贴图」防御过滤给其它资产防身。
+- ⚠️ `D:/dataset/human_fbx_gt/rosemary_smoke/` 的 6 视角是**污染产物**(品红环境光),已作废,正式渲染用修复后脚本重出。
+
+**下一步**:72 视角 1024² 正式渲染(修复后脚本)+ face 特写档验证。
