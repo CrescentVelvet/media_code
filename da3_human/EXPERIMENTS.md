@@ -25,6 +25,22 @@
    `ln -sfn` 会把链接塞进该目录内部（`test/ours_30000/ours_30000 -> ...`），metrics 仍读空目录。
    必须先 `rmdir` 空目录再软链。`_train_3dgs.sh` 已内置该逻辑（含 rmdir），04 起自动生效。
 
+### 阶段 C-05：anchor 点云构建 ✅
+
+| 项 | 结果 |
+|---|---|
+| 输入 | 02 的 DA3 导出（深度 125×504×378 @504p，conf/extrinsics/intrinsics） |
+| 筛选链 | conf≥P40（阈值 1.49）→ 8 最近邻视角深度一致性（τ_rel=3% + τ_abs=5cm，≥3 视角一致）→ 跨视角体素去重（voxel=0.004×中值深度=**7.2mm**） |
+| 数量 | 反投影 **14,334,402** → 一致性后 **13,841,023**（保留 96.6%）→ 去重后 **683,879** anchors |
+| 产物 | `~/output/da3_human_results/anchor_pointcloud/studio_human/`（anchors.npz / anchors.ply / anchor_summary.json） |
+
+**观察**：
+- 与 02 colmap 导出点数（14.29M）吻合，反投影链一致 ✓。
+- 一致性保留率 96.6% 偏高：DA3 深度与位姿同一网络产出、天然自洽，不一致集中在遮挡边界
+  （view 124 边缘视角 60986→7033 即典型）。τ 目前是宽松档，D 阶段消融扫 τ 时再收紧验证。
+- anchor 密度 68 万 surfel 规模适中（原版 3DGS 03 基线 30K iters 后约 300~500 万高斯），
+  双分支 2DGS 训练量可控。
+
 ### 阶段 B-04：DA3-GS 基线（DA3 点云初始化）🔄
 
 场景已就绪（`da3_colmap_scene/`：images 软链 + sparse/0，**459,433 点**，由 DA3 深度反投影
