@@ -219,9 +219,11 @@ def main():
 
         means, quats, scales, opac, sh = model.forward_params()
 
-        # ---- 纹理分支：全分辨率，detach 几何 → 只学 SH/不透明度
+        # ---- 纹理分支：全分辨率，detach 几何 → 学 SH/不透明度
+        # ⚠️ opac 在这里必须可导：C-06 首跑误写成 opac.detach()，不透明度冻结在
+        #    σ(-2)≈0.119，逐像素叠几十层半透明 splat → 全图叠化糊（PSNR 14.88）
         rend_tex, alpha_tex, _, _, _, _, _ = rasterization_2dgs(
-            means.detach(), quats.detach(), scales.detach(), opac.detach(), sh,
+            means.detach(), quats.detach(), scales.detach(), opac, sh,
             w2c_t[vi:vi + 1], K_t[vi:vi + 1], W, H,
             render_mode="RGB", sh_degree=sh_degree, backgrounds=black3,
             eps2d=eps2d, near_plane=0.01, far_plane=100.0, packed=False)
@@ -260,6 +262,10 @@ def main():
                         f"{dist_loss.item():.6f},{norm_loss.item():.6f}\n")
 
     print(f"🏋️ 训练完成 {time.time() - t0:.0f}s，开始评测（全分辨率渲染 {len(views)} 视角）")
+    with torch.no_grad():
+        _o = torch.sigmoid(model.opac_raw - 2.0)
+        print(f"  🔍 opacity 终态: mean {_o.mean():.4f} std {_o.std():.4f} "
+              f"max {_o.max():.4f}（std≈0 说明没学到，检查 detach）")
 
     # ---------------------------------------------------------------- 评测（与 03/04 同协议：in-sample 全视角）
     model.eval()
