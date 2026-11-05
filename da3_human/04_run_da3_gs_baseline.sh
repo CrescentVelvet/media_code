@@ -20,7 +20,9 @@ fi
 echo "🚀 [04] DA3-GS 基线 (DA3 点云初始化)"
 echo "  📂 DA3 导出: $DA3_INFER_DIR"
 echo "  📂 场景目录: $SCENE_DIR（images 软链 + sparse/0 搬运）"
+echo "  ✂️ MAX_INIT_POINTS: ${MAX_INIT_POINTS:-1000000}（DA3 原始点云 1429 万，超限体素降采样）"
 
+export MAX_INIT_POINTS="${MAX_INIT_POINTS:-1000000}"
 python "$SCRIPT_DIR/build_da3_colmap_scene.py"
 if [ $? -ne 0 ]; then echo "❌ FAILED: 场景整理" >&2; exit 1; fi
 
