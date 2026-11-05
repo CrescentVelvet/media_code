@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/_env.sh"
 export GS_CONDA_ENV="${GS_CONDA_ENV:-vggt_human}"
 export ANCHOR_DIR="${ANCHOR_DIR:-$RESULTS_DIR/anchor_pointcloud/studio_human}"
 export DA3_INFER_DIR="${DA3_INFER_DIR:-$RESULTS_DIR/da3_inference/studio_human}"
-export IMAGES_DIR="${IMAGES_DIR:-/mnt/d/output/vggt_human_results/source/images}"
+export IMAGES_DIR="${IMAGES_DIR:-$HOME/output/vggt_human_results/source/images}"
 export OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/da3_2dgs_dual/ours}"
 # 常用开关（默认值在 06 脚本内）：
 #   OFFSET_PIX=1.0 OFFSET_DEPTH=0.02  ITERATIONS=30000 SH_DEGREE=3 GEO_RES=4
