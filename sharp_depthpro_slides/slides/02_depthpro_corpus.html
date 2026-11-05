@@ -1,0 +1,105 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  width: 1600px; height: 900px; overflow: hidden; background: #F4F6FA;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #0F172A; -webkit-font-smoothing: antialiased;
+}
+.slide { display: flex; flex-direction: column; width: 1600px; height: 900px;
+          padding: 50px 64px 0 64px; }
+.head { flex: 0 0 auto; }
+.kicker { font-size: 15px; letter-spacing: .16em; color: #8A97A8; font-weight: 700; }
+h1 { font-size: 42px; line-height: 1.16; margin: 8px 0 10px 0; font-weight: 700; letter-spacing: -.012em; }
+.sub { font-size: 19px; color: #475569; line-height: 1.55; max-width: 1400px; }
+.rule { height: 3px; width: 76px; background: #0F172A; margin: 16px 0 24px 0; border-radius: 2px; }
+.wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding-bottom: 56px; }
+.foot {
+  position: absolute; left: 64px; right: 64px; bottom: 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13.5px; color: #8A97A8; border-top: 1px solid #E4E8EF; padding-top: 11px;
+}
+.card { background: #fff; border: 1px solid #E4E8EF; border-radius: 16px; }
+.tag { display: inline-block; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+</style></head><body>
+<div class="slide">
+  <div class="head">
+    <div class="kicker">DEPTH PRO · 附录 TABLE 15</div>
+    <h1>19 个训练集，只有 3 个真给多视角</h1>
+    <div class="sub">把 19 个集按<b>相机形态</b>重排，问题一眼就看出来：能提供多视角一致性监督的只有 3 个，能提供人体的是 0 个 —— 而前馈人像重建恰恰同时需要这两件事。</div>
+    <div class="rule"></div>
+  </div>
+  <div class="wrap"><div style="flex:1;display:flex;gap:16px;min-height:0">
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px 18px 20px;
+                    background:#fff;border:1px solid #E4E8EF;border-radius:16px;border-top:4px solid #1D4ED8">
+          <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:14px">
+            <div style="font-size:20px;font-weight:700;color:#1D4ED8">单目 / 单机位</div>
+            <div style="font-size:15px;color:#8A97A8;font-weight:700">10 个</div>
+          </div>
+          <div style="align-content:flex-start"><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">Hypersim</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">Synscapes</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">UrbanSyn</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">Virtual KITTI 2</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">BEDLAM</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">SAIL-VOS 3D</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">ARKitScenes</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">ScanNet v2</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">3D Ken Burns</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EDF3FF;color:#1D4ED8;font-weight:600">SmartPortraits ✕</span></div>
+          <div style="background:#FAFBFD;border:1px solid #E4E8EF;border-radius:9px;
+                      padding:10px 12px;font-size:13.5px;color:#475569;line-height:1.55">
+            <b style="color:#A9600A">注意</b>　Hypersim 是 CC BY-SA 3.0（<b>传染性</b>），Synscapes <b>禁止再分发</b>
+          </div>
+          <div style="background:#EDF3FF;border-radius:9px;padding:11px 13px;
+                      font-size:14px;color:#475569;line-height:1.6">
+            <b style="color:#1D4ED8">建议取用</b>　Hypersim 子集 ＋ BEDLAM（6fps 档）—— 这组只有这两个值得动
+          </div>
+          <div style="font-size:13.5px;color:#8A97A8;line-height:1.5">体量最大：Hypersim 1.9 TB、ARKitScenes ~1.5 TB、ScanNet v2 1.3 TB</div>
+          <div style="border-top:1px dashed #E4E8EF;padding-top:11px;font-size:14.5px;color:#475569;line-height:1.55">只能提供<b>深度监督</b>，学不到视角之间的一致性。人体只有 BEDLAM 一个，且是单目合成。</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px 18px 20px;
+                    background:#fff;border:1px solid #E4E8EF;border-radius:16px;border-top:4px solid #A9600A">
+          <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:14px">
+            <div style="font-size:20px;font-weight:700;color:#A9600A">立体对（2 视点）</div>
+            <div style="font-size:15px;color:#8A97A8;font-weight:700">6 个</div>
+          </div>
+          <div style="align-content:flex-start"><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">TartanAir</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">Dynamic Replica</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">IRS</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">DIML Indoor</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">UnrealStereo4K</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#FFF9EA;color:#A9600A;font-weight:600">HRWSI</span></div>
+          <div style="background:#FAFBFD;border:1px solid #E4E8EF;border-radius:9px;
+                      padding:10px 12px;font-size:13.5px;color:#475569;line-height:1.55">
+            <b style="color:#A9600A">注意</b>　UnrealStereo4K 单场景 67–76 GB，先下 HF 上的 <b>1/4 分辨率版</b>试
+          </div>
+          <div style="background:#FFF9EA;border-radius:9px;padding:11px 13px;
+                      font-size:14px;color:#475569;line-height:1.6">
+            <b style="color:#A9600A">建议取用</b>　TartanAir（唯一可商用 ＋ 逐帧位姿）＋ UnrealStereo4K（边缘锐度）
+          </div>
+          <div style="font-size:13.5px;color:#8A97A8;line-height:1.5">TartanAir ~3 TB、UnrealStereo4K 570 GB、HRWSI 7.6 GB</div>
+          <div style="border-top:1px dashed #E4E8EF;padding-top:11px;font-size:14.5px;color:#475569;line-height:1.55">两点视差够算深度、练边缘锐度，但<b>做不了环绕约束</b>；Dynamic Replica 为 2–3 视角。</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px 18px 20px;
+                    background:#fff;border:1px solid #E4E8EF;border-radius:16px;border-top:4px solid #047857">
+          <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:14px">
+            <div style="font-size:20px;font-weight:700;color:#047857">真多视角（≥3 视点）</div>
+            <div style="font-size:15px;color:#8A97A8;font-weight:700">3 个</div>
+          </div>
+          <div style="align-content:flex-start"><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EAFBF2;color:#047857;font-weight:600">BlendedMVS</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EAFBF2;color:#047857;font-weight:600">MVS-Synth</span><span style="display:inline-block;font-size:15.5px;padding:8px 13px;margin:0 7px 9px 0;border-radius:8px;background:#EAFBF2;color:#047857;font-weight:600">EDEN</span></div>
+          <div style="background:#FAFBFD;border:1px solid #E4E8EF;border-radius:9px;
+                      padding:10px 12px;font-size:13.5px;color:#475569;line-height:1.55">
+            <b style="color:#A9600A">注意</b>　MVS-Synth 的 JSON 里 <b>R 行列式为 −1</b>，直接当旋转矩阵用会镜像
+          </div>
+          <div style="background:#EAFBF2;border-radius:9px;padding:11px 13px;
+                      font-size:14px;color:#475569;line-height:1.6">
+            <b style="color:#047857">建议取用</b>　三个全取（低清档合计约 75 GB），先用 MVS-Synth 打通 dataloader
+          </div>
+          <div style="font-size:13.5px;color:#8A97A8;line-height:1.5">BlendedMVS 113 场景、MVS-Synth 120 序列、EDEN 38 GB–1.4 TB</div>
+          <div style="border-top:1px dashed #E4E8EF;padding-top:11px;font-size:14.5px;color:#475569;line-height:1.55">唯一能提供<b>多视角一致性</b>监督的一类。代价：全是物体 / 场景，<b>没有一个人体</b>。</div>
+        </div></div>
+    <div style="margin-top:20px;display:flex;gap:16px;flex:0 0 auto">
+      <div style="flex:1;background:#FEF1F1;border:1px solid #F9C9C9;border-radius:12px;padding:16px 22px">
+        <div style="font-size:14.5px;font-weight:700;color:#B91C1C;margin-bottom:5px">⚠️ 对人像前馈直接可用的：0 个</div>
+        <div style="font-size:15px;color:#475569;line-height:1.55">
+          人像需要「同一时刻 ≥4 视角 ＋ 标定内外参」。清单里唯一的人体集 BEDLAM 是单目合成，
+          多视角的三个全是物体场景 —— 两者<b>不重叠</b>。
+        </div>
+      </div>
+      <div style="flex:1;background:#EAFBF2;border:1px solid #B7EED1;border-radius:12px;padding:16px 22px">
+        <div style="font-size:14.5px;font-weight:700;color:#047857;margin-bottom:5px">✅ 它真正的用途</div>
+        <div style="font-size:15px;color:#475569;line-height:1.55">
+          给 backbone 加<b>深度 / 法线辅助头</b>，用 ARKitScenes / ScanNet 补<b>室内背景分布</b>；
+          当主训练集用会白费 10 TB 下载。
+        </div>
+      </div>
+    </div></div>
+  <div class="foot"><span>来源：Depth Pro 附录 Table 15（19 集逐项核实，形态依据各数据集官方文档）；SmartPortraits 仓库已 archive、下载链接为 TODO</span><span>2 / 6</span></div>
+</div></body></html>

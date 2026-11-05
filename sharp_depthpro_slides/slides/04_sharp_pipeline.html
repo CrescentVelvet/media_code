@@ -1,0 +1,108 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  width: 1600px; height: 900px; overflow: hidden; background: #F4F6FA;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #0F172A; -webkit-font-smoothing: antialiased;
+}
+.slide { display: flex; flex-direction: column; width: 1600px; height: 900px;
+          padding: 50px 64px 0 64px; }
+.head { flex: 0 0 auto; }
+.kicker { font-size: 15px; letter-spacing: .16em; color: #8A97A8; font-weight: 700; }
+h1 { font-size: 42px; line-height: 1.16; margin: 8px 0 10px 0; font-weight: 700; letter-spacing: -.012em; }
+.sub { font-size: 19px; color: #475569; line-height: 1.55; max-width: 1400px; }
+.rule { height: 3px; width: 76px; background: #0F172A; margin: 16px 0 24px 0; border-radius: 2px; }
+.wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding-bottom: 56px; }
+.foot {
+  position: absolute; left: 64px; right: 64px; bottom: 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13.5px; color: #8A97A8; border-top: 1px solid #E4E8EF; padding-top: 11px;
+}
+.card { background: #fff; border: 1px solid #E4E8EF; border-radius: 16px; }
+.tag { display: inline-block; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+</style></head><body>
+<div class="slide">
+  <div class="head">
+    <div class="kicker">SHARP · arXiv 2512.10685</div>
+    <h1>SHARP 的数据是「造」出来的，不是「找」出来的</h1>
+    <div class="sub">它没有去拼公开数据集，而是搭了一条渲染流水线自己生产 —— 这正是它亚秒级出片的前提，也正是我们无法复制的部分。</div>
+    <div class="rule"></div>
+  </div>
+  <div class="wrap">
+    <div style="display:flex;align-items:stretch;flex:0 0 auto">
+      
+        <div style="flex:1.18;display:flex;flex-direction:column;background:#FFF4E8;
+                    border:1px solid #E4E8EF;border-radius:14px;padding:22px 24px 20px 24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:13px;letter-spacing:.12em;color:#C2410C;font-weight:700">STAGE 1 · 自建合成</div>
+            <span class="tag" style="background:#FDE4E4;color:#B91C1C">未发布</span>
+          </div>
+          <div style="font-size:15.5px;color:#475569;line-height:1.75">自研<b>程序化场景生成系统</b>：<b class='num'>2K+</b> 户外程序化地形 ＋ <b class='num'>5K+</b> 室内艺术家手工场景</div><div style="font-size:15.5px;color:#475569;line-height:1.75">V-Ray 渲染，<b>每个场景 11 个视角</b>，分辨率 1536² 或 2048²</div><div style="font-size:15.5px;color:#475569;line-height:1.75">合计 <b class='num'>≈700K</b> 场景 / <b class='num'>≈8M</b> 张图</div>
+        </div>
+      <div style="flex:0 0 52px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#8A97A8">→</div>
+      
+        <div style="flex:1.14;display:flex;flex-direction:column;background:#EDF3FF;
+                    border:1px solid #E4E8EF;border-radius:14px;padding:22px 24px 20px 24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:13px;letter-spacing:.12em;color:#1D4ED8;font-weight:700">STAGE 2 · 真实照片微调</div>
+            <span class="tag" style="background:#FDECC8;color:#A9600A">需付费授权</span>
+          </div>
+          <div style="font-size:15.5px;color:#475569;line-height:1.75">OpenScene ＋ Shutterstock / Getty / Flickr，合计 <b class='num'>2.65M</b> 张</div><div style="font-size:15.5px;color:#475569;line-height:1.75"><b>自监督 warp-back</b>：模型先预测 → 渲染伪新视角 → 回原图算损失</div><div style="font-size:15.5px;color:#475569;line-height:1.75">→ <b>不需要深度 GT</b>，这是它能吃海量无标注图的根本原因</div>
+        </div>
+    </div>
+    <div style="margin-top:14px;background:#fff;border:1px solid #E4E8EF;border-radius:14px;
+                padding:16px 24px;flex:0 0 auto">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <div style="font-size:13px;letter-spacing:.12em;color:#047857;font-weight:700">评估集 · 唯一公开可复现的部分</div>
+        <span class="tag" style="background:#EAFBF2;color:#047857">全部公开</span>
+      </div>
+      <div style="font-size:15.5px;color:#475569;line-height:1.6">
+        Middlebury · Booster · ScanNet++ · WildRGBD · ETH3D · Tanks and Temples ——
+        每场景取 <b>10 个视角</b>，每集不超过 <b>512 对</b>；另用 Unsplash 做定性展示。
+      </div>
+    </div>
+    <div style="margin-top:14px;background:#fff;border:1px solid #E4E8EF;border-radius:12px;
+                padding:14px 24px 16px 24px;flex:0 0 auto">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">
+        <div style="font-size:13px;letter-spacing:.1em;color:#8A97A8;font-weight:700">训练数据构成（按张数，合计约 10.6M）</div>
+        <div style="font-size:13.5px;color:#475569">合成占四分之三 —— 它的主力是「造」出来的</div>
+      </div>
+      <div style="display:flex;height:30px;border-radius:7px;overflow:hidden;font-size:13.5px;font-weight:700;color:#fff">
+        <div style="flex:75.1;background:#C2410C;display:flex;align-items:center;padding-left:14px">
+          Stage 1 · 合成　≈8M（75%）</div>
+        <div style="flex:24.9;background:#1D4ED8;display:flex;align-items:center;padding-left:14px">
+          Stage 2 · 真实 2.65M（25%）</div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;gap:16px;margin-top:14px;min-height:0">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;background:#EAFBF2;
+                  border:1px solid #B7EED1;border-radius:12px;padding:18px 24px">
+        <div style="font-size:16px;font-weight:700;color:#047857;margin-bottom:8px">能学的：warp-back 自监督</div>
+        <div style="font-size:15.5px;color:#475569;line-height:1.7">
+          把「有深度的合成数据」换成「大量无标注真实图」—— 这是我们手上人体序列（无 mesh GT）
+          最现实的放大手段，且不需要额外采购。
+        </div>
+        <div style="font-size:15px;color:#475569;line-height:1.7;margin-top:9px;padding-top:9px;
+                    border-top:1px dashed #B7EED1">
+          落到执行：给定同一帧的 N 个视角，先渲染伪新视角做监督 —— 既不依赖 GT 深度，
+          也不要求 COLMAP 在每一帧都收敛。
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;background:#FEF1F1;
+                  border:1px solid #F9C9C9;border-radius:12px;padding:18px 24px">
+        <div style="font-size:16px;font-weight:700;color:#B91C1C;margin-bottom:8px">学不了的：700K 场景的工厂</div>
+        <div style="font-size:15.5px;color:#475569;line-height:1.7">
+          8M 张图 = V-Ray 渲染数月 ＋ 艺术家建模，不在人力预算内；2.65M 张的商业图库授权也拿不到。
+          这两条决定我们只能「改造现有数据」，不能「新建数据工厂」。
+        </div>
+        <div style="font-size:15px;color:#475569;line-height:1.7;margin-top:9px;padding-top:9px;
+                    border-top:1px dashed #F9C9C9">
+          量级对照：8M 张 ≈ 700K 场景 × 11 视角；单场景离线渲染按分钟计，总机时是万小时级
+          <span style="color:#A9600A">【推断】</span>。
+        </div>
+      </div>
+    </div></div>
+  <div class="foot"><span>来源：SHARP 论文附录（Stage 1 场景构成与渲染设置、Stage 2 数据来源与 warp-back 描述、评估集协议）</span><span>4 / 6</span></div>
+</div></body></html>

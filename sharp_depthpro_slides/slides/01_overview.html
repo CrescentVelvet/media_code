@@ -1,0 +1,73 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  width: 1600px; height: 900px; overflow: hidden; background: #F4F6FA;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #0F172A; -webkit-font-smoothing: antialiased;
+}
+.slide { display: flex; flex-direction: column; width: 1600px; height: 900px;
+          padding: 50px 64px 0 64px; }
+.head { flex: 0 0 auto; }
+.kicker { font-size: 15px; letter-spacing: .16em; color: #8A97A8; font-weight: 700; }
+h1 { font-size: 42px; line-height: 1.16; margin: 8px 0 10px 0; font-weight: 700; letter-spacing: -.012em; }
+.sub { font-size: 19px; color: #475569; line-height: 1.55; max-width: 1400px; }
+.rule { height: 3px; width: 76px; background: #0F172A; margin: 16px 0 24px 0; border-radius: 2px; }
+.wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding-bottom: 56px; }
+.foot {
+  position: absolute; left: 64px; right: 64px; bottom: 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13.5px; color: #8A97A8; border-top: 1px solid #E4E8EF; padding-top: 11px;
+}
+.card { background: #fff; border: 1px solid #E4E8EF; border-radius: 16px; }
+.tag { display: inline-block; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+</style></head><body>
+<div class="slide">
+  <div class="head">
+    <div class="kicker">APPLE 的两条前馈路线</div>
+    <h1>同样的目标，完全相反的建库策略</h1>
+    <div class="sub">两家都是 Apple、都想做<b>无需相机位姿</b>的前馈重建，但一个自建数据工厂、一个拼装公开数据。这个差别直接决定了哪条路我们能走。</div>
+    <div class="rule"></div>
+  </div>
+  <div class="wrap"><div style="flex:1;display:flex;gap:24px;min-height:0">
+    <div class="card" style="flex:1;display:flex;flex-direction:column;padding:26px 30px;
+         border-top:4px solid #C2410C">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+        <div style="font-size:27px;font-weight:700;color:#C2410C">SHARP</div>
+        <div class="tag" style="background:#FFF4E8;color:#C2410C">Apple · arXiv 2512.10685</div>
+      </div>
+      <div style="font-size:15.5px;color:#475569">自己「造」数据：先搭渲染工厂，再补真实照片</div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly;margin-top:6px">
+        <div style="display:flex;gap:16px;padding:14px 0;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">数据来源</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A">自建程序化场景 <span style='color:#8A97A8'>＋</span> 商业授权图库，两条腿并行</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">Stage 1 合成</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b class='num'>700K</b> 场景 × <b class='num'>11</b> 视角 ≈ <b class='num'>8M</b> 张图，V-Ray 自建，1536² / 2048²</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">Stage 2 真实</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b class='num'>2.65M</b> 张：OpenScene + Shutterstock / Getty / Flickr（付费授权）</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">开源情况</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A">官方仓库<b>只开源推理</b>，训练流程与训练数据均未发布</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">可复现性</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b style='color:#B91C1C'>无法复现</b> —— 私有 700K 场景 ＋ 需商业图库授权</div></div>
+      </div>
+    </div>
+    <div class="card" style="flex:1;display:flex;flex-direction:column;padding:26px 30px;
+         border-top:4px solid #1D4ED8">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+        <div style="font-size:27px;font-weight:700;color:#1D4ED8">Depth Pro</div>
+        <div class="tag" style="background:#EDF3FF;color:#1D4ED8">Apple · ICLR 2025 · arXiv 2410.02073</div>
+      </div>
+      <div style="font-size:15.5px;color:#475569">「拼装」公开数据：19 个现成数据集凑成一锅</div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly;margin-top:6px">
+        <div style="display:flex;gap:16px;padding:14px 0;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">数据来源</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A">全部为公开数据集，清单在论文附录 Table 15（URL / 许可 / 用途）与 Table 17（损失 × 数据集）</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">规模</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b class='num'>19</b> 个训练集，全量约 <b class='num'>10–12 TB</b></div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">公开可下</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b class='num' style='color:#047857'>18 / 19</b>（仅 SmartPortraits 已失效）</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">开源情况</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A">推理代码 <b>＋</b> 预训练权重均开源</div></div>
+        <div style="display:flex;gap:16px;padding:14px 0;border-top:1px solid #E4E8EF;"><div style="width:104px;flex:0 0 104px;font-size:15px;color:#8A97A8;font-weight:700">可复现性</div><div style="font-size:16.5px;line-height:1.6;color:#0F172A"><b style='color:#047857'>可复现</b> —— 但多半要签协议，剩下的是纯工程量</div></div>
+      </div>
+    </div></div>
+    <div style="margin-top:22px;background:#0F172A;color:#fff;border-radius:14px;padding:20px 28px;
+                display:flex;align-items:center;gap:24px;flex:0 0 auto">
+      <div style="font-size:13px;letter-spacing:.14em;color:#94A3B8;font-weight:700;flex:0 0 auto">一句结论</div>
+      <div style="font-size:18px;line-height:1.55">
+        SHARP 的壁垒是<b>数据工厂</b>（8M 张自渲染 ＋ 2.65M 张付费图），不是模型结构；
+        Depth Pro 的壁垒已经不存在，剩下的只是<b>10 TB 的下载与清洗工程量</b>。
+      </div>
+    </div></div>
+  <div class="foot"><span>来源：SHARP arXiv 2512.10685 附录；Depth Pro arXiv 2410.02073 v2 附录 Table 15 / 17</span><span>1 / 6</span></div>
+</div></body></html>

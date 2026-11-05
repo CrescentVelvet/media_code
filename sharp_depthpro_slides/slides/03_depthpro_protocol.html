@@ -1,0 +1,84 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  width: 1600px; height: 900px; overflow: hidden; background: #F4F6FA;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #0F172A; -webkit-font-smoothing: antialiased;
+}
+.slide { display: flex; flex-direction: column; width: 1600px; height: 900px;
+          padding: 50px 64px 0 64px; }
+.head { flex: 0 0 auto; }
+.kicker { font-size: 15px; letter-spacing: .16em; color: #8A97A8; font-weight: 700; }
+h1 { font-size: 42px; line-height: 1.16; margin: 8px 0 10px 0; font-weight: 700; letter-spacing: -.012em; }
+.sub { font-size: 19px; color: #475569; line-height: 1.55; max-width: 1400px; }
+.rule { height: 3px; width: 76px; background: #0F172A; margin: 16px 0 24px 0; border-radius: 2px; }
+.wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding-bottom: 56px; }
+.foot {
+  position: absolute; left: 64px; right: 64px; bottom: 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13.5px; color: #8A97A8; border-top: 1px solid #E4E8EF; padding-top: 11px;
+}
+.card { background: #fff; border: 1px solid #E4E8EF; border-radius: 16px; }
+.tag { display: inline-block; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+</style></head><body>
+<div class="slide">
+  <div class="head">
+    <div class="kicker">DEPTH PRO · 训练协议</div>
+    <h1>两阶段：先学度量，再学锐度</h1>
+    <div class="sub">这套协议的价值不在数据，在<b>怎么用异构数据</b>：19 个来源、尺度定义各不相同的集能被联合训练，靠的是损失设计与阶段切分。这部分是能抄的。</div>
+    <div class="rule"></div>
+  </div>
+  <div class="wrap">
+    <div style="display:flex;align-items:stretch;flex:0 0 auto">
+      
+        <div style="flex:1;display:flex;flex-direction:column;background:#fff;border:1px solid #E4E8EF;
+                    border-left:4px solid #1D4ED8;border-radius:14px;padding:24px 26px 22px 26px">
+          <div style="font-size:13px;letter-spacing:.12em;color:#8A97A8;font-weight:700">STAGE 1 · 打底</div>
+          <div style="font-size:34px;font-weight:700;margin:2px 0 14px 0;color:#1D4ED8"><span class="num">250</span>
+            <span style="font-size:19px;color:#475569;font-weight:600"> epoch</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center"><div style="font-size:16px;color:#475569;line-height:1.75">全部 <b>19 个标注集联合训练</b></div><div style="font-size:16px;color:#475569;line-height:1.75">损失：尺度不变 MAE（SSI-MAGE）</div><div style="font-size:16px;color:#475569;line-height:1.75">目标：先把<b>度量尺度</b>学对</div></div>
+        </div>
+      <div style="flex:0 0 56px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#8A97A8">→</div>
+      
+        <div style="flex:1;display:flex;flex-direction:column;background:#fff;border:1px solid #E4E8EF;
+                    border-left:4px solid #C2410C;border-radius:14px;padding:24px 26px 22px 26px">
+          <div style="font-size:13px;letter-spacing:.12em;color:#8A97A8;font-weight:700">STAGE 2 · 提锐度</div>
+          <div style="font-size:34px;font-weight:700;margin:2px 0 14px 0;color:#C2410C"><span class="num">100</span>
+            <span style="font-size:19px;color:#475569;font-weight:600"> epoch</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center"><div style="font-size:16px;color:#475569;line-height:1.75">在 Stage 1 权重上继续，同一批数据</div><div style="font-size:16px;color:#475569;line-height:1.75">损失：<b>追加一阶 / 二阶导数损失</b></div><div style="font-size:16px;color:#475569;line-height:1.75">目标：把边缘从「糊」拉回「锐」</div></div>
+        </div>
+    </div>
+    <div style="margin-top:14px;background:#FFF9EA;border:1px dashed #F5D48A;border-radius:12px;
+                padding:13px 22px;display:flex;align-items:center;gap:16px;flex:0 0 auto">
+      <div style="font-size:14.5px;font-weight:700;color:#A9600A;flex:0 0 auto">旁支 · 焦距头</div>
+      <div style="font-size:15.5px;color:#475569;line-height:1.5">
+        <b>单独训练</b>，不参与上面两阶段。论文只说用了「多个数据集 ＋ 仅焦距监督的大规模图像集」，
+        <b>未逐项列明</b>是哪些集 —— 复现这一步得自己配。
+      </div>
+    </div>
+    <div style="flex:1;display:flex;gap:14px;margin-top:16px;min-height:0">
+      <div style="flex:1;display:flex;flex-direction:column;background:#fff;
+          border:1px solid #E4E8EF;border-radius:12px;padding:20px 20px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px;color:#1D4ED8">为什么 19 个源能拼在一起</div>
+          <div style="font-size:15px;color:#475569;line-height:1.65">损失是<b>尺度不变</b>形式，度量与非度量数据可以混训；代价是每集仍需单独做尺度归一。<span style='color:#A9600A'>【推断】</span><br><span style='color:#8A97A8'>风险：混训会偏向数据量最大的那几集，采样权重得手工调。</span></div></div>
+      <div style="flex:1;display:flex;flex-direction:column;background:#fff;
+          border:1px solid #E4E8EF;border-radius:12px;padding:20px 20px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px;color:#047857">值得直接抄的两点</div>
+          <div style="font-size:15px;color:#475569;line-height:1.65">① <b>两阶段</b>：先学全局度量，再用高阶导数损失专门拉边缘；② <b>辅助头解耦</b>（焦距头独立训练），互不干扰。<br><span style='color:#8A97A8'>这两点与数据集无关，换任何 backbone 都成立。</span></div></div>
+      <div style="flex:1;display:flex;flex-direction:column;background:#fff;
+          border:1px solid #E4E8EF;border-radius:12px;padding:20px 20px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px;color:#B91C1C">不能直接搬的一点</div>
+          <div style="font-size:15px;color:#475569;line-height:1.65">监督目标是<b>单张图的像素深度</b>，没有多视角几何一致性约束 —— 论文里也没有 NVS / 3DGS 实验。<br><span style='color:#8A97A8'>要用它做多视角，必须自己加跨视角损失与位姿监督。</span></div></div>
+    </div>
+
+    <div style="margin-top:14px;background:#fff;border:1px solid #E4E8EF;
+                border-left:4px solid #0F172A;border-radius:0 12px 12px 0;padding:16px 22px;flex:0 0 auto">
+      <div style="font-size:15.5px;color:#475569;line-height:1.65">
+        <b style="color:#0F172A">映射到我们的 pipeline（建议）</b>　　Stage 1 用合成 / 伪 GT 数据把尺度与结构打底
+        → Stage 2 换真实人体序列、用导数损失提锐度。投影到人像就是：<b>先解决「几何对不对」，再解决「脸糊不糊」</b>。
+      </div>
+    </div></div>
+  <div class="foot"><span>来源：Depth Pro 论文 Stage 1 / Stage 2 定义与附录 Table 17（损失 × 数据集）；焦距头训练集未列明</span><span>3 / 6</span></div>
+</div></body></html>
