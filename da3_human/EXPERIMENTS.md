@@ -51,9 +51,35 @@
 装包坑：pip 对 opencv-python 回退解析多轮（moviepy 依赖冲突），最终 opencv 4.11.0.86 + moviepy 1.0.3；
 numpy 被 requirements 的 `numpy<2` 从 2.2.6 降级到 1.26.4（torchvision 装的是 2.x，无冲突）。
 
-### 阶段 B-01：权重下载
+### 阶段 B-01：权重下载 ✅
 
 | 项 | 结果 |
 |---|---|
 | 模型 | `depth-anything/DA3NESTED-GIANT-LARGE-1.1` → `/mnt/d/wheel/da3_human_ms` |
-| 状态 | 待补（经 hf-mirror 下载中） |
+| 产物 | model.safetensors **6.3GB**（fp32 1.4B）+ config.json |
+| 通道 | hf-mirror.com（直连 7s vs 镜像 2.4s；镜像吞吐 ~1MB/s，全程 63 min） |
+| 复跑 | `bash da3_human/01_download_models.sh`（幂等，本地已存在则秒过） |
+
+### 阶段 B-02：DA3 推理（125 视角）✅
+
+| 验收项 | 结果 | 判定 |
+|---|---|---|
+| 深度可视化合理 | median **1.797m**，范围 0.48~6.10m，NaN=0（度量输出，棚拍尺度合理） | ✅ |
+| 位姿无漂移 | vs COLMAP Sim(3) 对齐后 mean **4.9mm** / p95 8.2mm / max 10.1mm，125/125 视角匹配，轨迹逐段重合（viz/trajectory_3d.png） | ✅ |
+| 耗时 | 模型加载 18s + 前向 34~54s + 导出 92s ≈ **2.5 min**（504p，RTX 3090） | — |
+
+产物（`~/output/da3_human_results/da3_inference/studio_human/`）：
+`exports/{mini_npz,npz}/results.npz`（深度/置信度/extrinsics/intrinsics）、
+colmap 导出（cameras/images/points3D/frames/rigs .bin，**14,288,402 点**、conf≥P40）、
+`depth_vis/` 逐视角深度可视化、`da3_summary.json`、`viz/` 轨迹对比图。
+
+**关键数字解读**：
+- Sim(3) scale=0.5077：DA3 度量重建比 COLMAP 坐标系大约 1.97×（COLMAP 尺度本就任意，无问题）。
+- 首末相机距 1.42m ≠ 漂移：轨迹是带起始小回环的开弧（viz 图证实），非闭环采集。
+
+**踩坑记录**：
+1. DA3 `requirements.txt` 漏声明 `addict`（da3.py:19）→ 00 脚本已补 `pip install addict`。
+2. COLMAP `images.txt` 解析：points2D 空行（无 2D 点的注册图像）不能过滤，否则 header 配对
+   错位约一半匹配不上（首跑 63/125 → 修后 125/125）。
+3. xformers 0.0.35/torch 2.14.1 不配对：推理正常（attention 走 F.sdpa；日志出现
+   "using MLP layer as FFN" 说明 SwiGLU 融合层自动回退 MLP），**无实际影响**，不回退 torch。

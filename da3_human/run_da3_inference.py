@@ -73,10 +73,14 @@ def umeyama_sim3(src, dst):
 
 
 def parse_colmap_images(images_txt):
-    """解析 COLMAP images.txt -> {文件名: 相机中心}"""
+    """解析 COLMAP images.txt -> {文件名: 相机中心}
+
+    ⚠️ points2D 行为空串（无 2D 点的注册图像）不能丢，否则 header/points 配对错位、
+    大约一半图像匹配不上（2026-11-05 实测 63/125）。
+    """
     centers = {}
     with open(images_txt, "r", encoding="utf-8") as f:
-        lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        lines = [ln.rstrip("\n") for ln in f if not ln.startswith("#")]
     for i in range(0, len(lines), 2):
         parts = lines[i].split()
         # IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME

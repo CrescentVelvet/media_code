@@ -39,6 +39,8 @@ if [ "$INSTALL_DEPS" = "1" ]; then
     echo "📦 pip install -e $DA3_DIR（DA3 本体 + requirements）"
     pip install -e "$DA3_DIR"
     if [ $? -ne 0 ]; then echo "❌ pip install -e DA3 failed" >&2; exit 1; fi
+    # DA3 requirements 漏声明 addict（da3.py:19 import addict，2026-11-05 实测 ModuleNotFoundError）
+    pip install -q addict
 fi
 
 # 2) 验证 import
