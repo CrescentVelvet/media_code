@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-11-05 阶段 B-03/04 基线训练
+
+### 阶段 B-03：原版 3DGS 基线（COLMAP init）✅
+
+| 项 | 结果 |
+|---|---|
+| 初始化 | COLMAP sparse **7,163 点**（vggt_human source，即现有 scene_gs 路径） |
+| 训练 | 30,000 iters，全分辨率 1440×1920，**45m51s**（RTX 3090） |
+| 训练内评估 | [ITER 30000] PSNR **27.10**（官方 train.py 日志口径） |
+| 渲染后评估 | train 视角 125/125：PSNR **27.573** / SSIM **0.8854** / LPIPS **0.1642** |
+| 产物 | `~/output/da3_human_results/baseline_3dgs_colmap/`（point_cloud/iteration_30000、train/ours_30000/{renders,gt}） |
+
+定性观察（floater/重影对照现象）待截图补入——需与 04（DA3 init）同视角对比后统一记录。
+
+**metrics.py 全 nan 根因（"Metric evaluation progress: 0it"）**：
+1. 本仓 `metrics.py`（vggt_human 定制版）只扫 `test/` 分割，而 render.py 渲染的是 train 视角
+   → 建软链 `test/ours_<iter> -> ../train/ours_<iter>` 解决；
+2. ⚠️ 坑中坑：**render.py 会预先给 test split 建空的 `renders/`、`gt/` 目录**，直接
+   `ln -sfn` 会把链接塞进该目录内部（`test/ours_30000/ours_30000 -> ...`），metrics 仍读空目录。
+   必须先 `rmdir` 空目录再软链。`_train_3dgs.sh` 已内置该逻辑（含 rmdir），04 起自动生效。
+
+### 阶段 B-04：DA3-GS 基线（DA3 点云初始化）🔄
+
+场景已就绪（`da3_colmap_scene/`：images 软链 + sparse/0，**459,433 点**，由 DA3 深度反投影
+14,288,402 点体素降采样；原版 3DGS `read_model` 验证通过，125 cams/imgs PINHOLE）。
+训练 2026-11-05 启动，结果稍后补录。
+
+---
+
 ## 2026-11-05 阶段 A/B 启动
 
 ### 执行前调研发现（修正计划前提）

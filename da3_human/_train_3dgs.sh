@@ -73,6 +73,17 @@ if [ "$SKIP_METRICS" = "1" ]; then
     echo "⏭️ skip metrics (SKIP_METRICS=1)"
 else
     echo "📊 metrics (PSNR/SSIM/LPIPS, in-sample train views)"
+    # 本仓 metrics.py（vggt_human 定制版）只扫 test/ 分割，而 render.py 渲染的是 train 视角
+    # → 用软链把 test/ours_<iter> 指到 train/ours_<iter>，否则 "Metric evaluation progress: 0it" 全 nan
+    if [ ! -L "$GAUSSIAN_DIR/test/ours_$ITERATIONS" ]; then
+        mkdir -p "$GAUSSIAN_DIR/test"
+        # render.py 会先给 test split 建空的 renders/gt 目录，须先删掉（空目录 rmdir 才成功）
+        # 再软链到 train 视角产物；否则 ln 会把链接塞进该目录里，metrics 仍读到空目录
+        if [ -d "$GAUSSIAN_DIR/test/ours_$ITERATIONS" ]; then
+            rmdir "$GAUSSIAN_DIR/test/ours_$ITERATIONS/renders" "$GAUSSIAN_DIR/test/ours_$ITERATIONS/gt" "$GAUSSIAN_DIR/test/ours_$ITERATIONS" 2>/dev/null
+        fi
+        ln -sfn "../train/ours_$ITERATIONS" "$GAUSSIAN_DIR/test/ours_$ITERATIONS"
+    fi
     ( cd "$GS_DIR" && python metrics.py -m "$GAUSSIAN_DIR" )
     if [ $? -ne 0 ]; then echo "⚠️ metrics.py failed (non-fatal)" >&2; fi
 fi
