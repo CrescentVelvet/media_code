@@ -17,8 +17,8 @@ if [ ! -f "$DA3_INFER_DIR/images.bin" ]; then
     echo "❌ ERROR: DA3 colmap 导出不存在: $DA3_INFER_DIR（先跑 02）" >&2
     exit 1
 fi
-if [ ! -f "$INTR_REF_DIR/cameras.bin" ]; then
-    echo "❌ ERROR: 参考 COLMAP 模型不存在: $INTR_REF_DIR" >&2
+if [ ! -f "$INTR_REF_DIR/cameras.bin" ] && [ ! -f "$INTR_REF_DIR/cameras.txt" ]; then
+    echo "❌ ERROR: 参考 COLMAP 模型不存在: $INTR_REF_DIR（需要 cameras.bin|txt）" >&2
     exit 1
 fi
 
