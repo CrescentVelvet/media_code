@@ -9,7 +9,7 @@ export GS_CONDA_ENV="${GS_CONDA_ENV:-vggt_human}"
 export ANCHOR_DIR="${ANCHOR_DIR:-$RESULTS_DIR/anchor_pointcloud/studio_human}"
 export DA3_INFER_DIR="${DA3_INFER_DIR:-$RESULTS_DIR/da3_inference/studio_human}"
 export IMAGES_DIR="${IMAGES_DIR:-$HOME/output/vggt_human_results/source/images}"
-export OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/da3_2dgs_dual/ours}"
+export OUTPUT_DIR="${OUTPUT_DIR:-$RESULTS_DIR/da3_2dgs_v3/ours}"
 # 常用开关（默认值在 06 脚本内）：
 #   OFFSET_PIX=1.0 OFFSET_DEPTH=0.02  ITERATIONS=30000 SH_DEGREE=3 GEO_RES=4
 #   LAMBDA_DIST=0.1 LAMBDA_NORM=0.1   PRUNE_OPACITY=0  SMOKE=1(冒烟)

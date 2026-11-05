@@ -219,11 +219,11 @@ def main():
 
         means, quats, scales, opac, sh = model.forward_params()
 
-        # ---- 纹理分支：全分辨率，detach 几何 → 学 SH/不透明度
-        # ⚠️ opac 在这里必须可导：C-06 首跑误写成 opac.detach()，不透明度冻结在
-        #    σ(-2)≈0.119，逐像素叠几十层半透明 splat → 全图叠化糊（PSNR 14.88）
+        # ---- 纹理分支：全分辨率，共享几何梯度（v3 去 detach）
+        # v1 曾 detach opac → 冻结 0.119 叠化糊(14.88)；v2 detach means/quats/scales 仍拖 ~3dB
+        # v3：双路共享几何梯度，几何质量靠 1/4 分辨率正则（dist/norm）约束
         rend_tex, alpha_tex, _, _, _, _, _ = rasterization_2dgs(
-            means.detach(), quats.detach(), scales.detach(), opac, sh,
+            means, quats, scales, opac, sh,
             w2c_t[vi:vi + 1], K_t[vi:vi + 1], W, H,
             render_mode="RGB", sh_degree=sh_degree, backgrounds=black3,
             eps2d=eps2d, near_plane=0.01, far_plane=100.0, packed=False)
