@@ -15,6 +15,9 @@ Env vars:
   SCENE_DIR       目标场景目录
   IMAGES_DIR      原始图像目录（软链目标）
   MAX_INIT_POINTS 初始点上限，默认 1000000
+  INTR_REF_DIR    （可选，B-04b）参考 COLMAP sparse 模型目录；设置后把场景每相机内参
+                  替换为参考模型同名视角的内参（位姿/点云不动），用于隔离「DA3 预测
+                  内参偏差」假设
 """
 import os
 import shutil
@@ -35,6 +38,30 @@ def read_points3d(infer_dir):
     pts = np.array([recon.points3D[k].xyz for k in keys], dtype=np.float64)
     colors = np.array([recon.points3D[k].color for k in keys], dtype=np.uint8)
     return pts, colors
+
+
+def override_intrinsics(infer_dir, sparse0, ref_dir):
+    """B-04b 假设1隔离：场景每相机内参替换为参考模型同名视角的内参（位姿/点云不动）。
+
+    背景：DA3 预测内参 fx/fy 比例偏差 ~4%（如 1448/1387），COLMAP 标定同视角仅 ~0.7%
+    （1389.6/1399.8）。两模型均每图一相机、PINHOLE [fx,fy,cx,cy] 同序，按图像名匹配。
+    直接从 DA3 导出目录改完整体写出（sparse0 此刻无 points3D.bin，pycolmap 打不开）。
+    """
+    import pycolmap
+
+    scene = pycolmap.Reconstruction(infer_dir)
+    ref = pycolmap.Reconstruction(ref_dir)
+    ref_by_name = {}
+    for img in ref.images.values():
+        cam = ref.cameras[img.camera_id]
+        ref_by_name[img.name] = (np.asarray(cam.params, dtype=np.float64), cam.width, cam.height)
+    for img in scene.images.values():
+        if img.name not in ref_by_name:
+            sys.exit(f"❌ 参考模型缺少同名图像: {img.name}")
+        cam = scene.cameras[img.camera_id]
+        cam.params, cam.width, cam.height = ref_by_name[img.name]
+    scene.write(sparse0)  # 会连 points3D 全量一起写，随后被降采样版覆盖
+    print(f"🔧 内参替换: {len(scene.images)} 相机 <- {ref_dir}")
 
 
 def write_points3d_bin(path, pts, colors):
@@ -107,9 +134,15 @@ def main():
     # 2) sparse/0 搬运 + points3D 降采样
     sparse0 = os.path.join(scene_dir, "sparse", "0")
     os.makedirs(sparse0, exist_ok=True)
+    intr_ref = os.environ.get("INTR_REF_DIR", "")
+    if intr_ref:
+        # 内参替换模式：cameras/images 由 override 整体写出（不单独复制 cameras.bin）
+        override_intrinsics(infer_dir, sparse0, intr_ref)
     for name in COLMAP_BINS:
         src = os.path.join(infer_dir, name)
         dst = os.path.join(sparse0, name)
+        if intr_ref and name == "cameras.bin":
+            continue  # 已由 override 写出
         if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
             print(f"⏭️ {name} 已就位（大小一致，跳过）")
             continue
