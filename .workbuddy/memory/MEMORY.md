@@ -24,6 +24,12 @@
 - commit 后按需更新 EXPERIMENTS.md（实验结论），与 README（运行命令）分离。
 
 ## 关键文档索引
+- **`compare_4methods/P0_EXPERIMENTS.md` + `P1_EXPERIMENTS.md`**（2026-11-06 建）：四方法对比的
+  加容量/加速实验台账（先写预测与判据、再填实测）。已定论：**DA3 的瓶颈是跨视角几何不一致**
+  （质量随"相机中心到参考视角三维距离"单调衰减），加分辨率/SH/视角数三项全判 B；
+  **前馈高斯的正确用法是"稀疏点云 init + 让 3DGS 自己 densify"**——整套高斯灌入反而更差更慢
+  （opacity 中位数 0.036 卡在 prune 阈值上方，scale 0.8 mm 又要靠 densify 长回去）。
+  可用甜点：DA3 点云 + 5k 步 ≈ 2.6 min / 22.2 dB（30k 基线 24.3 dB / 21.5 min）。
 - **`deformable_human/BACKLOG.md`**：Reconstruction 流水线 A~J 案评审台账（状态总览表 +
   逐案原理 + 本地批注）。**做任何优化前先查状态总览**。截至 2026-10-17：
   A 无收益（−0.31dB）｜B 已实现但双度证伪｜C 零加速否决｜D 已落地（默认关）｜
