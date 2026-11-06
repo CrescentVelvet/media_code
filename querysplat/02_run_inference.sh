@@ -47,7 +47,16 @@ else
 fi
 
 # 2) 前馈推理（必须在官方仓目录下跑：yaml 内 vggt_checkpoint 是相对路径）
+# gsplat 首次运行 JIT 编译 CUDA 扩展：必须给 CUDA_HOME（conda nvcc 的头文件路径），
+# 否则 ninja 报 cuda_runtime_api.h 找不到；TORCH_CUDA_ARCH_LIST 限定 3090(sm_86) 加速编译
+# conda cuda-nvcc 布局：头文件/库在 targets/x86_64-linux/ 下，torch 只认 $CUDA_HOME/include，
+# 必须补 CPATH/LIBRARY_PATH（fused-ssim 能编过是因为它没 include torch CUDA 头）
 echo "🤖 QuerySplat 前馈推理"
+export CUDA_HOME="${CUDA_HOME:-$CONDA_PREFIX}"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.6}"
+export CPATH="$CUDA_HOME/targets/x86_64-linux/include${CPATH:+:$CPATH}"
+export LIBRARY_PATH="$CUDA_HOME/targets/x86_64-linux/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$CUDA_HOME/targets/x86_64-linux/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 INFER_FLAGS=(
     --config "$CONFIG"
     --checkpoint "$CHECKPOINT"
@@ -56,7 +65,8 @@ INFER_FLAGS=(
     --gaussian_save_opacity_threshold "$OPACITY_THRES"
     --save_predicted_input_cameras
 )
-[ "$SAVE_VGGT_PCD" = "1" ] && INFER_FLAGS+=(--save_vggt_depth_pointcloud)
+[ "$SAVE_VGGT_PCD" = "1" ] && INFER_FLAGS+=(--save_vggt_depth_pointcloud \
+    --vggt_depth_pointcloud_target_points "${VGGT_PCD_TARGET:-200000}")
 if [ "$TTO" = "1" ]; then
     INFER_FLAGS+=(--use_tto --tto_n_steps "${TTO_STEPS:-20}")
 fi
