@@ -204,8 +204,12 @@ def main():
     t_opacity = P(torch.from_numpy(op_logit).cuda().unsqueeze(1))      # (N,1) logit
 
     extent = camera_extent(npz_path)
+    # 初始 active_sh_degree。默认 0 = 与 3DGS 原生一致（每 1000 步升一阶，2k 步里
+    # SH rest 只有后 1000 步参与渲染）。做「SH 初值值多少」的 A/B 时必须设成 2，
+    # 否则测的是"半程 SH"而不是"有/无 SH 初值"（见 P0_EXPERIMENTS.md R-2.0）。
+    sh_deg_init = int(os.environ.get("SH_DEGREE_INIT", "0"))
     model_args = (
-        MAX_SH_DEGREE,                                                 # active_sh_degree
+        sh_deg_init,                                                   # active_sh_degree
         t_xyz,
         t_dc,
         t_rest,
@@ -258,6 +262,7 @@ def main():
         "max_dist_m": max_dist,
         "max_points": max_points,
         "da3_sh_rest_per_channel": d_sh_rest,
+        "sh_degree_init": sh_deg_init,
         "spatial_lr_scale": round(extent, 4),
         "lr_by_group": LR_BY_GROUP,
         "checkpoint": str(ckpt),

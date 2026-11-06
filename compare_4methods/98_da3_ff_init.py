@@ -26,6 +26,7 @@ extrinsics 乘度量系数，`gaussians` 留在对齐前的坐标系。本脚本
 
 Env:
   GS_SCALE_MODE  metric(默认，折到米制) | raw(复现 E-01 之前的旧结果)
+  SAVE_FULL_SH   1 = 同一次前向额外导出 gs_ply_full/0000.ply（保留 SH rest，DA3 为 sh_degree=2）
 """
 import json
 import os
@@ -136,6 +137,31 @@ def main():
     t0 = time.time()
     from depth_anything_3.utils.export import export_to_colmap, export_to_gs_ply
     export_to_gs_ply(pred, str(out_dir), 1)   # 第 3 位是 gs_views_interval，不是 kwargs
+
+    # ── 可选：同一次前向再出一份「保留 SH rest」的 PLY（P0-2 复测用） ─────────
+    # 与官方 export_to_gs_ply **逐参数对齐**，唯一差别是 save_sh_dc_only=False，
+    # 保证两次导出的差别只有 SH rest（prune 规则 / opacity 反 sigmoid / 间隔全一致）。
+    # 为什么必须同一次前向（清单 A5）：DA3 的世界系由参考视角定义，且 prune 依赖
+    # ctx_depth，跨运行"应该一样"是赌，不值得赌。
+    if os.environ.get("SAVE_FULL_SH", "0") == "1":
+        from depth_anything_3.utils.gsply_helpers import save_gaussian_ply
+        p_full = out_dir / "gs_ply_full" / "0000.ply"
+        p_full.parent.mkdir(parents=True, exist_ok=True)
+        t1 = time.time()
+        save_gaussian_ply(
+            gaussians=pred.gaussians,
+            save_path=str(p_full),
+            ctx_depth=torch.from_numpy(pred.depth).unsqueeze(-1).to(pred.gaussians.means),
+            shift_and_scale=False,
+            save_sh_dc_only=False,
+            gs_views_interval=1,
+            inv_opacity=True,
+            prune_by_depth_percent=0.9,
+            prune_border_gs=True,
+            match_3dgs_mcmc_dev=False,
+        )
+        log(f"💾 full-SH {p_full}  {time.time()-t1:.1f}s  {p_full.stat().st_size/1024/1024:.0f} MB")
+
     export_to_colmap(pred, str(out_dir), image_paths=[str(p) for p in files])
     t_exp = time.time() - t0
     log(f"⏱️ 导出（gs_ply + colmap）{t_exp:.1f}s")
@@ -148,6 +174,7 @@ def main():
     log(f"📷 相机 {len(C)} 个 ｜ 轨迹半径 {np.linalg.norm(C - C.mean(0), axis=1).mean():.3f} m ｜ extent {extent:.3f} m")
 
     ply = out_dir / "gs_ply" / "0000.ply"
+    ply_full = out_dir / "gs_ply_full" / "0000.ply"
     summary = {
         "images_dir": str(images_dir),
         "n_views": len(files),
@@ -167,20 +194,38 @@ def main():
         "gs_ply": str(ply),
         "gs_ply_bytes": int(ply.stat().st_size) if ply.exists() else None,
         "gs_ply_vertices": None,
+        "gs_ply_full": str(ply_full) if ply_full.exists() else None,
+        "gs_ply_full_bytes": int(ply_full.stat().st_size) if ply_full.exists() else None,
         "cameras_npz": str(cam),
         "cameras_extent_m": round(extent, 4),
         "camera_radius_mean_m": round(float(np.linalg.norm(C - C.mean(0), axis=1).mean()), 4),
         "depth_median_m": round(float(np.median(pred.depth)), 4),
     }
 
-    if ply.exists():
-        with open(ply, "rb") as f:
+    def _ply_vertices(p):
+        """从 PLY 头读 vertex 数（不整读文件）。"""
+        if not p.exists():
+            return None
+        with open(p, "rb") as f:
             head = f.read(4096).decode("ascii", "replace")
         import re
         m = re.search(r"element vertex (\d+)", head)
-        if m:
-            summary["gs_ply_vertices"] = int(m.group(1))
-            log(f"💾 PLY 实存 {int(m.group(1)):,} 点（导出时剪枝后）")
+        return int(m.group(1)) if m else None
+
+    n_dc = _ply_vertices(ply)
+    if n_dc:
+        summary["gs_ply_vertices"] = n_dc
+        log(f"💾 PLY 实存 {n_dc:,} 点（导出时剪枝后）")
+    n_full = _ply_vertices(ply_full)
+    if n_full:
+        summary["gs_ply_full_vertices"] = n_full
+        log(f"💾 full-SH PLY 实存 {n_full:,} 点")
+        # A/B 公平性闸门（清单 A2 的思路）：两组必须剪出同一批点，
+        # 否则"SH rest 的收益"里混进了"点集不同"这个变量。
+        if n_dc and n_full != n_dc:
+            raise SystemExit(
+                f"❌ dc 与 full-SH 的顶点数不一致（{n_dc:,} vs {n_full:,}）："
+                "prune 规则应当产生同一批点，两份 PLY 不可直接 A/B。")
 
     sp = out_dir / "p1_init_summary.json"
     with open(sp, "w", encoding="utf-8", newline="\n") as f:
