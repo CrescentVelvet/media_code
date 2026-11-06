@@ -41,10 +41,10 @@ DA3_IMG = WSL / "da3_results/佳佳抱枕/04_model_3dgs/train/ours_30000/renders
 
 cells = [
     (GT_IMG, "GT 参考帧", "训练视角原图"),
-    (IS_IMG, "InfiniSplat v2", "端到端前馈 · 3分21秒"),
-    (QS_IMG, "QuerySplat", "端到端前馈 · 2分34秒"),
-    (VO_IMG, "VGGT-Ω + 传统3DGS", "前馈位姿+30k it训练 · 约20分钟"),
-    (DA3_IMG, "DA3 + 传统3DGS", "前馈几何+30k it训练 · 约23分钟"),
+    (IS_IMG, "InfiniSplat v2", "纯前馈 · 34 秒（+3 分钟精调另计）"),
+    (QS_IMG, "QuerySplat", "纯前馈 · 39 秒"),
+    (VO_IMG, "VGGT-Ω + 传统3DGS", "前馈 35 秒 + 训练 20 分钟"),
+    (DA3_IMG, "DA3 + 传统3DGS", "前馈 2 分钟 + 训练 21 分钟"),
 ]
 H = 520
 imgs = []
@@ -76,24 +76,28 @@ for im, title, sub in imgs:
 canvas.save(OUT / "fig1_render_compare.png", quality=92)
 print("✅ fig1_render_compare.png", canvas.size)
 
-# ---------- fig2: 耗时对比 ----------
-feedfwd = [201, 154, 35, 130]      # 前馈推理（秒）
-train = [0, 0, 1189, 1242]         # 3DGS 训练（秒）
-fig, ax = plt.subplots(figsize=(9, 4.6), dpi=150)
+# ---------- fig2: 耗时对比（拆三段：前馈 / 精调 / 3DGS 训练）----------
+feedfwd = [34, 39, 35, 130]        # 纯前馈推理（秒）：IS 33.9 / QS 16.3+22.1 / VO 35 / DA3 130
+finetune = [163, 0, 0, 0]          # IS 默认串的 3000 步后处理精调（只调外观属性）
+train = [0, 0, 1189, 1242]         # 传统 3DGS 30k it
+fig, ax = plt.subplots(figsize=(9.6, 4.6), dpi=150)
 y = np.arange(len(METHODS))
 ax.barh(y, feedfwd, color=COLORS, label="前馈推理")
-ax.barh(y, train, left=feedfwd, color=COLORS, alpha=0.45, hatch="//", edgecolor="white", label="传统 3DGS 训练（30k it）")
-for i, (f, t) in enumerate(zip(feedfwd, train)):
-    total = f + t
-    ax.text(total + 25, i, f"{total/60:.1f} 分钟" if total >= 120 else f"{total} 秒",
-            va="center", fontsize=11)
+ax.barh(y, finetune, left=feedfwd, color=COLORS, alpha=0.75, hatch="..", edgecolor="white",
+        label="后处理精调（3000 步，只调外观）")
+ax.barh(y, train, left=[f + t for f, t in zip(feedfwd, finetune)], color=COLORS, alpha=0.4,
+        hatch="//", edgecolor="white", label="传统 3DGS 训练（30k it）")
+for i, (f, ft, t) in enumerate(zip(feedfwd, finetune, train)):
+    total = f + ft + t
+    txt = f"{total/60:.1f} 分钟" if total >= 120 else f"{total} 秒"
+    ax.text(total + 25, i, txt, va="center", fontsize=11)
 ax.set_yticks(y, METHODS, fontsize=12)
 ax.invert_yaxis()
 ax.set_xlabel("端到端耗时（秒）", fontsize=11)
-ax.set_title("四方法端到端耗时对比（佳佳抱枕 · 32 视角 · RTX 3090）", fontsize=14)
-ax.legend(loc="upper right", fontsize=10)
+ax.set_title("四方法耗时拆解：纯前馈 30~40 秒 vs 接 3DGS 训练 20 分钟（佳佳抱枕 · 32 视角）", fontsize=13)
+ax.legend(loc="upper right", fontsize=9.5)
 ax.spines[["top", "right"]].set_visible(False)
-ax.set_xlim(0, 1650)
+ax.set_xlim(0, 1750)
 fig.tight_layout()
 fig.savefig(OUT / "fig2_time.png", bbox_inches="tight")
 plt.close(fig)
