@@ -29,7 +29,7 @@ PROPS_ORDER = None
 
 def load_ply(path):
     with open(path, "rb") as f:
-        raw = f.read(16384)
+        raw = f.read(65536)
         end = raw.index(b"end_header") + len(b"end_header") + 1
         head = raw[:end].decode("ascii", "replace")
         n = int(re.search(r"element vertex (\d+)", head).group(1))
@@ -42,6 +42,17 @@ def load_ply(path):
     opacity = arr[:, nm["opacity"]]
     scales = arr[:, [nm["scale_0"], nm["scale_1"], nm["scale_2"]]]
     quats = arr[:, [nm["rot_0"], nm["rot_1"], nm["rot_2"], nm["rot_3"]]]
+
+    # SH rest（可选）：3DGS 约定 f_rest 按通道分块排列 [R_rest | G_rest | B_rest]，
+    # 与 depth_anything_3 的 harmonics.flatten(start_dim=1) 一致。
+    rest_idx = sorted((int(k.split("_")[-1]), i) for k, i in nm.items() if k.startswith("f_rest_"))
+    if rest_idx:
+        rest = arr[:, [i for _, i in rest_idx]]                       # (N, 3*n_rest)
+        n_rest = rest.shape[1] // 3
+        rest = rest.reshape(n, 3, n_rest).transpose(0, 2, 1)          # (N, n_rest, 3)
+        sh = np.concatenate([sh[:, None, :], rest], axis=1)           # (N, 1+n_rest, 3)
+    else:
+        sh = sh[:, None, :]                                           # (N, 1, 3)
     return means, sh, opacity, scales, quats
 
 
@@ -56,7 +67,9 @@ def main():
     print(f"📦 高斯: {len(means_np)} 个")
 
     means = torch.from_numpy(means_np).to(dev)
-    sh = torch.from_numpy(sh_np).to(dev).reshape(-1, 1, 3)             # (N,1,3) sh_degree=0
+    sh_degree = int(round(sh_np.shape[1] ** 0.5)) - 1
+    sh = torch.from_numpy(sh_np).to(dev)                               # (N,K,3)
+    print(f"🎨 SH: d_sh={sh_np.shape[1]} → sh_degree={sh_degree}")
     opacity = torch.sigmoid(torch.from_numpy(op_np).to(dev))           # logit → [0,1]
     scales = torch.from_numpy(sc_np).to(dev)
     if scale_mode == "exp":
@@ -86,7 +99,7 @@ def main():
         K = torch.from_numpy(Ks[i]).float().to(dev)[None]               # (1,3,3)
         with torch.no_grad():
             img, alpha, _ = rasterization(
-                means, quats, scales, opacity, sh, vm, K, W, H, sh_degree=0,
+                means, quats, scales, opacity, sh, vm, K, W, H, sh_degree=sh_degree,
             )
         img = img[0].clamp(0, 1).mul(255).byte().cpu().numpy()
         from PIL import Image

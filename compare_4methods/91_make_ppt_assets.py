@@ -46,7 +46,7 @@ OP = "#C77C2E"    # 两阶段优化
 
 # 名称, 纯前馈秒, 短精调秒, 3DGS训练秒, 高斯数, 体积MB, 颜色, 分组
 METHODS = [
-    ("DA3 原生高斯头", 13.5, 0, 0, 6_100_000, 314, FF, "ff"),
+    ("DA3 原生高斯头", 13.5, 0, 0, 4_838_527, 314, FF, "ff"),   # 484 万 = 官方导出剪枝后的 PLY 实存（预测 610 万）
     ("QuerySplat", 38.5, 0, 0, 371_000, 33, FF, "ff"),
     ("InfiniSplat v2", 33.9, 163, 0, 5_940_842, 386, HY, "hy"),
     ("VGGT-Ω + 3DGS", 35, 0, 1189, 1_746_358, 414, OP, "op"),
@@ -58,7 +58,7 @@ RENDERS = [
     (WSL / "vggt_omega_results/佳佳抱枕/04_model_3dgs/train/ours_30000/gt/00000.png",
      "GT 参考帧", "训练视角原图", "#333333"),
     (WSL / "da3_gs_results/佳佳抱枕_clean/render/view_000.png",
-     "DA3 原生高斯头", "一次前向 13.5 秒 · 6.1M 高斯", FF),
+     "DA3 原生高斯头", "一次前向 13.5 秒 · 484 万高斯", FF),
     (WSL / "querysplat_results/佳佳抱枕_paper/rendered/render_view0.png",
      "QuerySplat", "一次前向 38.5 秒 · 37.1 万高斯", FF),
     (WSL / "ppt_assets/is_renders/render_000.png",
@@ -197,7 +197,7 @@ b1 = a1.bar(x, counts, color=colors)
 a1.set_yscale("log")
 a1.set_ylim(1e5, 2e7)
 a1.set_ylabel("高斯数（log 刻度）", fontsize=11)
-labels = ["4.8~6.1M", "37.1万", "594万", "175万", "189万"]
+labels = ["484万", "37.1万", "594万", "175万", "189万"]
 for r, c, lb in zip(b1, counts, labels):
     a1.text(r.get_x() + r.get_width() / 2, c * 1.25, lb, ha="center", fontsize=10)
 a1.set_xticks(x, short, fontsize=9.5)
