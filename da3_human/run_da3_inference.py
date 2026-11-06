@@ -104,6 +104,9 @@ def main():
     process_res = int(os.environ.get("PROCESS_RES", "504"))
     max_views = int(os.environ.get("MAX_VIEWS", "0"))
     export_format = os.environ.get("EXPORT_FORMAT", "mini_npz-colmap-depth_vis")
+    # INFER_GS=1 启用官方 GSDPT 高斯头：一次前向直接出 gaussians.ply（无需 COLMAP + 3DGS 训练）
+    # 需配合 EXPORT_FORMAT=gs_ply（可叠加，如 "mini_npz-gs_ply"）
+    infer_gs = os.environ.get("INFER_GS", "0") == "1"
     colmap_ref = os.environ.get("COLMAP_REF_DIR", "")
     model_dir = os.environ.get("DA3_MODEL_DIR", "")
     model_repo = os.environ.get("DA3_MODEL_REPO", "depth-anything/DA3NESTED-GIANT-LARGE-1.1")
@@ -123,6 +126,16 @@ def main():
 
     from depth_anything_3.api import DepthAnything3  # noqa: 延迟到 torch 环境就绪后
 
+    if infer_gs:
+        # api.inference 见到 "gs" 会强制追加 gs_video 渲染（需要 gsplat）。
+        # env 不装 gsplat 时该步抛 NameError，但 gs_ply 已先写出——这里直接短路，
+        # 让 GS 导出保持干净 exit 0；要看视频再装 gsplat 并设 DA3_GS_VIDEO=1。
+        import importlib.util
+        if importlib.util.find_spec("gsplat") is None and os.environ.get("DA3_GS_VIDEO", "0") != "1":
+            from depth_anything_3.utils import export as _da3_export
+            _da3_export.export_to_gs_video = lambda *a, **k: None  # noqa: ARG005
+            log("ℹ️ 未装 gsplat：跳过 gs_video 渲染，只出 gs_ply（DA3_GS_VIDEO=1 可强制）")
+
     t0 = time.time()
     model = DepthAnything3.from_pretrained(model_path).to("cuda")
     log(f"⏱️ 模型加载 {time.time() - t0:.1f}s")
@@ -133,6 +146,7 @@ def main():
         process_res=process_res,
         export_dir=output_dir,
         export_format=export_format,
+        infer_gs=infer_gs,
     )
     elapsed = time.time() - t0
     log(f"⏱️ 推理+导出 {elapsed:.1f}s")
@@ -151,6 +165,15 @@ def main():
     if nan_cnt > 0:
         log("⚠️ 深度含 NaN，需人工检查")
     log(f"📊 置信度: mean={float(conf.mean()):.3f}")
+
+    n_gauss = 0
+    if infer_gs:
+        g = getattr(prediction, "gaussians", None)
+        if g is None:
+            log("⚠️ infer_gs=True 但 prediction.gaussians 为空（检查权重是否含 gs_head）")
+        else:
+            n_gauss = int(np.prod(np.asarray(g.means.shape)[:-1]))
+            log(f"📊 高斯: {n_gauss} 个（官方 GSDPT 头一次前向输出）")
 
     centers = camera_centers(w2c)
     step = np.linalg.norm(np.diff(centers, axis=0), axis=1)
@@ -177,6 +200,8 @@ def main():
         "traj_loop_gap_m": loop_gap,
         "infer_seconds": round(elapsed, 1),
         "export_format": export_format,
+        "infer_gs": int(infer_gs),
+        "n_gaussians": n_gauss,
         "per_view": {
             "depth_min": [float(d.min()) for d in depth],
             "depth_max": [float(d.max()) for d in depth],
