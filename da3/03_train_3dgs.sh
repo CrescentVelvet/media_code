@@ -13,16 +13,36 @@ export ITERATIONS="${ITERATIONS:-30000}"
 export RES="${RES:-2}"   # 3DGS 训练分辨率因子；要全分辨率传 RES= 空
 
 SCENE_RESULTS="$RESULTS_DIR/$SCENE_NAME"
-SOURCE_DIR="${SOURCE_DIR:-$SCENE_RESULTS/colmap}"
+# 02 的 DA3 export_to_colmap 把 cameras/images/points3D.bin 平铺在场景根，且没有
+# images/ 目录与 sparse/0/ 布局——先用 da3_human 的组装脚本整理成原版 3DGS 可读场景
+SCENE_DIR="$SCENE_RESULTS/colmap_scene"
+SOURCE_DIR="${SOURCE_DIR:-$SCENE_DIR}"
 GAUSSIAN_DIR="$SCENE_RESULTS/04_model_3dgs"
+IMAGES_DIR="$RESULTS_DIR/_captures/$SCENE_NAME/images"
 
+if [ ! -f "$SCENE_RESULTS/images.bin" ]; then
+    echo "❌ ERROR: DA3 colmap 导出不完整: $SCENE_RESULTS/images.bin 不存在（先跑 02）" >&2
+    exit 1
+fi
 if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
-    echo "❌ ERROR: COLMAP 场景未就绪: $SOURCE_DIR（先跑 02）" >&2
-    echo "       若 02 产物布局不同，用 SOURCE_DIR=<实际路径> 显式指定" >&2
+    echo "🧩 组装 COLMAP 场景: $SOURCE_DIR（images 软链 + sparse/0 + 点云降采样）"
+    ASSEMBLE_PYTHON="${ASSEMBLE_PYTHON:-$HOME/miniconda3/envs/da3_human/bin/python}"
+    [ -x "$ASSEMBLE_PYTHON" ] || ASSEMBLE_PYTHON=python
+    DA3_INFER_DIR="$SCENE_RESULTS" \
+    SCENE_DIR="$SOURCE_DIR" \
+    IMAGES_DIR="$IMAGES_DIR" \
+    "$ASSEMBLE_PYTHON" "$MEDIA_CODE_ROOT/da3_human/build_da3_colmap_scene.py"
+    if [ $? -ne 0 ]; then echo "❌ 场景组装失败" >&2; exit 1; fi
+fi
+if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
+    echo "❌ ERROR: COLMAP 场景未就绪: $SOURCE_DIR" >&2
     exit 1
 fi
 
 echo "🚀 [03] 3DGS 训练: $SCENE_NAME（$ITERATIONS iters，DA3 点云初始化）"
+# 注意必须显式传 CONDA_ENV=vggt_human：本仓 _env.sh 导出 CONDA_ENV=da3，
+# 会泄进 04 让它去激活不存在的 da3 env（CUDA 扩展 import 失败）
+CONDA_ENV=vggt_human \
 MODEL_DIR="$DA3_MODEL_DIR" \
 SOURCE_DIR="$SOURCE_DIR" \
 GAUSSIAN_DIR="$GAUSSIAN_DIR" \
