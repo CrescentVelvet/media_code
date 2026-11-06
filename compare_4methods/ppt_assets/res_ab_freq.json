@@ -1,0 +1,80 @@
+[
+  {
+    "tag": "res2",
+    "size": "378x504",
+    "psnr": 23.2955,
+    "psnr_low": 30.7333,
+    "psnr_high": 24.5683,
+    "corr": 0.7699,
+    "hf_ratio": 0.8145,
+    "face_psnr": 21.6484,
+    "face_psnr_low": 29.9416,
+    "face_psnr_high": 22.9932,
+    "face_corr": 0.7928
+  },
+  {
+    "tag": "res2",
+    "size": "756x1008",
+    "psnr": 26.5389,
+    "psnr_low": 36.6486,
+    "psnr_high": 27.3218,
+    "corr": 0.8839,
+    "hf_ratio": 0.8832,
+    "face_psnr": 23.8987,
+    "face_psnr_low": 33.1906,
+    "face_psnr_high": 25.0766,
+    "face_corr": 0.8725
+  },
+  {
+    "tag": "res2",
+    "size": "1439x1919",
+    "psnr": 23.7402,
+    "psnr_low": 29.0493,
+    "psnr_high": 25.8475,
+    "corr": 0.8407,
+    "hf_ratio": 0.9463,
+    "face_psnr": 23.2961,
+    "face_psnr_low": 31.8695,
+    "face_psnr_high": 24.5246,
+    "face_corr": 0.8588
+  },
+  {
+    "tag": "res1",
+    "size": "378x504",
+    "psnr": 21.9977,
+    "psnr_low": 28.7009,
+    "psnr_high": 23.5909,
+    "corr": 0.7086,
+    "hf_ratio": 0.8188,
+    "face_psnr": 20.6285,
+    "face_psnr_low": 28.4686,
+    "face_psnr_high": 22.1405,
+    "face_corr": 0.748
+  },
+  {
+    "tag": "res1",
+    "size": "756x1008",
+    "psnr": 24.9345,
+    "psnr_low": 32.2093,
+    "psnr_high": 26.2435,
+    "corr": 0.8492,
+    "hf_ratio": 0.8674,
+    "face_psnr": 23.0945,
+    "face_psnr_low": 31.8028,
+    "face_psnr_high": 24.4073,
+    "face_corr": 0.8504
+  },
+  {
+    "tag": "res1",
+    "size": "1439x1919",
+    "psnr": 26.698,
+    "psnr_low": 36.5826,
+    "psnr_high": 27.55,
+    "corr": 0.8892,
+    "hf_ratio": 0.9059,
+    "face_psnr": 23.8168,
+    "face_psnr_low": 32.773,
+    "face_psnr_high": 25.0629,
+    "face_corr": 0.8723
+  }
+]

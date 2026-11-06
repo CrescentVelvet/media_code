@@ -13,8 +13,10 @@
 用法（WSL，querysplat env）：
   python compare_4methods/94_render_da3_gs.py <ply> <mini_npz> <out_dir> [frames]
 Env:
-  SCALE_MODE  exp(默认) | raw
-  OPACITY_MIN sigmoid 后的剪枝下限（默认 0.0 不剪）
+  SCALE_MODE   exp(默认) | raw
+  OPACITY_MIN  sigmoid 后的剪枝下限（默认 0.0 不剪）
+  RENDER_SIZE  输出分辨率 "WxH"，默认沿用 npz 的处理分辨率（378x504）
+               给高分辨率时按比例缩放内参（fx,fy,cx,cy），不改视角
 """
 import os
 import re
@@ -87,9 +89,20 @@ def main():
     d = np.load(npz)
     w2c4 = np.concatenate([d["extrinsics"], np.tile(np.array([[[0, 0, 0, 1]]], np.float32),
                                                    (d["extrinsics"].shape[0], 1, 1))], axis=1)
-    Ks = d["intrinsics"]
-    H, W = d["depth"].shape[-2:]
-    print(f"📷 相机 {w2c4.shape[0]} 个, 分辨率 {W}x{H}")
+    Ks = d["intrinsics"].astype(np.float32).copy()
+    H0, W0 = d["depth"].shape[-2:]
+
+    # 输出分辨率：默认沿用 npz 的处理分辨率；RENDER_SIZE="WxH" 可放大。
+    # 内参必须按同一比例缩放，否则 FOV 变化 → 看起来像"几何错位"（E-01 就是这类误判）。
+    # x 分量是 K 第 0 行（fx, 0, cx），y 分量是第 1 行（0, fy, cy）。
+    rsize = os.environ.get("RENDER_SIZE", "").strip()
+    if rsize:
+        W, H = (int(v) for v in rsize.lower().replace("*", "x").split("x"))
+        Ks[:, 0, :] *= W / W0
+        Ks[:, 1, :] *= H / H0
+    else:
+        W, H = W0, H0
+    print(f"📷 相机 {w2c4.shape[0]} 个, npz {W0}x{H0} → 输出 {W}x{H}")
 
     os.makedirs(out_dir, exist_ok=True)
     for i in frames:

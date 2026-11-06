@@ -1,0 +1,19 @@
+{
+  "scene_dir": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/colmap_scene",
+  "out_dir": "/home/velvet/output/da3_gs_results/佳佳抱枕_res_ab/final_res2",
+  "init_ckpt": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/ffinit_ckpt/chkpnt_ffinit.pth",
+  "init_kind": "feedforward",
+  "iterations": 2000,
+  "resolution": 2,
+  "compress_schedule": 1,
+  "densify": 0,
+  "lr_max_steps": 2000,
+  "position_lr_scale": 1,
+  "position_lr_init": 0.00016,
+  "position_lr_final": 1.6e-06,
+  "densify_from": 33,
+  "densify_until": 1000,
+  "opacity_reset_interval": 200,
+  "train_seconds": 236,
+  "render_seconds": 0
+}

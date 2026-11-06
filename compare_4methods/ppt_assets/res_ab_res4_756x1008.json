@@ -1,0 +1,435 @@
+{
+    "tag": "res4_756x1008",
+    "render": "/home/velvet/output/da3_gs_results/佳佳抱枕_res_ab/final_res4/render_756x1008",
+    "ref": "/home/velvet/output/da3_results/_captures/佳佳抱枕/images",
+    "views": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+    ],
+    "eval_size": [
+        756,
+        1008
+    ],
+    "per_view": [
+        {
+            "view": 0,
+            "psnr": 19.51,
+            "ssim": 0.7015,
+            "sharp": 1127.0,
+            "sharp_ref": 1251.6,
+            "coverage": 0.9985,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 1,
+            "psnr": 19.39,
+            "ssim": 0.6983,
+            "sharp": 1149.8,
+            "sharp_ref": 1036.4,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 2,
+            "psnr": 19.43,
+            "ssim": 0.709,
+            "sharp": 1138.0,
+            "sharp_ref": 1178.8,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 3,
+            "psnr": 19.57,
+            "ssim": 0.7084,
+            "sharp": 1019.8,
+            "sharp_ref": 1304.1,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 4,
+            "psnr": 20.96,
+            "ssim": 0.7171,
+            "sharp": 833.6,
+            "sharp_ref": 799.5,
+            "coverage": 0.9988,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 5,
+            "psnr": 22.88,
+            "ssim": 0.7491,
+            "sharp": 627.4,
+            "sharp_ref": 790.2,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 6,
+            "psnr": 23.01,
+            "ssim": 0.7087,
+            "sharp": 570.0,
+            "sharp_ref": 681.0,
+            "coverage": 0.999,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 7,
+            "psnr": 22.09,
+            "ssim": 0.6962,
+            "sharp": 554.6,
+            "sharp_ref": 445.7,
+            "coverage": 0.9989,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 8,
+            "psnr": 23.05,
+            "ssim": 0.7143,
+            "sharp": 576.8,
+            "sharp_ref": 569.7,
+            "coverage": 0.9988,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 9,
+            "psnr": 22.51,
+            "ssim": 0.6991,
+            "sharp": 556.5,
+            "sharp_ref": 856.0,
+            "coverage": 0.9986,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 10,
+            "psnr": 22.25,
+            "ssim": 0.6995,
+            "sharp": 522.0,
+            "sharp_ref": 889.4,
+            "coverage": 0.9981,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 11,
+            "psnr": 21.15,
+            "ssim": 0.6943,
+            "sharp": 468.9,
+            "sharp_ref": 813.2,
+            "coverage": 0.9972,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 12,
+            "psnr": 22.71,
+            "ssim": 0.7327,
+            "sharp": 470.0,
+            "sharp_ref": 599.1,
+            "coverage": 0.9975,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 13,
+            "psnr": 22.76,
+            "ssim": 0.7071,
+            "sharp": 529.7,
+            "sharp_ref": 316.5,
+            "coverage": 0.9982,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 14,
+            "psnr": 22.71,
+            "ssim": 0.7087,
+            "sharp": 597.3,
+            "sharp_ref": 783.9,
+            "coverage": 0.9986,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 15,
+            "psnr": 23.17,
+            "ssim": 0.7199,
+            "sharp": 550.1,
+            "sharp_ref": 538.8,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 16,
+            "psnr": 22.76,
+            "ssim": 0.7236,
+            "sharp": 587.5,
+            "sharp_ref": 840.3,
+            "coverage": 0.9987,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 17,
+            "psnr": 22.11,
+            "ssim": 0.7418,
+            "sharp": 652.7,
+            "sharp_ref": 879.9,
+            "coverage": 0.9988,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 18,
+            "psnr": 21.07,
+            "ssim": 0.6997,
+            "sharp": 837.9,
+            "sharp_ref": 1173.2,
+            "coverage": 0.9989,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 19,
+            "psnr": 19.63,
+            "ssim": 0.6979,
+            "sharp": 1097.6,
+            "sharp_ref": 1161.0,
+            "coverage": 0.9988,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 20,
+            "psnr": 19.5,
+            "ssim": 0.6569,
+            "sharp": 1122.7,
+            "sharp_ref": 1066.2,
+            "coverage": 0.9989,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 21,
+            "psnr": 19.58,
+            "ssim": 0.6723,
+            "sharp": 1180.5,
+            "sharp_ref": 1381.7,
+            "coverage": 0.9988,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 22,
+            "psnr": 21.27,
+            "ssim": 0.7483,
+            "sharp": 863.3,
+            "sharp_ref": 656.4,
+            "coverage": 0.999,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 23,
+            "psnr": 21.9,
+            "ssim": 0.7315,
+            "sharp": 719.8,
+            "sharp_ref": 1166.1,
+            "coverage": 0.9983,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 24,
+            "psnr": 23.11,
+            "ssim": 0.7659,
+            "sharp": 597.5,
+            "sharp_ref": 632.8,
+            "coverage": 0.9976,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 25,
+            "psnr": 22.99,
+            "ssim": 0.7569,
+            "sharp": 585.8,
+            "sharp_ref": 614.4,
+            "coverage": 0.9974,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 26,
+            "psnr": 23.35,
+            "ssim": 0.7534,
+            "sharp": 546.0,
+            "sharp_ref": 601.3,
+            "coverage": 0.997,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 27,
+            "psnr": 23.6,
+            "ssim": 0.7234,
+            "sharp": 523.2,
+            "sharp_ref": 728.4,
+            "coverage": 0.9977,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 28,
+            "psnr": 23.48,
+            "ssim": 0.7144,
+            "sharp": 471.1,
+            "sharp_ref": 717.1,
+            "coverage": 0.9981,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 29,
+            "psnr": 23.04,
+            "ssim": 0.6974,
+            "sharp": 411.0,
+            "sharp_ref": 530.4,
+            "coverage": 0.9978,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 30,
+            "psnr": 23.44,
+            "ssim": 0.7129,
+            "sharp": 390.0,
+            "sharp_ref": 655.6,
+            "coverage": 0.9975,
+            "size": [
+                756,
+                1008
+            ]
+        },
+        {
+            "view": 31,
+            "psnr": 22.65,
+            "ssim": 0.7162,
+            "sharp": 386.3,
+            "sharp_ref": 595.8,
+            "coverage": 0.9968,
+            "size": [
+                756,
+                1008
+            ]
+        }
+    ],
+    "mean": {
+        "psnr": 21.8947,
+        "ssim": 0.7149,
+        "sharp": 695.7625,
+        "coverage": 0.9983
+    }
+}

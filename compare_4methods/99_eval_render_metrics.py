@@ -7,11 +7,17 @@
   sharpness     渲染图 Laplacian 方差（只算渲染，ref 的锐度一并给，便于看"离原图多远"）
   coverage      非白像素占比（近似 alpha 覆盖），看视角 16 人物消失这类问题
 
+⚠️ 口径：默认按**渲染图自身尺寸**评比（方便单组自查）。跨组比较（不同训练/渲染分辨率）
+   必须传 --eval-size WxH，把两组都归一到同一尺寸，否则 PSNR 不可比 —— 渲染 1439x1919
+   的图去比 720x960 的图，等于一边被上采样、一边没有。
+
 用法（WSL，querysplat env 已有 cv2/skimage）：
   python compare_4methods/99_eval_render_metrics.py \
       --render ~/output/da3_gs_results/佳佳抱枕_shfull/render_full \
       --ref    ~/output/da3_results/_captures/佳佳抱枕/images \
       --views  0,8,16 --tag full_sh
+  # 跨分辨率比较：
+  python ... --eval-size 378x504 --tag res2_eval504
 """
 import argparse
 import json
@@ -37,6 +43,16 @@ def coverage(rgb):
     return float((rgb.min(axis=2) < 248).mean())
 
 
+def resize_to(img, w, h):
+    """降采样用 INTER_AREA（抗混叠），升采样用 LANCZOS4（保边）。
+    混用会让"谁被升采样"这一项污染指标，所以必须按方向分别选。"""
+    ih, iw = img.shape[:2]
+    if (iw, ih) == (w, h):
+        return img
+    interp = cv2.INTER_AREA if (w * h) < (iw * ih) else cv2.INTER_LANCZOS4
+    return cv2.resize(img, (w, h), interpolation=interp)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render", required=True, help="渲染图目录（view_%03d.png）")
@@ -44,7 +60,14 @@ def main():
     ap.add_argument("--views", default="0,8,16")
     ap.add_argument("--tag", default="run")
     ap.add_argument("--out", default="", help="json 输出路径（默认写到 render 目录下）")
+    ap.add_argument("--eval-size", default="",
+                    help="WxH，把渲染与 ref 都归一到该尺寸再比（跨组比较必须给）")
     a = ap.parse_args()
+
+    esize = None
+    if a.eval_size:
+        ew, eh = (int(v) for v in a.eval_size.lower().replace("*", "x").split("x"))
+        esize = (ew, eh)
 
     views = [int(v) for v in a.views.split(",")]
     rows = []
@@ -54,9 +77,13 @@ def main():
             print(f"⚠️ 缺渲染: {rp}")
             continue
         rgb = cv2.cvtColor(cv2.imread(str(rp)), cv2.COLOR_BGR2RGB)
-        h, w = rgb.shape[:2]
         ref = load_ref(a.ref, v)
-        ref = cv2.resize(ref, (w, h), interpolation=cv2.INTER_AREA)
+        if esize is not None:
+            rgb = resize_to(rgb, *esize)
+            ref = resize_to(ref, *esize)
+        else:
+            ref = cv2.resize(ref, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_AREA)
+        h, w = rgb.shape[:2]
         mse = float(np.mean((rgb.astype(np.float64) - ref.astype(np.float64)) ** 2))
         psnr = 99.0 if mse == 0 else 10 * np.log10(255.0 ** 2 / mse)
         s = float(ssim(ref, rgb, channel_axis=2, data_range=255))
@@ -75,7 +102,8 @@ def main():
     out = Path(a.out) if a.out else Path(a.render) / f"metrics_{a.tag}.json"
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump({"tag": a.tag, "render": str(a.render), "ref": a.ref,
-                   "views": views, "per_view": rows, "mean": avg}, f, indent=4, ensure_ascii=False)
+                   "views": views, "eval_size": list(esize) if esize else None,
+                   "per_view": rows, "mean": avg}, f, indent=4, ensure_ascii=False)
     print(f"✅ {out}")
 
 
