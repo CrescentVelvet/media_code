@@ -1,0 +1,21 @@
+{
+    "source_ply": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/gs_ply/0000.ply",
+    "cameras_npz": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/cameras.npz",
+    "n_raw": 4838397,
+    "n_kept": 573013,
+    "keep_ratio": 0.1184,
+    "min_opacity": 0.1,
+    "max_dist_m": 5.0,
+    "max_points": 0,
+    "da3_sh_rest_per_channel": 0,
+    "spatial_lr_scale": 2.0893,
+    "lr_by_group": {
+        "xyz": 0.0,
+        "f_dc": 0.0025,
+        "f_rest": 0.000125,
+        "opacity": 0.025,
+        "scaling": 0.005,
+        "rotation": 0.001
+    },
+    "checkpoint": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/ffinit_ckpt_500k/chkpnt_ffinit.pth"
+}

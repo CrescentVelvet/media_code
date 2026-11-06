@@ -44,24 +44,40 @@ if [ ! -d "$SCENE_DIR/images" ] || [ ! -d "$SCENE_DIR/sparse/0" ]; then
     echo "❌ COLMAP 场景不完整: $SCENE_DIR（需 images/ + sparse/0/）" >&2; exit 1
 fi
 
-if ! command -v conda >/dev/null 2>&1; then
-    # 非交互 shell 里 conda 通常不在 PATH 上，按常见安装位置兜底
+# ⚠️ 判据必须是「conda 是不是 shell 函数」，不能是 `command -v conda`：
+#   从已 source conda.sh 的父 shell 里 `bash 本脚本` 时，PATH 继承了 conda 可执行文件，
+#   但**函数不继承** → `command -v conda` 成功 → 跳过 source → `conda activate` 落到
+#   可执行文件上，报 "Run 'conda init' before 'conda activate'"（2026-11-07 踩到）。
+if ! declare -F conda >/dev/null 2>&1; then
     for _cb in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
         if [ -f "$_cb/etc/profile.d/conda.sh" ]; then
             # shellcheck disable=SC1091
-            source "$_cb/etc/profile.d/conda.sh"
+            . "$_cb/etc/profile.d/conda.sh"
             break
         fi
     done
     unset _cb
 fi
-if ! command -v conda >/dev/null 2>&1; then
-    echo "❌ 找不到 conda（需要 env '$CONDA_ENV'）" >&2; exit 1
+if declare -F conda >/dev/null 2>&1; then
+    conda activate "$CONDA_ENV" 2>/dev/null || true
 fi
-conda activate "$CONDA_ENV" || { echo "❌ conda env $CONDA_ENV 不存在" >&2; exit 1; }
-PY="$(command -v python || true)"
-if [ -z "$PY" ] || [ ! -x "$PY" ]; then
+# 再兜一层：activate 失败时直接用 env 里的解释器（本脚本只用到 python + 该 env 的包）
+if [ -z "${CONDA_PREFIX:-}" ] || [ ! -x "${CONDA_PREFIX:-}/bin/python" ]; then
+    for _cb in "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+        if [ -x "$_cb/envs/$CONDA_ENV/bin/python" ]; then
+            export CONDA_PREFIX="$_cb/envs/$CONDA_ENV"
+            export PATH="$CONDA_PREFIX/bin:$PATH"
+            break
+        fi
+    done
+    unset _cb
+fi
+[ -n "${CONDA_PREFIX:-}" ] || { echo "❌ 找不到 conda env '$CONDA_ENV'" >&2; exit 1; }
+# 优先用目标 env 自己的解释器：activate 失败时 `command -v python` 可能是 base 的
+if [ -x "$CONDA_PREFIX/bin/python" ]; then
     PY="$CONDA_PREFIX/bin/python"
+else
+    PY="$(command -v python || true)"
 fi
 if [ ! -x "$PY" ]; then
     echo "❌ env $CONDA_ENV 里没有 python" >&2; exit 1

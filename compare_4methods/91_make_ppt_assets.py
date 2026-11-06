@@ -57,7 +57,9 @@ METHODS = [
 RENDERS = [
     (WSL / "vggt_omega_results/佳佳抱枕/04_model_3dgs/train/ours_30000/gt/00000.png",
      "GT 参考帧", "训练视角原图", "#333333"),
-    (WSL / "da3_gs_results/佳佳抱枕_clean/render/view_000.png",
+    # ⚠️ E-01：原取 `佳佳抱枕_clean/render`（高斯漏乘 scale_factor 的错尺度渲染，
+    # 视角 0 尚有内容但整幅偏软/偏白）。改用米制导出目录，32 视角 18.97 dB。
+    (WSL / "da3_gs_results/佳佳抱枕_p1m/render_all32/view_000.png",
      "DA3 原生高斯头", "一次前向 13.5 秒 · 484 万高斯", FF),
     (WSL / "querysplat_results/佳佳抱枕_paper/rendered/render_view0.png",
      "QuerySplat", "一次前向 38.5 秒 · 37.1 万高斯", FF),

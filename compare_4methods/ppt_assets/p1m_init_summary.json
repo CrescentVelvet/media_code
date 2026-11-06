@@ -1,0 +1,29 @@
+{
+    "images_dir": "/home/velvet/output/da3_results/_captures/佳佳抱枕/images",
+    "n_views": 32,
+    "process_res": 504,
+    "ref_view_strategy": "first",
+    "model": "/mnt/d/wheel/da3_human_ms",
+    "is_metric": 1,
+    "da3_scale_factor": 1.9987519979476929,
+    "gs_scale_mode": "metric",
+    "gs_scale_factor_applied": 1.9987519979476929,
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "load_seconds": 32.7,
+    "forward_seconds": 6.9,
+    "export_seconds": 28.8,
+    "n_gaussians_raw": 6096384,
+    "harmonics_shape": [
+        1,
+        6096384,
+        3,
+        9
+    ],
+    "gs_ply": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/gs_ply/0000.ply",
+    "gs_ply_bytes": 329011413,
+    "gs_ply_vertices": 4838397,
+    "cameras_npz": "/home/velvet/output/da3_gs_results/佳佳抱枕_p1m/cameras.npz",
+    "cameras_extent_m": 2.0893,
+    "camera_radius_mean_m": 1.1726,
+    "depth_median_m": 1.8888
+}

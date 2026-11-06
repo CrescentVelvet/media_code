@@ -1,10 +1,10 @@
 # P1 · 前馈 init + 短精调：能不能用 2~4 分钟换掉 20 分钟
 
-> 🔴 **前馈 init 两组（②③④）已作废（2026-11-06）**：初值 PLY 漏乘 DA3 的度量
-> `scale_factor≈2.0`，点云只有真实尺寸的 0.55，而相机是米制 → 5k 步挪不动 0.9 m 的错位，
-> 「严重重影」的主因是尺度错位，**不是**下文归因的"多壳拓扑"。见 `ERRATA.md` E-01。
-> ⑤⑥（COLMAP/深度反投影 init）不受影响。修复后 DA3 直出 = 18.97 dB，
-> 与 ③ 的 20.14 dB 只差 1.2 dB → **"前馈初值值多少钱"这个问题要重测**。
+> ✅ **已按米制口径重测完毕（2026-11-07 01:00），结论以 [§5](#5-e-01-重测预注册2026-11-07-0035-写定结果未出) 为准。**
+> §2 的旧表与 §3 的旧归因**全部作废**，保留仅为追溯（原因：初值 PLY 漏乘 DA3 的度量
+> `scale_factor=1.9988`，点云只有真实尺寸的 0.55，见 `ERRATA.md` E-01）。
+> 新结论一句话：**前馈初值确实值钱 —— 415 万点 + 2k 步（4.5 min）拿到 25.21 dB，
+> 比 21.5 min 的 30k 基线还高 0.88 dB。** 旧表里的「加速来自少跑步数而非前馈初值」是错的。
 
 **前置**：P0（见 `P0_EXPERIMENTS.md`）三项"加容量"的干预全部判 B，并定位到真正的瓶颈是
 **跨视角几何不一致**——同一份 DA3 输出在参考视角能到 20.8 dB，离开参考视角单调衰减到 8~10 dB。
@@ -78,7 +78,7 @@ DA3 的 `export_to_colmap` 会**原地**把 `prediction.intrinsics` 按原图分
 
 → `98_da3_ff_init.py` 的顺序固定为：**前向 → 存 npz → 再导出 gs_ply/colmap**。
 
-## 2. 结果
+## 2. 结果（🔴 旧口径，仅作历史留存；有效数据见 §5）
 
 全部 32 视角、与输入帧比（自一致性口径，非 NVS holdout）。
 PSNR 统一在 378×504 下算（各方法渲染分辨率不同，用 INTER_AREA 归一到同一尺寸）。
@@ -94,12 +94,15 @@ PSNR 统一在 378×504 下算（各方法渲染分辨率不同，用 INTER_AREA
 
 （① 的 32 视角数字取自 P0 的 `p01_ref0_metrics.json` 的 r504 组，同口径；
 ⑤⑥ 的 init 点云同样是 DA3 深度反投影——365 万点经体素降采样到 1.86 万，
-所以"COLMAP init"并不是传统意义上的 COLMAP 稀疏重建，而是 **DA3 几何的稀疏形式**。）
+所以"COLMAP init"并不是传统意义上的 COLMAP 稀疏重建，而是 **DA3 几何的稀疏形式**。
+⑤⑥ 的点云由 depth 反投影而来，与位姿同源同尺度，**不受 E-01 影响**，数字继续有效。）
 
 图：`ppt_assets/fig9_p1_tradeoff.png`（耗时↔质量）、`ppt_assets/fig10_p1_renders.png`（渲染对照）。
 原始数字：`ppt_assets/p1_metrics.json`（逐视角 PSNR）、`p1_init_summary.json`、`p1_ckpt_summary.json`。
 
-## 3. 判定与归因
+## 3. 判定与归因（🔴 旧口径，已被 §5 推翻）
+
+> 本节保留只为追溯"当时为什么得出这个结论"。**正确结论见 §5。**
 
 **结论：B（部分成立）。** 最快可用配置是「DA3 稀疏点云 + 5k 步」——
 训练 123 s、端到端约 2.6 min，22.23 dB；对 30k 基线（24.33 dB / 21.5 min）**少 2.10 dB，省 8 倍时间**。
@@ -130,7 +133,7 @@ PSNR 统一在 378×504 下算（各方法渲染分辨率不同，用 INTER_AREA
 所以 **DA3 的前馈几何是有用的**（①→⑤ 涨了 10.85 dB，且 5k 步就能到 30k 基线的 91%），
 但它的正确接口是「**稀疏点云 + 让 3DGS 自己决定密度**」，而不是「把前馈高斯整套搬过来」。
 
-## 4. 对后续计划的影响
+## 4. 对后续计划的影响（🔴 旧口径，已被 §5.4 取代）
 
 - **P2（双头解耦）、P3（2DGS 原语）继续后置**：P1 已经说明，在 504 输入 + 32 视角
   这个条件下，瓶颈不在"外观头"或"原语"，而在**点的密度分配**。
@@ -140,6 +143,114 @@ PSNR 统一在 378×504 下算（各方法渲染分辨率不同，用 INTER_AREA
 - **一个值得单独立项的疑问**：④ 的锐度（573）已经超过 ⑤（465），SSIM 也更高（0.763 vs 0.738），
   只是 PSNR 低 0.51 dB。说明剪枝后的前馈 init 在**细节**上不差，差的是"大面积色块的准确度"
   （PSNR 对大误差敏感）。如果目标是视觉保真而非 PSNR，④ 的性价比可能更高。这条没测够，先记为待验证。
+  → **已证伪（§5.1）**：米制下 A2（25.17）低于 A1（25.51），且锐度 845 < 901，
+  这条"剪枝更保真"的观察同样是错位口径的产物。
+
+---
+
+## 5. E-01 重测（预注册，2026-11-07 00:35 写定，结果未出）
+
+**唯一变动**：初值 PLY 已 ×`scale_factor=1.9988` 折到米制（`佳佳抱枕_p1m/`）；
+训练超参、剪枝阈值（`MIN_OPACITY=0.005` → 415 万 / `0.1` → 57.4 万）、迭代数、分辨率、
+调度压缩全部逐字照抄上表，因此**新旧之差就是尺度口径之差**。
+
+**预测（先写死，避免事后解释）**：
+
+| 组 | 旧值 | 预测 | 依据 |
+|---|---|---|---|
+| A0 前馈 init 2k | 19.67 | **21.5 ± 0.5** | 2k 步只够修掉系统性错位，来不及补细节 |
+| A1 前馈 init 5k | 20.14 | **22.5 ± 0.5** | 同上 + 800 s 级收敛 |
+| A2 前馈剪枝 5k | 21.72 | **23.0 ± 0.5** | 剪枝组本来就最接近可用，错位修掉后按比例上行 |
+
+**判据（先写死）**：
+
+| 观测 | 结论 |
+|---|---|
+| A1 ≥ ⑤ 的 22.23 dB | **旧结论被推翻**：「加速来自少跑步数而非前馈初值」不成立，稠密前馈初值在正确口径下有价值 |
+| A1 < 22.23，且 A1 < A2 | 旧结论**机理成立、数值上调**：点数越多越差不是尺度造成的 |
+| A1 − A2 差距由 1.58 dB 缩到 <0.5 dB | 「opacity 分布不匹配」这条降级 —— 旧差距主要是错位导致的不收敛，不是半透明点叠糊 |
+
+**可证伪的辅助观察**：若 A1 的新画面里重影消失（视觉判断，用 fig12 对照），
+则 E-01 的归因（重影 = 0.9 m 错位下优化器长出第二套壳）得到第二个独立验证；
+若重影仍在，说明重影另有来源（如薄盘在掠射角退化），要单独立案。
+
+### 5.1 实测（2026-11-07 00:54 跑完）
+
+| 组 | 点数 | iters | densify | 旧 PSNR | **新 PSNR** | Δ | 新 SSIM | 新锐度 | 新 v0 | 新远端 | 训练 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A0 前馈 415万 | 415 万 | 2 000 | 关 | 19.67 | **25.21** | **+5.54** | 0.859 | 822 | 24.31 | 25.28 | 236 s |
+| A1 前馈 415万 | 415 万 | 5 000 | 关 | 20.14 | **25.51** | **+5.37** | 0.856 | 901 | 24.36 | 25.70 | 519 s |
+| A2 前馈 57万 | 57.3 万 | 5 000 | 开 | 21.72 | **25.17** | **+3.45** | 0.858 | 845 | 24.53 | 25.27 | 205 s |
+| ① DA3 直出 | 484 万 | 0 | — | 11.38 | 18.97 | +7.59 | 0.577 | 222 | 20.87 | 18.48 | 0 s |
+| ⑤ 稀疏点云 5k | 1.86 万 | 5 000 | 开 | 22.23 | 22.23（未重测，不受影响） | — | 0.738 | 465 | 23.86 | 23.10 | 123 s |
+| ⑥ 稀疏点云 30k | 1.86 万 | 30 000 | 开 | 24.33 | 24.33（同上） | — | 0.808 | 881 | 23.18 | 24.83 | 1253 s |
+
+**三组预测全部判低**（预测 21.5 / 22.5 / 23.0，实测 25.21 / 25.51 / 25.17）。
+偏差 +3.7 / +3.0 / +2.2 dB，方向一致偏乐观不足 —— 说明我低估了"0.9 m 系统性错位"
+对 5k 步短精调的破坏力：错位下优化器要先花步数长第二套壳去补，剩下的步数才用于细节。
+
+逐视角相关性（`corr(到参考视角距离, PSNR)`）：
+
+| 组 | 旧口径 | 米制 |
+|---|---|---|
+| A0 | +0.515 | −0.120 |
+| A1 | +0.503 | +0.066 |
+| A2 | +0.228 | +0.018 |
+
+旧口径是**正**相关（越远越好），因为参考视角附近多叠了一层错位壳、反而更糟；
+修对后相关性回到 0——**训练之后，"离参考视角多远"不再是质量因子**。
+这条与 P0 的关系要注意：P0 的 −0.80 是**未训练**的 DA3 直出，修完仍是 −0.62（弱化未消失）；
+而一旦短精调 5k 步，这个因子就彻底消失了。
+
+### 5.2 判定（按 §5 预注册的三条判据）
+
+| 判据 | 实测 | 结论 |
+|---|---|---|
+| A1 ≥ 22.23 | 25.51 vs 22.23（**+3.28**） | **旧结论被推翻**：不是"少跑步数"，是"前馈初值 + 少跑步数" |
+| A1 vs A2 | 25.51 vs 25.17（+0.34） | 「点数越多越差」**不成立**，稠密略优 |
+| A1 − A2 从 1.58 缩到 <0.5 | 0.34 | 「opacity 分布不匹配导致叠糊」**降级**：旧差距主要是错位导致的不收敛 |
+
+**最终判定：A（成立，且超出预期）。**
+
+- 判据原本要求「前馈 init + ≤5k 步与 30k 基线差 ≤1 dB 且总耗时 ≤4 min」；
+- 实测 A0（2k 步，端到端 **4.5 min**）**比 30k 基线高 0.88 dB**；
+  A1（5k 步，9.2 min）高 1.18 dB；
+- 也就是说这条判据的"允许差 1 dB"根本没用上——**不差，反而更好**。
+
+⚠️ 但这个"更好"有一条必须写进汇报的边界：**评测是自一致性（32 个训练视角 vs 输入帧），
+不是 NVS holdout**。415 万高斯 + 32 视角对 5k 步来说容量远远过剩，拟合训练视角很容易；
+真实新视角效果需要留出视角重测才能下结论。
+
+### 5.3 归因修正
+
+原 §3 的三条原因，逐条判生死：
+
+| 原归因 | 新判定 |
+|---|---|
+| ① DA3 opacity 中位 0.036 → 半透明点既不剪也不叠，叠成"糊" | **降级**：数值为真（实测 0.0356，米制下不变），但它不是主因。A1（415 万、半透明点最多）反而比 A2（57 万）高 0.34 dB |
+| ② DA3 scale 中位 0.8 mm → 椭球过小、必须靠 densify 长回去 | **降级**：E-02 已订正为"薄盘"（1.7e-8 × 2.9e-3 × 7.4e-3 m，米制）；A1 关掉 densify 也能到 25.51，说明"必须长回去"不成立 |
+| ③ 单步成本与信息量不成比例（11 it/s vs 40 it/s） | **成立**：A1 519 s vs A2 205 s，代价真实存在，但换来 +0.34 dB，性价比不高 |
+| —— **（原表没有的第 4 条）初值尺度错位** | **这是主因**：同一份初值、同一套超参，只把 PLY 乘 1.9988，三组分别 +5.54 / +5.37 / +3.45 dB |
+
+一句话：**旧 §3 把"我的导出 bug"记在了"模型属性"头上**。
+
+### 5.4 对后续计划的影响
+
+1. **P2（双头解耦）、P3（2DGS 原语）继续后置**——而且理由比之前更强：
+   现在这条路线已经能用 4.5 min 拿到超过 21.5 min 基线的质量，先补的应该是
+   **真实新视角（holdout）评测**，而不是结构改动。
+2. **甜点配置改为**：`前馈高斯（415 万，米制）+ 2k 步，densify 关` = 端到端 4.5 min / 25.21 dB。
+   5k 步只多 0.30 dB 却多花一倍时间，除非目标是极限质量。
+3. **P0 需要在米制口径下重测**才谈得上定论；但即便重测，其"加容量"的三项结论对
+   产品决策已不再是瓶颈——P1 已经把 32 视角下的拟合推到 ref 锐度的 90%（901 vs 914）。
+4. **新的真问题浮出来了**：整幅 PSNR 25.5 但**人脸明显偏软**（放大看五官糊、发丝成块）。
+   这是"逐像素指标已经不错、但局部高频仍不够"的典型症状，正好对应
+   DA3 的 `sh_degree=0`（PLY 只有 DC，无视角相关外观）+ 高斯是薄盘。
+   → 下一步值得测的是「导出保留 SH rest」在**米制 + 短精调**下的收益（P0 那次是旧口径下的 −0.25 dB）。
+
+图：`ppt_assets/fig9_p1_tradeoff.png`（新口径横评）、`fig10_p1_renders.png`（六列渲染对照）、
+`fig12_e01_retest_renders.png`（旧/米制逐列对照）、`fig13_p1_retest_bars.png`（新旧 PSNR 并排）。
+原始数字：`ppt_assets/p1_retest_metrics.json`（逐视角）、`p1_metrics.json`（旧口径）。
 
 ---
 
@@ -147,24 +258,41 @@ PSNR 统一在 378×504 下算（各方法渲染分辨率不同，用 INTER_AREA
 
 ```bash
 # 0) 一次推理，同源出 gs_ply + colmap + cameras.npz（钉死参考视角 = 帧 0）
+#    ⚠️ 必须用修复后的 98（高斯已 ×scale_factor 折到米制）
 DA3_MODEL_DIR=/mnt/d/wheel/da3_human_ms \
 IMAGES_DIR=~/output/da3_results/_captures/佳佳抱枕/images \
-OUT_DIR=~/output/da3_gs_results/佳佳抱枕_p1 \
+OUT_DIR=~/output/da3_gs_results/佳佳抱枕_p1m \
 PROCESS_RES=504 REF_STRATEGY=first \
   ~/miniconda3/envs/da3_human/bin/python compare_4methods/98_da3_ff_init.py
 
 # 1) 组装 COLMAP 场景（3DGS 要 images/ + sparse/0/）
-DA3_INFER_DIR=~/output/da3_gs_results/佳佳抱枕_p1 \
-SCENE_DIR=~/output/da3_gs_results/佳佳抱枕_p1/colmap_scene \
+DA3_INFER_DIR=~/output/da3_gs_results/佳佳抱枕_p1m \
+SCENE_DIR=~/output/da3_gs_results/佳佳抱枕_p1m/colmap_scene \
 IMAGES_DIR=~/output/da3_results/_captures/佳佳抱枕/images MAX_INIT_POINTS=20000 \
   ~/miniconda3/envs/da3_human/bin/python da3_human/build_da3_colmap_scene.py
 
-# 2) PLY → 3DGS checkpoint
-PLY=.../gs_ply/0000.ply NPZ=.../cameras.npz OUT_DIR=.../ffinit_ckpt \
+# 2) PLY → 3DGS checkpoint（NPZ 里 gs_scale_applied 必须为 1，否则脚本直接报错）
+PLY=~/output/da3_gs_results/佳佳抱枕_p1m/gs_ply/0000.ply \
+NPZ=~/output/da3_gs_results/佳佳抱枕_p1m/cameras.npz \
+OUT_DIR=~/output/da3_gs_results/佳佳抱枕_p1m/ffinit_ckpt \
+MIN_OPACITY=0.005 MAX_DIST=5.0 SAVE_PLY=0 \
   ~/miniconda3/envs/querysplat/bin/python compare_4methods/98b_ply_to_3dgs_ckpt.py
+# 剪枝版把 MIN_OPACITY 换成 0.1 → 57.3 万点
 
-# 3) 短精调（前馈 init）
-SCENE_DIR=.../colmap_scene OUT_DIR=.../final_A1_ff5k INIT_CKPT=.../chkpnt_ffinit.pth \
-ITERATIONS=5000 DENSIFY=0 RENDER=0 \
-  bash compare_4methods/03b_train_short.sh
+# 3) 短精调（前馈 init）：2k / 5k 两档
+SCENE_DIR=~/output/da3_gs_results/佳佳抱枕_p1m/colmap_scene \
+OUT_DIR=~/output/da3_gs_results/佳佳抱枕_p1m/final_A0_ff2k \
+INIT_CKPT=~/output/da3_gs_results/佳佳抱枕_p1m/ffinit_ckpt/chkpnt_ffinit.pth \
+ITERATIONS=2000 DENSIFY=0 RENDER=0 bash compare_4methods/03b_train_short.sh
+
+# 4) 渲染 32 视角（gsplat 需要 94_render.sh 里的 CUDA 环境包装）+ 评测
+bash compare_4methods/94_render.sh <ply> <npz> <out_dir> $(seq -s, 0 31)
+~/miniconda3/envs/querysplat/bin/python compare_4methods/99_eval_render_metrics.py \
+  --render <out_dir> --ref ~/output/da3_results/_captures/佳佳抱枕/images \
+  --views $(seq -s, 0 31) --tag e01_retest --out <out_dir>/metrics_e01_retest.json
+
+# 5) 汇总 + 出图
+python compare_4methods/A4_collect_p1_retest.py   # → ppt_assets/p1_retest_metrics.json
+python compare_4methods/A1_make_p1_figure.py      # → fig9 / fig10
+python compare_4methods/A3_make_e01_retest_figure.py  # → fig12 / fig13
 ```

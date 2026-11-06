@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """P1 结论图：前馈 init + 短精调，到底换到了什么。
 
+⚠️ 2026-11-07（E-01 重测后）本脚本的数值全部换成**米制口径**的新结果。
+旧口径（初值 PLY 漏乘 scale_factor=1.9988）的 fig9/fig10 结论已作废，见 ERRATA.md E-01；
+旧数留在 P1_EXPERIMENTS.md §2 的表里，不在此复现。
+
 两个口径必须同时给，否则会误导：
   - 纯训练耗时：只算 3DGS 优化那一段
-  - 端到端耗时：DA3 前向 + 导出（约 35 s）也计入，因为三种路线都要先跑一次前馈
+  - 端到端耗时：DA3 前向 + 导出（约 35 s）也计入，因为几种路线都要先跑一次前馈
 
 图 1（fig9）：端到端耗时 vs PSNR，看"多花的时间买到了多少 dB"
-图 2（fig10）：四组在同一视角的渲染对照
+图 2（fig10）：五组在同一视角的渲染对照
 """
 import json
 from pathlib import Path
@@ -35,23 +39,22 @@ OUT.mkdir(exist_ok=True)
 # 端到端 = DA3 加载 17 s + 前向 6.2 s + 导出 28.2 s ≈ 35 s（与是否出高斯无关）
 FF = 35.0
 
-# (标签, 训练秒, PSNR, 颜色, 是否主结论点)
-# (标签, 训练秒, PSNR, 颜色, 是否强调, 标签偏移)
 # (标签, 训练秒, PSNR, 颜色)
 PTS = [
-    ("DA3 直出\n(不训练)\n0.6 min", 0, 11.38, "#8C8C8C"),
-    ("COLMAP 稀疏\n+ 5k\n2.6 min", 123, 22.23, "#2E8B7F"),
-    ("前馈 init 57万\n+ 5k\n3.4 min", 169, 21.72, "#9B6BA8"),
-    ("前馈 init 415万\n+ 5k\n8.3 min", 466, 20.14, "#C77C2E"),
-    ("COLMAP 稀疏\n+ 30k\n21.5 min", 1253, 24.33, "#5B7FB5"),
+    ("DA3 直出\n(不训练)\n0.6 min", 0, 18.97, "#8C8C8C"),
+    ("前馈 415万\n+2k\n4.5 min", 236, 25.21, "#C77C2E"),
+    ("前馈 415万\n+5k\n9.2 min", 519, 25.51, "#C77C2E"),
+    ("前馈 57万\n+5k\n4.0 min", 205, 25.17, "#9B6BA8"),
+    ("稀疏点云\n+5k\n2.6 min", 123, 22.23, "#2E8B7F"),
+    ("稀疏点云\n+30k\n21.5 min", 1253, 24.33, "#5B7FB5"),
 ]
 REF30 = 24.33
 
 
 def fig9():
-    """柱状图而不是散点：五个配置的耗时从 0.6 到 21.5 min，线性轴上点会挤在左侧，
+    """柱状图而不是散点：六个配置的耗时从 0.6 到 21.5 min，线性轴上点会挤在左侧，
     标签互相压。改成有序类别 + 柱顶标 dB + 柱底标耗时，一眼能读出"多花的时间买了多少 dB"。"""
-    fig, ax = plt.subplots(figsize=(10.2, 5.6), dpi=170)
+    fig, ax = plt.subplots(figsize=(10.6, 5.7), dpi=170)
     xs = np.arange(len(PTS))
     vals = [p[2] for p in PTS]
     cols = [p[3] for p in PTS]
@@ -65,23 +68,23 @@ def fig9():
             ax.text(b.get_x() + b.get_width() / 2, v / 2, f"{d:+.2f} dB", ha="center",
                     va="center", fontsize=11.5, color="white", fontweight="bold", zorder=3)
 
-    ax.axhline(REF30, ls=":", lw=1.3, color="#5B7FB5", zorder=1)
-    # 基线标注放左侧空白区（DA3 柱上方），否则会与最右柱顶的数值打架
-    ax.text(0.42, REF30 + 0.5, f"30k 基线 {REF30} dB", ha="left",
-            fontsize=10, color="#5B7FB5")
+    # 基线用图例给名字，而不是在柱间塞文字：六个柱挤满横轴，任何内联标注都会压到柱子
+    ax.axhline(REF30, ls=":", lw=1.4, color="#5B7FB5", zorder=1,
+               label=f"稀疏点云 + 30k 基线 {REF30} dB")
 
     ax.set_xticks(xs)
     ax.set_xticklabels([p[0] for p in PTS], fontsize=10.5, linespacing=1.5)
     ax.set_ylabel("PSNR vs 输入帧（32 视角均值，dB）", fontsize=11.5)
-    ax.set_ylim(0, 28.5)
-    ax.set_title("短精调的收益来自「少跑步数」，不是「前馈初值」",
-                 fontsize=14, loc="left", pad=14)
+    ax.set_ylim(0, 30.5)
+    ax.set_title("前馈初值口径修对后：2k 步 / 4.5 min 就超过 21.5 min 的 30k 基线",
+                 fontsize=13.5, loc="left", pad=12)
+    ax.legend(fontsize=10, loc="upper left", frameon=False)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="y", ls=":", lw=0.7, alpha=0.4, zorder=0)
     ax.tick_params(axis="x", length=0, pad=8)
 
-    fig.text(0.012, 0.015,
-             "端到端耗时 = DA3 前向 + 导出 35 s + 3DGS 训练；每组均用 32 视角训练、32 视角评测",
+    fig.text(0.022, 0.015,
+             "端到端耗时 = DA3 前向 + 导出 35 s + 3DGS 训练；每组均用 32 视角训练、32 视角评测（自一致性口径）",
              fontsize=9.5, color="#888888")
     fig.tight_layout(rect=(0, 0.03, 1, 1))
     p = OUT / "fig9_p1_tradeoff.png"
@@ -93,32 +96,34 @@ def fig9():
 def fig10():
     from PIL import Image, ImageDraw, ImageFont
 
-    D = Path("/home/velvet/output/da3_gs_results/佳佳抱枕_p1")
+    D = Path("/home/velvet/output/da3_gs_results/佳佳抱枕_p1")     # 旧口径（只取 B1/B30 与 30k 基线）
+    M = Path("/home/velvet/output/da3_gs_results/佳佳抱枕_p1m")    # 米制口径（前馈与直出）
     B30 = Path("/home/velvet/output/da3_results/佳佳抱枕/04_model_3dgs")
     REF = Path("/home/velvet/output/da3_results/_captures/佳佳抱枕/images")
     refs = sorted(p for p in REF.iterdir() if p.suffix.lower() == ".png")
 
     cols = [
         ("GT", lambda v: Image.open(refs[v])),
-        ("DA3 直出", lambda v: Image.open(D/f"ffinit_ckpt/render_it0/view_{v:03d}.png")),
-        ("COLMAP+5k\n2.6 min / 22.2 dB", lambda v: Image.open(D/f"final_B1_colmap5k/render_all/view_{v:03d}.png")),
-        ("前馈+5k\n8.4 min / 20.1 dB", lambda v: Image.open(D/f"final_A1_ff5k/render_all/view_{v:03d}.png")),
-        ("COLMAP+30k\n21.5 min / 24.3 dB", lambda v: Image.open(B30/f"render_all/view_{v:03d}.png")),
+        ("DA3 直出\n0.6 min / 19.0 dB", lambda v: Image.open(M/f"render_all32/view_{v:03d}.png")),
+        ("稀疏点云+5k\n2.6 min / 22.2 dB", lambda v: Image.open(D/f"final_B1_colmap5k/render_all/view_{v:03d}.png")),
+        ("前馈415万+2k\n4.5 min / 25.2 dB", lambda v: Image.open(M/f"final_A0_ff2k/render_all32/view_{v:03d}.png")),
+        ("前馈415万+5k\n9.2 min / 25.5 dB", lambda v: Image.open(M/f"final_A1_ff5k/render_all32/view_{v:03d}.png")),
+        ("稀疏点云+30k\n21.5 min / 24.3 dB", lambda v: Image.open(B30/f"render_all/view_{v:03d}.png")),
     ]
     views = [0, 16]
-    W, H, pad, top = 320, 427, 8, 74
+    W, H, pad, top = 292, 389, 7, 74
     canvas = Image.new("RGB", (len(cols) * (W + pad) + pad, top + len(views) * (H + pad + 26) + pad), "white")
     dr = ImageDraw.Draw(canvas)
-    f_h = ImageFont.truetype("/mnt/c/Windows/Fonts/msyh.ttc", 17)
-    f_r = ImageFont.truetype("/mnt/c/Windows/Fonts/msyh.ttc", 15)
+    f_h = ImageFont.truetype("/mnt/c/Windows/Fonts/msyh.ttc", 16)
+    f_r = ImageFont.truetype("/mnt/c/Windows/Fonts/msyh.ttc", 14)
 
     for j, (title, get) in enumerate(cols):
         x = pad + j * (W + pad)
         for k, line in enumerate(title.split("\n")):
-            dr.text((x + 3, 8 + k * 20), line, fill=(30, 30, 30), font=f_h if k == 0 else f_r)
+            dr.text((x + 3, 8 + k * 19), line, fill=(30, 30, 30), font=f_h if k == 0 else f_r)
     for i, v in enumerate(views):
         y = top + i * (H + pad + 26)
-        dr.text((pad + 3, y - 22), f"视角 {v}", fill=(110, 110, 110), font=f_r)
+        dr.text((pad + 3, y - 21), f"视角 {v}", fill=(110, 110, 110), font=f_r)
         for j, (_, get) in enumerate(cols):
             im = get(v).convert("RGB")
             im = im.resize((W, H), Image.LANCZOS)
