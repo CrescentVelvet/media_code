@@ -83,6 +83,14 @@ def main():
     sh_degree = int(round(d_sh ** 0.5)) - 1
     log(f"📊 高斯 {n_gauss} ｜ harmonics {sh_shape} → d_sh={d_sh}, sh_degree={sh_degree}")
 
+    # 坐标系口径（E-01）：官方导出把 raw 尺度的高斯直接写盘，与 cameras.npz（米制）差
+    # 一个 scale_factor。这里先折到米制，否则只有参考视角因径向缩放"看起来正常"。
+    from da3_frame import gaussians_to_metric, gs_scale_factor
+
+    sf_raw, is_metric = gs_scale_factor(pred)
+    gs_mode = os.environ.get("GS_SCALE_MODE", "metric")
+    sf = gaussians_to_metric(pred, mode=gs_mode)
+
     ctx_depth = torch.from_numpy(pred.depth).unsqueeze(-1).to(g.means)   # (v,h,w,1)
 
     common = dict(
@@ -127,6 +135,10 @@ def main():
         "harmonics_shape": list(sh_shape),
         "sh_degree": sh_degree,
         "ref_view_strategy": ref_strategy,
+        "is_metric": is_metric,
+        "da3_scale_factor": sf_raw,
+        "gs_scale_mode": gs_mode,
+        "gs_scale_factor_applied": sf,
         "depth_median_m": float(np.median(pred.depth)),
         "exports": results,
     }
@@ -139,7 +151,10 @@ def main():
                         extrinsics=np.asarray(pred.extrinsics),
                         intrinsics=np.asarray(pred.intrinsics),
                         depth=np.asarray(pred.depth),
-                        conf=np.asarray(pred.conf))
+                        conf=np.asarray(pred.conf),
+                        scale_factor=np.float32(sf_raw if sf_raw is not None else 0.0),
+                        is_metric=np.int32(is_metric),
+                        gs_scale_applied=np.int32(1 if gs_mode == "metric" and is_metric and sf_raw else 0))
     summary["cameras_npz"] = str(cam)
     log(f"📷 相机/深度: {cam}")
     sp = out_dir / "p0_export_summary.json"

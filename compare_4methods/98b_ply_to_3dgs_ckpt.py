@@ -28,6 +28,9 @@
    若这里填 0，除 xyz（每步被 `update_learning_rate` 重设）之外的
    f_dc / f_rest / opacity / scaling / rotation **全部不更新**，训练看起来正常但什么都不学。
    所以按 3DGS 的默认超参填入真实 lr（与官方 checkpoint 的等价行为）。
+4. **尺度口径**（E-01）：cameras.npz 是米制，官方 gs_ply 是 DA3 对齐前的坐标系，
+   差一个 `scale_factor`。本脚本开头会断言 npz 里 `gs_scale_applied == 1`（由 98/97
+   在导出时折算并写入）。老 npz 直接报错退出，不做兼容——静默产出错尺度 ckpt 的代价太大。
 
 用法（WSL，任意装了 torch 的 env；需要在 GPU 上保存，官方 `torch.load` 无 map_location）：
   PLY=~/output/da3_gs_results/佳佳抱枕_p1/gs_ply/0000.ply \
@@ -113,6 +116,24 @@ def main():
     nm = {k: i for i, k in enumerate(names)}
     n_raw = arr.shape[0]
     log(f"📥 {ply_path.name}: {n_raw:,} 点, {len(names)} 属性")
+
+    # ── 尺度口径闸门（E-01，2026-11-06）──────────────────────────────────────
+    # cameras.npz 的 extrinsics/depth 是米制，而官方导出的 gs_ply 在 DA3 对齐前的坐标系，
+    # 差一个 scale_factor（本例 1.81）。混用会让点云只有真实尺寸的 0.55，
+    # 3DGS 5k 步挪不动 0.9 m 的错位，只能长出第二套壳 → 重影。
+    # 修法在 98/97（导出时折到米制），这里只做校验：宁可报错，不要静默产出错尺度的 ckpt。
+    _d = np.load(npz_path)
+    if "gs_scale_applied" not in _d.files:
+        raise SystemExit(
+            "❌ cameras.npz 是老版本（无 gs_scale_applied 字段），无法判断 PLY 是否为米制。\n"
+            "   请用修复后的 98_da3_ff_init.py 重新导出（PLY 与 npz 必须同尺度，见 ERRATA.md E-01）。")
+    if int(_d["gs_scale_applied"]) != 1:
+        raise SystemExit(
+            f"❌ PLY 未折算到米制（gs_scale_applied=0，DA3 scale_factor="
+            f"{float(_d['scale_factor']) if 'scale_factor' in _d.files else float('nan'):.4f}）。\n"
+            "   重新导出时不要设 GS_SCALE_MODE=raw。")
+    if "scale_factor" in _d.files:
+        log(f"📏 尺度口径 OK：PLY 已 ×scale_factor={float(_d['scale_factor']):.4f} 折到米制")
 
     xyz = arr[:, [nm["x"], nm["y"], nm["z"]]].astype(np.float32)
     op_logit = arr[:, nm["opacity"]].astype(np.float32)

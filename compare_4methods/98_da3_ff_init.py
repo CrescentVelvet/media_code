@@ -7,9 +7,15 @@
 （拿 504 的 npz 相机去渲染 1008 的 PLY，画面旋转错位、大片纯黑）。
 
 一次前向出三样，全部同源：
-  <OUT>/gs_ply/0000.ply          官方 GSDPT 高斯头（DC-only，与官方导出逐参数一致）
+  <OUT>/gs_ply/0000.ply          官方 GSDPT 高斯头（DC-only，已折算到**米制**）
   <OUT>/{cameras,images,points3D}.bin   COLMAP 稀疏场景（供 3DGS 读相机）
-  <OUT>/cameras.npz              extrinsics/intrinsics/depth/conf（渲染与评测复用）
+  <OUT>/cameras.npz              extrinsics/intrinsics/depth/conf + scale_factor
+
+**坐标系口径（E-01，2026-11-06）**：DA3 的 `_apply_depth_alignment` 只把 depth 与
+extrinsics 乘度量系数，`gaussians` 留在对齐前的坐标系。本脚本在导出前调用
+`da3_frame.gaussians_to_metric()` 把 means/scales 乘回米制，否则 PLY 与 cameras.npz
+差 1.8 倍尺度 → 参考视角因径向缩放"看起来正常"，其它视角错位 0.45×距离。
+详见 `compare_4methods/ERRATA.md`。
 
 用法（WSL，da3_human env）：
   DA3_MODEL_DIR=/mnt/d/wheel/da3_human_ms \
@@ -17,6 +23,9 @@
   OUT_DIR=~/output/da3_gs_results/佳佳抱枕_p1 \
   PROCESS_RES=504 REF_STRATEGY=first \
   ~/miniconda3/envs/da3_human/bin/python compare_4methods/98_da3_ff_init.py
+
+Env:
+  GS_SCALE_MODE  metric(默认，折到米制) | raw(复现 E-01 之前的旧结果)
 """
 import json
 import os
@@ -101,6 +110,13 @@ def main():
     sh_shape = tuple(int(x) for x in np.asarray(g.harmonics.shape))
     log(f"📊 高斯 {n_gauss:,} ｜ harmonics {sh_shape}")
 
+    # ── 坐标系口径（E-01）：gaussians 在度量对齐**之前**，depth/extrinsics 之后 ──
+    # 先算系数（要写进 npz），再把高斯折到米制（必须在 export 之前）。
+    from da3_frame import gaussians_to_metric, gs_scale_factor
+
+    sf_raw, is_metric = gs_scale_factor(pred)
+    gs_mode = os.environ.get("GS_SCALE_MODE", "metric")
+
     # ── 先落相机/深度（此时 intrinsics 还是处理分辨率口径） ──────────────────
     cam = out_dir / "cameras.npz"
     np.savez_compressed(
@@ -109,9 +125,13 @@ def main():
         intrinsics=np.asarray(pred.intrinsics),
         depth=np.asarray(pred.depth),
         conf=np.asarray(pred.conf),
+        scale_factor=np.float32(sf_raw if sf_raw is not None else 0.0),
+        is_metric=np.int32(is_metric),
+        gs_scale_applied=np.int32(1 if gs_mode == "metric" and is_metric and sf_raw else 0),
     )
-    log(f"📷 相机/深度: {cam}  K[0] fx={float(np.asarray(pred.intrinsics)[0,0,0]):.2f}")
 
+    sf = gaussians_to_metric(pred, mode=gs_mode)
+    log(f"📷 相机/深度: {cam}  K[0] fx={float(np.asarray(pred.intrinsics)[0,0,0]):.2f}")
     # ── 再导出（这两步可能改写 prediction 内的量，必须在存 npz 之后） ─────────
     t0 = time.time()
     from depth_anything_3.utils.export import export_to_colmap, export_to_gs_ply
@@ -134,6 +154,10 @@ def main():
         "process_res": process_res,
         "ref_view_strategy": ref_strategy,
         "model": model_dir,
+        "is_metric": is_metric,
+        "da3_scale_factor": sf_raw,
+        "gs_scale_mode": gs_mode,
+        "gs_scale_factor_applied": sf,
         "gpu": torch.cuda.get_device_name(0),
         "load_seconds": round(t_load, 1),
         "forward_seconds": round(t_fwd, 1),
