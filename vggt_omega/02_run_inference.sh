@@ -39,12 +39,18 @@ else
 fi
 
 # 2) VGGT-Ω 推理（转发 vggt_human/02；显式给 VGGT_DIR/MODEL_DIR，避免依赖 proxy.env 覆盖）
+# run_batch 以 INPUT_DIR 的 basename 作为场景名：直接喂 .../images/ 会得到场景名 "images"，
+# predictions.npz 落到 02_vggt/images/ 与下游 03/04 的 SCENE_NAME 约定错位。
+# 造一层 <SCENE_NAME> 符号链接目录再喂给 run_batch，产物落在 02_vggt/<SCENE_NAME>/ 下。
 echo "🤖 VGGT-Ω 前馈推理（vggt_human env）"
+VGGT_INPUT_DIR="$SCENE_RESULTS/_vggt_input"
+mkdir -p "$VGGT_INPUT_DIR"
+ln -sfn "$CAP_DIR/images" "$VGGT_INPUT_DIR/$SCENE_NAME"
 CONDA_ENV=vggt_human \
 VGGT_DIR="$VGGT_OMEGA_REPO" \
 MODEL_DIR="$MODEL_DIR" \
 RESULTS_DIR="$SCENE_RESULTS" \
-INPUT_DIR="$CAP_DIR/images" \
+INPUT_DIR="$VGGT_INPUT_DIR" \
 VGGT_OUTPUT_DIR="$SCENE_RESULTS/02_vggt" \
 RESOLUTION="$RESOLUTION" CONF_THRES="$CONF_THRES" \
 bash "$MEDIA_CODE_ROOT/vggt_human/02_run_inference.sh"
