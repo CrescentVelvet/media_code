@@ -82,23 +82,26 @@ for ri, v in enumerate(VIEWS):
 
 m = met["mean"]
 fig.text(0.5, 0.945,
-         "重影的来源：成品 ≈ 「其它视角的平均」，单视角几何各自偏离 GT 约 4 dB（RES=1 训练产物，378×504 口径）",
+         "「仅本视角」的重影不是 bug：一个视角的壳本身就是稀疏、半透明的点画"
+         "（RES=1 训练产物，378×504 口径）",
          ha="center", va="center", fontsize=14.5, weight="bold")
-fig.text(0.5, 0.115,
-         "同一像素集（仅本视角覆盖到的像素，占全图 43%）上比："
-         f"全部 {m['psnr_all_masked']:.2f} dB ｜ 仅本视角 {m['psnr_self_masked']:.2f} dB（暗是因为 α 只有 ~0.07）"
+fig.text(0.5, 0.120,
+         f"同一像素集（仅本视角覆盖到的像素，占全图 43%）上比：全部 {m['psnr_all_masked']:.2f} dB"
+         f" ｜ 仅本视角 {m['psnr_self_masked']:.2f} dB（暗，因为单层 α 只有 0.073）"
          f" ｜ ÷α 后 {m['psnr_self_n_masked']:.2f} dB ｜ 去掉本视角 {m['psnr_other_masked']:.2f} dB",
          ha="center", va="center", fontsize=11.5)
-fig.text(0.5, 0.062,
-         "读法：① 单视角 α 中位 0.073，一个像素要 ~25 个视角叠起来才不透光；"
-         "② 每个视角的壳各自偏离 GT（÷α 后仍差 "
-         f"{m['psnr_all_masked'] - m['psnr_self_n_masked']:.1f} dB）；"
-         "③ 31 层平均把各自的误差平均掉（所以全图 PSNR 不低）但也把细节抹平 → 模糊 + 淡重影",
-         ha="center", va="center", fontsize=10.5, color="#444444")
-fig.text(0.5, 0.018,
-         "渲染器与交付图逐像素一致（闸门 99.0 dB）；位姿 npz 与 COLMAP 一致（ΔR 2.4e-7 / Δt 0）；"
-         "四元数 wxyz 序正确（薄盘最短轴与视线夹角中位 20.5°）；opacity/scale 全局增益扫掠峰在 1.0~2.0（无成倍口径错）",
-         ha="center", va="center", fontsize=9.5, color="#666666")
+fig.text(0.5, 0.087,
+         "① 每视角仅 0.79 个高斯/像素、PLY 只保留 79.4% 的像素、单层 α 中位 0.036"
+         " → 单看一层必然是稀疏 + 半透明的点画；成品靠 32 视角叠到 α≈1.000",
+         ha="center", va="center", fontsize=10.0, color="#444444")
+fig.text(0.5, 0.055,
+         "② 去掉 1/32 的贡献只动 0.5 dB，属正常稀释，不能据此说「本视角没用」；"
+         "③ ÷α 会把噪声放大 ~14 倍，不能当几何误差读（真实残差 ~1 px 横向 + 26~42 mm 沿视线）",
+         ha="center", va="center", fontsize=10.0, color="#444444")
+fig.text(0.5, 0.024,
+         "官方等价口径（610 万点 + 全 SH + 正确帧）= 22.11 dB；本图 18.97 dB 是「裁剪 + 仅 DC」的 PLY 交付口径，"
+         "差 3.14 dB 全在导出选项；帧错（缩放相机配未缩放高斯）会掉到 11.27 dB",
+         ha="center", va="center", fontsize=9.3, color="#666666")
 
 p = OUT / "fig21_audit_decomp.png"
 fig.savefig(p, facecolor="white")
