@@ -233,10 +233,16 @@ if prediction.is_metric and scale_factor is not None:
       610 万点**；我们的 PLY 是 `prune 0.9 + border + dc_only`，只有 484 万点、79.4% 像素。
       同一份前向：**22.11 dB（官方）vs 18.97 dB（PLY）**，差 3.14 dB 全在导出选项
       （全 SH +1.15、不裁剪 +2.34）。两者不可混用于跨方法对比。
+- [ ] **E7 换表示/换光栅器前，先验"哪个轴是厚度轴"**：DA3 的 σ 是三轴独立 sigmoid、
+      **没有排序**，实测最小轴 **99.9% 落在 index 0**。而 2DGS 的 CUDA 只读
+      `scales[0], scales[1]`、第三维硬编码 1.0（`Projection2DGSFused.cu:152`）。
+      直接喂 → `s0≈0` 被当成切平面内的一轴 → 零宽刀片，屏幕上几乎消失。
+      必须先查 `argmin(σ)` 的索引，再重排 `s'=[s1,s2,s0]` 并同步置换旋转矩阵的列。
+      同理：任何"假设某轴有特定含义"的转换，都要在转换前后各量一次不变量。
 
 ---
 
-## 审计基线（2026-11-07）· 六项不变量 + 九个脚本
+## 审计基线（2026-11-07 建，2026-11-08 扩到十项）
 
 > 用途：以后任何"重影/模糊/错位"的怀疑，先跑这些脚本对表格，再谈模型能力。
 > 全部只读，不改产物。基准数据：`佳佳抱枕_p1m`（32 视角 / process_res 504 / scale_factor 1.9988）。
@@ -245,13 +251,17 @@ if prediction.is_metric and scale_factor is not None:
 |---|---|---|---|---|
 | 1 | 导出 PLY 与内存高斯逐位一致 | `audit_6_ply_roundtrip.py` | max_rel 5.9e-6（rot/f_dc 完全相等） | < 1e-5 |
 | 2 | npz 位姿 = 训练用的 COLMAP 位姿 | `audit_1_pose_geom.py` A | ΔR 2.4e-7、Δt 0、ΔK 1e-4 px | ΔR<1e-5 且 Δt<1e-5 |
-| 3 | 四元数组件序（wxyz） | `audit_1_pose_geom.py` C | 薄盘最短轴与视线 \|cos\| 中位 **0.937**（均匀=0.5） | 中位 > 0.9 |
+| 3 | 四元数组件序（wxyz） | `audit_1_pose_geom.py` C | 薄盘最短轴与视线 \|cos\| 中位 **0.937**（另一序 0.839，故判 wxyz） | 两序差 >0.05 即区分开 |
 | 4 | opacity/scale 参数空间 | `audit_3_param_sweep.py` | 峰在 k=2.0 / 1.5，仅 +0.64 dB（曲线平坦） | 峰位 ≤ 2 |
 | 5 | 内参先验（方像素 / 焦距） | `audit_4_k_prior.py` | fx/fy 扫 0.97~1.03、β 扫 0.97~1.02 全部平坦 | 峰在 0.99~1.01 |
 | 6 | 渲染器 = 交付图 | `audit_2_render_decomp.py` 闸门 | 与 94 输出 **99.0 dB** | > 45 dB |
 | 7 | 高斯来源像素可复原（视角主序 + row-major） | `audit_8_selfview_geom.py` G0 | 抬升点自投残差 **0.0000 px** | < 0.01 px |
 | 8 | 官方口径可复现 | `audit_9_official_render.sh` | 官方等价 **22.11 dB**；我方 PLY 口径 **18.97 dB** | 两者应能逐位对上历史读数 |
 | 9 | 评测参考图的 resize 口径 | `audit_10_ref_check.sh` | 模型输入 vs `cv2.INTER_AREA` = **54~55 dB** | > 40 dB 视为同一张 |
+| 10 | 退化轴（厚度轴）的索引与朝向 | `audit_12_surfel_orient.sh` | 最小 σ **99.9% 在 index 0**；该轴 vs 真实表面法向中位 **56.9~66.4°**（随机基线 57.3°） | 换 2DGS/换光栅器前必须查这一行 |
+
+> 第 3 行的 0.937 只用于**区分四元数组件序**（wxyz vs xyzw 的 A/B），**不能**当作"盘朝相机"的证据。
+> 分视角实测（第 10 行）是 25~51°，跨视角差异很大。
 
 附带量（不是不变量，是解释量）：
 - **σ 像素当量**（`audit_7_param_drift.py`）：init `[0, 0.48, 1.28]` px @378；
