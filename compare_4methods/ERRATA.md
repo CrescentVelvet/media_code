@@ -239,6 +239,15 @@ if prediction.is_metric and scale_factor is not None:
       直接喂 → `s0≈0` 被当成切平面内的一轴 → 零宽刀片，屏幕上几乎消失。
       必须先查 `argmin(σ)` 的索引，再重排 `s'=[s1,s2,s0]` 并同步置换旋转矩阵的列。
       同理：任何"假设某轴有特定含义"的转换，都要在转换前后各量一次不变量。
+- [ ] **E8 读 3DGS PLY 的 SH rest 是 channel-major**：DA3 写盘用
+      `harmonics[...,1:].flatten(start_dim=1)`，即 `[ch0 的 K 个, ch1 的 K 个, ch2 的 K 个]`；
+      gsplat 要的是 `(N, K, 3)`。必须 `reshape(N,3,K).transpose(0,2,1)`。
+      排错的结果**不会崩、也不会明显变色**（DC 项照旧），只表现为"颜色对但方向感怪"，
+      极难靠肉眼发现。兜底手段就是 E6 那条对照：**PLY 全 SH 渲染必须等于内存全 SH 渲染**
+      （本次 22.11 vs 22.11，差 0.005 dB），不等就是排列错了。
+- [ ] **E9 读 PLY 头不要假设 4096 字节**：DA3 的 header 因字段数变化（DC 17 字段 / 全 SH 41 字段）
+      长度不同，必须读到 `end_header` 行尾拿真实偏移。audit_8 第一版用了 4096，
+      属性全体错位，view 16 自投影残差算出 614 px，差点当大 bug 报上去。
 
 ---
 
@@ -258,6 +267,7 @@ if prediction.is_metric and scale_factor is not None:
 | 7 | 高斯来源像素可复原（视角主序 + row-major） | `audit_8_selfview_geom.py` G0 | 抬升点自投残差 **0.0000 px** | < 0.01 px |
 | 8 | 官方口径可复现 | `audit_9_official_render.sh` | 官方等价 **22.11 dB**；我方 PLY 口径 **18.97 dB** | 两者应能逐位对上历史读数 |
 | 9 | 评测参考图的 resize 口径 | `audit_10_ref_check.sh` | 模型输入 vs `cv2.INTER_AREA` = **54~55 dB** | > 40 dB 视为同一张 |
+| 10 | **PLY 导出无损（含 SH rest 排列）** | `audit_13_ply_official.sh` | 归位档 PLY **22.11** vs 内存 **22.11**（差 0.005）；四档逐档差 ≤0.005 | < 0.05 dB |
 | 10 | 退化轴（厚度轴）的索引与朝向 | `audit_12_surfel_orient.sh` | 最小 σ **99.9% 在 index 0**；该轴 vs 真实表面法向中位 **56.9~66.4°**（随机基线 57.3°） | 换 2DGS/换光栅器前必须查这一行 |
 
 > 第 3 行的 0.937 只用于**区分四元数组件序**（wxyz vs xyzw 的 A/B），**不能**当作"盘朝相机"的证据。

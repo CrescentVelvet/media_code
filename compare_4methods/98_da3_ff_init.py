@@ -162,6 +162,39 @@ def main():
         )
         log(f"💾 full-SH {p_full}  {time.time()-t1:.1f}s  {p_full.stat().st_size/1024/1024:.0f} MB")
 
+    # ── EXPORT_OFFICIAL=1：把「导出降级」的 2x2 组合一次全导出来（I-01/I-02） ──
+    # 历史 PLY 同时开了两个降级选项：裁远点(0.9) + 去边界(True) → 610 万降到 484 万；
+    # 且 save_sh_dc_only=True 丢掉全部 SH rest。合计相对官方口径 −3.14 dB。
+    # 这里用同一个前向导出全部组合，保证「只差导出参数」这一单变量成立。
+    #   i01_fullpts_dc : 不裁剪 + DC   （I-01 单独）
+    #   i02_pruned_sh  : 裁剪   + 全SH （I-02 单独）
+    #   i12_fullpts_sh : 不裁剪 + 全SH （官方等价，I-01+I-02）
+    if os.environ.get("EXPORT_OFFICIAL", "0") == "1":
+        from depth_anything_3.utils.gsply_helpers import save_gaussian_ply
+        combos = (
+            ("i01_fullpts_dc", 1.0, False, True),
+            ("i02_pruned_sh", 0.9, True, False),
+            ("i12_fullpts_sh", 1.0, False, False),
+        )
+        for tag, pct, border, dc_only in combos:
+            p = out_dir / "official_export" / tag / "0000.ply"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            t1 = time.time()
+            save_gaussian_ply(
+                gaussians=pred.gaussians,
+                save_path=str(p),
+                ctx_depth=torch.from_numpy(pred.depth).unsqueeze(-1).to(pred.gaussians.means),
+                shift_and_scale=False,
+                save_sh_dc_only=dc_only,
+                gs_views_interval=1,
+                inv_opacity=True,
+                prune_by_depth_percent=pct,
+                prune_border_gs=border,
+                match_3dgs_mcmc_dev=False,
+            )
+            log(f"💾 {tag}: pct={pct} border={border} dc_only={dc_only}  "
+                f"{time.time()-t1:.1f}s  {p.stat().st_size/1024/1024:.0f} MB  → {p}")
+
     export_to_colmap(pred, str(out_dir), image_paths=[str(p) for p in files])
     t_exp = time.time() - t0
     log(f"⏱️ 导出（gs_ply + colmap）{t_exp:.1f}s")
