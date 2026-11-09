@@ -20,7 +20,7 @@
 cd /mnt/<code-dir>/media_code
 INSTALL_DEPS=1 bash scene_splatter/00a_setup_env.sh   # clone + env + 编译 + 补丁 + import 验证
 bash scene_splatter/01_download_models.sh             # 三份权重（wheel 三段式）
-# HF 不通时：HF_ENDPOINT=https://aifasthub.com bash scene_splatter/01_download_models.sh
+# HF 不通时：HF_ENDPOINT=https://hf-mirror.com bash scene_splatter/01_download_models.sh
 ```
 
 ## 网络备忘
@@ -36,8 +36,13 @@ bash scene_splatter/01_download_models.sh             # 三份权重（wheel 三
   pip 版 nvidia-cuda-nvcc 又配不齐 host gcc——所以 00a 编译期借用 `flame_human` env 的
   nvcc 11.8 + gcc 11.4 完整工具链（flame_human 恰好也是 torch 2.1.2+cu118）。换机器时
   用 `TOOLCHAIN_ENV=<env>` 指定别的含 nvcc 11.8 的 env。
-- huggingface.co 直连时通时断（2026-11-05 实测断）：01 会自动探测，断了回退 aifasthub；
-  hf-mirror 当时证书失效，不作为默认候选。
+- ⚠️ **xet 存储死局（2026-11-09 定论）**：HF 已把存量 LFS 迁 xet，大文件实际走
+  `cas-bridge.xethub.hf.co`（CloudFront，13.33.x.x）。本机该域 **直连+代理 TLS 均断连**
+  （CONNECT 200 后 ClientHello 无响应，SNI 级阻断），`us.aws.cdn.hf.co`、`cas-server.xethub.hf.co`
+  同样全灭；**hf-mirror 只镜像元数据，对 xet 文件 302 透传死 CDN**（实测 flash3d v2 与
+  ViewCrafter_25 都中招）。legacy LFS 的 `cdn-lfs.hf.co` 反而可达（403=活着）。
+  → 这两个权重只能**峰哥手动迅雷**（迅雷有 P2P 缓存，不看本机 SNI）落 `D:\wheel\scene_splatter\`，
+  重跑 01 自动软链。
 - DUSt3R 走 `download.europe.naverlabs.com` 直连，慢/断时确认 proxy.env 代理已生效。
 
 ## 跑完搬输出

@@ -13,8 +13,8 @@
 # ⚠️ 三个官方仓都没有发布校验和，无法 SHA256 核对（对照 querysplat 有官方 SHA256SUMS）。
 #
 # Env:
-#   HF_ENDPOINT   HF 镜像端点（本机直连 huggingface.co 不通时自动回退 aifasthub，
-#                 2026-11-05 实测 hf 直连断、hf-mirror 证书废）
+#   HF_ENDPOINT   HF 镜像端点（本机直连 huggingface.co 不通时自动回退 hf-mirror.com；
+#                 2026-11-09 实测 aifasthub 双通道超时已死，hf-mirror 直连/代理均 200）
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
@@ -23,14 +23,22 @@ FLASH3D_FILE="model_re10k_v2.pth"
 VC_FILE="model.ckpt"
 DUST3R_FILE="DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
 DUST3R_URL="https://download.europe.naverlabs.com/ComputerVision/DUSt3R/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+PY="$HOME/miniconda3/envs/$CONDA_ENV/bin/python"
 
 mkdir -p "$WHEEL_SS_DIR" "$SS_DIR/flash3d" "$SS_DIR/viewcrafter/checkpoints"
 
-# HF 直连探测（网络会漂移，动手前复测）
+# HF 直连探测（网络会漂移，动手前复测）。2026-11-09 实测：huggingface.co API 通，
+# 但 LFS 实际走 us.aws.cdn.hf.co（xet-bridge）读超时——API 通不等于能下文件，
+# 所以这里测的是「元数据+CDN」组合，失败即回退 hf-mirror.com（LFS 走其自建 CDN）。
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
 if [ -z "${HF_ENDPOINT:-}" ]; then
-    if ! curl -sI --max-time 8 -o /dev/null "https://huggingface.co/api/models/einsafutdinov/flash3d"; then
-        echo "⚠️ huggingface.co 直连失败，回退 aifasthub.com 镜像"
-        export HF_ENDPOINT="https://aifasthub.com"
+    if ! curl -sI --max-time 8 -o /dev/null "https://huggingface.co/api/models/einsafutdinov/flash3d" \
+         || ! curl -sI --max-time 15 -o /dev/null "https://us.aws.cdn.hf.co"; then
+        echo "⚠️ huggingface.co 或其 CDN 不可达，回退 hf-mirror.com 镜像"
+        if ! curl -sI --max-time 8 -o /dev/null "https://hf-mirror.com/api/models/einsafutdinov/flash3d"; then
+            echo "❌ hf-mirror.com 也不可达，请挂代理或手动下载（见 README_wsl.md）" >&2; exit 1
+        fi
+        export HF_ENDPOINT="https://hf-mirror.com"
     fi
 fi
 echo "  🌐 HF_ENDPOINT: ${HF_ENDPOINT:-huggingface.co (direct)}"
@@ -66,16 +74,27 @@ link_from_wheel() {
 
 echo "🚀 [01] flash3d v2 权重（$FLASH3D_FILE）"
 if ! link_from_wheel "$FLASH3D_FILE" "$WHEEL_SS_DIR" "$SS_DIR/flash3d/$FLASH3D_FILE"; then
-    hf download einsafutdinov/flash3d "$FLASH3D_FILE" --local-dir "$WHEEL_SS_DIR" || {
-        echo "❌ flash3d 下载失败（镜像不通时换 HF_ENDPOINT 或走迅雷，见 README_wsl.md）" >&2; exit 1; }
+    # 用 python API 而非 hf CLI：requirements 把 huggingface-hub 钉在 0.25.2，
+    # 装新版 hf CLI 会升级 hub 库、可能破坏 transformers 4.28.1 兼容。
+    "$PY" -c "from huggingface_hub import hf_hub_download; \
+        print(hf_hub_download('einsafutdinov/flash3d', '$FLASH3D_FILE', local_dir='$WHEEL_SS_DIR'))" || {
+        echo "❌ flash3d 下载失败（690 MB，xet 存储）" >&2
+        echo "   2026-11-09 实测：*.xethub.hf.co / us.aws.cdn.hf.co 直连+代理均 TLS 断连，" >&2
+        echo "   hf-mirror 只镜像元数据、对 xet 文件透传死 CDN。" >&2
+        echo "   → 请峰哥手动迅雷 https://hf-mirror.com/einsafutdinov/flash3d/resolve/main/$FLASH3D_FILE" >&2
+        echo "     落盘 D:\\wheel\\scene_splatter\\ 后重跑本脚本（自动软链）" >&2; exit 1; }
     ln -sfn "$WHEEL_SS_DIR/$FLASH3D_FILE" "$SS_DIR/flash3d/$FLASH3D_FILE"
     echo "🔗 软链: $SS_DIR/flash3d/$FLASH3D_FILE"
 fi
 
 echo "🚀 [01] ViewCrafter_25 权重（$VC_FILE）"
 if ! link_from_wheel "$VC_FILE" "$WHEEL_SS_DIR" "$SS_DIR/viewcrafter/checkpoints/$VC_FILE"; then
-    hf download Drexubery/ViewCrafter_25 "$VC_FILE" --local-dir "$WHEEL_SS_DIR" || {
-        echo "❌ ViewCrafter 下载失败（备选：ViewCrafter_16 的 model.ckpt，见 NOTES.md）" >&2; exit 1; }
+    "$PY" -c "from huggingface_hub import hf_hub_download; \
+        print(hf_hub_download('Drexubery/ViewCrafter_25', '$VC_FILE', local_dir='$WHEEL_SS_DIR'))" || {
+        echo "❌ ViewCrafter 下载失败（10.4 GB，xet 存储，CDN 死局同上）" >&2
+        echo "   → 请峰哥手动迅雷 https://hf-mirror.com/Drexubery/ViewCrafter_25/resolve/main/$VC_FILE" >&2
+        echo "     落盘 D:\\wheel\\scene_splatter\\ 后重跑本脚本（自动软链）" >&2
+        echo "   备选：ViewCrafter_16 的 model.ckpt（小一号，见 NOTES.md）" >&2; exit 1; }
     ln -sfn "$WHEEL_SS_DIR/$VC_FILE" "$SS_DIR/viewcrafter/checkpoints/$VC_FILE"
     echo "🔗 软链: $SS_DIR/viewcrafter/checkpoints/$VC_FILE"
 fi
