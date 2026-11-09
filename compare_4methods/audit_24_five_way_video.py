@@ -45,7 +45,10 @@ A = O + "/da3_gs_results/佳佳抱枕_p1m_off"
 Q = O + "/querysplat_results/佳佳抱枕_paper"
 V = O + "/vggt_omega_results/佳佳抱枕/04_model_3dgs"
 D = O + "/da3_results/佳佳抱枕/04_model_3dgs"
-I = O + "/infinisplat_v2_results/jiajia_roi085_518"
+# InfiniSplat 用 jiajia 运行（1439×1919 原图输入 → 392×518），与 fig35 的 is_renders 同一口径；
+# 2026-11-09 曾误用 jiajia_roi085_518（388×518 预处理裁剪图输入），其层间一致性崩坏、输入视角都破碎，
+# 导致视频里该格重影被严重夸大。详见 FINDINGS §5.3-decies 修订。
+I = O + "/infinisplat_v2_results/jiajia"
 
 OUT = os.environ.get("OUT", A + "/orbit_video")
 NFRAMES = int(os.environ.get("NFRAMES", "240"))

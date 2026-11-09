@@ -315,7 +315,7 @@ if prediction.is_metric and scale_factor is not None:
 
 ---
 
-## 审计基线（2026-11-07 建，2026-11-09 扩到十九项）
+## 审计基线（2026-11-07 建，2026-11-09 扩到二十项）
 
 > 用途：以后任何"重影/模糊/错位"的怀疑，先跑这些脚本对表格，再谈模型能力。
 > 全部只读，不改产物。基准数据：`佳佳抱枕_p1m`（32 视角 / process_res 504 / scale_factor 1.9988）。
@@ -341,6 +341,7 @@ if prediction.is_metric and scale_factor is not None:
 | 17 | **跨方法能否搬到同一坐标系（尺度）** | `audit_24_five_way_video.sh` | DA3-GS 是 metric（s=1.000）；QuerySplat/InfiniSplat/VGGT+3DGS 是 VGGT 系 **s=2.25~2.28**；Umeyama 后残差 0.27~1.03% 半径 | 残差 <3% 半径 且 视线 <5° 才能同轨迹同框 |
 | 18 | **QuerySplat 的方形画幅是不是"压扁"** | `audit_25_qs_aspect.sh` | A 原样 512² **11.95** / B 只压横 **11.96** / C 裁切 **11.22** / **D 等比缩焦距 16.55** | 差 >2 dB 才算分辨得开；胜出方案即正确口径 |
 | 19 | **能否直接跨方法比"重影 / 锐度"** | `audit_29_opacity_cross.sh` | DA3-GS opacity 中位 **0.033 ≈ 0.95/32**（32 份各压 1/32）、半径 2.72 px；InfiniSplat **0.180**、半径 1.11 px。DA3 原样单脸糊，`opacity×32` 立刻出**双脸**；Infini `÷32` 后 α 0.9999→**0.2301** | 跨方法比观感前先对齐 opacity 与尺度；**不同口径下的"重影 vs 糊"不是质量差，是显影差** |
+| 20 | **同名方法的多次运行是否同口径**（输入图来源） | `audit_30_native_ghost.sh` + 像素指纹比对 | InfiniSplat `jiajia`（1439×1919 原图输入）输入视角脸**干净**；`jiajia_roi085_518`（388×518 预处理裁剪图输入）输入视角脸**破碎**（官方 eval 同样破碎，与我方渲染 PSNR 28.5 = 同一物）。fig35 的 `is_renders` 逐位等于 `jiajia` 运行 | 引用任何"方法的结果"前先核对 `result.json` 的输入来源；**视频/静图必须同一运行**，指纹不一致即停 |
 
 > 第 3 行的 0.937 只用于**区分四元数组件序**（wxyz vs xyzw 的 A/B），**不能**当作"盘朝相机"的证据。
 > 分视角实测（第 10 行）是 25~51°，跨视角差异很大。

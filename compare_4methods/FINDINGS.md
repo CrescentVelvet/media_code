@@ -444,6 +444,20 @@ I-03 的结论是"法向没学对导致 2DGS 更糊"。这一条是可检验的�
 若要在 PPT 里比"观感"，得先统一 opacity 口径，否则比的是后处理而不是重建质量；
 fig35 的静图不受影响（同视角、同内参、逐列目视核对过）。
 
+> **修订（2026-11-09 第四轮，audit_30）**：上面"静图是输入视角所以看不出"的解释**对
+> roi085_518 运行不成立** —— 那一版的输入视角重渲染（官方 eval/render_000.png）脸就是
+> 破碎的。根因是**两次 InfiniSplat 运行的输入图不同**（同权重、处理后背投同为 392×518）：
+> | 运行 | 输入图 | 输入视角脸 | 插值视角脸 |
+> |---|---|---|---|
+> | `jiajia` | **1439×1919 原图**（ pipeline 自行降采样） | 干净单轮廓 | 基本干净（轻微糊） |
+> | `jiajia_roi085_518` | **388×518 预处理裁剪图** | **破碎多重重影** | 严重破碎 |
+>
+> 即层间一致性的主因是**输入图的来源/预处理**，不是 opacity/尺度显影差 —— 后者决定
+> "分得开 vs 被平均"，前者决定"层间到底差多少"。视频初版误用了 roi085_518（破碎运行），
+> 把重影严重度夸大了数倍；fig35 的 is_renders 实为 `jiajia` 运行（逐位一致），两者口径
+> 不一致（ERRATA E20）。**视频已用 jiajia 运行重渲**，InfiniSplat 格现在与 fig35 同口径。
+> 显影差机制（opacity ×32 交叉实验）本身仍成立，只是它不是这轮观感的主因。
+
 ### 5.4 如果目标只是"做出可用的高保真资产"
 
 P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到几何初值，再用 3~5k 步把外观和细节补上，
@@ -477,7 +491,7 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `fig35_showcase.png` | GT + 5 方法 × 视角 0/16，参照两列轻降饱和；六列统一 3:4 | **效果对比（PPT 主图）** |
 | `video_orbit_360.mp4` | PLY 绕满 360°（10 s / 300 帧 / 540×720），缺口段露拖影 | 与 supersplat 手动查看核对 |
 | `video_orbit_arc.mp4` | 只走 252.7° 观测弧，全程清晰 | PPT 播放 / 展示品 |
-| `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参 | **PPT 播放：同视角逐帧对比** |
+| `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参；InfiniSplat 用 `jiajia` 运行（与 fig35 同口径，2026-11-09 重渲） | **PPT 播放：同视角逐帧对比** |
 | `fig36_ghost_opacity.png` | 头部 2×2：DA3 原样 / **DA3 opacity×32** / Infini 原样 / Infini ÷32 | 解释"重影 vs 糊"是同一分层的两种显影（§5.3-decies） |
 
 生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）。
@@ -490,11 +504,17 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 |---|---|---|---|---|---|
 | DA3-GS | `official_export/i12_fullpts_sh/0000.ply`（610 万，SH2） | `cameras.npz` w2c 3×4 | 1.0000（基准） | — | — |
 | QuerySplat | `gaussians.ply`（37 万，SH1） | `predicted_input_cameras.npz` c2w | 2.2833 | 0.68% | 0.46° |
-| InfiniSplat v2 | `jiajia_roi085_518/scene.ply`（613 万，SH0） | `cameras.npz` c2w | 2.2499 | 1.03% | 0.37° |
+| InfiniSplat v2 | `jiajia/scene.ply`（594 万，SH0） | `cameras.npz` c2w | 2.3100 | 1.03% | 0.37° |
 | VGGT-Ω+3DGS | `point_cloud/iteration_30000`（175 万，SH3） | `cameras.json` **c2w** | 2.2753 | 0.90% | 0.25° |
 | DA3+3DGS | 同上（189 万，SH3） | 同上 | 1.0031 | 0.27% | 0.11° |
 
-三个实现要点（都踩过，详见 ERRATA E16/E17/E18）：
+三个实现要点（都踩过，详见 ERRATA E16/E17/E18/E20）：
+
+0. **先锁定运行口径再对齐**：`~/output/infinisplat_v2_results/` 下有 70+ 个运行目录，
+   `佳佳` 场景至少有两个易混 —— `jiajia`（1439×1919 原图输入，干净）与
+   `jiajia_roi085_518`（388×518 预处理裁剪图输入，层间一致性崩坏）。视频与静图必须用
+   同一运行（本表与 fig35 均为 `jiajia`），拿 `is_renders/` 里的图当 fig35 来源时
+   先用像素比对确认它对应哪个运行（`_probe13.py` 的指纹法）。
 
 1. **3DGS `cameras.json` 的 `rotation` 是 c2w**（forward = 第 3 列）。按 w2c 读视线夹角 97.6~106.2°。
 2. **尺度必须对齐**：DA3-GS 是 metric，VGGT 系差 2.25~2.28 倍。scale 乘到 `exp(scale_)` 后的线性值上，quats 左乘 R 的四元数。
