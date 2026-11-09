@@ -32,6 +32,16 @@ fi
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV" 2>/dev/null || true  # env 可能还没建
 
+# 2b. xformers 运行时：PyPI 版 xformers（0.0.22/0.0.23）全是 cu121 构建，本机 torch 是
+# cu118——缺的 libcudart.so.12/libcublas.so.12 由 pip 包 nvidia-cuda-runtime-cu12 /
+# nvidia-cublas-cu12 补齐（驱动 595.95 满足 CUDA 12.x 前向兼容），这里挂进 LD_LIBRARY_PATH。
+# 2026-11-09 实测：不挂则 xformers._C ImportError libcudart.so.12，dinov2 注意力崩。
+_NVIDIA_LIBS="$(ls -d "$CONDA_PREFIX"/lib/python*/site-packages/nvidia 2>/dev/null | head -1)"
+if [ -n "$_NVIDIA_LIBS" ] && [ -d "$_NVIDIA_LIBS" ]; then
+    export LD_LIBRARY_PATH="$_NVIDIA_LIBS/cuda_runtime/lib:$_NVIDIA_LIBS/cublas/lib:${LD_LIBRARY_PATH:-}"
+fi
+unset _NVIDIA_LIBS
+
 # 3. GPU 选卡
 if [ -n "${GPU:-}" ]; then
     export CUDA_VISIBLE_DEVICES="$GPU"

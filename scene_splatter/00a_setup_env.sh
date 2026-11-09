@@ -108,7 +108,10 @@ rm -f "$REQ_FILTERED"
 #   py310_cu118_pyt212 精确匹配版，但依赖 pytorch-cuda metapackage（nvidia 通道已墙）
 #   且 libmamba 不认 --no-deps——手工下载 tar.bz2 用 python tarfile 解到 env 根（WSL 无 bzip2）。
 echo "📦 installing missing runtime deps (first-run findings)"
-"$PY" -m pip install "${PIP_FLAGS[@]}" "diffusers==0.24.0" "timm==0.9.16" h5py ema-pytorch || {
+# nvidia-cuda-runtime/cublas-cu12：PyPI 版 xformers 全是 cu121 构建，torch 是 cu118，
+# 缺的 libcudart.so.12/libcublas.so.12 由这两个 pip 包补齐（LD 路径在 _env.sh 挂）
+"$PY" -m pip install "${PIP_FLAGS[@]}" "diffusers==0.24.0" "timm==0.9.16" h5py ema-pytorch \
+    nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 || {
     echo "❌ runtime deps install failed" >&2; exit 1; }
 
 if ! (cd /tmp && "$PY" -c "import pytorch3d" 2>/dev/null); then
