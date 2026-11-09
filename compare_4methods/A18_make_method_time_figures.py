@@ -58,7 +58,7 @@ ROWS = [
          geom="单次前向\n生成稠密高斯场",
          gauss="前馈高斯场\n594 万点，位置/尺度/颜色一次给出",
          opt="3000 步短精调\n位置冻结，只调外观",
-         size="594 万\n386 MB", time="3.3 分钟"),
+         size="594 万\n386 MB", time="前馈 33.9 秒\n+ 精调 163 秒\n≈ 3.3 分钟", time_fs=11.0),
     dict(name="VGGT-Ω + 3DGS", tag="参照 · 前馈几何 + 逐场景优化", color=C_OP,
          geom="VGGT-Ω 前向出点云\n→ COLMAP 精化位姿",
          gauss="3DGS 从点云初始化\n在 COLMAP 场景内重建",
@@ -99,7 +99,7 @@ def fig_matrix():
     ax.axis("off")
 
     fig.text(0.5, 0.965,
-             "四方法机制对比：DA3-GS 一次前向直接出高斯，另外两条路线要多花 100 倍时间",
+             "五方法机制对比：DA3-GS 一次前向直接出高斯，另外两条路线要多花 100 倍时间",
              ha="center", va="center", fontsize=21, weight="bold", color="#1B1B1B")
     fig.text(0.5, 0.918,
              "同一场景（佳佳抱枕 · 32 视角）· 同一台 RTX 3090　｜　"
@@ -140,7 +140,7 @@ def fig_matrix():
                  tc="white", fs=15.0, bold=True, ec=r["color"], lw=2.4)
         else:
             cell(ax, COLS[5][1], COLS[5][2], y0, y1, r["time"], base,
-                 tc=r["color"], fs=13.0, bold=True)
+                 tc=r["color"], fs=r.get("time_fs", 13.0), bold=True)
 
     fig.text(0.5, 0.082,
              "耗时构成：DA3-GS = 前向 6.2 s + 导出 6.8 s　｜　QuerySplat = 16.3 + 22.1 s　｜　"

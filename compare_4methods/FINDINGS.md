@@ -486,13 +486,18 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `fig26_i03_2dgs_quant.png` | 深度一致性分档 / MAE 分档 / 预注册判据仪表 | **I-03：判 B 档** |
 | `fig27_i03b_oracle_visual.png` | 三档 2DGS（重排/oracle）× 2 视角全图 + 人脸 4× 放大 | **I-03b：给对法向反而更糊** |
 | `fig28_i03b_oracle_quant.png` | ΔPSNR 棒棒糖 / 锐度分组柱 / 判据表 | **I-03b：H2 证伪，回归 DA3-GS** |
-| `fig33_method_matrix.png` | 5 行 × 6 列机制矩阵：几何/位姿来源、高斯来源、是否需逐场景优化、规模、耗时 | **方法对比（PPT 主图）** |
+| `fig33_method_matrix.png` | 5 行 × 6 列机制矩阵：几何/位姿来源、高斯来源、是否需逐场景优化、规模、耗时；InfiniSplat 耗时格直写「前馈 33.9 s + 精调 163 s ≈ 3.3 分钟」（2026-11-09 按峰哥要求，避免被问"为什么这么久"） | **方法对比（PPT 主图）** |
 | `fig34_time_compare.png` | 分段横向条形 + 秒级放大插图 + 相对倍数 | **耗时对比：13.5 s vs 20~23 min** |
 | `fig35_showcase.png` | GT + 5 方法 × 视角 0/16，参照两列轻降饱和；六列统一 3:4 | **效果对比（PPT 主图）** |
 | `video_orbit_360.mp4` | PLY 绕满 360°（10 s / 300 帧 / 540×720），缺口段露拖影 | 与 supersplat 手动查看核对 |
 | `video_orbit_arc.mp4` | 只走 252.7° 观测弧，全程清晰 | PPT 播放 / 展示品 |
 | `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参；InfiniSplat 用 `jiajia` 运行（与 fig35 同口径，2026-11-09 重渲） | **PPT 播放：同视角逐帧对比** |
 | `fig36_ghost_opacity.png` | 头部 2×2：DA3 原样 / **DA3 opacity×32** / Infini 原样 / Infini ÷32 | 解释"重影 vs 糊"是同一分层的两种显影（§5.3-decies） |
+
+> **轨迹口径（2026-11-09 起）**：三个视频均为**水平匀速圆环** —— 半径取相机环 90 分位
+> ×1.06、仰角固定中位值，eye 直接由方位角解析生成（`flat_ring`），不再沿真实相机位置
+> 插值。真实采集环有仰角/半径起伏，插值轨迹会让画面前后摇晃（峰哥明确要求去掉）。
+> `ring_interp` 保留给诊断脚本复现历史视角。
 
 生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）。
 

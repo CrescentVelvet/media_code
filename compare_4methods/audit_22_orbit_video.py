@@ -202,7 +202,8 @@ def main():
         raise SystemExit("❌ 环平面法向与相机 up 夹角 %.1f° —— 定符号失败了" % up_ang)
     log("   原始仰角 中位 %.1f°  范围 %.1f° ~ %.1f°"
         % (np.median(el), el.min(), el.max()))
-    log("   轨迹 = 沿真实相机位置的方位角插值（不另造圆；首帧对齐 0 号相机）")
+    log("   轨迹 = 水平匀速圆环：半径取 90 分位 ×%.2f，仰角固定中位 %.1f°（不沿真实相机位置插值）"
+        % (RADIUS_K, np.median(el)))
 
     # 自证：用 0 号相机（参考视角）的真实外参校验 look_at 的构造约定。
     w_chk = look_at(C[0], mu, axis)
@@ -284,11 +285,12 @@ def main():
         th_list = [th_start + two_pi * i / NFRAMES for i in range(NFRAMES)]
 
     keep = []
+    el_rad = np.radians(elev)
     for i, th in enumerate(th_list):
-        t = base + (th - base) % two_pi                      # 折回插值表区间
-        k = int(np.clip(np.searchsorted(ths_c, t) - 1, 0, len(ths_c) - 2))
-        w = (t - ths_c[k]) / gaps[k]
-        eye = Cs_c[k] * (1 - w) + Cs_c[k + 1] * w          # 落在真实相机之间
+        # 水平匀速圆环：固定半径 Rb、固定仰角 elev（2026-11-09 峰哥要求，
+        # 不要再沿真实相机位置插值 —— 采集时的仰角/半径起伏会让画面前后摇晃）
+        in_plane = np.cos(th) * e1 + np.sin(th) * e2
+        eye = mu + Rb * np.cos(el_rad) * in_plane + Rb * np.sin(el_rad) * axis
         w2c = look_at(eye, mu, axis)
         with torch.no_grad():
             img, alpha, _ = rasterization(

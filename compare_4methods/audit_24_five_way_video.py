@@ -249,7 +249,11 @@ def arc_angles(orb, n, trim=0.0):
 
 
 def ring_interp(orb, th_q):
-    """在真实相机位置之间按方位角线性插值 → 轨迹上每帧的 eye 点。"""
+    """在真实相机位置之间按方位角线性插值 → 轨迹上每帧的 eye 点。
+
+    ⚠️ 2026-11-09 起主流程不再用它（真实相机环有仰角/半径起伏 → 画面前后摇晃），
+    保留仅供诊断脚本（audit_26/27/28/30）复现历史视角。渲染走 flat_ring。
+    """
     ths, Cs = orb["th"], orb["C_ring"]
     two_pi = 2 * np.pi
     ths_c = np.concatenate([ths, ths[:1] + two_pi])
@@ -263,6 +267,18 @@ def ring_interp(orb, th_q):
         w = (t - ths_c[k]) / gaps[k]
         out[i] = Cs_c[k] * (1 - w) + Cs_c[k + 1] * w
     return out
+
+
+def flat_ring(orb, th_q, radius, elev_deg):
+    """水平匀速圆环：固定半径 + 固定仰角（峰哥 2026-11-09 要求：水平旋转一圈，不要前后摇晃）。
+
+    eye = target + r·cos(el)·(cos θ·e1 + sin θ·e2) + r·sin(el)·axis
+    e1/e2 是拟合环平面的主方向，axis 是环法向（已按相机 up 定符号）。
+    """
+    el = np.radians(elev_deg)
+    in_plane = np.cos(th_q)[:, None] * orb["e1"] + np.sin(th_q)[:, None] * orb["e2"]
+    return (orb["target"] + radius * np.cos(el) * in_plane
+            + radius * np.sin(el) * orb["axis"][None, :])
 
 
 # ── 高斯变换 ────────────────────────────────────────────────────────────────
@@ -327,8 +343,9 @@ def main():
     log("   轨道半径 %.3f m（RADIUS_K=%.2f）｜ 仰角 %.1f°" % (Rb, RADIUS_K, elev))
 
     th_q, span, span_full = arc_angles(orb, NFRAMES, TRIM)
-    eyes = ring_interp(orb, th_q)
-    log("   ARC 轨迹：%d 帧扫过 %.1f°（观测弧 %.1f° 内）" % (len(eyes), span, span_full))
+    eyes = flat_ring(orb, th_q, Rb, elev)
+    log("   ARC 轨迹：%d 帧扫过 %.1f°（观测弧 %.1f° 内）｜ 水平匀速圆环（固定半径/仰角，无摇晃）"
+        % (len(eyes), span, span_full))
 
     # 内参统一取 DA3-GS 的（视场也算相机的一部分）
     K0 = np.load(A + "/cameras.npz")["intrinsics"].astype(np.float64)[0]
