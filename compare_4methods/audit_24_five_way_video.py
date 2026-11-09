@@ -201,7 +201,7 @@ def fit_orbit(C, d, up):
     el = np.degrees(np.arcsin(np.clip(((C - target) @ axis) / np.maximum(r, 1e-9), -1, 1)))
     th = np.arctan2((C - Cc) @ vt[1], (C - Cc) @ vt[0])
     order = np.argsort(th)
-    return dict(target=target, axis=axis, C=C, r=r, el=el,
+    return dict(target=target, axis=axis, e1=vt[0], e2=vt[1], C=C, r=r, el=el,
                 th=th[order], C_ring=C[order], th0=float(th[0]),
                 ang_med=float(np.median(ang)), up_ang=up_ang, sv=sv, Cc=Cc)
 
