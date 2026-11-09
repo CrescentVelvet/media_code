@@ -315,7 +315,7 @@ if prediction.is_metric and scale_factor is not None:
 
 ---
 
-## 审计基线（2026-11-07 建，2026-11-09 扩到十八项）
+## 审计基线（2026-11-07 建，2026-11-09 扩到十九项）
 
 > 用途：以后任何"重影/模糊/错位"的怀疑，先跑这些脚本对表格，再谈模型能力。
 > 全部只读，不改产物。基准数据：`佳佳抱枕_p1m`（32 视角 / process_res 504 / scale_factor 1.9988）。
@@ -340,6 +340,7 @@ if prediction.is_metric and scale_factor is not None:
 | 16 | **3DGS `cameras.json` 的 rotation 是 c2w 不是 w2c** | `audit_24_five_way_video.sh` | 四种解读逐一试：`col+`（forward=R 的第 3 列）视线夹角 **0.11~0.25°** 过关；按 w2c 读（第 3 行）是 **97.6~106.2°** | 视线夹角中位 <5°；**四种全试**再定论 |
 | 17 | **跨方法能否搬到同一坐标系（尺度）** | `audit_24_five_way_video.sh` | DA3-GS 是 metric（s=1.000）；QuerySplat/InfiniSplat/VGGT+3DGS 是 VGGT 系 **s=2.25~2.28**；Umeyama 后残差 0.27~1.03% 半径 | 残差 <3% 半径 且 视线 <5° 才能同轨迹同框 |
 | 18 | **QuerySplat 的方形画幅是不是"压扁"** | `audit_25_qs_aspect.sh` | A 原样 512² **11.95** / B 只压横 **11.96** / C 裁切 **11.22** / **D 等比缩焦距 16.55** | 差 >2 dB 才算分辨得开；胜出方案即正确口径 |
+| 19 | **能否直接跨方法比"重影 / 锐度"** | `audit_29_opacity_cross.sh` | DA3-GS opacity 中位 **0.033 ≈ 0.95/32**（32 份各压 1/32）、半径 2.72 px；InfiniSplat **0.180**、半径 1.11 px。DA3 原样单脸糊，`opacity×32` 立刻出**双脸**；Infini `÷32` 后 α 0.9999→**0.2301** | 跨方法比观感前先对齐 opacity 与尺度；**不同口径下的"重影 vs 糊"不是质量差，是显影差** |
 
 > 第 3 行的 0.937 只用于**区分四元数组件序**（wxyz vs xyzw 的 A/B），**不能**当作"盘朝相机"的证据。
 > 分视角实测（第 10 行）是 25~51°，跨视角差异很大。
