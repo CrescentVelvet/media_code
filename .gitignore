@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 proxy.env
 vlm_bridge/vlm.env
+.workbuddy/tmp/
 
 # MediaPipe BlazeFace face detector models (auto-downloaded by face_crop/crop_faces.py)
 face_crop/models/*.tflite
@@ -18,3 +19,9 @@ gen3r/_preview/
 
 # infinisplat_v2 目检用的临时预览图
 infinisplat_v2/_check/
+
+# da3_human 逐次运行的临时日志（结果一律入 EXPERIMENTS.md）
+da3_human/_*.log
+
+# da3_human 逐次运行的临时日志（结果一律入 EXPERIMENTS.md）
+da3_human/_*.log

@@ -61,10 +61,23 @@ def load_ply(path):
     return means, sh, op, sc, q, normals, props
 
 
-def load_gt(vi, W, H):
+def _gt_paths():
+    """与 08 同口径的图像列表（三种扩展名分别排序后合并再排序）。"""
     import pathlib
 
-    p = sorted(pathlib.Path(IMGS).glob("*.jpg"))[vi]
+    fs = []
+    for e in ("*.jpg", "*.jpeg", "*.png"):
+        fs.extend(sorted(pathlib.Path(IMGS).glob(e)))
+    return sorted(fs)
+
+
+GT_PATHS = _gt_paths()
+VI_MAP = None  # NPZ 里第 i 个视角 → sorted(images) 的索引；抽帧时必须用
+
+
+def load_gt(vi, W, H):
+    gi = int(VI_MAP[vi]) if VI_MAP is not None else vi
+    p = GT_PATHS[gi]
     im = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     t = torch.from_numpy(im).permute(2, 0, 1)
     if (t.shape[1], t.shape[2]) != (H, W):
@@ -73,6 +86,7 @@ def load_gt(vi, W, H):
 
 
 def main():
+    global VI_MAP
     mode = sys.argv[1] if len(sys.argv) > 1 else "sweep"
 
     means_np, sh_np, op_np, sc_np, q_np, normals, props = load_ply(PLY)
@@ -85,6 +99,13 @@ def main():
     w2c = np.concatenate([ext, np.tile(np.array([[[0.0, 0.0, 0.0, 1.0]]], np.float32), (nv, 1, 1))], axis=1)
     K0 = d["intrinsics"].astype(np.float32).copy()
     H0, W0 = d["depth"].shape[-2:]
+    if "view_indices" in d:
+        VI_MAP = np.asarray(d["view_indices"])
+        assert len(VI_MAP) == nv, f"view_indices {len(VI_MAP)} != 视角数 {nv}"
+        print(f"🗺️ 视角映射来自 NPZ：{list(VI_MAP[:8])}…（共 {nv} 个）")
+    elif nv != len(GT_PATHS):
+        sys.exit(f"❌ NPZ 只有 {nv} 个视角但图像目录有 {len(GT_PATHS)} 张，"
+                 f"且没有 view_indices → 无法对齐 GT（08 已修，重跑 08 或补 view_indices）")
     print(f"📷 {nv} 视角 | npz 处理分辨率 {W0}x{H0}")
 
     sh_deg = int(round(sh_np.shape[1] ** 0.5)) - 1
