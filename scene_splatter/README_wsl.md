@@ -64,15 +64,22 @@ bash scene_splatter/08_move_output.sh        # ~/output/... → /mnt/d/output/sc
    02 生成器已按此对齐；跑完用 `--selftest` 读回核对。
 5. **分辨率硬编码**——`main()` 写死 `cfg.dataset.height=576; width=1024`，输入图会被
    resize 到 1024×576；02 生成器默认内参也按这个分辨率算，横评对齐 FlashWorld 时注意口径。
-6. **av==10.0.0 被剔除**——PyPI 上该版本只有 sdist（编译需 pkg-config+ffmpeg 头，
-   无 sudo 装不了），且全仓仅 SIBR_viewers 预处理工具 import av，非主路径。
-   00a 装 requirements 时自动 grep -v 剔除；若官方后续加 av 依赖需换 binary 版 av。
+6. **av==10.0.0 → 12.1.0**——PyPI 上 10.0.0 只有 sdist（编译需 pkg-config+ffmpeg 头，
+   无 sudo 装不了）。av 是主路径依赖（viewcrafterpipe.py `save_video` 走
+   torchvision.io.write_video → PyAV，保存 input_video/渲染视频都要它），
+   00a 装 requirements 时自动替换成有 cp310 wheel 的 av==12.1.0（首跑实测兼容）。
 7. **scipy==1.9.1 → 1.11.4**——官方 requirements 自相矛盾（scipy 1.9.1 要求
    numpy<1.25 却 pin numpy==1.26.0），新 resolver 直接 ResolutionImpossible。
    00a 自动放宽 scipy  pin；numpy 保留官方 1.26.0。
 8. **setuptools 降到 <81**——torch 2.1 的 cpp_extension.py `import pkg_resources`，
    conda 默认 setuptools 84.x 已移除该模块（2025 后上游彻底删除），编译光栅器前
    00a 自动检测并降级 setuptools，否则 metadata-generation 即挂。
+9. **10GB 级权重别经 9p 软链直接 load**——ViewCrafter_25 的 model.ckpt（10.4GB）
+   落 wheel 池后软链到 `viewcrafter/checkpoints/`，`torch.load` 走 9p 单线程顺序读
+   实测仅 ~10MB/s（约 18 分钟才读完上 GPU）；而进程读的是 9p，期间 nvidia-smi
+   看不到它在 GPU 上，极易误判为卡死。大 ckpt 要么首次加载后拷进 Linux fs
+   （`~/model/`），要么容忍一次性慢加载。另：python 输出重定向到文件是块缓冲，
+   tqdm/print 长时间不落盘不代表没进展，看 `/proc/<pid>/io` 的 read_bytes 是否在涨。
 
 ## 与 FlashWorld / Gen3R 的横评口径（compare_4methods 姊妹篇）
 - 输入：统一单图 + 同一组 orbit 轨迹参数（YAW_SPAN/RADIUS/FOV_Y 对齐 FlashWorld 默认）。

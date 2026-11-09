@@ -86,16 +86,17 @@ echo "📦 installing torch/torchvision from local wheels"
 
 # ── 4) requirements.txt（去 torch 三件套，官方 README 单独装）──
 # ⚠️ requirements 里 pip==23.0.1 会降级 pip，属官方原样行为，不动它。
-# ⚠️ av==10.0.0 PyPI 只有 sdist（需 pkg-config+ffmpeg 头，无 sudo 编不了），且全仓
-#    仅 SIBR_viewers 预处理工具 import av（非 scenesplatter 主路径）——剔除。
+# ⚠️ av==10.0.0 PyPI 只有 sdist（需 pkg-config+ffmpeg 头，无 sudo 编不了）——但 av 是
+#    主路径依赖（viewcrafterpipe.py save_video 走 torchvision.io.write_video → PyAV），
+#    不能剔除，换成有 cp310 wheel 的 av==12.1.0（首跑实测 torchvision 0.16.2 兼容）。
 # ⚠️ scipy==1.9.1 要求 numpy<1.25，与 numpy==1.26.0 互斥（官方 requirements 自相矛盾，
 #    当年大概靠旧 resolver 硬装）。scipy 1.9.1 的 wheel 编译期 ABI 虽兼容 numpy 1.26
 #    （numpy 2.0 才断 ABI），但让 pip 解析通过需放宽——升 scipy==1.11.4（有 cp310
 #    wheel，sklearn 1.2.2 / skimage 0.20 的 scipy 下限都远低于它）。
 echo "📦 installing requirements.txt"
 REQ_FILTERED="$(mktemp)"
-grep -v '^av==' "$SS_DIR/requirements.txt" > "$REQ_FILTERED"
-sed -i 's/^scipy==1\.9\.1/scipy==1.11.4/' "$REQ_FILTERED"
+sed -e 's/^av==10\.0\.0/av==12.1.0/' -e 's/^scipy==1\.9\.1/scipy==1.11.4/' \
+    "$SS_DIR/requirements.txt" > "$REQ_FILTERED"
 "$PY" -m pip install "${PIP_FLAGS[@]}" -r "$REQ_FILTERED" || {
     echo "❌ requirements install failed" >&2; exit 1; }
 rm -f "$REQ_FILTERED"
