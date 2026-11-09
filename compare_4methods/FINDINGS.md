@@ -493,13 +493,19 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `video_orbit_arc.mp4` | 只走 252.7° 观测弧，全程清晰 | PPT 播放 / 展示品 |
 | `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参；InfiniSplat 用 `jiajia` 运行（与 fig35 同口径，2026-11-09 重渲） | **PPT 播放：同视角逐帧对比** |
 | `fig36_ghost_opacity.png` | 头部 2×2：DA3 原样 / **DA3 opacity×32** / Infini 原样 / Infini ÷32 | 解释"重影 vs 糊"是同一分层的两种显影（§5.3-decies） |
+| `fig37_gaussian_101.png` | 科普基座：一颗高斯=5 个数字 → splatting 投影 → 610 万颗成场景（嵌真实渲染帧） | **领导入门第一页** |
+| `fig38_five_pipelines.png` | 五方法泳道：看懂场景 → 高斯怎么生 → 要不要回炉 → 耗时（全程大白话） | **方法对比讲解页** |
+| `fig39_da3gs_deepdive.png` | DA3-GS 机制深挖：DINOv2 → depth-ray → 点云 → GS-DPT；含 teacher-student 卡与耗时账本 | 主角技术细节页 |
+| `fig40_gaussian_philosophy.png` | 三种摆放哲学：像素网格（DA3-GS）× 查询槽（QuerySplat）× 逐场景雕塑（3DGS 系） | 路线取舍讲解页 |
+
+技术细节口径来自 media_paper 调研笔记：DA3（3D-20251113-Depth-Anything-3）、QuerySplat（3D-20261105-QuerySplat）、InfiniSplat v2（3D-20261014-InfiniSplat-v2）、VGGT-Ω（3D-20260514-VGGT-Omega）、3DGS（3D-20230808-3DGS基础与改进综述）。
 
 > **轨迹口径（2026-11-09 起）**：三个视频均为**水平匀速圆环** —— 半径取相机环 90 分位
 > ×1.06、仰角固定中位值，eye 直接由方位角解析生成（`flat_ring`），不再沿真实相机位置
 > 插值。真实采集环有仰角/半径起伏，插值轨迹会让画面前后摇晃（峰哥明确要求去掉）。
 > `ring_interp` 保留给诊断脚本复现历史视角。
 
-生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）。
+生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）、`A19_method_primer_figures.py`（fig37~40 科普组图）。
 
 ### 6.1 五方法对比视频口径（`audit_24_five_way_video.py`）
 
