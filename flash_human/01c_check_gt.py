@@ -47,7 +47,9 @@ for i in (1, meta["n_views"] // 2, meta["n_views"]):
     in_range = finite.size / d.size
     print(f"[depth {i:06d}] min={dmin:.3f}m 中位={float(np.median(finite)):.3f}m "
           f"有效占比={in_range:.3f} (相机距离 {dist:.3f}m)")
-    ok &= 0.5 < dmin < dist          # 最近表面应显著近于相机距离
+    # 最近表面应显著近于相机距离;下界取 0.2m 绝对值——face 档特写下
+    # 发丝/帽檐可合法贴近相机(Rosemary face_v1 frame24 实测 dmin=0.401m)
+    ok &= 0.2 < dmin < dist
 
     p = os.path.join(BASE, "normal", f"{i:06d}.exr")
     inp = oiio.ImageInput.open(p)

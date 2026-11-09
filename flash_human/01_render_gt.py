@@ -66,6 +66,9 @@ YAW_SPAN = _arg_float("yaw_span", 360.0 if MODE == "full" else 150.0)  # face �
 LIGHT_JITTER = _arg_float("light_jitter", 0.3)   # 光照域随机化强度 0~1
 TARGET_ZFRAC = _arg_float("target_zfrac", 0.55 if MODE == "full" else 0.85)
                                      # look-at 目标高度 = bbox 高 * zfrac(胸口/面部)
+FRONT_AZIM_OVERRIDE = _arg_float("front_azim", -1.0)
+                                     # face 档弧段中心方位角(度,数学约定:0=+X 90=+Y);
+                                     # <0 = 自动检测(睫毛/眼睛网格法线),失败退 90(+Y) 并告警
 
 assert FBX_PATH and OUT_DIR, "--fbx 与 --out 必填"
 random.seed(SEED)
@@ -217,9 +220,55 @@ for o in imported:
 bbox_h = bb_max.z - bb_min.z          # ≈1.70
 print(f"[norm] bbox_min={list(bb_min)} bbox_max={list(bb_max)} "
       f"height={bbox_h:.3f} scale={scale:.4f}")
+# 瞄准目标 XY:face 档取上部 20% 顶点质心(头部),full 档取 bbox 中心(=原点)。
+# 武器/长发会把 bbox 中心拉偏:Rosemary 的 katana 使归一化后头部位于
+# (+0.16,+0.37),用 bbox 中心瞄准会让 ±75° 弧段全拍后脑勺/帽檐(2026-11-09 实测)。
+if MODE == "face":
+    _z_thr = bb_min.z + bbox_h * 0.8
+    _sx = _sy = _n = 0.0
+    for _o in imported:
+        _mw = _o.matrix_world
+        for _v in _o.data.vertices:
+            _w = _mw @ _v.co
+            if _w.z > _z_thr:
+                _sx += _w.x
+                _sy += _w.y
+                _n += 1
+    _tx, _ty = (_sx / _n, _sy / _n) if _n else (0.0, 0.0)
+    print(f"[target] face 档头部质心 XY=({_tx:.3f},{_ty:.3f}) n={int(_n)}")
+else:
+    _tx = _ty = 0.0                     # 归一化后 bbox 中心即原点
 target = mathutils.Vector(
-    ((bb_min.x + bb_max.x) / 2, (bb_min.y + bb_max.y) / 2,
-     bb_min.z + bbox_h * TARGET_ZFRAC))
+    (_tx, _ty, bb_min.z + bbox_h * TARGET_ZFRAC))
+
+# 正前方方位角(face 档弧段中心):自动检测 = 睫毛/眼睛网格的面积加权法线
+# 水平分量(Rosemary 实测 -Y,与脚本原假设 +Y 相反,曾致 48 帧全拍后脑勺)。
+# 注意只能在归一化之后算:归一化前的 matrix_world 缩放会带歪法线。
+if FRONT_AZIM_OVERRIDE >= 0.0:
+    FRONT_AZIM = FRONT_AZIM_OVERRIDE
+    print(f"[front] 用 --front_azim 覆盖: {FRONT_AZIM:.1f}°")
+else:
+    _fx = _fy = 0.0
+    for _pat in ("lash", "eye"):        # 睫毛优先(条带法线朝前),眼睛球体次之
+        _fx = _fy = 0.0
+        for _o in imported:
+            if _junk_re.match(_o.name) or not _re.search(_pat, _o.name, _re.I):
+                continue
+            _mw3 = _o.matrix_world.to_3x3()
+            for _p in _o.data.polygons:
+                _n = _mw3 @ _p.normal
+                _fx += _n.x * _p.area
+                _fy += _n.y * _p.area
+        if math.hypot(_fx, _fy) > 0.05:
+            break
+    if math.hypot(_fx, _fy) > 0.05:
+        FRONT_AZIM = math.degrees(math.atan2(_fy, _fx))
+        print(f"[front] 自动检测正前方 azim={FRONT_AZIM:.1f}° "
+              f"(睫毛/眼睛法线水平分量 {_fx:.2f},{_fy:.2f})")
+    else:
+        FRONT_AZIM = 90.0
+        print(f"[front] ⚠️ 未找到睫毛/眼睛网格,默认 +Y(90°)——"
+              f"必须目视抽查验证朝向!")
 
 # ---------------------------------------------------------------- 灯光与世界
 world = bpy.data.worlds.new("W")
@@ -346,7 +395,7 @@ dist *= DIST_MULT
 
 def fibonacci_sphere(n, elev_min, elev_max, yaw_span):
     """n 个视角:仰俯在 [elev_min, elev_max] 内均匀,方位按 yaw_span 分布。
-    full 档 yaw_span=360 覆盖整圈;face 档 150° 居中于模型正前方(+Y)。"""
+    full 档 yaw_span=360 覆盖整圈;face 档 yaw_span 居中于正前方 FRONT_AZIM。"""
     pts = []
     e0, e1 = math.radians(elev_min), math.radians(elev_max)
     golden = math.pi * (3.0 - math.sqrt(5.0))
@@ -356,7 +405,7 @@ def fibonacci_sphere(n, elev_min, elev_max, yaw_span):
         if yaw_span >= 360.0:
             azim = math.radians((i * 360.0 / n + 90.0) % 360.0)
         else:
-            azim = math.radians(90.0 - yaw_span / 2
+            azim = math.radians(FRONT_AZIM - yaw_span / 2
                                 + yaw_span * (i + 0.5) / n)
         r_xy = dist * math.cos(elev)
         loc = mathutils.Vector((
