@@ -37,12 +37,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import audit_24_five_way_video as a24  # read_ply / read_cams / umeyama / warp
 
 O = os.path.expanduser("~/output")
-GT_CAMS = os.environ.get("GT_CAMS", O + "/da3_results/_captures/佳佳抱枕/cameras.npz")
-GT_IMAGES = os.environ.get("GT_IMAGES", O + "/da3_results/_captures/佳佳抱枕/images")
-BASE3 = os.environ.get("BASE3", O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/cameras.npz")
-OUT = os.environ.get("OUT", O + "/batch_4methods/eval_3view_jiajia.json")
+# 注意 .sh 用 OUT="${OUT:-}" 传参，空串要回落到默认值（get 不挡空串）
+GT_CAMS = os.environ.get("GT_CAMS") or O + "/da3_results/_captures/佳佳抱枕/cameras.npz"
+GT_IMAGES = os.environ.get("GT_IMAGES") or O + "/da3_results/_captures/佳佳抱枕/images"
+BASE3 = os.environ.get("BASE3") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/cameras.npz"
+OUT = os.environ.get("OUT") or O + "/batch_4methods/eval_3view_jiajia.json"
 ONLY = os.environ.get("ONLY", "").strip()
-K_BASE = (378, 504)   # GT cameras.npz 内参对应的处理分辨率（PROCESS_RES=504 竖图）
 
 CASES = [
     dict(name="DA3-GS",
@@ -82,25 +82,22 @@ def sharpness(bgr):
 def main():
     from gsplat import rasterization
 
-    # ── GT 侧：32 相机 + 32 ref 图 + K ──
-    e = np.load(GT_CAMS)["extrinsics"].astype(np.float64)
-    if e.ndim == 4:
-        e = e[:, :3, :]
-    Cref, dref, upref = a24.read_cams("w2c34", GT_CAMS)
+    # ── GT 侧：32 相机（c2w，07_capture_to_npz 产物，K 已是原图分辨率）+ ref 图 ──
+    z = np.load(GT_CAMS)
+    c2w = z["c2w"].astype(np.float64)
+    Cref, dref, upref = a24.read_cams("c2w", GT_CAMS)
     refs = sorted([p for p in Path(GT_IMAGES).iterdir()
                    if p.suffix.lower() in (".png", ".jpg", ".jpeg")])
     if len(refs) != len(Cref):
         raise SystemExit(f"❌ ref 图数 {len(refs)} != 相机数 {len(Cref)}")
     img0 = cv2.imread(str(refs[0]))
     H, W = img0.shape[:2]
-    K0 = np.load(GT_CAMS)["intrinsics"].astype(np.float64)[0]
-    K = K0.copy()
-    K[0, 0] *= W / K_BASE[0]; K[0, 2] *= W / K_BASE[0]
-    K[1, 1] *= H / K_BASE[1]; K[1, 2] *= H / K_BASE[1]
-    W2C = np.zeros((len(Cref), 4, 4))
-    W2C[:, :3, :4] = e
-    W2C[:, 3, 3] = 1.0
-    log(f"📷 GT: {len(Cref)} 相机 ｜ ref {W}×{H}×{len(refs)} ｜ fx={K[0,0]:.0f} fy={K[1,1]:.0f}")
+    K = z["intrinsics"].astype(np.float64)[0]
+    # K 的分辨率 sanity：cx≈宽/2 且 fx 与宽同量级，否则说明 K 与 ref 不同分辨率
+    if not (0.4 * W < K[0, 2] < 0.6 * W and 0.4 * H < K[1, 2] < 0.6 * H):
+        raise SystemExit(f"❌ K 主点 ({K[0,2]:.0f},{K[1,2]:.0f}) 与 ref 尺寸 {W}×{H} 不匹配")
+    W2C = np.linalg.inv(c2w)
+    log(f"📷 GT: {len(Cref)} 相机（c2w）｜ ref {W}×{H}×{len(refs)} ｜ fx={K[0,0]:.0f} fy={K[1,1]:.0f}")
 
     # ── 输入帧 GT 位姿（基准 3 帧）→ 在 32v 集合里找最近邻 ──
     Cb, _, _ = a24.read_cams("c2w", BASE3)
@@ -112,6 +109,14 @@ def main():
         f" → input3 分层 = 这些索引，其余 {len(Cref) - 3} 个 = holdout")
 
     dev = "cuda"
+    # 预检：与另一个重度 GPU 任务（如 19_orbit 视频渲染）共存时，WSL2 vGPU 上
+    # gsplat rasterization 会退化成 100% 利用率活锁、单帧数小时无进展（2026-11-10 实测）。
+    # 显存余量 < 阈值直接拒跑，避免再 silent 挂一晚上。
+    free_b, total_b = torch.cuda.mem_get_info()
+    log(f"🩺 GPU 预检: 空闲 {free_b/2**30:.1f} / {total_b/2**30:.1f} GiB")
+    if free_b < 4 * 2**30:
+        raise SystemExit("❌ GPU 空闲显存 < 4 GiB——可能有其它任务在跑（或其残留），"
+                         "活锁风险高，拒跑。等其退出或 wsl --shutdown 清残留后再试。")
     Kt = torch.from_numpy(K).float().to(dev)[None]
     bg = torch.ones(3, device=dev)
     refs_rgb = [cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB) for p in refs]
@@ -167,6 +172,8 @@ def main():
                              ssim=float(ssim(refs_rgb[i], rgb, channel_axis=2, data_range=255)),
                              sharp=sharpness(bgr)))
             if (i + 1) % 16 == 0:
+                log(f"   frame {i+1}/{len(Cref)}  α中位 {amed:.3f}")
+            elif i < 4:  # 每方法开头几帧逐帧报——活锁会在几分钟内暴露而不是挂一晚上
                 log(f"   frame {i+1}/{len(Cref)}  α中位 {amed:.3f}")
         del G
         torch.cuda.empty_cache()
