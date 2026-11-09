@@ -100,6 +100,30 @@ sed -i 's/^scipy==1\.9\.1/scipy==1.11.4/' "$REQ_FILTERED"
     echo "❌ requirements install failed" >&2; exit 1; }
 rm -f "$REQ_FILTERED"
 
+# ── 4b) 官方 requirements 漏写/钉错的运行期依赖（2026-11-09 首跑实测）──
+# diffusers：scenesplatter.py 直接 `from diffusers.utils import ...`，requirements.txt 没写；
+# timm：requirements 装出 0.6.13，没有 timm.layers（flash3d UniDepth ConvNeXt 要 ≥0.9）→ 0.9.16；
+# h5py / ema-pytorch：dust3r / flash3d 运行期 import；
+# pytorch3d：scenesplatter.py L18 import。pip 无 wheel，官方 conda 包在 NJU cloud 有
+#   py310_cu118_pyt212 精确匹配版，但依赖 pytorch-cuda metapackage（nvidia 通道已墙）
+#   且 libmamba 不认 --no-deps——手工下载 tar.bz2 用 python tarfile 解到 env 根（WSL 无 bzip2）。
+echo "📦 installing missing runtime deps (first-run findings)"
+"$PY" -m pip install "${PIP_FLAGS[@]}" "diffusers==0.24.0" "timm==0.9.16" h5py ema-pytorch || {
+    echo "❌ runtime deps install failed" >&2; exit 1; }
+
+if ! (cd /tmp && "$PY" -c "import pytorch3d" 2>/dev/null); then
+    echo "📦 pytorch3d 0.7.7 (manual untar from NJU cloud)"
+    P3D_URL="https://mirrors.nju.edu.cn/anaconda/cloud/pytorch3d/linux-64/pytorch3d-0.7.7-py310_cu118_pyt212.tar.bz2"
+    P3D_TARBALL="$(mktemp --suffix=.tar.bz2)"
+    curl -sL --retry 3 -o "$P3D_TARBALL" "$P3D_URL" || {
+        echo "❌ pytorch3d download failed" >&2; exit 1; }
+    "$PY" -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" \
+        "$P3D_TARBALL" "$CONDA_PREFIX" || { echo "❌ pytorch3d untar failed" >&2; exit 1; }
+    rm -f "$P3D_TARBALL"
+    (cd /tmp && "$PY" -c "import pytorch3d") || {
+        echo "❌ pytorch3d import failed after untar" >&2; exit 1; }
+fi
+
 # ── 5) nvcc 11.8 工具链（编译 diff-gaussian-rasterization 用）──
 # nvidia conda 通道全被墙（tuna/NJU/BFSU 无 nvidia cloud，SJTU 跳 jcloud 403），
 # pip 的 nvcc 又没有 gcc。借 flame_human env 的完整 11.8 工具链（nvcc+gcc11.4+
