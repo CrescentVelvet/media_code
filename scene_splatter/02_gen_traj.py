@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """生成 Scene Splatter 的轨道相机轨迹 pickle（camera.pickle.gz）。
 
-官方约定（scenesplatter.py prepare_data + flash3d data_to_c2w）：
-  camera_poses["intrinsics"]: list，每帧一个 np.float32 数组，本脚本按 flat-4
-      [fx_n, fy_n, cx_n, cy_n] 归一化（f/图像宽 or 高、主点/宽 or 高；
+官方约定（scenesplatter.py prepare_data + flash3d data_to_c2w；2026-11-09 已用
+--inspect-example 对照官方 assert/cameras/camera0.pickle.gz 实测确认）：
+  camera_poses["intrinsics"]: list，每帧一个 np.float32 flat-4
+      [fx_n, fy_n, cx_n, cy_n]（除以图像宽/高归一化，主点 0.5；
+      官方示例 elem=[0.4725, 0.8400, 0.5, 0.5]，fy_n=0.84 ↔ fov_y≈61°，
       prepare_data 里 K_scale_target 会乘回 w/h）。⚠️ README 说 "4×4 matrix"
-      与代码取值方式有出入，首次跑前务必 --inspect-example 核对（NOTES.md 第 4 节）。
-  camera_poses["poses"]: list，每帧 4×4 w2c（OpenCV 约定 x 右 y 下 z 前；
-      data_to_c2w 取逆得 c2w）。
+      与代码取值方式有出入，以 flat-4 为准。
+  camera_poses["poses"]: list，每帧 **3×4** w2c（OpenCV 约定 x 右 y 下 z 前，
+      末行 [0,0,0,1] 省略；data_to_c2w 取逆得 c2w）。
+      官方示例 143 帧，首帧 R≈I、t=[0.102, 0.020, -0.488]（相机在 +z 看向原点）。
 
 用法：
   python 02_gen_traj.py                          # 按 env 生成轨迹
@@ -61,7 +64,8 @@ def build_orbit(num_frames, yaw_span, radius, height, fov_y, w, h, direction):
         c2w = np.eye(4, dtype=np.float32)
         c2w[:3, 0], c2w[:3, 1], c2w[:3, 2] = x_axis, y_axis, z_axis
         c2w[:3, 3] = pos
-        poses.append(np.linalg.inv(c2w).astype(np.float32))  # w2c
+        w2c = np.linalg.inv(c2w).astype(np.float32)
+        poses.append(w2c[:3])  # 官方格式 3×4（末行 [0,0,0,1] 省略）
         intrinsics.append(intr.copy())
     return {"intrinsics": intrinsics, "poses": poses}
 
@@ -90,8 +94,8 @@ def selftest(out):
     p0 = np.asarray(cam["poses"][0])
     print(f"📷 自检 {out}")
     print(f"   frames={n}  keys={list(cam.keys())}")
-    print(f"   intr[0] (flat-4?): {np.asarray(cam['intrinsics'][0]).ravel()}")
-    print(f"   pose[0] (w2c, 应近似 [I|t] 看向 -z 外):\n{p0}")
+    print(f"   intr[0] (flat-4): {np.asarray(cam['intrinsics'][0]).ravel()}")
+    print(f"   pose[0] (w2c 3×4, t_z 应≈-RADIUS，相机在 +z 看向原点):\n{p0}")
     print(f"   pose[-1]:\n{np.asarray(cam['poses'][-1])}")
 
 

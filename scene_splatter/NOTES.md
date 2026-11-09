@@ -66,4 +66,4 @@ argparse）拿的是**整个** `sys.argv[1:]`。hydra 的 CLI 覆盖（如 `conf
 
 Scene-Splatter 把 flash3d（MIT）、3DGS（Inria LICENSE，研究用）、ViewCrafter 裁剪版
 直接 vendored 进仓（非 submodule），整体 MIT。编译光栅器时注意 CUDA 版本与 torch
-cu118 对齐（conda 的 nvcc 11.8）。
+cu118 对齐（nvcc 11.8 借 flame_human env 工具链，见 README_wsl.md 网络备忘）。

@@ -7,9 +7,9 @@
 | 项 | 值 | 来源 |
 |---|---|---|
 | 官方仓 | `~/repos/Scene-Splatter`（plain clone，无 submodule） | GitHub |
-| conda env | `scene_splatter`，python 3.10 | 00a |
-| torch | 2.1.2 + cu118（官方指定；pytorch.org 本机直连可用） | 官方 README |
-| nvcc | conda `nvidia/label/cuda-11.8.0`（cuda-nvcc + cuda-cudart-dev） | 00a，WSL 无 sudo |
+| conda env | `scene_splatter`，python 3.10，主通道走 NJU 镜像 | 00a |
+| torch | 2.1.2 + cu118（官方指定），curl 精确 URL 落 `D:\wheel` 后本地直装 | 00a |
+| nvcc 11.8 | **借 `flame_human` env 工具链**（编译期 PATH/CUDA_HOME 借用，不装包） | 00a，见「网络备忘」 |
 | 光栅器 | `gaussianSplatting/submodules/diff-gaussian-rasterization` 本地编译 | 00a |
 | 权重 | 3 份 → `D:\wheel\scene_splatter\`，消费侧软链（无官方 SHA256 可核对） | 01 |
 | 显存 | README 未写；全栈 2B 级（DUSt3R ViT-L + DynamiCrafter 2B + 3DGS），24GB 预计充裕【待实测】 | — |
@@ -24,10 +24,21 @@ bash scene_splatter/01_download_models.sh             # 三份权重（wheel 三
 ```
 
 ## 网络备忘
+- ⚠️ 2026-11-09 网络漂移实测：**repo.anaconda.com 与 download.pytorch.org 双双超时**
+  （直连与代理都死；AGENTS.md 里「pytorch.org 一直可用」已过时）。替代：
+  - conda 主通道：`mirrors.nju.edu.cn/anaconda/pkgs/main`（USTC 已停 anaconda 镜像并
+    302 到 NJU；tuna 的 repodata 能下但 ~2MB/s 偏慢，作 fallback）；
+  - torch：pytorch.org 与阿里云索引页都不可用于 pip（前者超时、后者非 PEP503），
+    但阿里云**精确 wheel URL 可下**——00a 直接 curl `mirrors.aliyun.com/pytorch-wheels/cu118/`
+    的 wheel 落 `D:\wheel` 再本地直装（torch 2.3GB，国内镜像速度快）；
+  - pip：阿里镜像。
+- **nvidia conda 通道全灭**（tuna/NJU/BFSU 无 nvidia cloud，SJTU 跳 jcloud 403），
+  pip 版 nvidia-cuda-nvcc 又配不齐 host gcc——所以 00a 编译期借用 `flame_human` env 的
+  nvcc 11.8 + gcc 11.4 完整工具链（flame_human 恰好也是 torch 2.1.2+cu118）。换机器时
+  用 `TOOLCHAIN_ENV=<env>` 指定别的含 nvcc 11.8 的 env。
 - huggingface.co 直连时通时断（2026-11-05 实测断）：01 会自动探测，断了回退 aifasthub；
   hf-mirror 当时证书失效，不作为默认候选。
 - DUSt3R 走 `download.europe.naverlabs.com` 直连，慢/断时确认 proxy.env 代理已生效。
-- pip 走阿里镜像；torch 走 download.pytorch.org（一直可用）。
 
 ## 跑完搬输出
 ```bash
@@ -42,11 +53,21 @@ bash scene_splatter/08_move_output.sh        # ~/output/... → /mnt/d/output/sc
    `configs/config.yaml`（原文件备份为 `.media_code_bak`）。
 3. **必须在官方仓根目录跑**——hydra 配置 `job.chdir: True` + `run.dir: exp`，进 `exp/`
    后代码用 `os.path.abspath('..')` 找仓根的 flash3d/viewcrafter/results，换目录会全部断链。
-4. **相机轨迹格式有 README/代码矛盾**——README 说 intrinsics 是 4×4，但 `process_projs`
-   按 `proj[0..3] = [fx_n, fy_n, cx_n, cy_n]` 归一化 flat-4 取值。02 生成器按 flat-4 写，
-   **首跑前**先 `python scene_splatter/02_gen_traj.py --inspect-example` 核对官方示例实际结构。
+4. **相机轨迹格式 README 与代码矛盾已核实**（00a 的 --inspect-example 实测）：
+   intrinsics 是 flat-4 `[fx_n, fy_n, cx_n, cy_n]`（README 说的 4×4 是错的），
+   poses 是 **3×4** w2c（OpenCV，末行省略；官方示例首帧 t=[0.102, 0.020, -0.488]）。
+   02 生成器已按此对齐；跑完用 `--selftest` 读回核对。
 5. **分辨率硬编码**——`main()` 写死 `cfg.dataset.height=576; width=1024`，输入图会被
    resize 到 1024×576；02 生成器默认内参也按这个分辨率算，横评对齐 FlashWorld 时注意口径。
+6. **av==10.0.0 被剔除**——PyPI 上该版本只有 sdist（编译需 pkg-config+ffmpeg 头，
+   无 sudo 装不了），且全仓仅 SIBR_viewers 预处理工具 import av，非主路径。
+   00a 装 requirements 时自动 grep -v 剔除；若官方后续加 av 依赖需换 binary 版 av。
+7. **scipy==1.9.1 → 1.11.4**——官方 requirements 自相矛盾（scipy 1.9.1 要求
+   numpy<1.25 却 pin numpy==1.26.0），新 resolver 直接 ResolutionImpossible。
+   00a 自动放宽 scipy  pin；numpy 保留官方 1.26.0。
+8. **setuptools 降到 <81**——torch 2.1 的 cpp_extension.py `import pkg_resources`，
+   conda 默认 setuptools 84.x 已移除该模块（2025 后上游彻底删除），编译光栅器前
+   00a 自动检测并降级 setuptools，否则 metadata-generation 即挂。
 
 ## 与 FlashWorld / Gen3R 的横评口径（compare_4methods 姊妹篇）
 - 输入：统一单图 + 同一组 orbit 轨迹参数（YAW_SPAN/RADIUS/FOV_Y 对齐 FlashWorld 默认）。

@@ -41,7 +41,7 @@ GPU=0 PLY=~/output/scene_splatter_results/02_infer/<ts>/scene.ply \
 cd <code-dir>
 git clone ... && cd media_code && cp proxy.env.example proxy.env
 
-# 建 env + 编译光栅器（WSL：torch 2.1.2+cu118，nvcc 走 conda）
+# 建 env + 编译光栅器（WSL：torch 2.1.2+cu118，nvcc 借 flame_human 工具链）
 INSTALL_DEPS=1 bash scene_splatter/00a_setup_env.sh
 
 # 下三份权重（flash3d v2 / ViewCrafter_25 / DUSt3R ViT-L）
