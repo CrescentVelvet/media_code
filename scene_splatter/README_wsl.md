@@ -2,7 +2,7 @@
 
 与 README.md 并列，记录 WSL2 + RTX 3090 24GB 本机专属事项。服务器复现看 README.md。
 
-## 环境事实（2026-11-09 骨架阶段调研，跑通后更新）
+## 环境事实（2026-11-09 骨架 + 首跑实测）
 
 | 项 | 值 | 来源 |
 |---|---|---|
@@ -12,8 +12,21 @@
 | nvcc 11.8 | **借 `flame_human` env 工具链**（编译期 PATH/CUDA_HOME 借用，不装包） | 00a，见「网络备忘」 |
 | 光栅器 | `gaussianSplatting/submodules/diff-gaussian-rasterization` 本地编译 | 00a |
 | 权重 | 3 份 → `D:\wheel\scene_splatter\`，消费侧软链（无官方 SHA256 可核对） | 01 |
-| 显存 | README 未写；全栈 2B 级（DUSt3R ViT-L + DynamiCrafter 2B + 3DGS），24GB 预计充裕【待实测】 | — |
-| 耗时 | 迭代轮数 × (5000 步 3DGS + 一段 16 帧视频)；N=100/interval=2 → 3~4 轮，分钟级~小时级【待实测】 | scenesplatter.py |
+| 运行时暗下载 | UniDepth 1.4GB + open_clip ViT-H-14 3.9GB 首跑才下（legacy LFS 可达） | 首跑实测 |
+| 显存 | 训练阶段 ~10-14GB（3DGS+扩散同卡交替），24GB 充裕 | 首跑 nvidia-smi |
+| 耗时 | **GPU 独占时一轮（5000 步 3DGS+16 帧视频）≈ 9-12 min**；官方示例轨迹 143 帧 interval=2 → 5 轮 ≈ 1 小时 + 一次性模型加载 ~25 min（9p 读 10.4GB ckpt） | 首跑实测 |
+
+## 首跑实测记录（2026-11-09，官方示例 assert/images/0.png + camera0.pickle.gz）
+
+- 产物：`~/output/scene_splatter_results/02_infer/2026-11-09-17-51-34/`
+  - `scene.ply` **176MB / 743,574 高斯**（3DGS 标准格式：xyz/normal/f_dc/f_rest/opacity/scale/rotation）
+  - `flash3d_video.mp4` 初始化环绕渲染 + `input/output/render_video_{0..4}.mp4` 5 轮迭代
+- 训练曲线：139 万初始高斯 → prune 后 83 万；Loss 0.277 → 0.043
+- 时间线：启动 17:52 → 第 0 轮完成 18:42（另一会话 da3 训练抢 GPU，47 min）；
+  独占后每轮 9-12 min；第 2 轮前曾被抢卡 6.5h（与本方法无关）；01:57 导出 scene.ply
+- ⚠️ 横评注意：143 帧轨迹 interval=2 抽稀后 72 帧、每轮推进 14 帧（per_video=16-overlap=2），
+  5 轮共 70 帧——轨迹覆盖完整；置信度融合见 confidence_maps/（本轮为空目录，像素级
+  动量融合权重未单独落盘，属正常）。
 
 ## 首次准备（WSL）
 ```bash
