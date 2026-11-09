@@ -323,6 +323,12 @@ python 16_extrap_eval.py \
   --out ~/output/infinisplat_v2_results/_extrap --tag jiajia
 python 16_extrap_eval.py --result ... --stats-only    # 只看轨道几何（方位跨度/俯仰范围/自检）
 # 想扫别的越界量：--el-deltas 15,30  --r-factors 1.3,1.6,0.7  --az-past 20,40,60
+
+# 18) 轨道环绕视频（机位/轨道复用 16；360° 满一圈，缺口段会露出拖影）
+RESULT=~/output/infinisplat_v2_results/jiajia TAG=orig bash 17_run_orbit.sh
+RESULT=~/output/infinisplat_v2_results/jiajia/ft TAG=ft bash 17_run_orbit.sh
+RESULT=... ARC=1 bash 17_run_orbit.sh     # 只在有观测的方位跨度内走（跳过缺口）
+RESULT=... ELEV=0 bash 17_run_orbit.sh   # 严格水平环（默认=观测俯仰中位 +15.2°）
 ```
 
 ## 首次准备
@@ -402,6 +408,7 @@ bash 01_download_models.sh
 ├── 14_finetune_gs.py                # 位置冻结的 3DGS 后处理精调（自带写盘→回读对拍）
 ├── 15_step3_compare.py              # 精调前后 + 消融的对照图（含 |diff| 列）
 ├── 16_extrap_eval.py                # 轨道外外推体检（sprite/空洞，GT-free 四项指标 + 拼图）
+├── 17_orbit_video.py                # 轨道环绕视频（张量常驻 GPU，240 帧 ≈ 4 s）
 ├── ghost_metrics.py                 # 上几者的指标库（口径只改这一处）
 ├── bench_run.py                     # 包一条命令，线程采样 GPU 显存峰值 + 计时
 ├── bench_stages.py                  # 拆耗时段 + warm 重复（测常驻复用成本）
