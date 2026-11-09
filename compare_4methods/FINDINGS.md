@@ -534,3 +534,24 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 
 渲染是**逐个方法「载入→渲完→释放」**：首版五个 600 万点同时常驻，24 GB 卡在第三个方法上 OOM
 （`isect_tiles` 申请 12.78 GiB）。逐个跑显存峰值最高 2.3 GB，总耗时约 90 s。
+
+---
+
+## 7. 三图输入（少图设定）可跑性核实（2026-11-09，代码级只读核实，未实跑）
+
+**结论：五方法里 4 个代码层面可直接吃 N=3，原版 COLMAP+3DGS 不适用。**
+核实方式：探针脚本 `_probe_3view.sh`（只读 grep 断言/校验，不跑推理）。
+
+| 方法 | N=3 | 代码证据（file:line） | 风险 |
+|---|---|---|---|
+| DA3-GS（da3/02+03） | ✅ | 转换器接受 2..50（`infinisplat_v2/07_capture_to_npz.py:73`）；DA3 模型任意 $N_v$（笔记 3D-20251113：训练采样 [2,18]，单目也支持）；03 精化的位姿来自 DA3 自身导出（`build_da3_colmap_scene.py` 组装），不跑 SfM | 跨视角约束 32→3 骤减，几何不一致会比 32 图更重（定性预测） |
+| QuerySplat | ✅ | `infer.py` 对图像数无断言（`scripts/infer.py:96,200`）；`num_input_views` 仅 eval 元数据（`options.py:33` 默认 4，infer 时 `evolve` 按实际张数覆盖） | 4 视角是发布基准下限（checkpoint yaml `num_input_views: 4`），3 图略分布外【待实测】 |
+| InfiniSplat v2 | ✅ CLI 显式允许 | `--max-views choices=range(2,51)`（官方仓 `src/infinisplat/cli.py:17`）；pipeline 校验 `2<=len<=50`（`pipeline.py:24-26`） | 训练分布 N=4/8/16，N=3 微分布外；其「opacity 吸收跨视角不一致」机制在 3 图压力更大【定性推断】 |
+| VGGT-Ω+3DGS | ✅ | `vggt_human/run_batch.py` 无视角数限制；VGGT 系天生稀疏视角；`03_npz_to_colmap` 位姿来自 VGGT-Ω 而非 SfM | 3DGS 精化只有 3 张训练图，densify/正则在本仓未验证过；预期对输入视角严重过拟合 |
+| 原版 3DGS（COLMAP+30k） | ❌ | 非本仓代码问题——3 视角 COLMAP SfM 经常失败是 few-shot 文献（FSGS 等）的共同前提 | 侥幸成功时位姿噪声也远大于 32 图 |
+
+**抽帧口径注意**：`07_capture_to_npz.py:45` 用 `np.linspace(0, n-1, 3)` 含首末帧——
+三帧方位角间距**未必均匀**（取决于弧形状）。三图实验建议用 `--frames` 显式指定方位角覆盖更匀的三帧。
+
+**实跑路径**（若要）：`N_VIEWS=3 METHODS="infinisplat querysplat vggt_omega da3" bash compare_4methods/90_run_all_scenes.sh`，
+原版 3DGS 不在批量框架内（跳过）；产物落点含 `_32v` 后缀的目录名需改（`90_run_all_scenes.sh:27` 硬编码 `_32v`）。
