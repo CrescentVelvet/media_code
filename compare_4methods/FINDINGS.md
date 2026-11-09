@@ -48,6 +48,7 @@
 |---|---|---|---|
 | DA3 原生高斯头 | 视角 0 好，视角 8 大片拖影，视角 16 人物整体消失 | 渲染激活正确（`exp(scale)`，raw 会 OOM）；导出只保留 SH DC | 逐视角逐像素出高斯 + 位姿/深度误差在宽基线下直接摊开 |
 | QuerySplat | 全图糊 | 阈值不是主因：0.05→0.005 高斯 22.2 万→37.1 万（+67%），视觉几乎无变化 | 查询预算（37 万高斯）本身表达力上限 |
+| | （画幅注）原本 512² 方形输出**不是几何压扁** | 它的 K 是 fx≈fy≈494、cx=cy=256 → 方形像素、垂直视场只到 **54.8°**，而 GT 是 68.6° | 按"等比缩焦距"放到 3:4 后 PSNR 11.95→**16.55**（ERRATA E18） |
 | InfiniSplat v2 | 重影 + 糊 | 位置冻结下精调 +7.30 dB（20.72→28.02）→ 几何大体对、外观覆盖不足；重影 = 同一空间多份几何副本 | 副本来源（视角批次间的深度不一致） |
 | VGGT-Ω + 3DGS | 大量漂浮物 | — | 深度噪声 init 经 densify 膨胀（与 da3_human 04/04b 的 −2 dB 结论同源） |
 | DA3 + 3DGS | 转动时身上闪烁 | — | 同上 |
@@ -413,8 +414,31 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `fig28_i03b_oracle_quant.png` | ΔPSNR 棒棒糖 / 锐度分组柱 / 判据表 | **I-03b：H2 证伪，回归 DA3-GS** |
 | `fig33_method_matrix.png` | 5 行 × 6 列机制矩阵：几何/位姿来源、高斯来源、是否需逐场景优化、规模、耗时 | **方法对比（PPT 主图）** |
 | `fig34_time_compare.png` | 分段横向条形 + 秒级放大插图 + 相对倍数 | **耗时对比：13.5 s vs 20~23 min** |
-| `fig35_showcase.png` | GT + 5 方法 × 视角 0/16，参照两列轻降饱和 | **效果对比（PPT 主图）** |
+| `fig35_showcase.png` | GT + 5 方法 × 视角 0/16，参照两列轻降饱和；六列统一 3:4 | **效果对比（PPT 主图）** |
 | `video_orbit_360.mp4` | PLY 绕满 360°（10 s / 300 帧 / 540×720），缺口段露拖影 | 与 supersplat 手动查看核对 |
 | `video_orbit_arc.mp4` | 只走 252.7° 观测弧，全程清晰 | PPT 播放 / 展示品 |
+| `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参 | **PPT 播放：同视角逐帧对比** |
 
-生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个视频，`ARC=1` 出观测弧版）。
+生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）。
+
+### 6.1 五方法对比视频口径（`audit_24_five_way_video.py`）
+
+跨方法同轨迹的**前提是把五套坐标系搬到一起**，否则"同一轨迹"只是五段各绕一圈的视频：
+
+| 方法 | 点云 | 相机来源 | Umeyama s | 残差/半径 | 视线夹角 |
+|---|---|---|---|---|---|
+| DA3-GS | `official_export/i12_fullpts_sh/0000.ply`（610 万，SH2） | `cameras.npz` w2c 3×4 | 1.0000（基准） | — | — |
+| QuerySplat | `gaussians.ply`（37 万，SH1） | `predicted_input_cameras.npz` c2w | 2.2833 | 0.68% | 0.46° |
+| InfiniSplat v2 | `jiajia_roi085_518/scene.ply`（613 万，SH0） | `cameras.npz` c2w | 2.2499 | 1.03% | 0.37° |
+| VGGT-Ω+3DGS | `point_cloud/iteration_30000`（175 万，SH3） | `cameras.json` **c2w** | 2.2753 | 0.90% | 0.25° |
+| DA3+3DGS | 同上（189 万，SH3） | 同上 | 1.0031 | 0.27% | 0.11° |
+
+三个实现要点（都踩过，详见 ERRATA E16/E17/E18）：
+
+1. **3DGS `cameras.json` 的 `rotation` 是 c2w**（forward = 第 3 列）。按 w2c 读视线夹角 97.6~106.2°。
+2. **尺度必须对齐**：DA3-GS 是 metric，VGGT 系差 2.25~2.28 倍。scale 乘到 `exp(scale_)` 后的线性值上，quats 左乘 R 的四元数。
+3. **两端各内收 12.6°**（`TRIM=0.05`）：缺口边界上最近的相机是斜视的，五个方法在那一帧都会拉长条
+   （末帧 VGGT/DA3+3DGS 的窗帘变黑白条纹）。实际扫过 227.4°，仍在 252.7° 观测弧内；要完整弧设 `TRIM=0`。
+
+渲染是**逐个方法「载入→渲完→释放」**：首版五个 600 万点同时常驻，24 GB 卡在第三个方法上 OOM
+（`isect_tiles` 申请 12.78 GiB）。逐个跑显存峰值最高 2.3 GB，总耗时约 90 s。

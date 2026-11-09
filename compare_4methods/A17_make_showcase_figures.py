@@ -13,9 +13,12 @@
 口径
   · DA3-GS 用「完整输出」档（610 万点 + 全 SH + 不裁剪）= 22.11 dB；
     轻量交付档 18.97 dB / 314 MB 只在脚注出现。
-  · 各方法按各自预测内参渲染，视场/分辨率不同（DA3-GS 378×504、QuerySplat 512²、
+  · 各方法按各自预测内参渲染，视场/分辨率不同（DA3-GS 378×504、QuerySplat 540×720、
     InfiniSplat 392×518、训练类 720×960），此处等高缩放 —— 只比观感与失败模式，
     不做像素级 PSNR 对比（ERRATA E6）。
+  · QuerySplat 原本是 512² 方形输出（垂直只到 54.8°，画面上下被裁），与其它列摆一起像
+    「人更大更方」。按像素方形换算到 3:4 后垂直视场 69.2°，与 GT 的 68.6° 对齐 ——
+    A/B/C/D 四方案 PSNR 判据 11.95/11.96/11.22/**16.55**，见 audit_25_qs_aspect.py。
   · 视角 0 / 16 已逐列目视核对，六格确为同一相机。
 """
 from pathlib import Path
@@ -30,7 +33,7 @@ FONT_B = "/mnt/c/Windows/Fonts/msyhbd.ttc"
 O = HOME / "output"
 P_GT = O / "vggt_omega_results/佳佳抱枕/04_model_3dgs/train/ours_30000/gt"
 P_D3 = O / "da3_gs_results/佳佳抱枕_p1m_off/official_export"
-P_QS = O / "querysplat_results/佳佳抱枕_paper/rendered"
+P_QS = O / "querysplat_results/佳佳抱枕_paper/rendered_34"
 P_IS = O / "ppt_assets/is_renders"
 P_D3T = O / "da3_results/佳佳抱枕/04_model_3dgs/train/ours_30000/renders"
 P_VG = O / "vggt_omega_results/佳佳抱枕/04_model_3dgs/train/ours_30000/renders"
@@ -151,7 +154,7 @@ if __name__ == "__main__":
         "同一数据（佳佳抱枕 · 32 视角）· 同一批帧 · 同一相机视角 · RTX 3090 单卡　｜　"
         "上：视角 0　下：视角 16　｜　右侧两列降饱和＝参照档",
         [
-            "注：各方法按各自预测内参渲染，视场与分辨率不同（DA3-GS 378×504 / QuerySplat 512² / "
+            "注：各方法按各自预测内参渲染，视场与分辨率不同（DA3-GS 378×504 / QuerySplat 540×720 / "
             "InfiniSplat v2 392×518 / 训练类 720×960），此处按等高缩放 —— 只比观感与失败模式，不做像素级 PSNR 对比。",
             "DA3-GS 为完整输出档：610 万点 + 全 SH + 不裁剪 = 22.11 dB；"
             "轻量交付档（裁剪到 484 万 + 仅 DC）为 18.97 dB / 314 MB，体积小 3 倍。",
