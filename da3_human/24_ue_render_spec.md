@@ -59,7 +59,8 @@
 <dataset_root>/<seq_id>/            # seq_id = <模型名>_env<N>，例：ada_env1
   images_input/                     # A 的 s00~s12 + B 的 wide/main/tele，共 16 张
   images_eval/                      # e00_m20 ~ e24_p20，共 125 张
-  depth/                            # 与上面所有图像同名，16-bit PNG，米制
+  depth/                            # 与上面所有图像同名，16-bit PNG，**毫米**（uint16，
+                                    # 值=毫米；meta.json 里 depth_unit="mm"）
   cameras.json                      # 见下
   meta.json                         # {"seq_id","model","env","W":3072,"H":4096,
                                     #  "depth_type":"radial","character_height_m":1.75,
@@ -97,10 +98,9 @@ w2c = inv(D @ M_ue @ C)
 
 ## 5. 验收（渲完第 1 个场景必做）
 
-- [ ] cameras.json 键 ↔ 141 张图 + 141 张深度一一对应
-- [ ] 抽 3 个视角（含 wide / tele）用 K+w2c 把 depth 反投影拼点云，目视无分层、无重影
-- [ ] tele 的 K 里 fx≈10923（核对长焦没渲成主摄视角）
-- [ ] 全部图亮度均值画曲线，相邻视角跳变 <1%（防 Lumen/自动曝光偷跑）
+- [ ] **自动验收**：`python da3_human/27_verify_sim_dataset.py <数据集目录>` 全过
+  （键对应 / K 抽查 / 深度值域 / **跨视角深度一致性**——手系写反或深度翻转会立刻爆，
+  干净数据要求中位 z 误差 <2cm）
 - [ ] Sequencer 帧步进导出（禁实时录制），文件名与 cameras.json 键一致
 
 ## 6. UE 易踩坑
