@@ -16,6 +16,7 @@
 | 6 | 评估环分层统计 | 未观测背面 ≠ 已观测区几何误差（§2.4） |
 | 7 | train/val/test 身份/环境隔离 | 防资产泄漏（§7.1） |
 | 8 | 检查 FXAA/JPG 对高频的损伤 | PNG 无损为主交付（§5.1） |
+| 9 | C 评估环拆 `train_target`/`eval` 双角色 + 大基线输入组合 | 外插能力靠「弧外目标」的监督信号，现有 141 张组合即得，零额外渲染（§2.4/§7） |
 
 **已验证说明**：§3.3 的 `D/C` 矩阵与径向深度约定已在 Blender 本地验证集端到端验证
 （跨视角深度一致性 0.3mm，即手系/深度翻转会立刻爆的那项）。UE 侧无需重推导，
@@ -29,7 +30,8 @@ V1 重点：稀疏视角几何恢复；头发/手指/衣物边界的细结构稳
 **V1 不解决**：大动作与时序形变、强镜面/透明/毛发透射、运动模糊/滚动快门/手持抖动、大景深虚化、未观测背面的真实恢复保证。
 
 **术语**：`sequence_id` = 人物×姿态×环境×渲染配置的一次序列；`view_id` = 单张视图；
-`input` = 模型可读入；`eval` = 只评估不进训练；`radial_depth` = 光心→表面欧氏距离；`z_depth` = 相机系 Z 分量。
+`input` = 模型可读入；`train_target` = 训练监督目标视角（不进输入）；`eval` = held-out 只评估；
+`radial_depth` = 光心→表面欧氏距离；`z_depth` = 相机系 Z 分量。
 
 ## 2. 场景与视角设计
 
@@ -93,6 +95,15 @@ V1 重点：稀疏视角几何恢复；头发/手指/衣物边界的细结构稳
 | elevation_shift | 俯仰变化 |
 
 > 背面是未观测区域：可评生成完整性/先验泛化，**不能**等价为已观测表面的几何重建精度。
+
+**C 环双角色**（同一次渲染按 az 序号划分，序号 k 对应方位角 k×14.4°，0 = 正面）：
+
+| 角色 | az 序号 | 张数 | 用途 |
+|---|---|---|---|
+| `train_target` | 背面 7~18 中除 {8,11,14,17}，加侧面边缘 {6,19} | 50 | 训练监督目标。相对 ±90° 输入弧，背面全部属**弧外**（外插监督）；侧面边缘给大基线插值监督 |
+| `eval`（held-out） | 正面 {0~5, 20~24} + 背面抽稀 {8,11,14,17} | 75 | 只评估不进训练；背面抽稀组维持 `rear_unobserved` 指标干净 |
+
+> 同事交付不变（125 张全给、cameras.json 里 role 按本表标）；train/eval 划分是我们训练侧配置，但 role 字段请照填。
 
 ## 3. 相机、坐标与投影
 
@@ -202,6 +213,8 @@ dataset_root/<sequence_id>/          # seq_id = <人物>_env<N>，如 ada_env1
          "depth_type": "radial", "depth_unit": "mm"}}
 ```
 
+`role` 取值：`input` / `train_target` / `eval`（C 环按 §2.4 表标注）。
+
 **meta.json**：`sequence_id / character_id / pose_id / environment_id / character_height_m /
 world_coordinate_system="right_handed_y_up" / camera_coordinate_system="opencv_x_right_y_down_z_forward" /
 transform_convention="column_vector" / depth_unit / depth_encoding="uint16_linear_mm_zero_invalid" /
@@ -212,11 +225,27 @@ color_space="sRGB" / width / height / ue_version / render_config_version`
 
 ## 7. 数据划分与采样
 
-- **同一 sequence_id 的视角禁跨 train/val/test**；测试分三档：`seen_character_unseen_environment` /
-  `unseen_character_seen_environment` / `unseen_character_unseen_environment`；数据不够就先固定独立 test 人物和环境
-- **输入采样**：按实验配置取 3/5/7/13 张（§2.2 固定子集），或随机采样并记录 view_id 列表；
-  三摄是独立消融配置，**不许默认与 13 张主摄全拼**
-- **目标视角**：只从 eval 环抽 held-out target，禁进输入；固定随机种子并记录
+**资产隔离**：同一 sequence_id 的视角禁跨 train/val/test；测试分三档：`seen_character_unseen_environment` /
+`unseen_character_seen_environment` / `unseen_character_unseen_environment`；数据不够就先固定独立 test 人物和环境。
+
+**输入组合**（从 A 组现有 13 张取，零额外渲染）：
+
+| 档 | view_id | 跨度 | 用途 |
+|---|---|---|---|
+| 3 张常规 | s03, s06, s09 | 90° | 主消融档（对齐「正面拍 3 张」真实场景） |
+| 3 张大基线 | s00, s06, s12 | 180° | 外插能力压测 |
+| 2 张极限 | s00, s12 | 180° | 最稀疏大基线 |
+| 5 张 | s00, s03, s06, s09, s12 | 180° | 兼中基线插值与外插 |
+| 7 / 13 张 | §2.2 表 | 90° / 180° | 密度消融 |
+
+- 三摄是独立消融配置（单独 / 与主摄组合各一档），**不许默认与 13 张主摄全拼**
+- 固定子集与随机采样并存时，必须逐样本记录实际输入 view_id 列表
+
+**目标视角**：
+
+- 训练监督目标只从 C 环 `train_target` 角色抽（§2.4），**禁进输入**；固定随机种子并记录
+- **防泄漏（反向规则）**：同一 sequence 内，凡是进过训练监督目标的 view_id，一律从该 sequence 的评估报告剔除；
+  评估只报 `eval` 角色的视角。`rear_unobserved` 组只含背面抽稀 {8,11,14,17} 视角
 
 ## 8. 验收（每场景必做，第 1 个场景渲完立刻做）
 
@@ -229,7 +258,7 @@ color_space="sRGB" / width / height / ue_version / render_config_version`
 - [ ] **跨视角深度一致性**（正确流程：A 反投影→世界→投影进 B→B 深度判可见→排除遮挡/轮廓/无效点）：
   干净静态数据中位 z 误差初期线 **<2cm，且必须同时报 P95**（防中位数掩盖少数严重错误）
 - [ ] 角色高度在 1.6~1.9 m；人物根节点/骨骼/网格序列内静止
-- [ ] 无 TAA/景深/运动模糊/自动曝光漂移；eval 图没进 input 清单
+- [ ] 无 TAA/景深/运动模糊/自动曝光漂移；eval 图没进 input 清单；train_target/eval 角色划分符合 §2.4
 
 人工可视化（自动生成拼图）：13 输入拼图 / 三摄拼图 / 125 评估环缩略墙 / 深度伪彩 /
 foreground+silhouette mask / 3D 相机轨迹与人物包围盒 / 跨视角重投影叠加图。
