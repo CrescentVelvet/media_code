@@ -53,8 +53,8 @@ run_one() {  # $1=scene_dir $2=method
             { bash "$MEDIA_CODE_ROOT/vggt_omega/02_run_inference.sh" && \
               bash "$MEDIA_CODE_ROOT/vggt_omega/03_train_3dgs.sh"; } > "$LOG" 2>&1 ;;
         da3)
-            { bash "$MEDIA_CODE_ROOT/da3/02_run_inference.sh" && \
-              bash "$MEDIA_CODE_ROOT/da3/03_train_3dgs.sh"; } > "$LOG" 2>&1 ;;
+            { bash "$SCRIPT_DIR/90b_run_da3_inference.sh" && \
+              bash "$SCRIPT_DIR/90c_train_da3_3dgs.sh"; } > "$LOG" 2>&1 ;;
     esac
     RC=$?
     SEC=$((SECONDS - T0))

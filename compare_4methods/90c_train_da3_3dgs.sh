@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# 03_train_3dgs.sh — 传统 3DGS 训练（DA3 点云初始化，转发 vggt_human/04）
-# 前置: 同场景已跑过 02（$RESULTS_DIR/<场景名>/colmap 就绪）
-# DA3 的 colmap 产物目录布局以 02 实际输出为准（images/ + sparse/0/）；
+# 90c_train_da3_3dgs.sh — 横评 DA3 基线：传统 3DGS 训练（DA3 点云初始化，转发 vggt_human/04）
+# 收编自原 da3/03_train_3dgs.sh（2026-11-10 撤销 da3/ 目录；历史见 tag da3-baseline-20261109 及更早）。
+# 前置: 同场景已跑过 90b（$RESULTS_DIR/<场景名>/ 下有 DA3 colmap 导出）。
+# DA3 的 colmap 产物目录布局以 90b 实际输出为准（images/ + sparse/0/）；
 # 若顶层布局不同，用 SOURCE_DIR 显式指到含 images/ + sparse/0/ 的那层。
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/_env.sh"
+MEDIA_CODE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RESULTS_DIR="${DA3_RESULTS_DIR:-$HOME/output/da3_results}"
+# 与 90b 同口径；04_train_3dgs 只把它当 MODEL_DIR 透传，权重本体仍走 HF 缓存/本地目录
+DA3_MODEL_DIR="${DA3_MODEL_DIR:-${DA3_HUMAN_MODEL_DIR:-$HOME/model/da3_human}}"
 
-export RAW_DIR="${RAW_DIR:?❌ 请指定采集包路径 RAW_DIR=（与 02 相同）}"
+export RAW_DIR="${RAW_DIR:?❌ 请指定采集包路径 RAW_DIR=（与 90b 相同）}"
 export SCENE_NAME="${SCENE_NAME:-$(basename "$RAW_DIR" | sed 's/^[0-9a-f]\{32\}-//' | tr -d '[:space:]')}"
 export ITERATIONS="${ITERATIONS:-30000}"
 export RES="${RES:-2}"   # 3DGS 训练分辨率因子；要全分辨率传 RES= 空
@@ -21,7 +25,7 @@ GAUSSIAN_DIR="$SCENE_RESULTS/04_model_3dgs"
 IMAGES_DIR="$RESULTS_DIR/_captures/$SCENE_NAME/images"
 
 if [ ! -f "$SCENE_RESULTS/images.bin" ]; then
-    echo "❌ ERROR: DA3 colmap 导出不完整: $SCENE_RESULTS/images.bin 不存在（先跑 02）" >&2
+    echo "❌ ERROR: DA3 colmap 导出不完整: $SCENE_RESULTS/images.bin 不存在（先跑 90b）" >&2
     exit 1
 fi
 if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
@@ -39,9 +43,9 @@ if [ ! -d "$SOURCE_DIR/images" ] || [ ! -d "$SOURCE_DIR/sparse/0" ]; then
     exit 1
 fi
 
-echo "🚀 [03] 3DGS 训练: $SCENE_NAME（$ITERATIONS iters，DA3 点云初始化）"
-# 注意必须显式传 CONDA_ENV=vggt_human：本仓 _env.sh 导出 CONDA_ENV=da3，
-# 会泄进 04 让它去激活不存在的 da3 env（CUDA 扩展 import 失败）
+echo "🚀 [90c] 3DGS 训练: $SCENE_NAME（$ITERATIONS iters，DA3 点云初始化）"
+# 注意必须显式传 CONDA_ENV=vggt_human：否则 _env 默认 env 泄进 04，
+# 会激活不存在的 env（CUDA 扩展 import 失败）——原 da3/_env.sh 的坑，收编时保留此防线
 CONDA_ENV=vggt_human \
 MODEL_DIR="$DA3_MODEL_DIR" \
 SOURCE_DIR="$SOURCE_DIR" \

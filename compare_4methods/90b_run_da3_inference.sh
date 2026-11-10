@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# 02_run_inference.sh — 华为 Remy 采集包 → DA3（metric 深度+位姿+内参）→ COLMAP 稀疏场景
-# 推理转发 da3_human/02（run_da3_inference.py，EXPORT_FORMAT 含 colmap），
-# 该脚本在 da3_human env 下验证过；本脚本负责采集包转换与参数转发。
+# 90b_run_da3_inference.sh — 横评 DA3 基线：华为 Remy 采集包 → DA3（metric 深度+位姿+内参）→ COLMAP 稀疏场景
+# 收编自原 da3/02_run_inference.sh（2026-11-10 撤销 da3/ 目录；历史见 tag da3-baseline-20261109 及更早）。
+# 推理转发 da3_human/02（run_da3_inference.py，EXPORT_FORMAT 含 colmap，da3_human env 下验证过）；
+# 本脚本负责采集包转换与横评口径参数转发（N_VIEWS=32 / PROCESS_RES=504，与 90_run_all_scenes 约定一致）。
 # 输出: $RESULTS_DIR/<场景名>/{images, mini_npz/, colmap/（sparse/0）, depth_vis/}
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/_env.sh"
+MEDIA_CODE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# 横评口径默认值（原 da3/_env.sh 的职责收编于此；全部可用 env 覆盖）。
+# 权重默认与 da3_human 共用；缺失时推理自动回退 HF repo 缓存（da3_human 跑过即命中）。
+export DA3_MODEL_REPO="${DA3_MODEL_REPO:-depth-anything/DA3NESTED-GIANT-LARGE-1.1}"
+export DA3_MODEL_DIR="${DA3_MODEL_DIR:-${DA3_HUMAN_MODEL_DIR:-$HOME/model/da3_human}}"
+export RESULTS_DIR="${DA3_RESULTS_DIR:-$HOME/output/da3_results}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 export RAW_DIR="${RAW_DIR:?❌ 请指定采集包路径 RAW_DIR=/mnt/d/dataset/手部微动样例/<包名>}"
 export SCENE_NAME="${SCENE_NAME:-$(basename "$RAW_DIR" | sed 's/^[0-9a-f]\{32\}-//' | tr -d '[:space:]')}"
@@ -38,7 +46,7 @@ fi
 SCENE_RESULTS="$RESULTS_DIR/$SCENE_NAME"
 CAP_DIR="$RESULTS_DIR/_captures/$SCENE_NAME"
 
-echo "🚀 [02] DA3 推理: $SCENE_NAME"
+echo "🚀 [90b] DA3 推理: $SCENE_NAME"
 echo "  📁 采集包: $RAW_DIR（$N_VIEWS 视角, process_res=$PROCESS_RES）"
 echo "  💾 输出:   $SCENE_RESULTS"
 
@@ -74,4 +82,4 @@ if [ $? -ne 0 ]; then echo "❌ FAILED" >&2; exit 1; fi
 
 echo "🎉 Done. 产物在 $SCENE_RESULTS"
 echo "  📂 深度/位姿: mini_npz/ · COLMAP 稀疏: colmap/ · 深度可视化: depth_vis/"
-echo "  下一步: RAW_DIR=... bash da3/03_train_3dgs.sh"
+echo "  下一步: RAW_DIR=... bash compare_4methods/90c_train_da3_3dgs.sh"
