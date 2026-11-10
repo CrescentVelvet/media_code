@@ -77,7 +77,12 @@ CASES = [
          # 3dgs_7000/cameras.json 在另一个世界，只有 cam0 碰巧重合（2026-11-10 实证）。
          cams=("colmap", G3R_COLMAP) if G3R_COLMAP else ("json", G3R_CAMS)),
     dict(name="Scene Splatter", meta="flash3d→ViewCrafter 迭代", color=(15, 110, 110),
-         ply=SS_PLY, cams=("pkl", SS_TRAJ)),
+         ply=SS_PLY, cams=("pkl", SS_TRAJ),
+         # ViewCrafter 优化期 Adam 自由漂移 + cameras_extent=10，云带远程垃圾
+         #（实测 x∈[-4.9,5.3] 而主体 r≈0.9）：轨道路径上有低透明 floater 糊镜头。
+         op_min=float(os.environ.get("SS_OP_MIN", "0.1")),
+         shell=float(os.environ.get("SS_SHELL", "3.5")),
+         panel_r_abs=float(os.environ.get("SS_PANEL_R", "1.8"))),
 ]
 for c in CASES:
     if not c["ply"] or not os.path.exists(c["ply"]):
@@ -195,6 +200,11 @@ def read_cams_c2w(kind, path):
             c2ws.append(M)
         fx, fy, cx, cy = np.asarray(d0["intrinsics"], dtype=np.float64).flat[:4]
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+        # SS 内部世界 = frame0 相机空间（2026-11-10 实证：flash3d 高斯由 inv_K 反投影
+        # 生成、render_images 对 frame0 用 T=identity；ViewCrafter 优化同世界）。
+        # pkl 位姿经 M = w2c(pose0) 搬入该世界后，cam0 = 单位位姿（输入视角 = 原点朝 +z）。
+        M0 = np.linalg.inv(c2ws[0])
+        c2ws = np.stack([M0 @ c for c in c2ws])
         return np.stack(c2ws), K, int(round(cx * 2)), int(round(cy * 2))
     if kind == "colmap":
         # COLMAP 文本场景（images.txt 的 qvec/tvec 是 w2c，世界系 = PLY 世界）。
@@ -346,6 +356,16 @@ def main():
             w2c0[:3, :3] = R_c.T
             w2c0[:3, 3] = -R_c.T @ C0
         S, r_subj = subject_stats(g["means"], g["opac"], w2c0, K_own, W_own, H_own)
+        if c.get("shell"):
+            # 主体壳裁剪：丢掉离 S 超过 shell 的漂移垃圾（ViewCrafter 优化残留），
+            # 避免轨道经过时 floater 贴脸糊镜头。
+            keep = np.linalg.norm(g["means"] - S, axis=1) <= c["shell"]
+            deg_keep = g["deg"]
+            g = {k: v[keep] for k, v in g.items()
+                 if k not in ("n", "deg") and hasattr(v, "__len__")}
+            g["n"] = int(keep.sum())
+            g["deg"] = deg_keep
+            log("      🧹 %s 壳裁剪: %d -> %d 点" % (c["name"], len(keep), g["n"]))
         # 相机剖面：水平基、方位覆盖、r/h 观测范围
         z_hint = np.array([0.0, 0.0, 1.0]) if abs(up[2]) < 0.9 else np.array([1.0, 0, 0])
         xh = np.cross(up, z_hint)
@@ -360,6 +380,9 @@ def main():
         az_c0 = float(az[0])   # 输入视角（视频首帧）的方位，弧锚点
         panel_r = min(max(2.0 * r_subj, float(r_obs.min()) * 0.98),
                       float(r_obs.max()) * 1.04)
+        if c.get("panel_r_abs"):
+            # 绝对半径覆盖（SS：主体偏心 + 大高斯，弧扫近端贴脸糊，自家相机最远在 2.4m 外）
+            panel_r = c["panel_r_abs"]
         panel_h = float(np.median(h_obs))
         log("📷 %-13s 主体 S=%s r_subj=%.2f ｜ 观测弧 %.1f°（cam0 方位 %.1f°）r∈[%.2f,%.2f] h=%.2f → panel r=%.2f"
             % (c["name"], np.round(S, 2), r_subj, np.degrees(cov), np.degrees(az_c0),
