@@ -493,6 +493,11 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `video_orbit_arc.mp4` | 只走 252.7° 观测弧，全程清晰 | PPT 播放 / 展示品 |
 | `video_five_way_arc.mp4` | **五方法同一轨迹横排**（1920×598 / 8 s / 240 帧 / 372×496 每格），统一位姿+统一内参；InfiniSplat 用 `jiajia` 运行（与 fig35 同口径，2026-11-09 重渲） | **PPT 播放：同视角逐帧对比** |
 | `video_five_way_arc_3view.mp4` | **三图输入版**五方法同一轨迹横排（同版式同轨迹，`audit_32` 产出，2026-11-10）：轨道基准改 capture 系 32 相机（audit_31 GT 侧），与 32 图版逐帧同轨迹；五方法三对点 Umeyama 对齐全部 [OK]（DA3-GS s=1.0501 与 §8 评测值一致）；标题标注「仅 3 视角输入」 | **PPT 播放：3 图 vs 32 图代价对照**（§8：三图外推全崩 9~12 dB，格内糊/雾为真实结果） |
+| `fig41_da3gs_framework.png` | DA3-GS 详解页：**论文原始 pipeline 图**（media_paper/images/2511.10647）+ 徽章（13.5 秒/610 万/SH2）+「与其它四家相同/这家独有」双卡 + 底部泳道定位 | 方法框架讲解 1/5 |
+| `fig42_querysplat_framework.png` | QuerySplat 详解页：论文 overview 原图（2608.01186）+ 双卡 + 泳道。独有口径：8192 查询×64 token 固定预算、三图最抗缩减（−3.0 dB） | 方法框架讲解 2/5 |
+| `fig43_infinisplat_framework.png` | InfiniSplat v2 详解页：论文 pipelines 原图（2610.20341）+ 双卡 + 泳道。独有口径：唯一带 163 s 回炉、双分支、尺度对齐、opacity 显影→重影（E19） | 方法框架讲解 3/5 |
+| `fig44_vggt_omega_framework.png` | VGGT-Ω+3DGS 详解页：论文 architecture 原图（2605.15195，2026-11-10 自 arXiv 补下载）+ 双卡 + 泳道。独有口径：register 注意力、单一 dense head、与 fig45 共用回炉段 | 方法框架讲解 4/5 |
+| `fig45_3dgs_framework.png` | DA3+3DGS 详解页：3DGS 论文 overview 原图（2308.04079，ar5iv 补下载）+ 双卡 + 泳道。回炉段祖师爷页：起点 SfM 点→换 DA3 前馈点云；三图 53 min、§8 口径 11.71 dB | 方法框架讲解 5/5 |
 | `fig36_ghost_opacity.png` | 头部 2×2：DA3 原样 / **DA3 opacity×32** / Infini 原样 / Infini ÷32 | 解释"重影 vs 糊"是同一分层的两种显影（§5.3-decies） |
 | `fig37_gaussian_101.png` | 科普基座：一颗高斯=5 个数字 → splatting 投影 → 610 万颗成场景（嵌真实渲染帧） | **领导入门第一页** |
 | `fig38_five_pipelines.png` | 五方法泳道：看懂场景 → 高斯怎么生 → 要不要回炉 → 耗时（全程大白话） | **方法对比讲解页** |
@@ -506,7 +511,7 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 > 插值。真实采集环有仰角/半径起伏，插值轨迹会让画面前后摇晃（峰哥明确要求去掉）。
 > `ring_interp` 保留给诊断脚本复现历史视角。
 
-生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）、`A19_method_primer_figures.py`（fig37~40 科普组图）。
+生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）、`A19_method_primer_figures.py`（fig37~40 科普组图）、`A20_make_framework_figures.py`（fig41~45 五方法框架详解页，复用 media_paper 论文原图）。
 
 ### 6.1 五方法对比视频口径（`audit_24_five_way_video.py`）
 
