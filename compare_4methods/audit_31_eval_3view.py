@@ -41,10 +41,17 @@ O = os.path.expanduser("~/output")
 GT_CAMS = os.environ.get("GT_CAMS") or O + "/da3_results/_captures/佳佳抱枕/cameras.npz"
 GT_IMAGES = os.environ.get("GT_IMAGES") or O + "/da3_results/_captures/佳佳抱枕/images"
 BASE3 = os.environ.get("BASE3") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/cameras.npz"
+INPUT_IMAGES = os.environ.get("INPUT_IMAGES") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/images"
 OUT = os.environ.get("OUT") or O + "/batch_4methods/eval_3view_jiajia.json"
 ONLY = os.environ.get("ONLY", "").strip()
 
-CASES = [
+# V32=1：同口径对照跑 32 视角版（GT 侧不变；self3 层变成「渲自己相机 vs 自己 32 张输入图」，
+# 即不 warp 的 all32——32v 方法输入图就是 GT 32 帧，顺序与各家预测相机一致）
+V32 = bool(os.environ.get("V32", "").strip())
+if V32:
+    OUT = os.environ.get("OUT") or O + "/batch_4methods/eval_32view_jiajia.json"
+
+CASES_3V = [
     dict(name="DA3-GS",
          ply=O + "/da3_gs_results/佳佳抱枕_3v/gs_ply_full/0000.ply",
          cams=("w2c34", O + "/da3_gs_results/佳佳抱枕_3v_ff/cameras.npz")),
@@ -61,12 +68,55 @@ CASES = [
          ply=O + "/da3_results/佳佳抱枕_3v/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
          cams=("json", O + "/da3_results/佳佳抱枕_3v/04_model_3dgs/cameras.json")),
 ]
+
+# 32 视角对照组（与 90a 批量框架 / audit_24 五方法视频同口径；2026-11-10 补跑）
+CASES_32V = [
+    dict(name="DA3-GS",
+         ply=O + "/da3_gs_results/佳佳抱枕_p1m_off/official_export/i12_fullpts_sh/0000.ply",
+         cams=("w2c34", O + "/da3_gs_results/佳佳抱枕_p1m_off/cameras.npz")),
+    dict(name="QuerySplat",
+         ply=O + "/querysplat_results/佳佳抱枕/gaussians.ply",
+         cams=("c2w", O + "/querysplat_results/佳佳抱枕/predicted_input_cameras.npz")),
+    dict(name="InfiniSplat v2",
+         ply=O + "/infinisplat_v2_results/佳佳抱枕_32v/scene.ply",
+         cams=("c2w", O + "/infinisplat_v2_results/佳佳抱枕_32v/cameras.npz")),
+    dict(name="VGGT-Ω+3DGS",
+         ply=O + "/vggt_omega_results/佳佳抱枕/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+         cams=("json", O + "/vggt_omega_results/佳佳抱枕/04_model_3dgs/cameras.json")),
+    dict(name="DA3+3DGS",
+         ply=O + "/da3_results/佳佳抱枕/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+         cams=("json", O + "/da3_results/佳佳抱枕/04_model_3dgs/cameras.json")),
+]
+
+CASES = CASES_32V if V32 else CASES_3V
 if ONLY:
     CASES = [c for c in CASES if ONLY.lower() in c["name"].lower()]
 
 
 def log(*a):
     print(*a, flush=True)
+
+
+def read_viewmats(kind, path):
+    """渲染用 w2c (V,4,4)。与 read_cams 同格式约定，但保留完整矩阵。"""
+    if kind == "w2c34":
+        e = np.load(path)["extrinsics"].astype(np.float64)
+        if e.ndim == 4:
+            e = e[:, :3, :4]
+        m = np.tile(np.eye(4), (len(e), 1, 1))
+        m[:, :3, :4] = e
+        return m
+    if kind == "c2w":
+        return np.linalg.inv(np.load(path)["c2w"].astype(np.float64))
+    if kind == "json":
+        import json
+        j = json.load(open(path))
+        m = np.tile(np.eye(4), (len(j), 1, 1))
+        for i, it in enumerate(j):
+            m[i, :3, :3] = np.array(it["rotation"], dtype=np.float64)
+            m[i, :3, 3] = np.array(it["position"], dtype=np.float64)
+        return np.linalg.inv(m)
+    raise SystemExit("未知相机格式 " + kind)
 
 
 def psnr(a, b):
@@ -121,6 +171,17 @@ def main():
     bg = torch.ones(3, device=dev)
     refs_rgb = [cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB) for p in refs]
     refs_sharp = [sharpness(cv2.imread(str(p))) for p in refs]
+    # self3 自洽口径对照：3 张输入图（帧 0/40/81 原图，尺寸与 GT ref 相同）
+    # V32 模式：32v 方法的输入图就是 GT 32 帧（顺序与各家预测相机一致）→ 直接用 refs
+    if V32:
+        in_rgb, in_sharp = refs_rgb, refs_sharp
+        log(f"🖼️ V32 自洽口径对照: {len(in_rgb)} 张输入图 = GT refs {W}×{H}")
+    else:
+        in_refs = sorted([p for p in Path(INPUT_IMAGES).iterdir()
+                          if p.suffix.lower() in (".png", ".jpg", ".jpeg")])
+        in_rgb = [cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB) for p in in_refs]
+        in_sharp = [sharpness(cv2.imread(str(p))) for p in in_refs]
+        log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
 
     result = {"gt": {"cams": str(GT_CAMS), "images": str(GT_IMAGES), "size": [W, H],
                      "input3_idx": idx3, "input3_nn_dist_m": nn_dist},
@@ -135,15 +196,17 @@ def main():
         g = a24.read_ply(c["ply"])
         n_pts = g["n"]
         Cx, dx, upx = a24.read_cams(*c["cams"])
-        if len(Cx) != 3:
-            log(f"⚠️  {c['name']}: 相机数 {len(Cx)} != 3（预期三图预测相机）")
-        s, R, t = a24.umeyama(Cx, Cref[idx3])
+        # V32：32v 方法的对齐基准 = 全部 32 个 GT 相机（其预测相机就是 32 图训练分布）
+        aidx = np.arange(len(Cref)) if V32 else idx3
+        if len(Cx) != len(aidx):
+            log(f"⚠️  {c['name']}: 相机数 {len(Cx)} != {len(aidx)}（预期{V32 and '32' or '三'}图预测相机）")
+        s, R, t = a24.umeyama(Cx, Cref[aidx])
         C2 = (s * (R @ Cx.T)).T + t
-        rms = float(np.sqrt(((C2 - Cref[idx3]) ** 2).sum(1).mean()))
+        rms = float(np.sqrt(((C2 - Cref[aidx]) ** 2).sum(1).mean()))
         rel = rms / float(np.median(np.linalg.norm(Cref - Cref.mean(0), axis=1)))
         d2 = (R @ dx.T).T
         ang = float(np.median(np.degrees(np.arccos(np.clip(
-            np.sum(d2 * dref[idx3], 1), -1, 1)))))
+            np.sum(d2 * dref[aidx], 1), -1, 1)))))
         flag = "OK" if (rel < 0.03 and ang < 5) else "FAIL"
         log(f"\n🔧 {c['name']}: {g['n']:,} 点 SH{g['deg']} ｜ s={s:.4f} 残差 {rel*100:.2f}% "
             f"视线 {ang:.2f}° [{flag}]")
@@ -151,6 +214,35 @@ def main():
             log(f"❌ {c['name']} 对齐没过判据，跳过（宁缺毋滥）")
             result["methods"][c["name"]] = {"align": "FAIL", "rel": rel, "ang_deg": ang}
             continue
+        # ── self3 自洽口径（对齐 32v 轮 99_eval：渲自己预测相机 vs 自己输入图）──
+        # 不 warp；K 统一用 GT K（对照图是 1439×1919 原图；QuerySplat 的预测 K
+        # 是 512² 归一化画布口径，直接用会踩 E18 画幅坑，故一律不用方法自带 K）。
+        vms = read_viewmats(*c["cams"])
+        nv = min(len(vms), len(in_rgb))
+        G0 = {k: torch.from_numpy(g[k]).to(dev)
+              for k in ("means", "quats", "scales", "opac", "sh")}
+        srows = []
+        for iv in range(nv):
+            with torch.no_grad():
+                simg, _, _ = rasterization(
+                    G0["means"], G0["quats"], G0["scales"], G0["opac"], G0["sh"],
+                    torch.from_numpy(vms[iv]).float().to(dev)[None], Kt,
+                    W, H, sh_degree=g["deg"], packed=False,
+                    backgrounds=bg[None], render_mode="RGB")
+            srgb = simg[0].clamp(0, 1).mul(255).byte().cpu().numpy()
+            srows.append(dict(view=iv, psnr=psnr(srgb, in_rgb[iv]),
+                              ssim=float(ssim(in_rgb[iv], srgb, channel_axis=2, data_range=255)),
+                              sharp=sharpness(cv2.cvtColor(srgb, cv2.COLOR_RGB2BGR))))
+            log(f"   self3 frame {iv+1}/{nv}  PSNR {srows[-1]['psnr']:.2f}")
+        self3 = dict(
+            psnr=float(np.mean([r["psnr"] for r in srows])),
+            ssim=float(np.mean([r["ssim"] for r in srows])),
+            sharp=float(np.mean([r["sharp"] for r in srows])),
+            sharp_ratio=float(np.mean([r["sharp"] / s for r, s in zip(srows, in_sharp)])))
+        del G0
+        torch.cuda.empty_cache()
+        log(f"   self3(自洽) 均 PSNR {self3['psnr']:.2f} dB ｜ 锐度比 {self3['sharp_ratio']:.2f}")
+
         g = a24.warp(g, s, R, t)
         G = {k: torch.from_numpy(g[k]).to(dev)
              for k in ("means", "quats", "scales", "opac", "sh")}
@@ -190,10 +282,11 @@ def main():
         result["methods"][c["name"]] = dict(
             ply=c["ply"], n_pts=n_pts,
             align="OK", scale=s, rel=rel, ang_deg=ang,
+            self3=self3,
             all32=agg(range(len(Cref))),
             input3=agg(idx3), holdout=agg(holdout_idx),
             per_view=rows)
-        log(f"   all32 PSNR {result['methods'][c['name']]['all32']['psnr']:.2f} dB "
+        log(f"   all32(GT相机) PSNR {result['methods'][c['name']]['all32']['psnr']:.2f} dB "
             f"｜ input3 {result['methods'][c['name']]['input3']['psnr']:.2f} "
             f"｜ holdout {result['methods'][c['name']]['holdout']['psnr']:.2f} "
             f"｜ 锐度比 {result['methods'][c['name']]['all32']['sharp_ratio']:.2f}")
