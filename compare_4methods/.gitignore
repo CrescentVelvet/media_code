@@ -1,0 +1,10 @@
+# PPT 配图产物（已导入 PPT，不进仓库；需要时跑 91~/A~ 系列脚本重生成）
+ppt_assets/*.png
+ppt_assets/*.jpg
+ppt_assets/*.jpeg
+ppt_assets/*.mp4
+ppt_assets/*.html
+
+# 运行日志与临时调试产物
+*.log
+_dbg_*/
