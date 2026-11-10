@@ -24,6 +24,14 @@ def log(m):
     print(m, flush=True)
 
 
+def resolve_depth_dir(root):
+    """深度目录：V1.1 规格为 depth_radial/，本地 Blender 验证集为 depth/，两者都认。"""
+    for s in ("depth_radial", "depth"):
+        if os.path.isdir(os.path.join(root, s)):
+            return s
+    sys.exit(f"❌ {root} 找不到深度目录 depth_radial/ 或 depth/")
+
+
 def load_depth(path):
     """16-bit PNG（毫米）→ float32 米。PIL 'I' 模式按 uint32 读，我们写的是 uint16 值。"""
     a = np.array(Image.open(path), np.int32)
@@ -52,8 +60,8 @@ def unproject(depth_radial_m, K, w2c, step=1):
 def z_consistency(pair_a, pair_b, cams, dataset_dir, step=4):
     """A 的深度点 → 世界 → B 相机 → 与 B 的 z-depth 比较，返回误差中位（米）。"""
     ka, kb = pair_a, pair_b
-    da = load_depth(os.path.join(dataset_dir, "depth", f"{ka}.png"))[::step, ::step]
-    db = load_depth(os.path.join(dataset_dir, "depth", f"{kb}.png"))
+    da = load_depth(os.path.join(dataset_dir, resolve_depth_dir(dataset_dir), f"{ka}.png"))[::step, ::step]
+    db = load_depth(os.path.join(dataset_dir, resolve_depth_dir(dataset_dir), f"{kb}.png"))
     pa, va = unproject(da, cams[ka]["K"], cams[ka]["w2c"], step=step)
     Hb, Wb = db.shape
     fxb, fyb = cams[kb]["K"][0][0], cams[kb]["K"][1][1]
@@ -90,12 +98,14 @@ def main():
         if os.path.isdir(d):
             for f in os.listdir(d):
                 imgs[os.path.splitext(f)[0]] = os.path.join(sub, f)
-    depths = {os.path.splitext(f)[0]: f for f in os.listdir(os.path.join(root, "depth"))}
+    depths_dir = resolve_depth_dir(root)
+    depths = {os.path.splitext(f)[0]: f for f in os.listdir(os.path.join(root, depths_dir))}
     miss_img = sorted(set(cams) - set(imgs))
     miss_dep = sorted(set(cams) - set(depths))
     extra = sorted((set(imgs) | set(depths)) - set(cams))
     ok1 = not (miss_img or miss_dep or extra)
     log(f"   [{'✅' if ok1 else '❌'}] 键对应: cameras {len(cams)} / 图 {len(imgs)} / 深度 {len(depths)}"
+        f"（{depths_dir}/）"
         + (f" 缺图{miss_img} 缺深{miss_dep} 多余{extra}" if not ok1 else ""))
 
     # 2) K 抽查
@@ -122,7 +132,7 @@ def main():
     for k in ("s06", "wide", "tele", "e00_p00"):
         if k not in cams:
             continue
-        d = load_depth(os.path.join(root, "depth", f"{k}.png"))
+        d = load_depth(os.path.join(root, depths_dir, f"{k}.png"))
         finite = d[(d > 0.001) & (d < 65.0)]
         if len(finite) < d.size * 0.5:
             ok3 = False
