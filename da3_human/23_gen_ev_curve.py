@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""生成 UE 渲染用的逐帧曝光补偿曲线（ev_curve.csv）。
+"""生成 UE 渲染用的逐帧曝光补偿曲线（ev_curve.csv）——walk180 视频版（暂缓）。
 
-规格见 22_ue_video_spec.md §4：平滑随机游走 ±0.3 EV、相邻帧 |Δ|≤0.08 EV、
-中段（40%~60% 帧区间）一次 +0.5 EV 升余弦 ramp（30 帧内完成）。
+⚠️ 现行规格以 24_ue_render_spec.md 为准（稀疏视角 + 三摄同位，静帧曝光走
+25_gen_view_ev.py）。本脚本保留供视频方案重启时使用。
 seed 由 seq_id 派生（crc32），同一 seq_id 永远生成同一条曲线——
 同事导入 UE 渲 v3，我们后期在 v0 上施加 v1，两边逐帧一致。
 
