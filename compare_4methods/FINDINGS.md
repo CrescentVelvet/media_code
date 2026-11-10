@@ -503,6 +503,9 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 | `fig38_five_pipelines.png` | 五方法泳道：看懂场景 → 高斯怎么生 → 要不要回炉 → 耗时（全程大白话） | **方法对比讲解页** |
 | `fig39_da3gs_deepdive.png` | DA3-GS 机制深挖：DINOv2 → depth-ray → 点云 → GS-DPT；含 teacher-student 卡与耗时账本 | 主角技术细节页 |
 | `fig40_gaussian_philosophy.png` | 三种摆放哲学：像素网格（DA3-GS）× 查询槽（QuerySplat）× 逐场景雕塑（3DGS 系） | 路线取舍讲解页 |
+| `fig46_querysplat_vs_vggt.png` | QuerySplat←VGGT 增量图：VGGT-Ω 原图（冻结）→ QuerySplat overview（新增双查询解码器）+ 编号改动清单 6 条（冻结/新增/弃用/可替换标签） | 回答"QS 在 VGGT 上改了什么" |
+| `fig47_infinisplat_v2_vs_da3.png` | InfiniSplat v2←DA3 增量图：DA3 原图（几何冻结）→ v2 pipelines（双分支+Refiner）+ 改动清单 6 条 + v1→v2 血统注 | 回答"v2 在 DA3 上改了什么" |
+| `fig48_da3_vs_vggt.png` | DA3↔VGGT 架构分歧图：两列 schematic（注意力实现/预训练/表示/相机来源）+ 底部分歧表 5 行 | 回答"DA3 和 VGGT 架构区别" |
 
 技术细节口径来自 media_paper 调研笔记：DA3（3D-20251113-Depth-Anything-3）、QuerySplat（3D-20261105-QuerySplat）、InfiniSplat v2（3D-20261014-InfiniSplat-v2）、VGGT-Ω（3D-20260514-VGGT-Omega）、3DGS（3D-20230808-3DGS基础与改进综述）。
 
@@ -511,7 +514,7 @@ P1（前馈 init + 短优化）大概率比训新头更快见效：13.5 s 拿到
 > 插值。真实采集环有仰角/半径起伏，插值轨迹会让画面前后摇晃（峰哥明确要求去掉）。
 > `ring_interp` 保留给诊断脚本复现历史视角。
 
-生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）、`A19_method_primer_figures.py`（fig37~40 科普组图）、`A20_make_framework_figures.py`（fig41~45 五方法框架详解页，复用 media_paper 论文原图）。
+生成脚本：`91_make_ppt_assets.py`（fig1~3）、`92/93/95`（fig4~6）、`96_make_taxonomy_figure.py`（fig7，HTML→Edge 截图）、`A18_make_method_time_figures.py`（fig33/34）、`A17_make_showcase_figures.py`（fig35）、`audit_22_orbit_video.sh`（两个环视视频，`ARC=1` 出观测弧版）、`audit_24_five_way_video.sh`（五方法对比视频）、`audit_25_qs_aspect.sh`（QuerySplat 画幅口径判据）、`A19_method_primer_figures.py`（fig37~40 科普组图）、`A20_make_framework_figures.py`（fig41~45 五方法框架详解页，复用 media_paper 论文原图）、`A21_make_delta_figures.py`（fig46~48 "X 在 Y 基础上改了什么"增量对比图）。
 
 ### 6.1 五方法对比视频口径（`audit_24_five_way_video.py`）
 
