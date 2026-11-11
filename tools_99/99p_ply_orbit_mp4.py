@@ -13,8 +13,12 @@ gs_camera_params.json 构造水平匀速圆环**，适合给单个重建产物�
   同语义）；没有 json 默认 15°。
 - 方位角：满 360° 匀速（N 帧闭环）；内参缩放到 OUTW，主点放画面正中。
 
-PLY 解析沿用 99m 约定：rot 磁盘 (w,x,y,z) → gsplat (x,y,z,w)（ROT_ORDER=xyzw 关掉）；
-f_rest 默认通道主序（SH_LAYOUT=coef 切官方 3DGS 系数主序，SH_LAYOUT=auto 仅参考）。
+PLY 解析：rot **默认直通不 roll**——gsplat 1.5.2 rasterization 官方约定 quats 为
+wxyz（docstring 明写 "wxyz convension"），官方 3DGS PLY 磁盘存的也是 wxyz；
+只有磁盘是 xyzw 的 fork 导出才需要 ROT_ORDER=xyzw（roll 成 wxyz）。99m 的默认
+roll 对这些资产是错的（2026-11-11 supersplat 对照证伪：roll 后模型不散但轮廓
+边缘拉出放射状条纹——各向异性协方差方向错）。f_rest 默认通道主序（SH_LAYOUT=coef
+切官方 3DGS 系数主序，SH_LAYOUT=auto 仅参考）。
 
 环境：conda env infinisplat_v2（gsplat 1.5.2 + torch 2.6 cu124），需要 NVIDIA GPU。
 
@@ -30,8 +34,9 @@ Env vars:
             ELEV（度，覆盖 pitch_init）, TARGET（"x,y,z" 手调注视点）,
             ARC（默认 1=按 json yaw_min/yaw_max 走采集覆盖弧；0=强制满 360°；
             无 json 时恒为 360°）
-  渲染     BG（white 默认 | black）, ROT_ORDER（wxyz 默认 | xyzw）,
-            SH_LAYOUT（channel 默认 | coef | auto）, DRY_RUN（=1 只算几何不渲染）
+  渲染     BG（white 默认 | black）, ROT_ORDER（磁盘 rot 排布：wxyz 默认=直通，
+            xyzw=roll 成 wxyz 再喂 gsplat）, SH_LAYOUT（channel 默认 | coef | auto）,
+            DRY_RUN（=1 只算几何不渲染）
   编码     CRF（默认 18）
 
 方位角口径（99k 换算的核对结论，勿凭直觉改）：gs json 的 yaw = Phi = −az，
@@ -100,8 +105,8 @@ def read_ply(path):
     scales = np.exp(np.stack([raw["scale_%d" % i] for i in range(3)], 1)).astype(np.float32)
     opac = (1.0 / (1.0 + np.exp(-raw["opacity"].astype(np.float64)))).astype(np.float32)
     quats = np.stack([raw["rot_%d" % i] for i in range(4)], 1).astype(np.float32)
-    if ROT_ORDER == "wxyz":                       # 官方 3DGS 磁盘序 (w,x,y,z) → gsplat 要 xyzw
-        quats = np.roll(quats, -1, axis=1)
+    if ROT_ORDER == "xyzw":                       # 磁盘 xyzw → roll 成 gsplat 要的 wxyz
+        quats = np.roll(quats, 1, axis=1)
     f_dc = np.stack([raw["f_dc_%d" % i] for i in range(3)], 1).astype(np.float32)
     rest = [nm for nm in names if nm.startswith("f_rest_")]
     k = len(rest) // 3
