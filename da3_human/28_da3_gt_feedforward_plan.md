@@ -1,4 +1,6 @@
-# 【收录稿】DA3 面向人物前馈式 3D Gaussian Splatting 的优化方案计划书
+# 【技术附录】DA3-GT 面向人物前馈式 3D Gaussian Splatting 的设计草案
+
+> **文档状态：归档技术草案，不是执行计划。** 当前实验顺序、冻结口径和晋级条件只看 [`EXPERIMENT_PLAN.md`](EXPERIMENT_PLAN.md)；实测数字只看 [`EXPERIMENTS.md`](EXPERIMENTS.md)。本文保留架构、损失和训练接口的长篇讨论，若与主计划冲突，以主计划和 `ERRATA.md` 为准。
 
 > **来源与定位**：2026-11-10 峰哥用 GPT 生成，小华子审阅后收录为储备方案。
 > 本方案属**前馈网络训练**（DA3-GT），对应 `EXPERIMENT_PLAN.md` §6「下一期」中的

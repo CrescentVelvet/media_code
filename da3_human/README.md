@@ -8,9 +8,11 @@ Depth-Anything-3（ByteDance-Seed）官方高斯头复现与人像采集包定�
 
 | 文件 | 内容 |
 |---|---|
-| `ERRATA.md` | ⛔ **跑推理/训练/评估前必读**：7 条有实测代价的事故 + 防再犯清单 |
-| `EXPERIMENT_PLAN.md` | 实验计划（per-scene DA3 + 2DGS 冻结方案、消融优先级） |
+| `ERRATA.md` | ⛔ **跑推理/训练/评估前必读**：坐标、尺度、导出和评测事故 + 防再犯清单 |
+| `EXPERIMENT_PLAN.md` | **唯一实验总计划**：当前前馈直出 D0→D5 路线、冻结口径、评测和晋级条件 |
 | `EXPERIMENTS.md` | 实验结论台账（日期倒序，报数前先查这里） |
+
+`PLAN_REVIEW_3VIEW.md` 是已归档的三视角方案评审记录；`28_da3_gt_feedforward_plan.md` 是长篇技术附录。它们不再与 `EXPERIMENT_PLAN.md` 并列指导实验。
 
 ## 常用命令
 
@@ -54,7 +56,7 @@ bash da3_human/11_run_nvs_eval.sh
 
 1. **改前先复制副本**（如 `06_train_da3_2dgs.py` 之于官方训练器）或开分支，直接在原文件上改属于破线；
 2. 改完在 `EXPERIMENTS.md` 当日节记一笔（改了什么、为什么、影响哪个口径）；
-3. 基线快照 tag：`da3-baseline-20261109`（官方正式口径 20.23dB 达成）。
+3. 基线快照 tag：`da3-baseline-20261109`（旧版正式口径 20.23dB；当前交付口径为不裁剪 + 全 SH，报数以 `EXPERIMENTS.md` 对应实验节为准）。
    随时可核对基线是否被污染：`git diff da3-baseline-20261109..HEAD -- da3_human/02_run_da3_inference.sh da3_human/04_run_da3_gs_baseline.sh`；
 4. 报数前三查（详见 ERRATA）：视角索引对齐 / 尺度是否双重施加 / 相机与高斯是否同一口径。
 
