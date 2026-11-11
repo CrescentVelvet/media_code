@@ -26,11 +26,22 @@ Env vars:
   PLY       输入高斯 PLY（必填）
   CAM_JSON  gs_camera_params.json（默认 <PLY 同目录>/gs_camera_params.json，不存在则拟合）
   OUT       输出 mp4（默认 <PLY 目录>/orbit.mp4）
-  轨道     N（默认 240）, FPS（默认 30）, OUTW（默认 540）, RADIUS_K（默认 1.0）,
-            ELEV（度，覆盖 pitch_init）, TARGET（"x,y,z" 手调注视点）
+  轨道     N（默认 240）, FPS（默认 30）, OUTW（默认 1080）, RADIUS_K（默认 1.0）,
+            ELEV（度，覆盖 pitch_init）, TARGET（"x,y,z" 手调注视点）,
+            ARC（默认 1=按 json yaw_min/yaw_max 走采集覆盖弧；0=强制满 360°；
+            无 json 时恒为 360°）
   渲染     BG（white 默认 | black）, ROT_ORDER（wxyz 默认 | xyzw）,
             SH_LAYOUT（channel 默认 | coef | auto）, DRY_RUN（=1 只算几何不渲染）
   编码     CRF（默认 18）
+
+方位角口径（99k 换算的核对结论，勿凭直觉改）：gs json 的 yaw = Phi = −az，
+az 自 +Z 轴起、朝 +X 为正（99k:584 az=atan2(dx,dz)，99k:246 Phi=−az）。
+本脚本轨道方位角 th **自 +X 起、朝 +Z 为正**（eye 偏移水平投影 (dx,dz)=(cos th,
+sin th)·R·cos(el)），即 az = 90° − th（th=0 时 eye 在 +X，az=90°）。
+故 **th = yaw + 90°** —— ARC 模式扫 yaw_min→yaw_max 等价于 th 从 yaw_min+90°
+走到 yaw_max+90°。曾误写成 th = −yaw（把 az≈th），扫到的是镜像弧、正是背后
+空洞一侧（2026-11-11 实测用 front_image.jpg 证伪后修正）。整圈采集
+（yaw 跨度 ≥355°）自动退回满 360°，起点对齐 yaw_init（首帧=初始视角）。
 """
 import math
 import os
@@ -48,10 +59,11 @@ CAM_JSON = os.environ.get("CAM_JSON", os.path.join(os.path.dirname(PLY), "gs_cam
 OUT = os.environ.get("OUT", os.path.join(os.path.dirname(PLY), "orbit.mp4"))
 N = int(os.environ.get("N", "240"))
 FPS = int(os.environ.get("FPS", "30"))
-OUTW = int(os.environ.get("OUTW", "540"))
+OUTW = int(os.environ.get("OUTW", "1080"))
 RADIUS_K = float(os.environ.get("RADIUS_K", "1.0"))
 ELEV = os.environ.get("ELEV", "").strip()
 TARGET = os.environ.get("TARGET", "").strip()
+ARC = os.environ.get("ARC", "1") == "1"          # 1=按 json yaw 区间走采集覆盖弧（默认）
 BG = os.environ.get("BG", "white")
 ROT_ORDER = os.environ.get("ROT_ORDER", "wxyz")
 SH_LAYOUT = os.environ.get("SH_LAYOUT", "channel")
@@ -149,6 +161,8 @@ def load_cam_json(path):
                 radius=float(sc["radius"]),
                 elev=float(s.get("pitch_init", 15.0)),
                 yaw0=float(s.get("yaw_init", 0.0)),
+                yaw_min=s.get("yaw_min"),
+                yaw_max=s.get("yaw_max"),
                 K=np.array([[intr["fx"], 0, intr["cx"]],
                             [0, intr["fy"], intr["cy"]],
                             [0, 0, 1]], dtype=np.float64),
@@ -175,12 +189,21 @@ def main():
     med = np.median(P[hi], axis=0) if hi.any() else np.median(P, axis=0)
     log("   包围盒 边长 %.3f × %.3f × %.3f m" % tuple(P.max(0) - P.min(0)))
 
+    have_arc = False
     if os.path.isfile(CAM_JSON):
         cam = load_cam_json(CAM_JSON)
         mu, Rb, elev, yaw0 = cam["center"], cam["radius"] * RADIUS_K, cam["elev"], cam["yaw0"]
         K0, W0, H0 = cam["K"], cam["W0"], cam["H0"]
         log("📷 相机参数：%s（scene.center / radius × %.2f / pitch_init）"
             % (os.path.basename(CAM_JSON), RADIUS_K))
+        # yaw = Phi = −az（th = −yaw，见文件头口径说明）；跨度 ≥355° 视为整圈不设限
+        ym, yx = cam["yaw_min"], cam["yaw_max"]
+        if ARC and ym is not None and yx is not None and (yx - ym) < 355.0:
+            # th = yaw + 90°（az = 90° − th，见文件头口径说明）
+            th_start, th_end = math.radians(float(ym) + 90.0), math.radians(float(yx) + 90.0)
+            have_arc = True
+            log("   🎞  ARC 模式：按 json yaw 区间 [%.1f, %.1f]° 扫采集覆盖弧（%.1f°），"
+                "两端都在观测范围内，不走进背后空洞" % (ym, yx, yx - ym))
     else:
         log("⚠️  没有 %s —— 从点云拟合轨道（构图可能偏，务必看抽帧）" % CAM_JSON)
         mu = med
@@ -195,8 +218,13 @@ def main():
         log("   ⚙️  TARGET 覆盖 → 注视点 (%.3f, %.3f, %.3f)" % (mu[0], mu[1], mu[2]))
     if ELEV:
         elev = float(ELEV)
-    log("   注视点 (%.3f, %.3f, %.3f) ｜ 半径 %.3f m ｜ 仰角 %.1f° ｜ 起点方位角 %.1f°"
-        % (mu[0], mu[1], mu[2], Rb, elev, yaw0))
+    if not have_arc:
+        th0 = math.radians(yaw0 + 90.0)               # 满 360°，起点对齐初始视角
+        th_start, th_end = th0, th0 + 2 * math.pi
+        log("   🎞  360° 模式：满一圈（ARC=0 / 整圈采集 / 无 json）；"
+            "缺口段会露出拖影（诚实展示数据边界）")
+    log("   注视点 (%.3f, %.3f, %.3f) ｜ 半径 %.3f m ｜ 仰角 %.1f° ｜ th %.1f° → %.1f°"
+        % (mu[0], mu[1], mu[2], Rb, elev, math.degrees(th_start), math.degrees(th_end)))
     log("   点云质心到注视点 %.3f m" % np.linalg.norm(P.mean(0) - mu))
 
     kw = OUTW / float(W0)
@@ -226,11 +254,11 @@ def main():
 
     up = np.array([0.0, 1.0, 0.0])
     el = math.radians(elev)
-    th0 = math.radians(yaw0)
     keeps = []
     try:
         for i in range(N):
-            th = th0 + 2 * math.pi * i / N       # 水平匀速圆环，闭环
+            # 满 360° 时末帧=首帧天然闭环；覆盖弧时末帧落在 yaw_max 端（不闭环，本来就没数据）
+            th = th_start + (th_end - th_start) * i / max(N - 1, 1)
             eye = mu + Rb * np.array([math.cos(el) * math.cos(th),
                                       math.sin(el),
                                       math.cos(el) * math.sin(th)])

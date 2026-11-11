@@ -776,8 +776,9 @@ chmod +x /path/to/UWA_Sample_Tool_v3/build/gltf_packer
 # 微动采集相邻帧间隔是分钟级，按真实间隔算 fps 无意义）
 IMG_DIR=/mnt/d/xxx/image FPS=10 python tools_99/99o_heic_to_mp4.py
 
-# 99p：PLY 水平 360° 环绕 → MP4（注视点=scene.center、半径=scene.radius、
-# 仰角=pitch_init；缺 json 时从点云拟合并 WARN，务必看抽帧）
+# 99p：PLY 水平环绕 → MP4（注视点=scene.center、半径=scene.radius、仰角=pitch_init；
+# ARC 默认按 json yaw_min/yaw_max 扫采集覆盖弧，不走进背后空洞；ARC=0 满 360°；
+# 缺 json 时从点云拟合并 WARN，务必看抽帧）
 PLY=/mnt/d/xxx/point_cloud.ply python tools_99/99p_ply_orbit_mp4.py
 ```
 
