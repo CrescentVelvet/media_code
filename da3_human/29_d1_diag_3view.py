@@ -52,36 +52,41 @@ def read_ply(path):
 
 
 def gsplat_render(d, viewmats, Ks, w, h, sh_degree):
-    """d = read_ply 结果；返回 renders (V,H,W,3) uint8、alphas (V,H,W) float32。"""
+    """d = read_ply 结果；返回 renders (V,H,W,3) uint8、alphas (V,H,W) float32。
+    调用约定对齐 compare_4methods/94（gsplat 1.5.3）：scales 传 exp 后、opacity 传
+    sigmoid 后、colors 形状 (N,K,3)（K=SH 基个数）、逐视角光栅化。"""
     from gsplat import rasterization
     n = d["x"].shape[0]
     xyz = np.stack([d["x"], d["y"], d["z"]], -1)
     quats = np.stack([d["rot_0"], d["rot_1"], d["rot_2"], d["rot_3"]], -1)
     quats /= np.linalg.norm(quats, axis=-1, keepdims=True) + 1e-12
-    logit_a = d["opacity"]
-    a = 1.0 / (1.0 + np.exp(-logit_a))
-    dc = np.stack([d["f_dc_0"], d["f_dc_1"], d["f_dc_2"]], -1)  # (N,3)，含 SH C0=0.282095 约定由 gsplat 处理
+    a = 1.0 / (1.0 + np.exp(-d["opacity"]))  # PLY 存 logit（audit_11）
+    dc = np.stack([d["f_dc_0"], d["f_dc_1"], d["f_dc_2"]], -1)  # (N,3)
     k_rest = max(0, (sh_degree + 1) ** 2 - 1)
     if k_rest > 0:
+        # 08 导出是 channel-major（f_rest_{c*15+k}）→ (N,3,K-1) → 转 (N,K-1,3)
         fr = np.stack([d[f"f_rest_{i}"] for i in range(3 * k_rest)], -1).reshape(n, 3, k_rest)
-        colors = np.concatenate([dc[..., None], fr], axis=-1)
+        colors = np.concatenate([dc[..., None], fr], axis=-1)  # (N,3,K)
+        colors = np.transpose(colors, (0, 2, 1))  # (N,K,3)
     else:
-        colors = dc[..., None]
-    # SH DC 约定：PLY 存的是带 0.282095 系数除法前的原始值时，gsplat colors 直接吃 SH 系数，
-    # 3DGS/DA3 导出已按惯例存系数本身，无需再处理
-    means = torch.from_numpy(xyz).cuda().float()
-    rend, alpha, _ = rasterization(
-        means=means,
-        quats=torch.from_numpy(quats).cuda().float(),
-        log_scales=torch.from_numpy(np.stack([d["scale_0"], d["scale_1"], d["scale_2"]], -1)).cuda().float(),
-        opacities=torch.from_numpy(a).cuda().float(),
-        colors=torch.from_numpy(colors).cuda().float(),
-        viewmats=torch.from_numpy(viewmats).cuda().float(),
-        Ks=torch.from_numpy(Ks).cuda().float(),
-        width=w, height=h, sh_degree=sh_degree, eps2d=0.3, packed=False,
-    )
-    rgb = torch.clamp(rend[..., :3], 0, 1).cpu().numpy()
-    return (rgb * 255).astype(np.uint8), alpha.cpu().numpy()
+        colors = dc[:, None, :]  # (N,1,3)
+    means = torch.from_numpy(xyz).float().cuda()
+    quats_t = torch.from_numpy(quats).float().cuda()
+    scales_t = torch.exp(torch.from_numpy(np.stack([d["scale_0"], d["scale_1"], d["scale_2"]], -1)).float().cuda())
+    opa_t = torch.from_numpy(a).float().cuda()
+    colors_t = torch.from_numpy(colors).float().cuda()
+    rgbs, alphas = [], []
+    with torch.no_grad():
+        for i in range(len(viewmats)):
+            img, alpha, _ = rasterization(
+                means, quats_t, scales_t, opa_t, colors_t,
+                torch.from_numpy(viewmats[i]).float().cuda()[None],
+                torch.from_numpy(Ks[i]).float().cuda()[None],
+                w, h, sh_degree=sh_degree,
+            )
+            rgbs.append(img[0].clamp(0, 1).mul(255).byte().cpu().numpy())
+            alphas.append(alpha[0, ..., 0].cpu().numpy())
+    return np.stack(rgbs), np.stack(alphas)
 
 
 def psnr(a, b):
@@ -110,11 +115,12 @@ def color_stats(img, mask):
 
 def main():
     cap = Path(os.path.expanduser(os.environ["CAPTURE_DIR"]))
+    img_dir = cap / "images"
     ff_dir = Path(os.path.expanduser(os.environ["FF_DIR"]))
     ft_dir = Path(os.path.expanduser(os.environ["FT_DIR"]))
     out = Path(os.path.expanduser(os.environ["OUT_DIR"]))
     out.mkdir(parents=True, exist_ok=True)
-    imgs = sorted(cap.glob("*.png")) + sorted(cap.glob("*.jpg"))
+    imgs = sorted(img_dir.glob("*.png")) + sorted(img_dir.glob("*.jpg"))
     gts = [np.array(__import__("PIL.Image", fromlist=["open"]).open(p).convert("RGB")) for p in imgs]
     log(f"🖼️ GT {len(gts)} 张，尺寸 {gts[0].shape[:2]}")
 
@@ -123,7 +129,9 @@ def main():
     npz = np.load(ff_dir / "cameras.npz")
     ext = np.asarray(npz["extrinsics"])
     N = ext.shape[0]
-    ext = ext.reshape(N, -1)[:, :16].reshape(N, 4, 4)
+    if ext.shape[-2:] == (3, 4):  # DA3 (N,3,4) → 补齐 (N,4,4)
+        ext = np.concatenate(
+            [ext, np.tile(np.array([[0, 0, 0, 1]], np.float32), (N, 1, 1))], axis=1)
     sf = float(np.asarray(npz["scale_factor"]))
     intr = np.asarray(npz["intrinsics"]).reshape(N, 3, 3)
     vm_ff = ext.copy()
