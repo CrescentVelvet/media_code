@@ -16,6 +16,7 @@
 | 7 | 快速导出验证拿**两次独立推理**的 PLY 互比 | 浮点抖动（sf 2.1204 vs 2.1193）造成 3cm 假差异，排查方向被带偏 | 单变量铁律：同一次推理、同一份 gaussians 派生两条路径互比（41 列 max\|Δ\|=0） |
 | 8 | 拿 cameras.json 的 `rotation` 直接当 w2c 用 | 该 rotation 是 **c2w**（渲染判决：c2w 约定 25~28 dB vs w2c 5~8 dB）；D1 诊断 FT_30k 本脚本重渲值 5~28 dB 即此坑 | 用 cameras.json 前先渲染判决约定；该数据包 transforms.json 约定也与 som_human 标准包不同，勿套 `w2c=inv(M@flip)` |
 | 9 | Umeyama/Kabsch 行映射 `Q=U@Vt` 与列向量混用 | 对齐残差假大 0.8~1.6 m，还引出"预测世界与 GT 互为镜像"的假结论（实际 det=+1） | 行向量映射 `dst≈s·src@Q+t`；套列向量世界变换用 `Q^T`，w2c' = R·Q/s |
+| 10 | DA3 `cameras.npz`：extrinsics 是 **w2c 直接用**（勿求逆，求逆=静默出貌似合理的错图）；intrinsics/depth 已是 process_res 口径（504p 时 378×504，**勿再缩放**）；平移 ÷ scale_factor 回到高斯尺度 | 渲染人物位置全错但画面"看起来还行"，PSNR 掉 5~10 dB 不报警 | 三查：w2c/c2w 方向、K 的分辨率口径、sf 是否只除一次（对齐 29m 与 29_d1_diag 的写法） |
 
 ## 防再犯清单（报数/下结论前必查）
 
