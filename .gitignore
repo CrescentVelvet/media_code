@@ -21,7 +21,6 @@ gen3r/_preview/
 infinisplat_v2/_check/
 
 # da3_human 逐次运行的临时日志（结果一律入 EXPERIMENTS.md）
-da3_human/_*.log
-
-# da3_human 逐次运行的临时日志（结果一律入 EXPERIMENTS.md）
-da3_human/_*.log
+*.log
+*.png
+*.jpg
