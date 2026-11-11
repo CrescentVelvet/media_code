@@ -14,6 +14,7 @@ UWA 三件套的封装收尾，也有全仓通用的语法自查工具，还有 
 | **C. 通用工具** | 99h | 全仓 Python 语法兼容自查 | **需 Python ≥ 3.12** |
 | **D. 采集包预处理** | 99k | 主体居中 + 视角区间 → `gs_camera_params.json`，并调 99g 出图 | **纯标准库**，Python ≥ 3.10 |
 | **E. 运镜渲染** | 99l 99m 99n | 重建相机 → 七种运镜三件套 → PLY 渲染 H.264 MP4；99n = 多场景批量编排（发现 → 99l → 99m） | 99l 只要 numpy；99m 需 GPU + gsplat 1.5.2 + torch 2.6 + ffmpeg（可用 imageio-ffmpeg）；99n 纯标准库 |
+| **F. 展示片** | 99o 99p | 99o：HEIC 序列按时序合成 H.264 MP4；99p：3DGS PLY 水平 360° 环绕渲染 H.264 MP4（吃 gs_camera_params.json，无 json 则从点云拟合） | 99o 需 pillow_heif + ffmpeg；99p 同 99m（GPU + gsplat） |
 
 族 A 内部是**运行时数据依赖**（99c/99e 复用 99b 留下的 `mp4_work/`），没有代码级
 import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视角区间的算法与
@@ -765,6 +766,23 @@ chmod +x /path/to/UWA_Sample_Tool_v3/build/gltf_packer
 
 `TOOL_DIR` 默认 `../../model/UWA_Sample_Tool_v3`；`muxer.py` 依赖 pymp4，脚本自动把
 `thirdparty/pymp4-1.4.0/src` 加进 `PYTHONPATH`，也可用 `PYTHON_BIN` 指定解释器。
+
+## F. 展示片（99o / 99p，2026-11-11 建）
+
+两个轻量出片脚本，适合给采集包/重建产物快速做展示视频（详细 env 见各自 docstring）：
+
+```bash
+# 99o：HEIC 序列 → MP4（文件名定宽时间戳，字典序=时序；FPS 恒定默认 10，
+# 微动采集相邻帧间隔是分钟级，按真实间隔算 fps 无意义）
+IMG_DIR=/mnt/d/xxx/image FPS=10 python tools_99/99o_heic_to_mp4.py
+
+# 99p：PLY 水平 360° 环绕 → MP4（注视点=scene.center、半径=scene.radius、
+# 仰角=pitch_init；缺 json 时从点云拟合并 WARN，务必看抽帧）
+PLY=/mnt/d/xxx/point_cloud.ply python tools_99/99p_ply_orbit_mp4.py
+```
+
+与族 E 的分工：99l/99m 走「真实重建相机 + 电影感运镜」，要 COLMAP 三件套；99p 不依赖
+任何相机文件，只要 PLY（+可选 gs_camera_params.json），构图按采集视角半径环绕。
 
 ## 文档索引
 
