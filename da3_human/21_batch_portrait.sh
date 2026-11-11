@@ -75,7 +75,8 @@ for d in "$SRC"/*/; do
         fi
     fi
 
-    n_pts=$(grep -oP 'PLY: \K[0-9,]+' "$log" | tail -1)
+    # 兼容两种 08 日志格式: "PLY: 6,096,384" 与 "📦 PLY 6,096,384 点"
+    n_pts=$(grep -oP 'PLY[：: ]+\K[0-9,]+' "$log" | tail -1)
     ply_mb=$(du -m "$OUT/$name/gs_max/0000.ply" | cut -f1)
     vid_mb=$(du -m "$OUT/$name/videos/orbit.mp4" | cut -f1)
     dt=$(( $(date +%s) - t0 ))
