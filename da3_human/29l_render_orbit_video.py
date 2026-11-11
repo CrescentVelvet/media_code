@@ -144,21 +144,20 @@ def main():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
-    # ── 逐帧拼上下两格 + 编码 ──
+    # ── 逐帧拼横向两格 + 编码 ──
     os.makedirs(OUT, exist_ok=True)
-    MARGIN, GAP, HEAD = 16, 10, 88
-    Wv = MARGIN * 2 + CELLW
-    Hv = HEAD + (CELLH + 54) * 2 + GAP + MARGIN
+    MARGIN, GAP, HEAD = 16, 12, 64
+    Wv = MARGIN * 2 + CELLW * 2 + GAP
+    Hv = HEAD + CELLH + 56 + MARGIN
     Hv += Hv % 2
     canvas0 = Image.new("RGB", (Wv, Hv), "white")
     dr = ImageDraw.Draw(canvas0)
     f_t = ImageFont.truetype(FONT_R, 20)
-    f_n = ImageFont.truetype(FONT_B, 24)
-    f_m = ImageFont.truetype(FONT_R, 17)
-    title = ("DA3 前馈直出（3 视角输入）· 同一 orbit 轨迹 · 导出口径对比："
-             "旧（裁剪+DC）vs 优化后（不裁剪+全 SH）")
+    f_n = ImageFont.truetype(FONT_B, 22)
+    f_m = ImageFont.truetype(FONT_R, 16)
+    title = ("DA3 前馈直出（3 视角输入）· 同一 orbit 轨迹 · 左=旧口径（裁剪+DC） 右=优化后（不裁剪+全 SH）")
     tw = dr.textlength(title, font=f_t)
-    dr.text(((Wv - tw) / 2, 10), title, font=f_t, fill=(110, 110, 110))
+    dr.text(((Wv - tw) / 2, 12), title, font=f_t, fill=(110, 110, 110))
     del dr
 
     mp4 = os.path.join(OUT, "orbit_da3_ff_official_vs_max.mp4")
@@ -172,14 +171,14 @@ def main():
     for i in range(NFRAMES):
         fr = canvas0.copy()
         dr = ImageDraw.Draw(fr)
-        y = HEAD
         for ci, c in enumerate(CASES):
-            fr.paste(Image.fromarray(panels[ci][i]), (MARGIN, y))
-            dr.text((MARGIN + 6, y + CELLH + 8), c["name"], font=f_n, fill=c["color"])
+            x = MARGIN + ci * (CELLW + GAP)
+            fr.paste(Image.fromarray(panels[ci][i]), (x, HEAD))
+            nw = dr.textlength(c["name"], font=f_n)
+            dr.text((x + (CELLW - nw) / 2, HEAD + CELLH + 6), c["name"], font=f_n, fill=c["color"])
             mw = dr.textlength(c["meta"], font=f_m)
-            dr.text((MARGIN + 6, y + CELLH + 40), c["meta"], font=f_m, fill=(120, 120, 120))
-            dr.rectangle([MARGIN, y - 6, MARGIN + CELLW, y - 2], fill=c["color"])
-            y += CELLH + 54 + GAP
+            dr.text((x + (CELLW - mw) / 2, HEAD + CELLH + 36), c["meta"], font=f_m, fill=(120, 120, 120))
+            dr.rectangle([x, HEAD - 6, x + CELLW, HEAD - 2], fill=c["color"])
         proc.stdin.write(np.asarray(fr, dtype=np.uint8).tobytes())
         if i in snaps:
             fr.save(os.path.join(OUT, "orbit_cmp_frame_%03d.png" % i))
