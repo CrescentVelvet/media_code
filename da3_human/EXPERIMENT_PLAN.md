@@ -91,7 +91,7 @@ Phase 1 的职责是修复实现、导出和渲染口径，并把当前 DA3 的�
 | E1 导出与背景覆盖 | 同一次 3v 前向、同一相机 | `08_bench_official_gs.py`、`29m_export_2x2_ablation.py` | 4 档 PLY、RGB/alpha、`ablation2x2.json` | 裁剪/SH 独立贡献；固定集背景空洞率 ≤1% 且记录高斯数/渲染耗时 | **完成** |
 | E2 颜色与 alpha 诊断 | E1 的同一批 PLY、GT、人物/背景 mask | `29_d1_diag_3view.py`、颜色统计工具 | 前景/背景 RGB、HSV 饱和度、alpha 分布、误差图 | 明确灰化来自 alpha 透底、颜色管线还是视角相关外观；人物前景 alpha 不能用全图中位数代替 | **完成诊断** |
 | E3 尺度与模糊诊断 | E1 正式 PLY、相机、逐视角 mask | `29n_e3_scale_clamp_ablation.py`（一次性 scale 因果对照） | 每个视角的 σ 折像素、2D footprint、人物轮廓锐度 | scale 改动只有在远视角锐度提升且空洞/颗粒不恶化时才保留；否则归因回几何不一致 | **完成（负结果，判 B：钳制即塌覆盖，糊归因回几何不一致）** |
-| E4 几何与遮挡诊断 | E1 PLY、预测/GT 相机、UE mask/对应点 | `29c`～`29k_pose_step*.py` 及投影工具 | center 投影、重投影误差、轮廓/遮挡对照、可见性统计 | 区分 center 错位、scale/rotation 不匹配和遮挡融合错误；Depth 只能作为辅助证据 | **位姿已排除，几何输出仍待模型级验证** |
+| E4 几何与遮挡诊断 | E1 PLY、预测/GT 相机、UE mask/对应点 | `29p_e4_geometry_audit.py`（逐视角层切分+重投影审计） | center 投影、重投影误差、轮廓/遮挡对照、可见性统计 | 区分 center 错位、scale/rotation 不匹配和遮挡融合错误；Depth 只能作为辅助证据 | **完成（center 跨视角错位实锤；遮挡融合/scale/rotation 三项排除，Phase 1 收口）** |
 
 Phase 1 停止条件：①白洞已经由导出策略解决；②灰化已经定位到 alpha/颜色管线或外观表达；③模糊/重影已经缩小到几何 center、scale、rotation 或遮挡中的具体假说；④在固定数据和口径下，继续改导出参数的收益已接近上限。当前已满足前两项，位姿分支也已排除；只允许完成 E3 的一次 scale 因果对照和 E4 的几何输出审计，然后停止 Phase 1。不得继续无限扫 SH、opacity 或 fusion 阈值。
 
