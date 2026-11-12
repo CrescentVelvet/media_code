@@ -1,7 +1,7 @@
 # 出图台账（PPT / 汇报用）
 
 > 图不纳入仓库（体积 19 MB）。成品在 **`D:\splatanything_figures\`**：
-> `figures/` 13 张成品 · `raw/` 原始 contact sheet · `pairs/` 436 张按视角配对的单图 ·
+> `figures/` 17 张成品 · `raw/` 原始 contact sheet · `pairs/` 436 张按视角配对的单图 ·
 > `metrics.json` 读数汇总 · `_build/` 出图脚本 · 同名 zip 为打包版。
 > 数据源全部来自 `~/output/splatanything_results/`，读数对应 [EXPERIMENTS.md](EXPERIMENTS.md) E-04~E-10。
 
@@ -29,6 +29,28 @@
 | `fig09a_cloud_human` | 高斯点云三视图 + 相机环 | — |
 | `fig10_three_cam` | 近光心三摄 rgb 现象（图内因果/尺度结论待修） | 自洽，暂不引用归因 |
 | `fig11_three_cam_pose` | 三摄 rgb vs 参考参数构造 pose（非实测真值） | 自洽，图中文字待修 |
+| `fig12_da3gs_vs_v2` | 方法对比：DA3-GS vs InfiniSplat v2（6 步流水线 + 5 行差异表） | 机制示意，非实验结果 |
+| `fig13_v2_vs_v3` | 方法对比：InfiniSplat v2 vs v3（同上版式） | 机制示意，非实验结果 |
+
+## 方法对比示意图（fig12/13，2026-11-13）
+
+这两张**不是本仓实测结果图**，是把代码/文档里已核实的机制差异画成对照页，供 PPT 讲
+"这两家到底差在哪"。文字口径全部可回查：
+
+| 图 | 机制来源 | 数字来源 |
+|---|---|---|
+| fig12 | DA3：`compare_4methods/A19_method_primer_figures.py` 的机制卡（DINOv2 / depth-ray / GS-DPT）；v2：`infinisplat_v2/README_wsl.md` 融合契约 | FINDINGS §2 五方法表（耗时 / 高斯数 / 体积） |
+| fig13 | v2：同上；v3：`splatanything/NOTES.md` §1/§2/§3（双模型、12 维属性、GSN、固定体素） | FINDINGS §2、EXPERIMENTS E-04~E-09 |
+
+三条容易讲错的地方：
+
+1. **三家都不学位置**——位置一律由深度反投影得到，网络只出属性。所以"DA3-GS 不学位置、
+   v2 学位置"是错的，差别不在这一步。
+2. **v2 的精度优势里含回炉**（固定中心 3000 步，自洽 +7.30 dB）；v3 官方把这一步去掉了，
+   直接拿 v2 的分数去比 v3 是不对等的。
+3. **v3 的 GSN 换的是"跨场景不用调参"**，不是画质。它让体素可以固定 0.002（v2 是
+   median_scale×1.4 逐场景自适应）；两者 voxel 尺寸不同，PSNR 不能横比。
+
 
 ## 三张图的正确说法（易讲错的地方）
 
@@ -47,7 +69,7 @@
 cd D:/splatanything_figures/_build
 python fig00_views.py && python fig01_02.py && python fig03_trend.py
 python fig04_nvs.py && python fig05_06.py && python fig07_08.py && python fig09_cloud.py
-python fig10_three_cam.py && python fig11_three_cam_pose.py
+python fig10_three_cam.py && python fig11_three_cam_pose.py && python fig12_13_compare.py
 ```
 
 依赖 pillow + numpy；中文字体走 `C:/Windows/Fonts/msyh*.ttc`。点云数据由
