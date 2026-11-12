@@ -288,7 +288,13 @@ V1.3 人物/环境/姿态多样性 → V2 曝光差异/手持扰动/真实拍摄
 - [ ] depth_radial/（全场景层）+ depth_radial_person/（人物实例层）+ depth_valid mask
 - [ ] foreground / silhouette mask
 - [ ] meta.json + render_config.json
-- [ ] 自动验收报告（跑我们的脚本）+ §8.2 深度一致性数字（中位 + P95）
+- [ ] 自动验收报告：**跑我们的验收脚本** `27_verify_sim_dataset.py`（渲染器无关，UE/Blender 产物通用）：
+  ```bash
+  python 27_verify_sim_dataset.py <数据集目录>
+  ```
+  覆盖：键对应 / K 抽查 / 深度值域 / **跨视角深度一致性** / **多层深度层一致性**；
+  要求验收输出全 ✅（退出码 0）才算通过，把完整输出附在交付里。
+- [ ] §8.2 深度一致性数字（中位 + P95）
 - [ ] 人工验收拼图
 
 可选（强烈建议，不阻塞）：z-depth、world normal、world position、part/instance ID、
