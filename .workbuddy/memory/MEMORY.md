@@ -1,8 +1,18 @@
 # media_code 项目长期约定
 
 ## da3_human 专属知识（只在该项目跑推理/训练时适用）
+- **三图路线更新（2026-11-12 用户澄清 + Codex 审查）**：三图指不同机位三张人像图，
+  不是近光心广角/主摄/长焦。研发首选 SplatAnything，DA3 保留配对基线、暂停几何重训。
+  最新排期为 `da3_human/EXPERIMENT_PLAN.md` §0.0 R0～R4：修评测→三图横评/几何与 ROI
+  审计，独立准备最多 100 step 成本探测；不等 DA3 C0～C4、不扩旧 72-run 矩阵。
+  8/13v 仅参考。用户观感不等于定量达标；当前训练仅 T0，后续 A1～A4 需据成本排期。
+  SA 现有 FG 是预测 alpha mask，held-out 底色取自 target；正式排名先修独立 mask/底色。
+  E-11 pose 为参考参数+假设 look-at，基线/raw depth 尺度混用；其 GT/退化归因与 fig10/11
+  的结论已在实验台账顶部修正，不可外推否定不同机位三图。
+  用户另报人物鼻子变宽疑似重影、物体很好；最新 R2-N 在域训练前区分相机/运动、中心深度、
+  merge/footprint 与域/像素预算；人物数据少和重影均未证实，不能直接定为外观问题。
 - **SplatAnything 路线验证分工（2026-11-12 用户指定）**：Codex 做实验设计/证据审查，
-  WorkBuddy 接续复现并执行。唯一任务入口 `da3_human/EXPERIMENT_PLAN.md` §0（WB-0～5），
+  WorkBuddy 接续复现并执行。唯一任务入口 `da3_human/EXPERIMENT_PLAN.md` §0（最新 §0.0；WB-0～5 保留定义），
   回填 `splatanything/ROUTE_VALIDATION_REPORT.md`；三个裁决为新基座是否达标、DA3 是否需
   几何修正、SplatAnything 训练改造成本。首轮训练仅做最多 100 step 成本冒烟，
   不把它当 per-scene 产品链或泛化结论；后续域训练据实测报告安排。
