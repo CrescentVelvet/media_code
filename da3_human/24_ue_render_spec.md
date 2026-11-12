@@ -162,6 +162,7 @@ w2c = inv(D @ M_ue @ C)
 | 主交付 | `depth_radial/`：径向深度（光心→表面欧氏距离），16-bit PNG **毫米**，uint16 值=毫米 |
 | 无效值 | **0 = 无效**（与真实零深度区分）；`depth_valid_mask` 另存一份 |
 | z-depth | 我们可由 radial + K 自行换算，**不强制导出**；若方便可一并给 `depth_z/` |
+| 多层深度 | `depth_radial_person/`：**仅人物**实例的径向深度（UE 按实例隔离渲染，如 Custom Depth + 人物 stencil）；全场景图照旧。人物 mask 内必须满足 `d_person ≤ d_scene`，反了即层渲染错。逐 part 多层（头发/手/衣服）属 V1.2 |
 | 量程 | 检查不溢出 65535mm；meta.json 记 `depth_unit="mm"`、`depth_type="radial"`、编码方式 |
 | 换算 | `P_c = d_r · r̂`（r̂ 必须是 OpenCV 相机系单位射线，未归一化不可用），`d_z = (P_c)_z` |
 
@@ -196,7 +197,8 @@ w2c = inv(D @ M_ue @ C)
 dataset_root/<sequence_id>/          # seq_id = <人物>_env<N>，如 ada_env1
   images_input/    s00~s12.png + wide/main/tele.png     # 16 张
   images_eval/     e00_m20.png ~ e24_p20.png            # 125 张
-  depth_radial/    与所有图像同名 .png（16-bit 毫米）
+  depth_radial/    与所有图像同名 .png（16-bit 毫米，全场景层）
+  depth_radial_person/  同名 .png（16-bit 毫米，仅人物实例层）
   masks/foreground/  masks/silhouette/  masks/depth_valid/
   cameras.json     meta.json     render_config.json
 ```
@@ -258,6 +260,7 @@ color_space="sRGB" / width / height / ue_version / render_config_version`
 - [ ] `w2c @ c2w ≈ I`；相机中心与 UE 场景预期位置一致
 - [ ] 随机 3D landmark 重投影误差 <1px（闭环测试 <0.5px 中心 / <1px 最大）
 - [ ] 深度单位/编码/量程正确；radial↔z 换算一致；mask 与 RGB 尺寸一致
+- [ ] 人物层 ≤ 全场景层（人物 mask 内逐像素成立；轮廓 1px 内放宽）
 - [ ] **跨视角深度一致性**（正确流程：A 反投影→世界→投影进 B→B 深度判可见→排除遮挡/轮廓/无效点）：
   干净静态数据中位 z 误差初期线 **<2cm，且必须同时报 P95**（防中位数掩盖少数严重错误）
 - [ ] 角色高度在 1.6~1.9 m；人物根节点/骨骼/网格序列内静止
@@ -282,7 +285,7 @@ V1.3 人物/环境/姿态多样性 → V2 曝光差异/手持扰动/真实拍摄
 
 - [ ] input RGB 16 张 + eval RGB 125 张
 - [ ] cameras.json（真实矩阵，w2c+c2w 互逆已验）
-- [ ] depth_radial/ + depth_valid mask
+- [ ] depth_radial/（全场景层）+ depth_radial_person/（人物实例层）+ depth_valid mask
 - [ ] foreground / silhouette mask
 - [ ] meta.json + render_config.json
 - [ ] 自动验收报告（跑我们的脚本）+ §8.2 深度一致性数字（中位 + P95）

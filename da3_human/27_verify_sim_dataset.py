@@ -154,7 +154,39 @@ def main():
             log(f"   [{'✅' if good else '❌'}] {a}→{b}: 中位 z 误差 {med*1000:.1f} mm（n={n}）"
                 f"{' —— 手系/深度翻转嫌疑！' if not good else ''}")
 
-    allok = ok1 and ok2 and ok3 and ok4
+    # 4.5) 多层深度：人物层 ≤ 全场景层（人物挡在背景前；轮廓 1px 内放宽）
+    ok45 = True
+    person_dir = os.path.join(root, "depth_radial_person")
+    if os.path.isdir(person_dir):
+        for k in list(cams)[:5]:
+            pp, fp = os.path.join(person_dir, f"{k}.png"), os.path.join(root, depths_dir, f"{k}.png")
+            if not (os.path.exists(pp) and os.path.exists(fp)):
+                continue
+            dp, ds = load_depth(pp), load_depth(fp)
+            fg = os.path.join(root, "masks", "foreground", f"{k}.png")
+            if os.path.exists(fg):
+                m = np.array(Image.open(fg)) > 127      # 有人物 mask 就只查 mask 内
+            else:
+                m = (dp > 1e-3) & (ds > 1e-3)           # 无 mask 就查人物层有效像素
+            # 轮廓 1px 内深度锯齿允许：十字形腐蚀，不用 scipy（本机验证环境没装）
+            if m.any():
+                e = m.copy()
+                e[1:, :] &= m[:-1, :]
+                e[:-1, :] &= m[1:, :]
+                e[:, 1:] &= m[:, :-1]
+                e[:, :-1] &= m[:, 1:]
+                m = e
+            if m.sum() == 0:
+                log(f"   ⏭️ {k} 人物层无有效像素，跳过")
+                continue
+            bad = (dp > ds + 0.002) & m                 # 2mm 容差防量化噪声
+            ok45 = ok45 and bad.mean() < 0.01
+            log(f"   [{'✅' if bad.mean() < 0.01 else '❌'}] {k} 人物层≤场景层: "
+                f"违例 {bad.mean():.3%}（mask 内 {m.sum()} px）")
+    else:
+        log("   ⏭️ 无 depth_radial_person/（多层深度），跳过层一致性检查")
+
+    allok = ok1 and ok2 and ok3 and ok4 and ok45
     log(f"🎉 验收{'通过' if allok else '未通过，看上面 ❌ 项'}")
     sys.exit(0 if allok else 1)
 
