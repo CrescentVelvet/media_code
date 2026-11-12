@@ -1,6 +1,11 @@
 # media_code 项目长期约定
 
 ## da3_human 专属知识（只在该项目跑推理/训练时适用）
+- **SplatAnything 路线验证分工（2026-11-12 用户指定）**：Codex 做实验设计/证据审查，
+  WorkBuddy 接续复现并执行。唯一任务入口 `da3_human/EXPERIMENT_PLAN.md` §0（WB-0～5），
+  回填 `splatanything/ROUTE_VALIDATION_REPORT.md`；三个裁决为新基座是否达标、DA3 是否需
+  几何修正、SplatAnything 训练改造成本。首轮训练仅做最多 100 step 成本冒烟，
+  不把它当 per-scene 产品链或泛化结论；后续域训练据实测报告安排。
 - **DA3 复现错误存档 + 防再犯清单 + DA3 训练事实** 全部在 `da3_human/ERRATA.md`；
   **跑 DA3 推理/训练/评估前必读**，其它算法项目不用看。
 
