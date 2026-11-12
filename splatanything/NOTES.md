@@ -178,3 +178,7 @@ opacity = Σ(w·w) / Σw          ← 注意不是加权平均，是"权重平�
 | `No camera entry for image 'xxx'` | `camera_id` 必须等于图片**文件名去扩展名** | 转换时统一命名，别手改 |
 | `All Gaussians are below opacity_thresh` | 权重没对上，或 scale 过滤把点全丢了 | 先确认权重 SHA256；再试 `--opacity_thresh 0` |
 | 输出目录同名覆盖 | `inference.py` 直接写 `OUT/SCENE/` | `02` 已处理：改输出根加时间戳 |
+| gsplat `AttributeError: 'NoneType' object has no attribute 'CameraModelType'` | CUDA 后端没编出来（缺 nvcc） | `conda install -n $CONDA_ENV -c nvidia cuda-nvcc=12.6` |
+| gsplat `_jit_compile() missing 2 required positional arguments` | gsplat 1.5.3 与 torch 2.7.1 的 JIT 接口不兼容 | 降到 `gsplat==1.5.2`（v2 实测可用的版本） |
+| gsplat 编译 `#include <glm/gtc/type_ptr.hpp>` 找不到 | 1.5.2 不内置 glm（1.5.3 才自带 third_party/glm） | 需要 glm 头文件；本机尚未打通，见 EXPERIMENTS 遗留项 |
+| nvcc `gcc: No such file or directory` | 本机 WSL 没装 gcc/g++ | 借用已有 conda env 的 gcc（`envs/infinisplat_v2/bin`），或 `conda install gxx_linux-64` |
