@@ -61,6 +61,27 @@ GSN 生效的硬证据（`05_check_scale.py`）：物体示例与人像采集包
 opacity 8.89e-09，相机漂移 0，渲染 RGB MAE **3.4e-08** / alpha 1.2e-08。
 → 03 的指标评的确实就是模型吐出的那批高斯。
 
+### held-out NVS（`08_nvs_eval.sh`，真留出）
+
+| 场景 | source | 留出 | PSNR | 前景 PSNR | SSIM | alpha | 交集 PSNR | 交集前景 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `jiajia_hold` | 3 | 21 | 15.23 | 18.17 | 0.406 | 0.789 | 15.00 | 18.35 |
+| `jiajia_hold` | 8 | 16 | 17.81 | 18.47 | 0.464 | 0.942 | 17.76 | 18.39 |
+| `jiajia_hold` | 13 | 11 | **18.39** | **18.91** | **0.502** | 0.955 | **18.39** | **18.91** |
+| `object` | 3 | 20 | **19.92** | **21.57** | **0.599** | 0.676 | **19.37** | **20.70** |
+| `object` | 8 | 15 | 19.03 | 18.95 | 0.473 | 0.728 | 18.71 | 18.54 |
+| `object` | 13 | 10 | 19.08 | 18.90 | 0.492 | 0.750 | 19.08 | 18.90 |
+
+⚠️ 三条读之前必须知道的：
+
+1. **自洽口径与 held-out 方向相反**（人像场景自洽 3v 22.37 → 24v 19.71 在降，held-out
+   3v 15.00 → 13v 18.39 在升）。自洽分数**不能用来排位**，只能证明链路通。
+2. 人像场景的增益几乎全在**覆盖度**（alpha 0.789→0.955），同视角前景 PSNR 只涨 0.56。
+3. 物体场景 **3v 反而最好**，体素尺寸与覆盖度两条解释都已排除，根因未定位 —— 不要引用。
+
+对齐自证：`M` 三视角离散 2.4e-07、`det=1.000000`、两种独立尺度估计都是 0.332757
+（离散 1.5e-08）、source 反算残差 3.8e-08。任一不过 `08` 直接报错退出，不渲错位图。
+
 ## 常用命令
 
 > 首次跑前先做「首次准备」。每条命令都显式写出权重、输入、输出路径。
@@ -105,6 +126,17 @@ python splatanything/07b_subset_scene.py \
   --scene "$HOME/output/splatanything_results/_scenes/jiajia_hold" --n 8 \
   --out "$HOME/output/splatanything_results/_scenes/jiajia_hold_8v"
 #   meta.json 里的 held_out 就是 WB-2 的 target 清单
+
+# ── H) held-out NVS（source 建云，留出视角只评分）──
+GPU=0 RESULT="$HOME/output/splatanything_results/panel/jiajia_hold_8v" \
+  SOURCE_SCENE="$HOME/output/splatanything_results/_scenes/jiajia_hold_8v" \
+  ALL_SCENE="$HOME/output/splatanything_results/_scenes/jiajia_hold" \
+  bash splatanything/08_nvs_eval.sh
+#   → RESULT/nvs/{nvs_summary.json, contact_sheet.png, render/*.png}
+
+# 多配置汇总（交集视角上严格可比）
+python splatanything/08b_nvs_compare.py \
+  --runs a/nvs_summary.json b/nvs_summary.json --csv cmp.csv
 ```
 
 **03 新增指标**（同一份 `eval_summary.json`）：`psnr_fg`（alpha>0.5 前景）、`psnr_bg`
@@ -174,9 +206,12 @@ media_code/splatanything/
 ├── 07_run_capture.sh        # Remy 采集包 → 场景目录
 ├── 07_capture_to_scene.py
 ├── 07b_subset_scene.py      # 场景抽子集（最远点采样，出 held_out 清单）
+├── 08_nvs_eval.sh           # held-out NVS 评测（source 建云，留出只评分）
+├── 08_nvs_eval.py
+├── 08b_nvs_compare.py       # 多配置汇总（在交集视角上重算，才可比）
 ├── hf_download.py           # 镜像分块并发下载（含 --noproxy）
 ├── NOTES.md                 # 原理（GSN / 体素合并 / 预处理）与排错
-├── EXPERIMENTS.md           # 实测台账（E-01~E-09）
+├── EXPERIMENTS.md           # 实测台账（E-01~E-10）
 └── ROUTE_VALIDATION_REPORT.md  # 按 WB 任务单回填的验收报告
 
 官方仓（Linux fs，稀疏检出）: ~/repos/SplatAnything

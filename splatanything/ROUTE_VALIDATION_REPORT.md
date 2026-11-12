@@ -1,9 +1,10 @@
 # SplatAnything / DA3 路线验证报告（WorkBuddy 回填）
 
-> 2026-11-12 第二轮回填（WB-1 收口）。**只填实测到的**；未做的保持 TODO，计划阈值不复制成实测值。
+> 2026-11-12 第三轮回填（WB-1 收口 + WB-2 首轮）。**只填实测到的**；未做的保持 TODO，
+> 计划阈值不复制成实测值。
 > 唯一任务入口：[EXPERIMENT_PLAN.md §0](../da3_human/EXPERIMENT_PLAN.md)。
 > 判据与原理：[路线评审附录](../da3_human/SPLATANYTHING_ROUTE_REVIEW.md)。
-> 实验事实另见 [EXPERIMENTS.md](EXPERIMENTS.md)（E-01~E-09）。
+> 实验事实另见 [EXPERIMENTS.md](EXPERIMENTS.md)（E-01~E-10）。
 
 ## 1. 当前状态
 
@@ -17,27 +18,36 @@
   - 采集包 pose：`~/output/splatanything_results/pose/jiajia_hold`
   - 转换场景：`~/output/splatanything_results/_scenes/jiajia_hold`（+ `_3v` / `_8v` / `_13v` 子集）
   - WB-1 往返验证：`~/output/splatanything_results/_roundtrip/{jiajia_hold_3v,jiajia_hold}`
-  - 视角数面板：`~/output/splatanything_results/panel/jiajia_hold_{8v,13v}`
-  - 体素消融：`~/output/splatanything_results/voxel001/jiajia_hold`
+  - 视角数面板：`~/output/splatanything_results/panel/{jiajia_hold_8v,jiajia_hold_13v}`
+  - held-out NVS：各 run 的 `nvs/nvs_summary.json`；汇总
+    `~/output/splatanything_results/nvs_compare{.json,.csv}`（人像）与
+    `nvs_compare_object{.json,.csv}`（物体）
+  - 体素消融：`~/output/splatanything_results/{voxel001,nomerge}/`
   - ⚠️ 未按计划落到 `~/output/splatanything_route_validation/<run_id>/`，下一轮迁移或重跑（产物可复用）
-- 当前执行任务 / 下一步：WB-1 **已完成**；下一步 WB-2（held-out NVS 入口）
-- UE/真实静态留出数据状态：未核实，未使用；本轮全部为**自洽口径**（输入视角重渲染）
+- 当前执行任务 / 下一步：WB-1 **DONE**、WB-2 **首轮 DONE**（两场景）；下一步见 §8
+- UE/真实静态留出数据状态：未核实，未使用。本轮已有**真 held-out**（模型没见过的视角，
+  GT 不参与建云），但仍是自采/官方示例，不是 UE 渲染对照
 
 | 任务 | 状态 | 证据路径 | 判定或阻塞 | 下一步 |
 |---|---|---|---|---|
 | WB-0 输入/环境冻结 | RUNNING | 见 §1、§6；`splatanything/{00,01}_*.sh` | 权重 SHA256 已校验、加载目标已追到软链终点、版本已知；缺 `inventory.json` / `manifest.json` / `commands.sh` 与 6 包冻结 | 按本报告记录生成三件套；6 包选择需用户确认身份分组 |
-| WB-1 真权重与导出渲染 | **DONE** | `EXPERIMENTS.md` E-04~E-09；`03_eval_render.sh`、`06_run_roundtrip.sh` | 真权重跑通、导出渲染通；**PLY 往返 PASS（MAE 3.4e-08，比判据小 4 个数量级）**、`io_audit` 已出、3v/8v/13v 人像包已跑 | — |
-| WB-2 配对质量与资源 | TODO | — | held-out 入口尚未实现（03 目前只有自洽口径，`MAX_VIEWS` 不是留出）；**E-08 已证明自洽 PSNR 不能跨视角数比较**，这个缺口现在是硬阻塞 | 实现 source-only → target 渲染（见 §7） |
-| WB-3 DA3 中心来源 | TODO | — | 需改官方代码（C0~C4 对照），本轮未动 | 待 WB-2 小样本后 |
+| WB-1 真权重与导出渲染 | **DONE** | E-04~E-09；`03_eval_render.sh`、`06_run_roundtrip.sh` | PLY 往返 PASS（MAE 3.4e-08，比判据小 4 个数量级）、`io_audit` 已出、3v/8v/13v 人像包已跑 | — |
+| WB-2 配对质量与资源 | **首轮 DONE** | E-10；`08_nvs_eval.sh`、`08b_nvs_compare.py` | held-out 入口已实现并对齐自证（残差 3.8e-08）；两场景结果方向相反，**"多视角更好"不成立** | 场景 B 的 3v>8v 根因；补人脸/手部区域指标 |
+| WB-3 DA3 中心来源 | TODO | — | 需改官方代码（C0~C4 对照），本轮未动 | 待 WB-2 结论稳定后 |
 | WB-4 训练改造成本 | TODO | — | 官方无训练代码，需自建可导前向 | 排期后 |
 
 ## 2. 三个问题的裁决
 
 | 问题 | 本轮结论 | 支持证据 | 反对/缺失证据 | 适用范围 |
 |---|---|---|---|---|
-| SplatAnything 达标了吗 | **未判定（INCONCLUSIVE）** | 自洽 PSNR 19.01（23v@756 pose）/ 19.71（24v@504）；GSN 尺度契约实测成立；PLY 导出与内存高斯逐位等价（E-07） | 无 held-out；**E-08 证明自洽 PSNR 随视角数反相关**（3v 22.37 → 24v 19.71，同一视角单调下降），所以连"哪一档更好"都答不了；仅 1 个官方例 + 1 个采集包；无 LPIPS/几何/泄漏指标 | 仅"链路可用 + 导出无损"，不能推方法优劣 |
+| SplatAnything 达标了吗 | **未判定（INCONCLUSIVE），但已能给出 held-out 水位** | held-out NVS：人像 13v source → 18.39 dB / 前景 18.91 / SSIM 0.50；物体 13v → 19.08 / 前景 18.90 / SSIM 0.49。PLY 导出与内存高斯逐位等价（E-07），所以数字不是导出链的伪影 | 没有计划里写的**达标阈值**，无法判"达标"；两场景、各一条序列；**多视角不单调变好**（物体场景 3v 最好），说明"最优视角数"本身还没定；无 LPIPS/几何/人脸手部分区指标 | 可引用"held-out 大概什么水平"，不可引用"哪个视角数最优" |
 | DA3 需要重训哪一层 | **未判定** | — | C0~C4 一个都没跑 | — |
 | 训练改造到 T0/T1/T2 哪一级、成本多少 | **未判定** | 确认官方无可导前向/无渲染器（`rasterization.py` 注释 "no rasterization or training"） | 未做任何训练侧探测 | — |
+
+**本轮最重要的方法学结论（比上面的数字更重要）**：自洽 PSNR 与 held-out PSNR
+在同一批数据上**方向相反** —— 自洽 3v 22.37 → 24v 19.71（降 2.7 dB），held-out
+3v 15.00 → 13v 18.39（升 3.4 dB）。此前所有基于自洽分数的排序（包括本报告上一版的
+"19.01 / 19.71"）**都不能用来比方法或比配置**，只能证明"能跑通"。
 
 ## 3. 质量与资源门槛逐项结果
 
@@ -64,6 +74,31 @@
   （逐位相同）。→ 03 的指标评的确实是模型吐出的那批高斯。
 - 3/8/13v、人物/脸/背景拆分、LPIPS、几何/轮廓、空洞/泄漏、CI 聚合 **均未做**。
 - 独立身份/场景数 = 2（1 官方物体 + 1 人像包），不足以做聚合。
+
+### 3.1 held-out NVS（真留出，WB-2 首轮）
+
+口径：source 视角建云，留出视角**不参与前向**，只用于渲染评分；GT 走官方
+`preprocess_view`。两场景各自的分母不同，所以另给"**交集**"列（所有配置都留出过的
+同一批视角）——只有交集列可以横着比。
+
+| 场景 | source | 留出 | PSNR | 前景 PSNR | SSIM | alpha | 锐度保留 | 交集 n | 交集 PSNR | 交集前景 | 交集 SSIM |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `jiajia_hold` | 3 | 21 | 15.23 | 18.17 | 0.406 | 0.789 | 89% | 11 | 15.00 | 18.35 | 0.41 |
+| `jiajia_hold` | 8 | 16 | 17.81 | 18.47 | 0.464 | 0.942 | 87% | 11 | 17.76 | 18.39 | 0.47 |
+| `jiajia_hold` | 13 | 11 | **18.39** | **18.91** | **0.502** | 0.955 | 84% | 11 | **18.39** | **18.91** | **0.50** |
+| `object` | 3 | 20 | **19.92** | **21.57** | **0.599** | 0.676 | 93% | 10 | **19.37** | **20.70** | **0.58** |
+| `object` | 8 | 15 | 19.03 | 18.95 | 0.473 | 0.728 | 93% | 10 | 18.71 | 18.54 | 0.46 |
+| `object` | 13 | 10 | 19.08 | 18.90 | 0.492 | 0.750 | 95% | 10 | 19.08 | 18.90 | 0.49 |
+
+读法（很重要）：
+
+- **人像场景：加视角的增益几乎全在覆盖度**。alpha 0.789 → 0.955（+0.17），而同一批
+  视线上的前景 PSNR 只涨 0.56 dB（18.35 → 18.91）。所谓"3v→13v +3.4 dB"主要是
+  从"大片背景没重建"变成"背景也建出来了"。
+- **物体场景：3v 反而最好**，且已排除体素尺寸（0.002/0.001/0.0002 三档，18.64~19.03，
+  都低于 3v 的 19.37）与覆盖度（alpha 只差 0.07）。**根因未定位**，不能引作结论。
+- 对齐自证：`M` 三视角离散 2.43e-07、`det(M)=1.000000`；尺度两种独立估计都是 0.332757
+  （离散 1.5e-08）；source 平移反算残差 3.84e-08。→ 渲染的位置不是错位来的。
 
 **资源**（整卡 `nvidia-smi` 采样，不是单进程 allocated/reserved；本轮未采 torch 侧）：
 
@@ -174,30 +209,35 @@ RESULT=~/output/splatanything_results/panel/<scene> bash splatanything/03_eval_r
 3. gsplat 在本机需要四件套（nvcc/gcc/glm/arch），已抽成 `_gsplat_env.sh` 由 03/06 共用。
 4. 03 只有自洽口径，held-out 未实现 —— 这是 WB-2 的前置，见 §7。
 
-## 7. WB-2 的落地设计（下一轮执行，暂未实现）
+## 7. WB-2 的落地实现（已完成，`08_*.{sh,py}` + `08b_*.py`）
 
-held-out 的难点只有一个：**导出的云在"source 视角的规范坐标系"里，留出视角的位姿在原始
-坐标系里**。`build_views` 会做两件事 —— `cam_align`（锚到首视角）和 GSN 缩放
-（`depth *= factor; poses[..., :3, 3] *= factor`）—— 所以留出相机必须过同一个变换。
+对齐是唯一的技术难点：导出的云在"source 首相机规范系 + GSN 缩放"里，留出位姿在原始采集系。
+做法是**从数据拟合**而不是假设实现细节 —— 解 `R_exp = M·R_o`、`t_exp = s·(M·t_o) + u`，
+再用 source 反算残差自证（实测 3.84e-08），并用"成对相机距离比"独立估 s 做交叉校验
+（0.332757 / 0.332757，离散 1.5e-08）。任一校验不过就报错退出，不渲染。
 
-可行做法（不需要改官方代码）：
+踩过的坑（留给下次）：`u` 的系数必须是 `np.tile(np.eye(3), (N,1))`（[3N,3]）；
+写成 `np.kron(np.eye(N), np.eye(3))` 会得到 [3N,3N] 块对角，每个方程都放开 → 最小二乘
+退化成逐点最优，表现为"旋转对、平移错"（残差 13.9%）。
 
-1. 用 source 子集跑 02，得到 `cameras.json`（= `export_camera_poses`，已过 align+GSN）；
-2. 拿 source 视角的**原始**位姿（`_scenes/…/prior_camera.json`）与导出的位姿配对，
-   解 `X_exp = s·R_A·X_orig + t_A`：`R_A = R_exp·R_orig⁻¹`（各视角应一致，可核对残差），
-   `s, t_A` 用最小二乘；
-3. 把留出视角套上同一变换，喂给 `03_render_eval.py` 的渲染（它只要 c2w/K 列表）；
-4. **校验**：用步骤 2 的变换反算 source 视角，残差应 ≈0；否则公式写错了。
+用法：
 
-`07b_subset_scene.py` 已经输出 `meta.json.held_out`（源序号），可直接当 target 清单。
-3v→21 held-out 是成本最低的第一组，24v 那档不要用（几乎没留出）。
+```bash
+RESULT=<02/06 输出目录> SOURCE_SCENE=<source 场景> ALL_SCENE=<含全部视角的场景> \
+  bash splatanything/08_nvs_eval.sh
+python splatanything/08b_nvs_compare.py --runs a/nvs_summary.json b/... --csv cmp.csv
+```
 
 ## 8. 下一步唯一建议及理由
 
-**实现 WB-2 的 held-out NVS 入口（§7 四步），先跑 3v → 21 held-out。**
+**先查清"物体场景 3v 优于 8v/13v"的根因，同时把区域指标接到人脸/手部。**
 
-理由：E-08 已经把自洽口径证伪了 —— 同一张 GT、同一个相机，只要输入视角数从 3 加到 24，
-PSNR 就从 22.37 掉到 19.71，而且前景/背景分区、锐度、尺度契约三条排查都排除了混淆。
-这意味着**现有全部数字都不能用来给 SplatAnything 排位**，"达标了吗"只能停在 INCONCLUSIVE。
-held-out 是唯一能把这个问号变成结论的入口，而且§7 的做法不改官方代码、只用现成产物，
-3v 那档 1 秒推理 + 21 视角渲染，成本可以忽略。
+理由：WB-2 首轮已经拿到真 held-out，但两个人像相关的问题还答不了：(1) 物体场景出现
+反直觉的 "3v 最好"，而体素尺寸与覆盖度两条解释都已被排除，说明还有一个没被识别的因素
+在控制质量 —— 在没搞清它之前，"选几个视角"这个对下游最关键的决策没有依据；
+(2) 用户真正关心的是**人脸和手**，而当前前景指标是整块 alpha 掩膜，人像只占其中一小部分，
+人脸区域的信噪比被背景稀释。ExpTracker 的 657 点与 SAM3 的 mask 管线在仓里已可用，
+接上就能给出"人脸 PSNR / 手部 PSNR"，这比再刷整图 PSNR 有用得多。
+
+代价：都不需要改官方代码，只需在 03/08 的度量里加一块掩膜；物体场景的根因排查用现成
+产物 + 一次重跑即可。

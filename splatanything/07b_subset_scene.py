@@ -24,10 +24,22 @@ import numpy as np
 
 
 def load_cams(scene):
+    """读相机；只保留**图片真实存在**的 id。
+
+    官方 `examples/object/prior_camera.json` 有 24 条 extrinsics 但只有 23 张图
+    （`frame_0023.png` 缺失），直接用相机 id 会抽到不存在的帧。
+    """
     data = json.loads((scene / 'prior_camera.json').read_text())
     extr = {e['camera_id']: np.asarray(e['matrix'], np.float64) for e in data['extrinsics']}
     intr = {e['camera_id']: np.asarray(e['matrix'], np.float64) for e in data['intrinsics']}
     ids = [e['camera_id'] for e in data['extrinsics'] if e['camera_id'] in intr]
+    missing = [i for i in ids if not (scene / 'images' / f'{i}.png').exists()]
+    if missing:
+        print(f'⚠️  {len(missing)} 个相机没有对应图片，已剔除：{missing[:4]}'
+              f'{" …" if len(missing) > 4 else ""}')
+        ids = [i for i in ids if i not in set(missing)]
+    if not ids:
+        raise SystemExit(f'❌ {scene} 的相机与 images/ 完全对不上')
     centers = np.stack([extr[i][:3, 3] for i in ids])
     return data, ids, centers, extr, intr
 
