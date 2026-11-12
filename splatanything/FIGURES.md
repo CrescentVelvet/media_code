@@ -20,6 +20,8 @@
 | `fig07_ply_roundtrip` | 导出无损：MAE 3.4e-08 | — |
 | `fig08_summary_table` | 全量读数汇总 | 混合，已分列 |
 | `fig09a_cloud_human` | 高斯点云三视图 + 相机环 | — |
+| `fig10_three_cam` | 同光心三摄：rgb 模式的失败链（焦距差→虚构基线） | 自洽 |
+| `fig11_three_cam_pose` | 三摄两模式对照（rgb vs 给定真值 pose） | 自洽 |
 
 ## 三张图的正确说法（易讲错的地方）
 
@@ -28,6 +30,9 @@
 2. **fig04 是 held-out**，但展示用的是 3 个代表性视角，全量 11 视角均值 18.39 dB 写在页脚。
 3. **fig06 是未定论**：3v 19.37 > 13v 19.08 > 8v 18.71，体素/覆盖度/锐度三条解释均已排除，
    根因未定位，只能说"反常"，不能说"少视角更好"。
+4. **fig10/fig11 讲的是"输入不合格"而不是"方法不行"**：同光心三摄视差只有物距的 1.2%，
+   三角测量没有基线。fig11 里 pose 模式（喂真值相机）已经把焦距比和相机间距比都复原对了，
+   但 tele 深度仍是另两张的 0.57×——结论是"这种输入无法验证 3D"，不能写成"模型失败"。
 
 ## 重新出图
 
@@ -35,6 +40,7 @@
 cd D:/splatanything_figures/_build
 python fig00_views.py && python fig01_02.py && python fig03_trend.py
 python fig04_nvs.py && python fig05_06.py && python fig07_08.py && python fig09_cloud.py
+python fig10_three_cam.py && python fig11_three_cam_pose.py
 ```
 
 依赖 pillow + numpy；中文字体走 `C:/Windows/Fonts/msyh*.ttc`。点云数据由
