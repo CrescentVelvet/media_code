@@ -84,6 +84,20 @@ def psnr(a, b):
     return float('inf') if mse <= 1e-12 else 10.0 * np.log10(1.0 / mse)
 
 
+def psnr_region(a, b, mask, min_px=256):
+    """只在掩膜内算 PSNR。mask 里没有足够像素就返回 None。
+
+    为什么要分区：整体 PSNR 会把"前景糊"和"背景铺得广不广"混在一起。
+    只看 alpha>0.5 是前景保真，只看 alpha<0.01 是背景/漏出（幽灵落在 GT 掩膜之外，
+    整体 PSNR 抓不到，得单独看这一块）。
+    """
+    if mask is None or int(mask.sum()) < min_px:
+        return None
+    d = np.mean((a.astype(np.float32) - b.astype(np.float32)) ** 2, axis=-1)
+    mse = float(d[mask].mean())
+    return float('inf') if mse <= 1e-12 else 10.0 * np.log10(1.0 / mse)
+
+
 def ssim(a, b, sigma=1.5, win=11):
     """标准 SSIM（高斯窗），a/b 为 [H,W,3] float32 in [0,1]。"""
     def kernel(ch):
@@ -104,6 +118,20 @@ def ssim(a, b, sigma=1.5, win=11):
     c1, c2 = 0.01 ** 2, 0.03 ** 2
     s = ((2 * mu_x * mu_y + c1) * (2 * sxy + c2)) / ((mu_x ** 2 + mu_y ** 2 + c1) * (sx + sy + c2))
     return float(s.mean())
+
+
+def sharpness(img, mask=None):
+    """亮度梯度均值（锐度的代理量）。
+
+    在 alpha>0.5 的同一块掩膜上同时算 GT 和渲染，比值 <1 就说明重建过平滑。
+    只看 PSNR 会把"糊"和"颜色偏"混在一起；锐度保留率能把两者分开。
+    """
+    y = img.astype(np.float32) @ np.array([0.299, 0.587, 0.114], np.float32)
+    gy, gx = np.gradient(y)
+    gm = np.sqrt(gx ** 2 + gy ** 2)
+    if mask is not None and mask.sum() > 0:
+        return float(gm[mask].mean())
+    return float(gm.mean())
 
 
 def contact_sheet(pairs, out_path, max_items=6):
@@ -173,23 +201,47 @@ def main():
         rd, al = rd[0], al[0]
         Image.fromarray((rd * 255).astype(np.uint8)).save(out / 'render' / f'{ids[i]}.png')
         p, s = psnr(gt, rd), ssim(gt, rd)
+        # 锐度：同一块前景掩膜上比 GT 与渲染，比值 < 1 = 重建糊
+        fg = al.reshape(al.shape[0], al.shape[1]) > 0.5
+        sh_gt = sharpness(gt, fg)
+        sh_rd = sharpness(rd, fg)
+        # 分区 PSNR：前景（alpha>0.5）与背景/漏出（alpha<0.01）
+        p_fg = psnr_region(gt, rd, fg)
+        p_bg = psnr_region(gt, rd, al.reshape(al.shape[0], al.shape[1]) < 0.01)
         rows.append(dict(id=ids[i], psnr=p, ssim=s,
                          alpha_mean=float(al.mean()),
-                         coverage=float((al > 0.01).mean())))
+                         coverage=float((al > 0.01).mean()),
+                         psnr_fg=p_fg, psnr_bg=p_bg,
+                         fg_frac=float(fg.mean()),
+                         sharp_gt=sh_gt, sharp_rd=sh_rd,
+                         sharp_ratio=(sh_rd / sh_gt) if sh_gt > 0 else None))
         pairs.append(((gt * 255).astype(np.uint8), (rd * 255).astype(np.uint8)))
-        print(f'  {ids[i]:<20s} PSNR {p:6.2f}  SSIM {s:.4f}  alpha {al.mean():.3f}')
+        fg_txt = f'{p_fg:6.2f}' if p_fg is not None else '   n/a'
+        bg_txt = f'{p_bg:6.2f}' if p_bg is not None else '   n/a'
+        print(f'  {ids[i]:<20s} PSNR {p:6.2f} (前景 {fg_txt} / 背景 {bg_txt})  SSIM {s:.4f}  '
+              f'alpha {al.mean():.3f}  锐度保留 {100 * sh_rd / sh_gt if sh_gt > 0 else 0:.0f}%')
 
     contact_sheet(pairs, out / 'contact_sheet.png')
+    ratios = [r['sharp_ratio'] for r in rows if r['sharp_ratio'] is not None]
+    fg_psnrs = [r['psnr_fg'] for r in rows if r['psnr_fg'] is not None and np.isfinite(r['psnr_fg'])]
+    bg_psnrs = [r['psnr_bg'] for r in rows if r['psnr_bg'] is not None and np.isfinite(r['psnr_bg'])]
     summary = dict(result=str(res), views=len(rows), gaussians=int(len(g['means'])),
                    resolution=[w, h], eps2d=args.eps2d, background=bg,
                    psnr_mean=float(np.mean([r['psnr'] for r in rows])),
+                   psnr_fg_mean=float(np.mean(fg_psnrs)) if fg_psnrs else None,
+                   psnr_bg_mean=float(np.mean(bg_psnrs)) if bg_psnrs else None,
                    ssim_mean=float(np.mean([r['ssim'] for r in rows])),
                    alpha_mean=float(np.mean([r['alpha_mean'] for r in rows])),
+                   sharp_ratio_mean=float(np.mean(ratios)) if ratios else None,
                    views_detail=rows)
     (out / 'eval_summary.json').write_text(json.dumps(summary, indent=2))
 
-    print(f'\n📊 自洽口径：PSNR {summary["psnr_mean"]:.2f}  SSIM {summary["ssim_mean"]:.4f}  '
-          f'alpha {summary["alpha_mean"]:.3f}')
+    fg_txt = f'{summary["psnr_fg_mean"]:.2f}' if summary['psnr_fg_mean'] else 'n/a'
+    bg_txt = f'{summary["psnr_bg_mean"]:.2f}' if summary['psnr_bg_mean'] else 'n/a'
+    print(f'\n📊 自洽口径：PSNR {summary["psnr_mean"]:.2f}'
+          f'（前景 {fg_txt} / 背景 {bg_txt}）  SSIM {summary["ssim_mean"]:.4f}  '
+          f'alpha {summary["alpha_mean"]:.3f}  '
+          f'锐度保留 {100 * summary["sharp_ratio_mean"]:.0f}%')
     print(f'🎉 Done: {out}')
 
 

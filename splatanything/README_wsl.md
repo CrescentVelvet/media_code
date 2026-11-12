@@ -41,6 +41,26 @@ GSN 生效的硬证据（`05_check_scale.py`）：物体示例与人像采集包
 （1.746 vs 0.452），但高斯 `scale / spacing_target` 都落在 **0.80 ~ 1.37**，
 1-NN 间距 p50 都是 **0.0032~0.0034**（≈ √3 × voxel 0.002 的对角线）。
 
+### 视角数控制面板（`jiajia_hold`，pose，504²，最远点采样、三档嵌套）
+
+| 视角 | 高斯 | 合并保留率 | 1-NN p50 | 自洽 PSNR | SSIM | 锐度保留 | 显存 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 3 | 473 K | 64.1% | 0.00229 | **22.37** | 0.725 | 85% | 13.41 GB |
+| 8 | 1.01 M | 49.7% | 0.00279 | 19.91 | 0.607 | 84% | 18.62 GB |
+| 13 | 1.30 M | 39.3% | 0.00287 | 19.95 | 0.581 | 81% | 19.17 GB |
+| 24 | 1.94 M | 40.8% | 0.00326 | 19.71 | 0.563 | 81% | 21.79 GB |
+
+⚠️ **自洽 PSNR/SSIM 随视角数单调下降，不能跨视角数比较**（同一视角 `022_…`：23.30 → 19.55
+→ 19.07 → 19.0）。尺度、场景包围盒、高斯 footprint 四档一致（排除 GSN 混淆），前景 PSNR
+同样下降（排除背景稀释），锐度只掉 4 个百分点（排除单纯变糊）。实际机制是体素合并消耗样本
+（保留率 64%→41%），把更多样本换成邻域平均。详见 `EXPERIMENTS.md` E-08/E-09。
+
+### PLY 导出等价性（`06_run_roundtrip.sh`，PASS）
+
+内存过滤后 vs PLY 重载：means / quats / f_dc **MAE = 0**（逐位相同），log scale 1.97e-09，
+opacity 8.89e-09，相机漂移 0，渲染 RGB MAE **3.4e-08** / alpha 1.2e-08。
+→ 03 的指标评的确实就是模型吐出的那批高斯。
+
 ## 常用命令
 
 > 首次跑前先做「首次准备」。每条命令都显式写出权重、输入、输出路径。
@@ -74,7 +94,23 @@ GPU=0 RESULT="$HOME/output/splatanything_results/pose/object" \
 
 # ── E) 不加载权重验链路（CPU，秒级；改完代码先跑这个）──
 python splatanything/04_smoke_cpu.py
+
+# ── F) 导出往返验证（跑一次推理，比"内存高斯"与"PLY 重载"）+ io_audit ──
+GPU=0 INPUT="$HOME/output/splatanything_results/_scenes/jiajia_hold_3v" MODE=pose \
+  RESOLUTION="504 504" bash splatanything/06_run_roundtrip.sh
+#   → _roundtrip/<scene>/{ply_roundtrip.json, roundtrip_diff.png}
+
+# ── G) 抽子集做视角数面板（最远点采样，天然嵌套 3v⊂8v⊂13v）──
+python splatanything/07b_subset_scene.py \
+  --scene "$HOME/output/splatanything_results/_scenes/jiajia_hold" --n 8 \
+  --out "$HOME/output/splatanything_results/_scenes/jiajia_hold_8v"
+#   meta.json 里的 held_out 就是 WB-2 的 target 清单
 ```
+
+**03 新增指标**（同一份 `eval_summary.json`）：`psnr_fg`（alpha>0.5 前景）、`psnr_bg`
+（alpha<0.01，抓"幽灵在 GT 掩膜之外"）、`sharp_ratio`（前景掩膜上的梯度均值比，<1 = 糊）。
+为什么必须分区：整体 PSNR 会把"前景糊"和"背景铺得广不广"混在一起；锐度保留率则把
+"糊"和"颜色偏"分开。
 
 ## 首次准备
 
@@ -124,17 +160,24 @@ bash splatanything/01_download_models.sh
 ```
 media_code/splatanything/
 ├── _env.sh                  # 代理 / conda / 路径（含 CDN 直连的 no_proxy）
+├── _gsplat_env.sh           # gsplat 安装 + 编译四件套（03/06 共用）
 ├── 00_setup_env.sh          # 稀疏 clone + conda env + torch + 依赖 + 自检
 ├── 01_download_models.sh    # 3 个权重 + SHA256 + checkpoints 软链
 ├── 02_run_inference.sh      # 推理（含显存采样与产物统计）
-├── 03_eval_render.sh        # 自接 gsplat 渲染 + PSNR/SSIM（自洽口径）
+├── 03_eval_render.sh        # 自接 gsplat 渲染 + PSNR/SSIM/锐度/分区（自洽口径）
 ├── 03_render_eval.py
-├── 04_smoke_cpu.py          # CPU 全链路自检（不加载真权重，28×28 图，秒级）
+├── 04_smoke_cpu.py          # CPU 全链路自检（不加载真权重，56×56 图，秒级）
+├── 04b_test_render.py       # 造最小 result 目录验渲染链路
+├── 05_check_scale.py        # 验 GSN 尺度契约（scale/spacing_target、1-NN 间距）
+├── 06_run_roundtrip.sh      # PLY 往返验证 + io_audit + 体素合并统计
+├── 06_ply_roundtrip.py
 ├── 07_run_capture.sh        # Remy 采集包 → 场景目录
 ├── 07_capture_to_scene.py
+├── 07b_subset_scene.py      # 场景抽子集（最远点采样，出 held_out 清单）
 ├── hf_download.py           # 镜像分块并发下载（含 --noproxy）
 ├── NOTES.md                 # 原理（GSN / 体素合并 / 预处理）与排错
-└── EXPERIMENTS.md           # 实测台账
+├── EXPERIMENTS.md           # 实测台账（E-01~E-09）
+└── ROUTE_VALIDATION_REPORT.md  # 按 WB 任务单回填的验收报告
 
 官方仓（Linux fs，稀疏检出）: ~/repos/SplatAnything
 权重（D 盘）              : /mnt/d/wheel/splatanything_ms
