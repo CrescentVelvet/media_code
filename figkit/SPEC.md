@@ -152,22 +152,24 @@ y=1044 页脚口径（17px light）
 
 | 图 | 状态 |
 |---|---|
-| `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排，脚本 `splatanything/09_make_fig12_13.py` |
+| `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排；出图脚本在 `D:/splatanything_figures/_build/fig12_13_compare.py`（一次性脚本不入库，见 §10） |
 | `splatanything` fig00–fig11 | ⚠️ 1920×1200 历史口径，未重排；重排需按 §2 重算栅格 |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |
 
-## 10. 用法
+## 10. 入库边界（2026-11-13 峰哥定）
 
-```bash
-# 图脚本放在算法目录下，按 <编号>_make_<主题>_figures.py 命名
-python figkit_demo.py            # 见 README.md
-```
+**只入库可复用的东西**：`figkit/`（本规格 + figlib/chartlib）、出图台账（`*/FIGURES.md`）。
+
+**不入库**：成品图（`.gitignore` 已含 `*.png *.jpg *.mp4`）、一次性出图脚本。
+一次性脚本放 `D:/<项目>_figures/_build/`，随项目产物留档；台账里写清路径即可。
+判断标准：**换个内容还能直接用的，入库；绑定某一张图的，不入库**。
+
+## 11. 用法
 
 ```python
 import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'figkit'))
+sys.path.insert(0, r'C:/code/media_code/figkit')   # 或设 FIGKIT 环境变量
 
 import figlib as F
 
@@ -175,6 +177,10 @@ F.set_root(r'D:/splatanything_figures')   # 成品落 <root>/figures/
 im, d = F.canvas()                        # 1920×1080
 F.header(d, '结论句标题', '一句话副标题')
 F.card_head(d, F.M, F.CARD_Y, F.C_DA3, 'DA3-GS', '一次前向直出')
+F.step(d, x, y, w, F.STEP_H, F.C_DA3, '主标题', '副说明', '徽章')
+F.table(d, F.M, F.TABLE_Y, F.W - 2 * F.M, rows, cols)   # rows=[(维度, 左, 右)]
 F.footer(d, '口径：...（数据来源 + 不可比之处）')
 F.save(im, 'fig14_xxx.png')
 ```
+
+完整可跑样例见 `D:/splatanything_figures/_build/fig12_13_compare.py`。

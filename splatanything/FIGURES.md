@@ -36,8 +36,8 @@
 
 版式已固化为 **`figkit/SPEC.md`**（1920×1080 满版）：左右两栏各 6 步流水线同 y 对齐 +
 下方 5 行差异表，第 6 步用"灰化 / 徽章 / 高亮环"表达差异而非错位。
-出图脚本是仓内 `splatanything/09_make_fig12_13.py`（`import figlib`，不再是 D 盘的一次性脚本）；
-`D:/splatanything_figures/_legacy_1200/` 存 1200 版旧图与旧脚本。
+出图脚本 `D:/splatanything_figures/_build/fig12_13_compare.py`（`import figlib`，**一次性脚本不入库**）；
+`_legacy_1200/` 存 1200 版旧图与旧脚本。
 
 这两张**不是本仓实测结果图**，是把代码/文档里已核实的机制差异画成对照页，供 PPT 讲
 "这两家到底差在哪"。文字口径全部可回查：
@@ -71,12 +71,11 @@
 ## 重新出图
 
 ```bash
-# fig12/13：走仓内脚本 + figkit（1920×1080，规格见 figkit/SPEC.md）
-python splatanything/09_make_fig12_13.py        # 输出到 D:/splatanything_figures/figures/
-FIG_ROOT=/path/to/dir python splatanything/09_make_fig12_13.py   # 换输出根目录
+# fig12/13：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
+cd D:/splatanything_figures/_build && python fig12_13_compare.py
+FIG_ROOT=/path/to/dir python fig12_13_compare.py    # 换输出根目录
 
 # fig00~fig11：2026-11-12 的一次性脚本，仍是 1920×1200 历史口径（未套 figkit）
-cd D:/splatanything_figures/_build
 python fig00_views.py && python fig01_02.py && python fig03_trend.py
 python fig04_nvs.py && python fig05_06.py && python fig07_08.py && python fig09_cloud.py
 python fig10_three_cam.py && python fig11_three_cam_pose.py

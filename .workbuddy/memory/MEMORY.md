@@ -41,6 +41,11 @@
   临时文件走「备份+搬移」到 `/mnt/d/output/media_code_*_backup_<date>/`，判定无用要落到
   「结论已入库 / 已被正式脚本取代 / 无进程在跑」三条。
 - commit 后按需更新 EXPERIMENTS.md（实验结论），与 README（运行命令）分离。
+- **入库边界：只入可复用脚本与规格文档**（2026-11-13 峰哥定）：成品图与一次性出图脚本
+  **都不进 GitHub**。判断标准「换个内容还能直接用的入库，绑定某一张图的不入库」。
+  落点：可复用的放 `figkit/`（SPEC + figlib/chartlib）与 `*/FIGURES.md` 台账；一次性脚本
+  放 `D:/<项目>_figures/_build/`，成品放同目录 `figures/`，旧版 `_legacy_*/`。
+  规范原文 AGENTS.md §14。`.gitignore` 已排除 `*.png *.jpg *.mp4`。
 
 ## 关键文档索引
 - **`compare_4methods/IMPROVEMENTS.md` + `ERRATA.md` + `FINDINGS.md`**（2026-11-08 建）：DA3-GS 的
