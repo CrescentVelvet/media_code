@@ -41,6 +41,20 @@
     └── WSL: ~/output/<algo>_results   # proxy.env 覆盖；跑完用 08 搬到 /mnt/d/output/
 ```
 
+### 机器目录 vs 算法目录（2026-11-13 峰哥定）
+跑在某台特定机器上的**运维脚本**放 `<机器名>/`，别塞进算法目录，也别散落仓根：
+
+- `canada_h100/` — H100 集群（ca-uae 迪拜，`ssh h100`）：建环境、体检、保活占卡、显卡监控、存储策略
+- 以后接新机器同样开一个（如 `xxx_a100/`），命名 `地区/机器型号小写下划线`
+
+**判断标准：换台机器还能不能跑。**
+- 「h100a011 分区、隐藏队列、登录节点无 GPU、脚必须 `squeue -a`」→ 机器目录
+- 「SplatAnything 要 100 step 冒烟、DA3 要三图」→ 对应算法目录
+
+算法目录里需要这台机器的前置条件时，**写一句指过去**（`见 canada_h100/README.md`），不要复制机器知识。
+
+**脚本内部一律 `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` 解析自身目录**，不写 `/data/.../repos` 这类硬编码——仓换了落点（`/data/00950754/code/media_code/` ↔ 本机 `C:\code\media_code`）脚本要照跑。
+
 ### 命名规范
 - 算法目录名：小写 + 下划线，如 `wan22_rotate`、`sam_3d_body`、`hunyuanvideo_1.5`
 - **脚本必须数字编号**：`00_setup_env.sh` → `01_download_models.sh` → `02_run_inference.sh` → `03_build_dataset.sh` → `04_train_lora.sh`。**不要写无编号的 `run_xxx.sh` / `stop_xxx.sh`**（如一键生成、停服务等 wrapper 也要编号：`04_run.sh`、`05_stop.sh`）。类型相似（同一步骤的多个变体）用同一数字编号 + 字母区分：`01_pick_and_segment.sh` / `01b_pick_and_segment.sh` / `01c_pick_and_segment.sh`。**跨平台变体也用字母区分**：`00_setup_env.sh`（服务器） / `00a_setup_env.sh`（WSL 本机）。

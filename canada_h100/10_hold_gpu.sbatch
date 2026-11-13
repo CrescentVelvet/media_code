@@ -31,6 +31,10 @@ set -eo pipefail
 echo "job=$SLURM_JOB_ID node=$(hostname) start=$(date -Is)"
 echo "分配到的卡: ${CUDA_VISIBLE_DEVICES:-(未设置)}   SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-?}"
 
+# 脚本目录：优先用 10_hold.sh / 10_hold_gpu.py 传下来的，其次提交目录
+SCRIPT_DIR="${HOLD_SCRIPT_DIR:-${SLURM_SUBMIT_DIR:-/data/00950754/code/media_code/canada_h100}}"
+echo "脚本目录: $SCRIPT_DIR"
+
 source /data/00950754/envs/activate_splatanything.sh
 
 INTENSITY="${HOLD_INTENSITY:-high}"
@@ -44,7 +48,7 @@ if [ "${HOLD_CHAIN:-0}" = "1" ]; then CHAIN_ARGS="--chain"; fi
 mkdir -p /data/00950754/runs/hold
 cd /data/00950754/runs/hold
 
-python /data/00950754/repos/10_hold_gpu.py \
+python "$SCRIPT_DIR/10_hold_gpu.py" \
     --intensity "$INTENSITY" \
     --size "$SIZE" \
     --dtype "$DTYPE" \

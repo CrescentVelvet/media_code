@@ -3,19 +3,31 @@
 > 账号 `00950754` · 登录 `ssh h100` · 实测记录 2026-11-13
 > 节点 8×H100 PCIe 80GB · 192 核 · 1.35T 内存
 
+## 目录约定（2026-11-13 定）
+
+**本目录 `canada_h100/` 只放「这台机器本身」的运维脚本**：建环境、体检、保活、监控、存储策略。
+
+**具体算法的复现脚本放各自算法目录**（`splatanything/`、`da3_human/`、`vggt_human/` …），
+在里面按 AGENTS.md 的编号规范写 `00_setup_env.sh` / `01_download_models.sh` / `02_run_inference.sh`。
+判断标准：**换台机器还能不能跑**——「h100a011 分区、隐藏队列、登录节点无 GPU」这类知识只在本目录，
+「SplatAnything 要 100 step 冒烟」这类知识在算法目录。
+
+服务器上的代码位置：`/data/00950754/code/media_code/canada_h100/`（本仓 clone，跟着 git 走）。
+下面所有 `cd` 都指这里；脚本内部一律用 `$(dirname $0)` 解析自身目录，**不硬编码绝对路径**。
+
 ## 快速开始
 
 ```bash
 ssh h100                                    # 已配好别名
 source /data/00950754/envs/activate_splatanything.sh
-cd /data/00950754/repos
+cd /data/00950754/code/media_code/canada_h100
 sbatch 01_verify_env.sbatch                 # 环境体检（约 1 分钟）
 ```
 
 日常最常用的两条：
 
 ```bash
-cd /data/00950754/repos
+cd /data/00950754/code/media_code/canada_h100
 ./10_hold.sh start        # 占卡（8 卡 24h）
 ./10_hold.sh stat         # 看队列 + 看卡，一条命令
 ```
@@ -51,7 +63,7 @@ cd /data/00950754/repos
 set -eo pipefail                 # ⚠️ 不要加 -u
 source /data/00950754/envs/activate_splatanything.sh
 
-cd /data/00950754/repos/<your_repo>
+cd /data/00950754/code/media_code/<algo>     # 算法目录，不是本目录
 python train.py --out /data/00950754/runs/${SLURM_JOB_NAME}_${SLURM_JOB_ID}
 ```
 
@@ -103,7 +115,7 @@ srun --jobid=<JOBID> --overlap -n1 nvidia-smi # 看正在跑的任务的 GPU
 ### 4.1 保活：`10_hold.sh`
 
 ```bash
-cd /data/00950754/repos
+cd /data/00950754/code/media_code/canada_h100
 ./10_hold.sh start              # 8 卡 / 24h / high 强度
 ./10_hold.sh start 4 12 mid 20  # 4 卡 / 12h / mid / 每卡垫 20G 显存
 ./10_hold.sh stat               # 队列 + 显卡，一条命令看全

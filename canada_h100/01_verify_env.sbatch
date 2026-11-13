@@ -12,6 +12,9 @@
 set -eo pipefail
 echo "job=$SLURM_JOB_ID node=$(hostname) start=$(date -Is)"
 
+SCRIPT_DIR="${VERIFY_SCRIPT_DIR:-${SLURM_SUBMIT_DIR:-/data/00950754/code/media_code/canada_h100}}"
+echo "脚本目录: $SCRIPT_DIR"
+
 source /data/00950754/envs/activate_splatanything.sh
 
 echo "python : $(which python) — $(python -V 2>&1)"
@@ -20,6 +23,6 @@ echo "gcc    : $(gcc --version 2>/dev/null | head -1 || echo 'NOT FOUND')"
 echo "glm    : $(ls -d /data/00950754/repos/glm_src/glm 2>/dev/null || echo 'NOT FOUND')"
 echo "arch   : ${TORCH_CUDA_ARCH_LIST:-auto}"
 
-cd /data/00950754/repos
+cd "$SCRIPT_DIR"
 python 01_verify_env.py
 echo "end=$(date -Is)"

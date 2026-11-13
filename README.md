@@ -12,6 +12,9 @@ Code used for work in the blue zone.
 - [`figkit/SPEC.md`](figkit/SPEC.md) — **PPT 配图规格 + 排版库**（v1，2026-11-13）：1920×1080 满版画布、固定栅格与字号阶梯、方法身份色、双栏对照页组件、口径纪律与 PIL 排版坑。**画汇报图前先读**，`import figlib` 直接用，别再各写一套。
 - [`HAND_MOTION_LEDGER.md`](HAND_MOTION_LEDGER.md) — **抬手/微动导致重建模糊：跨项目路线台账**。把"糊"拆成 L0~L5 五层，逐条记录 deformable_human / som_human / flame_human / vggt_human / 4danyone / flux_human / pdfgs_human 的假设、实测、死点与**重试条件**，附已证伪清单（10 条）与评估口径纪律。**开新运动/细节路线前必看**，避免换名重试同一假设。
 
+## 集群运维
+- [`canada_h100/`](canada_h100/) — **H100 集群（ca-uae 迪拜，`ssh h100`）专用脚本**：建个人 conda 环境、环境体检、8 卡保活占卡 + 链式续期、显卡实时监控、存储三层策略。只放「这台机器本身」的知识（分区/隐藏队列/登录节点无 GPU），**具体算法复现脚本放各自算法目录**。See its [README](canada_h100/README.md).
+
 ## Algorithms
 - [`triposplat/`](triposplat/) — one-click TripoSplat image→3D-Gaussian inference. See its [README](triposplat/README.md).
 - [`trellis-2/`](trellis-2/) — one-click TRELLIS.2 image→3D (4B) inference: GLB + PBR turntable video. See its [README](trellis-2/README.md).

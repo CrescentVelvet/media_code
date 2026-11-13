@@ -14,9 +14,10 @@
 # 同名作业，所以长时间挂着不会空出卡。要单次跑完就停：HOLD_CHAIN=0 ./10_hold.sh start
 set -eo pipefail
 
-REPO=/data/00950754/repos
+# 脚本自身所在目录（不硬编码 /data/00950754/repos）——仓里 canada_h100/ 才是脚本的家
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGD=/data/00950754/logs
-MON="$REPO/11_gpu_monitor.py"
+MON="$SCRIPT_DIR/11_gpu_monitor.py"
 
 need_login_node() {
     if [ -n "${SLURM_JOB_ID:-}" ]; then
@@ -48,11 +49,12 @@ cmd_start() {
     fi
 
     echo "提交: gpus=$gpus time=$t intensity=$intensity mem_gib=$memgib chain=${HOLD_CHAIN:-1}"
+    HOLD_SCRIPT_DIR="$SCRIPT_DIR" \
     HOLD_INTENSITY="$intensity" \
     HOLD_MEM_GIB="$memgib" \
     HOLD_CHAIN="${HOLD_CHAIN:-1}" \
     sbatch --gres="gpu:${gpus}" --time="$t" \
-        --job-name=hold_gpu "$REPO/10_hold_gpu.sbatch"
+        --job-name=hold_gpu "$SCRIPT_DIR/10_hold_gpu.sbatch"
 }
 
 cmd_ls() {
