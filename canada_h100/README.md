@@ -8,6 +8,7 @@
 ```bash
 ssh h100
 cd /data/00950754/code/media_code/canada_h100
+chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./10_hold.sh 报 Permission denied
 ```
 
 | 我要做什么 | 命令 |
