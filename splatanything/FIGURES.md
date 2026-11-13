@@ -157,7 +157,7 @@ cd D:/splatanything_figures/_build && python fig14_r1_buckets.py && python fig15
 cd D:/splatanything_figures/_build && python fig12_13_compare.py
 FIG_ROOT=/path/to/dir python fig12_13_compare.py    # 换输出根目录
 
-# fig00~fig11：2026-11-12 的一次性脚本，仍是 1920×1200 历史口径（未套 figkit）
+# fig10/11：2026-11-13 已按 1920×1080 重排（原 1100/1210，插入 16:9 会溢出）；fig00~fig09 仍是 1920×1200 历史口径（未套 figkit）
 python fig00_views.py && python fig01_02.py && python fig03_trend.py
 python fig04_nvs.py && python fig05_06.py && python fig07_08.py && python fig09_cloud.py
 python fig10_three_cam.py && python fig11_three_cam_pose.py

@@ -62,6 +62,7 @@ C_DA3 = (15, 110, 110)      # 方法身份：DA3-GS
 C_V2 = (139, 111, 168)      # 方法身份：InfiniSplat v2
 C_V3 = (47, 107, 181)       # 方法身份：InfiniSplat v3
 C_QS = (91, 127, 181)       # 方法身份：QuerySplat
+C_VGGT = (32, 122, 88)      # 方法身份：VGGT / VGGT-Ω
 C_REF = (181, 118, 58)      # 方法身份：3DGS 精化系（参照）
 
 CARD_FILL = (250, 251, 253)
