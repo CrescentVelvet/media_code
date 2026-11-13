@@ -67,6 +67,12 @@ CASES_3V = [
     dict(name="DA3+3DGS",
          ply=O + "/da3_results/佳佳抱枕_3v/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
          cams=("json", O + "/da3_results/佳佳抱枕_3v/04_model_3dgs/cameras.json")),
+    # 2026-11-13 加：SplatAnything v3（同源三帧 0/40/81，504²，pose 模式）。
+    # 相机格式是官方 cameras.json：extrinsics[].matrix 为 4×4 c2w，且已做首相机归位
+    # （第 0 台在原点、旋转为单位阵）→ 交给 Umeyama 解 Sim(3)，判据同其它方法。
+    dict(name="SplatAnything v3",
+         ply=O + "/splatanything_results/eval381/jiajia_381/gaussians.ply",
+         cams=("sa_json", O + "/splatanything_results/eval381/jiajia_381/cameras.json")),
 ]
 
 # 32 视角对照组（与 90a 批量框架 / audit_24 五方法视频同口径；2026-11-10 补跑）
@@ -116,7 +122,26 @@ def read_viewmats(kind, path):
             m[i, :3, :3] = np.array(it["rotation"], dtype=np.float64)
             m[i, :3, 3] = np.array(it["position"], dtype=np.float64)
         return np.linalg.inv(m)
+    if kind == "sa_json":
+        # SplatAnything 官方 cameras.json：{extrinsics:[{camera_id,matrix}], intrinsics:[...]}
+        import json
+        j = json.load(open(path))
+        c2w = np.array([np.asarray(e["matrix"], dtype=np.float64) for e in j["extrinsics"]])
+        return np.linalg.inv(c2w)
     raise SystemExit("未知相机格式 " + kind)
+
+
+def read_cams_any(kind, path):
+    """a24.read_cams 的包装，补 sa_json（其余格式原样委托）。"""
+    if kind != "sa_json":
+        return a24.read_cams(kind, path)
+    import json
+    j = json.load(open(path))
+    c2w = np.array([np.asarray(e["matrix"], dtype=np.float64) for e in j["extrinsics"]])
+    C, d, ycam = c2w[:, :3, 3], c2w[:, :3, 2], c2w[:, :3, 1]
+    d = d / np.linalg.norm(d, axis=1, keepdims=True)
+    up = -ycam                                   # 相机 y 轴朝下 → 世界 up = −y_cam
+    return C, d, up / np.linalg.norm(up, axis=1, keepdims=True)
 
 
 def psnr(a, b):
@@ -146,6 +171,28 @@ def main():
     # K 的分辨率 sanity：cx≈宽/2 且 fx 与宽同量级，否则说明 K 与 ref 不同分辨率
     if not (0.4 * W < K[0, 2] < 0.6 * W and 0.4 * H < K[1, 2] < 0.6 * H):
         raise SystemExit(f"❌ K 主点 ({K[0,2]:.0f},{K[1,2]:.0f}) 与 ref 尺寸 {W}×{H} 不匹配")
+
+    # ── CROP_SQ=1：以主点为中心裁最大对称正方形 ──
+    # 动机（2026-11-13）：SplatAnything 的 preprocess_view 强制裁正方形再缩到 504²，
+    # 它根本看不到原图 1439×1919 的上下两段。用全图算 PSNR 会把这部分「它没被喂进去
+    # 的区域」记成错误（实测 all32 仅 9.35 dB、alpha<0.01 占 13~25%），对 SA 系统性不公。
+    # 裁到同一块正方形视场后，各方法才算同题作答。
+    CROP = None
+    if os.environ.get("CROP_SQ", "").strip():
+        side = int(round(2 * min(K[0, 2], W - K[0, 2], K[1, 2], H - K[1, 2])))
+        x0 = int(round(K[0, 2] - side / 2))
+        y0 = int(round(K[1, 2] - side / 2))
+        x0 = max(0, min(x0, W - side))
+        y0 = max(0, min(y0, H - side))
+        K = K.copy()
+        K[0, 2] -= x0
+        K[1, 2] -= y0
+        CROP = dict(side=side, x0=x0, y0=y0, src_wh=[W, H])
+        W = H = side
+        log(f"✂️  中心正方形口径: 原 {CROP['src_wh'][0]}×{CROP['src_wh'][1]} → "
+            f"{side}×{side} (x0={x0}, y0={y0})，主点已平移到 "
+            f"({K[0,2]:.0f},{K[1,2]:.0f})")
+
     W2C = np.linalg.inv(c2w)
     log(f"📷 GT: {len(Cref)} 相机（c2w）｜ ref {W}×{H}×{len(refs)} ｜ fx={K[0,0]:.0f} fy={K[1,1]:.0f}")
 
@@ -181,9 +228,18 @@ def main():
                           if p.suffix.lower() in (".png", ".jpg", ".jpeg")])
         in_rgb = [cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB) for p in in_refs]
         in_sharp = [sharpness(cv2.imread(str(p))) for p in in_refs]
+
+    if CROP is not None:
+        s_, x_, y_ = CROP["side"], CROP["x0"], CROP["y0"]
+        refs_rgb = [im[y_:y_ + s_, x_:x_ + s_] for im in refs_rgb]
+        in_rgb = [im[y_:y_ + s_, x_:x_ + s_] for im in in_rgb]
+        refs_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in refs_rgb]
+        in_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in in_rgb]
+        log(f"✂️  已把 {len(refs_rgb)} 张 GT 与 {len(in_rgb)} 张输入图裁到同一正方形")
         log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
 
     result = {"gt": {"cams": str(GT_CAMS), "images": str(GT_IMAGES), "size": [W, H],
+                     "crop": CROP,
                      "input3_idx": idx3, "input3_nn_dist_m": nn_dist},
               "methods": {}}
     # 每张 ref 的锐度（供「渲染锐度/ref 锐度」比例）
@@ -195,7 +251,7 @@ def main():
             continue
         g = a24.read_ply(c["ply"])
         n_pts = g["n"]
-        Cx, dx, upx = a24.read_cams(*c["cams"])
+        Cx, dx, upx = read_cams_any(*c["cams"])
         # V32：32v 方法的对齐基准 = 全部 32 个 GT 相机（其预测相机就是 32 图训练分布）
         aidx = np.arange(len(Cref)) if V32 else idx3
         if len(Cx) != len(aidx):
