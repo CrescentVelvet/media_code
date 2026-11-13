@@ -144,6 +144,16 @@ bash splatanything/09_run_train_probe.sh
 #   等价前向 → 1 step → 100 step → 存恢复，全套约 2 min（不含首次 JIT 编译）
 bash splatanything/09_run_train_probe.sh --stages sweep --sweep-lr 1e-3,1e-4,1e-5
 #   找不炸的 lr：scale 头是 exp()，lr=1e-3 一步就顶到 clamp 上限（E-15 §4）
+
+# ── J) R2-N 鼻部坏例指认包（不产质量结论，只出可点名的图）──
+bash splatanything/10_run_nose_sheet.sh
+#   → /mnt/d/tmp/r2n/sheets/sheet_<run>.png   每个 run 一张，块编号 A01/B03
+#   → /mnt/d/tmp/r2n/sheets/nose_case_manifest.json   待填 pick / symptom
+python splatanything/10b_verify_sheet.py --dir /mnt/d/tmp/r2n/sheets --rewrite
+#   独立体检：把每个块标成 face / profile / empty 并回写 manifest
+
+# 加了物体控制组（默认关：物体无人脸，检测全是假阳性）
+OUT=/mnt/d/tmp/r2n/sheets EXTRA="--with-controls" bash splatanything/10_run_nose_sheet.sh
 ```
 
 **03 新增指标**（同一份 `eval_summary.json`）：`psnr_fg`（alpha>0.5 前景）、`psnr_bg`
