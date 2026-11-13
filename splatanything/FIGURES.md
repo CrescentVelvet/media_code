@@ -31,6 +31,26 @@
 | `fig11_three_cam_pose` | 三摄 rgb vs 参考参数构造 pose（非实测真值） | 自洽，图中文字待修 |
 | `fig12_da3gs_vs_v2` | 方法对比：DA3-GS vs InfiniSplat v2（6 步流水线 + 5 行差异表） | 机制示意，非实验结果 |
 | `fig13_v2_vs_v3` | 方法对比：InfiniSplat v2 vs v3（同上版式） | 机制示意，非实验结果 |
+| `fig14_r1_angle_buckets` | R1 角距分桶：四方法 × 三档角度 + 5 行读数表 | **held-out**，512² + 精化对齐 |
+| `fig15_align_cost` | 3 点对齐的 dB 上限（折线）+ 精化前后输入视角读数（6 方法） | 口径诊断，左图是理论上限 |
+
+## R1 分桶与对齐诊断（fig14/15，2026-11-13）
+
+这两张是本仓**实测结果**，数据来自 `EXPERIMENTS.md` E-13。
+
+| 图 | 数据源 | 一次性脚本 |
+|---|---|---|
+| fig14 | `~/output/batch_4methods/eval_3view_jiajia_r512.json` → `audit_32_angle_buckets.py` 的 `angle_buckets.json` | `D:/splatanything_figures/_build/fig14_r1_buckets.py` |
+| fig15 | 左：`D:/tmp/align_sensitivity.py`（GT 自比测上限）；右：同一 eval json 的 `refine.psnr_pre/_post` | `.../fig15_align_cost.py` |
+
+**讲这两张时的红线**：
+
+1. fig14 的 holdout 是 **512² + 精化对齐 + 固定 GT 内参**口径，与 E-10 的 18.39（全图、SA-only）
+   **不可相减**；四方法之间的顺序在三个角度桶里一致，才敢当排名用。
+2. fig14 里 >45° 的桶**是空的**（最近输入视角最远只差 44.7°），别在 PPT 上说"大角度外推段"。
+3. fig15 左图是 **GT 与自身旋转后自比**的理论上限，不是任何方法的结果；它的用途是说明
+   "2.7° 就把所有人按在 13.6 dB 以下"，不要读成"某方法只能到 13.6"。
+4. fig15 右边**后三个方法几乎不动**，这是关键信息：它们的问题不在对齐，在别处（E-13 发现 D）。
 
 ## 方法对比示意图（fig12/13，2026-11-13）
 
@@ -71,6 +91,9 @@
 ## 重新出图
 
 ```bash
+# fig14/15：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
+cd D:/splatanything_figures/_build && python fig14_r1_buckets.py && python fig15_align_cost.py
+
 # fig12/13：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
 cd D:/splatanything_figures/_build && python fig12_13_compare.py
 FIG_ROOT=/path/to/dir python fig12_13_compare.py    # 换输出根目录

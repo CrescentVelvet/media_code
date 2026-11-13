@@ -21,6 +21,15 @@
 用法（WSL，querysplat env：cv2/skimage/gsplat 齐全，经 94_render.sh 同款环境包装）：
   python compare_4methods/audit_31_eval_3view.py
   OUT=~/output/batch_4methods/eval_3view_jiajia.json ONLY=querysplat python ...
+
+口径开关（都可叠加，默认全关 = 历史行为）：
+  CROP_SQ=1     以主点裁最大对称正方形（SplatAnything 只看到这块视场）
+  REFINE=1      Umeyama 之后用 3 个输入视角的光度误差精化 Sim(3)，见 sim3_refine.py
+  EVAL_RES=512  统一评测分辨率（原分辨率 1435² 会逼半分辨率训练的 3DGS 输出没学过的频段）
+  V32=1         32 视角版对照（此时 REFINE 不生效）
+
+⚠️ 三图输入时**必须同时开 CROP_SQ=1 和 REFINE=1**，否则量到的是 3 点对齐的残差
+（实测 2.0~2.7°，在 fx≈1381 下把 PSNR 封顶在 13.6 dB），不是方法差异。详见 EXPERIMENTS E-13。
 """
 import importlib.util
 import json
@@ -44,6 +53,13 @@ BASE3 = os.environ.get("BASE3") or O + "/infinisplat_v2_results/_captures/佳佳
 INPUT_IMAGES = os.environ.get("INPUT_IMAGES") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/images"
 OUT = os.environ.get("OUT") or O + "/batch_4methods/eval_3view_jiajia.json"
 ONLY = os.environ.get("ONLY", "").strip()
+
+# REFINE=1：Umeyama 之后再用「3 个输入视角的光度误差」精化 Sim(3)（默认关，不影响历史结果）。
+# 动机见 sim3_refine.py 头注释：3 点 Umeyama 零冗余，残差 2~2.7° 在 fx≈1381 下
+# 等价于 50~65 px，足以把 PSNR 封顶在 13~14 dB，测出来的是对齐精度不是模型差异。
+REFINE = bool(os.environ.get("REFINE", "").strip())
+REFINE_RES = int(os.environ.get("REFINE_RES") or 512)
+REFINE_ITERS = int(os.environ.get("REFINE_ITERS") or 200)
 
 # V32=1：同口径对照跑 32 视角版（GT 侧不变；self3 层变成「渲自己相机 vs 自己 32 张输入图」，
 # 即不 warp 的 all32——32v 方法输入图就是 GT 32 帧，顺序与各家预测相机一致）
@@ -193,6 +209,17 @@ def main():
             f"{side}×{side} (x0={x0}, y0={y0})，主点已平移到 "
             f"({K[0,2]:.0f},{K[1,2]:.0f})")
 
+    # ── EVAL_RES：统一评测分辨率（默认 0 = 沿用视场边长，即原分辨率）──
+    # 动机（2026-11-13）：DA3+3DGS / VGGT-Ω+3DGS 的 3DGS 是 resolution=2（半分辨率）训的，
+    # 在 1435² 上渲染等于逼它输出训练时没学过的频段（地毯糊成一片），测出来的是训练
+    # 分辨率不是几何。512² 低于所有方法的训练分辨率，也让残余对齐误差的代价按比例下降。
+    EVAL_RES = int(os.environ.get("EVAL_RES") or 0)
+    if EVAL_RES and EVAL_RES != W:
+        f = EVAL_RES / float(W)
+        K = np.diag([f, f, 1.0]) @ K
+        W = H = EVAL_RES
+        log(f"🔍 评测分辨率: → {W}×{H}（K 已同比缩放 fx={K[0,0]:.1f}）")
+
     W2C = np.linalg.inv(c2w)
     log(f"📷 GT: {len(Cref)} 相机（c2w）｜ ref {W}×{H}×{len(refs)} ｜ fx={K[0,0]:.0f} fy={K[1,1]:.0f}")
 
@@ -204,6 +231,9 @@ def main():
     nn_dist = [float(np.linalg.norm(Cref[i] - c)) for i, c in zip(idx3, Cb)]
     log(f"🎯 输入帧最近邻: {idx3}（中心距 {['%.3f' % d for d in nn_dist]} m）"
         f" → input3 分层 = 这些索引，其余 {len(Cref) - 3} 个 = holdout")
+    # 精化对齐要用输入图「真实」位姿（帧 40 不在 32 相机集合里，idx3 只是最近邻，
+    # 差 10 cm；拿最近邻去对图会把 0.1 m 的位姿差当光度误差学进去）
+    w2c_in = np.linalg.inv(np.load(BASE3)["c2w"].astype(np.float64))
 
     dev = "cuda"
     # 预检：与另一个重度 GPU 任务（如 19_orbit 视频渲染）共存时，WSL2 vGPU 上
@@ -233,10 +263,15 @@ def main():
         s_, x_, y_ = CROP["side"], CROP["x0"], CROP["y0"]
         refs_rgb = [im[y_:y_ + s_, x_:x_ + s_] for im in refs_rgb]
         in_rgb = [im[y_:y_ + s_, x_:x_ + s_] for im in in_rgb]
-        refs_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in refs_rgb]
-        in_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in in_rgb]
         log(f"✂️  已把 {len(refs_rgb)} 张 GT 与 {len(in_rgb)} 张输入图裁到同一正方形")
-        log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
+    if refs_rgb[0].shape[1] != W or refs_rgb[0].shape[0] != H:
+        refs_rgb = [cv2.resize(im, (W, H), interpolation=cv2.INTER_AREA) for im in refs_rgb]
+        in_rgb = [cv2.resize(im, (W, H), interpolation=cv2.INTER_AREA) for im in in_rgb]
+        log(f"🔍 已把参考图重采样到 {W}×{H}（INTER_AREA）")
+    # 锐度必须在最终评测分辨率上重算，否则 sharp_ratio 跨分辨率不可比
+    refs_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in refs_rgb]
+    in_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in in_rgb]
+    log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
 
     result = {"gt": {"cams": str(GT_CAMS), "images": str(GT_IMAGES), "size": [W, H],
                      "crop": CROP,
@@ -270,6 +305,25 @@ def main():
             log(f"❌ {c['name']} 对齐没过判据，跳过（宁缺毋滥）")
             result["methods"][c["name"]] = {"align": "FAIL", "rel": rel, "ang_deg": ang}
             continue
+        # ── REFINE：3 点 Umeyama 的角残差在长焦下是致命的，用输入视角光度误差精修 ──
+        rinfo = None
+        if REFINE and not V32:
+            from sim3_refine import refine_sim3
+            rinfo = refine_sim3(g, w2c_in, K, in_rgb, (s, R, t),
+                                res=REFINE_RES, iters=REFINE_ITERS, log=log)
+            s, R, t = rinfo["s"], rinfo["R"], rinfo["t"]
+            # 精化后重算同一套残差，证明它真的对齐了（而不是把误差藏进变换里）
+            C2 = (s * (R @ Cx.T)).T + t
+            rel = float(np.sqrt(((C2 - Cref[aidx]) ** 2).sum(1).mean()))
+            rel = rel / float(np.median(np.linalg.norm(Cref - Cref.mean(0), axis=1)))
+            d2 = (R @ dx.T).T
+            ang = float(np.median(np.degrees(np.arccos(np.clip(
+                np.sum(d2 * dref[aidx], 1), -1, 1)))))
+            rinfo["rel_after"] = rel
+            rinfo["ang_after"] = ang
+            log(f"   ✨ 精化: 输入视角 PSNR {rinfo['psnr_pre']:.2f} → {rinfo['psnr_post']:.2f} dB"
+                f" ｜ |Δω| {rinfo['delta_w_deg']:.2f}° ｜ Δs {rinfo['delta_s']:.4f}"
+                f" ｜ 残差 {rel*100:.2f}% / 视线 {ang:.2f}°")
         # ── self3 自洽口径（对齐 32v 轮 99_eval：渲自己预测相机 vs 自己输入图）──
         # 不 warp；K 统一用 GT K（对照图是 1439×1919 原图；QuerySplat 的预测 K
         # 是 512² 归一化画布口径，直接用会踩 E18 画幅坑，故一律不用方法自带 K）。
@@ -338,6 +392,7 @@ def main():
         result["methods"][c["name"]] = dict(
             ply=c["ply"], n_pts=n_pts,
             align="OK", scale=s, rel=rel, ang_deg=ang,
+            refine=({k: v for k, v in rinfo.items() if k not in ("R", "t")} if rinfo else None),
             self3=self3,
             all32=agg(range(len(Cref))),
             input3=agg(idx3), holdout=agg(holdout_idx),
