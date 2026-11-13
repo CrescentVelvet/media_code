@@ -1,9 +1,13 @@
 # 出图台账（PPT / 汇报用）
 
-> 图不纳入仓库（体积 19 MB）。成品在 **`D:\splatanything_figures\`**：
-> `figures/` 18 张成品 · `raw/` 原始 contact sheet · `pairs/` 436 张按视角配对的单图 ·
-> `metrics.json` 读数汇总 · `_build/` 出图脚本 · 同名 zip 为打包版。
-> 数据源全部来自 `~/output/splatanything_results/`，读数对应 [EXPERIMENTS.md](EXPERIMENTS.md) E-04~E-10。
+> 图不纳入仓库。成品在 **`D:\splatanything_figures\`**：
+> `figures/` **6 张**成品（fig10/11/14/15/16/17）· `raw/` 12 张原始 contact sheet ·
+> `pairs/` 14 组 439 张按视角配对的单图 · `metrics.json` 读数汇总 ·
+> `_build/` 出图脚本 · 同名 zip 为打包版。
+> 数据源全部来自 `~/output/splatanything_results/`，读数对应 [EXPERIMENTS.md](EXPERIMENTS.md) E-04~E-15。
+>
+> **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
+> 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
 ## 图清单与口径
 
@@ -34,6 +38,10 @@
 | `fig14_r1_angle_buckets` | R1 角距分桶：四方法 × 三档角度 + 5 行读数表 | **held-out**，512² + 精化对齐 |
 | `fig15_align_cost` | 3 点对齐的 dB 上限（折线）+ 精化前后输入视角读数（6 方法） | 口径诊断，左图是理论上限 |
 | `fig16_region_metrics` | 人脸条 + 区域读数表：PSNR 排名与锐度排名相反 | **held-out**，512² 黑底 + SAM3 mask |
+| `fig17_train_cost` | WB-4 训练成本：T0/T1/T2 里程碑 + 100 步 loss 曲线 + lr 敏感性柱图 | **实测**（`train_probe.json`），3v 504²，目标图=输入视角（过拟合冒烟） |
+
+> **磁盘状态**：上表中 `fig00a/b` ~ `fig09`、`fig12`/`fig13` 的 png 已于 2026-11-13 删除，
+> 保留的只有 `fig10`/`fig11`/`fig14`/`fig15`/`fig16`/`fig17`。读数与口径未删，照旧可引用。
 
 ## 区域指标与底色修正（fig16，2026-11-13）
 
@@ -100,6 +108,31 @@
    median_scale×1.4 逐场景自适应）；两者 voxel 尺寸不同，PSNR 不能横比。
 
 
+## 训练成本冒烟（fig17，2026-11-13）
+
+对应 `EXPERIMENTS.md` **E-15**（WB-4）。这张回答的是"这套官方包能不能训"，不是"训得好不好"。
+
+| 图 | 数据源 | 一次性脚本 |
+|---|---|---|
+| fig17 | `D:/tmp/train_probe.json`（`09_train_probe.py --stages all` 产物） | `D:/splatanything_figures/_build/fig17_train_cost.py` |
+
+**讲这张时的红线**：
+
+1. **目标图就是三条输入视角本身**——这是过拟合冒烟，**不是 NVS 泛化**。25.93 dB 不能跟
+   fig14/fig16 的 held-out 读数放同一栏比。
+2. **只训了属性头**：`GSFeatHead` + decoder 共 32.9M 参数，encoder 与全部几何（mean/quat/scale
+   的位置来源）冻结。所以这张图证明的是"梯度能走通、能收敛"，**不证明几何能变好**。
+3. **lr=1e-3 一步就炸**（loss 1666），图里那根红柱是真实事故记录，不是夸张。原因是
+   `scales = exp(conv).clamp_max(0.3)`：1×1 卷积 256 通道累加，Adam 首步把 raw log-scale
+   推 ~+5，scale 从 1.77e-3 直接顶到上限 0.3（169 倍），下一步全被 `filter_large_scale_infer`
+   清空 → 黑图 → loss 恒定。**真训练必须分通道 lr 或直接回归 log-scale。**
+4. **opacity 分支梯度恒为 0 是正常的**，别当 bug 查。合并时 `values = weights if name ==
+   'opacities' else ...`，解码出的 opacity 通道根本不参与计算，12 个输出通道里只有它精确为 0。
+5. **耗时不能按视角数外推**：0.511 s/step 是 3v/504² 的读数；encoder 占 59% 且**冻结可缓存**，
+   缓存后 2k 步从 17 min 降到 7 min——这个优化还没做。
+6. 8v / 13v **未测**，PPT 上别写成"训练成本随视角数线性增长"。
+
+
 ## 三张图的正确说法（易讲错的地方）
 
 1. **fig01/01b/02 是自洽口径**，只证明"链路跑通 + 拟合好"，不能跨视角数比较 ——
@@ -114,6 +147,9 @@
 ## 重新出图
 
 ```bash
+# fig17：训练成本冒烟（数据来自 WSL 侧 09_train_probe.py --stages all）
+cd D:/splatanything_figures/_build && python fig17_train_cost.py
+
 # fig14/15：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
 cd D:/splatanything_figures/_build && python fig14_r1_buckets.py && python fig15_align_cost.py
 
