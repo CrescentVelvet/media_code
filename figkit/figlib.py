@@ -109,10 +109,10 @@ def text(d, xy, s, size=24, color=INK, bold=False, light=False, anchor='la'):
 
 
 # ---------------------------------------------------------------- 页眉 / 页脚（§6.1）
-def header(d, title, sub=None):
-    """左上竖条 + 标题 + 副标题 + 通栏分隔线。"""
+def header(d, title, sub=None, size=None):
+    """左上竖条 + 标题 + 副标题 + 通栏分隔线。size 可显式指定（长标题需降字号时）。"""
     d.rectangle([M, 40, M + 8, 92], fill=INDIGO)
-    text(d, (M + 32, 32), title, FS_TITLE, INK, bold=True)
+    text(d, (M + 32, 32), title, size or FS_TITLE, INK, bold=True)
     if sub:
         text(d, (M + 34, 90), sub, FS_SUB, INK2)
     d.line([M, RULE_Y, W - M, RULE_Y], fill=RULE, width=2)

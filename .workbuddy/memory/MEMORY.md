@@ -48,6 +48,9 @@
   规范原文 AGENTS.md §14。`.gitignore` 已排除 `*.png *.jpg *.mp4`。
 
 ## 关键文档索引
+- **`figkit/SPEC.md`（2026-11-13 建）**：PPT 配图规格 + 排版库（figlib / chartlib / onepager）。
+  画布 1920×1080 满版；§5.6 单方法页模板；§6 口径纪律；§10 入库边界（图与一次性脚本不入库）。
+  方法一页纸成品见 `D:/compare_4methods_figures/`，台账 `compare_4methods/FIGURES.md`。
 - **`compare_4methods/IMPROVEMENTS.md` + `ERRATA.md` + `FINDINGS.md`**（2026-11-08 建）：DA3-GS 的
   归位与演进台账。**已定论（2026-11-09）**：
   - **正式口径 = 3DGS EWA 光栅器 + 官方等价导出（不裁剪 + 全 SH）**，全图 **22.11 dB**、

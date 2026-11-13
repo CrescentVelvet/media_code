@@ -116,6 +116,29 @@ y=1044 页脚口径（17px light）
   每格 ≤ 2 行；列标题用方法身份色。
 - **页脚口径**：**必填**。一句话写清数据来源 + 不可比之处。
 
+### 5.6 单方法页（论文一页纸，`onepager.py`）
+
+给一个方法一整页：讲清"它怎么走 / 三个关键设计 / 关键数字 / 一句话结论"。
+调用 `P.page(d, meta, steps, cards, numbers, takeaway)` + `F.footer(d, 口径)`。
+
+| 元素 | 数值 |
+|---|---|
+| 区标签 ①②③ | y = 146 / 300 / 586，19 bold INK2，编号与标题间两个空格 |
+| 横向 5 步 | y = 176，块 336×100，间距 28（5×336 + 4×28 = 1792），块间 `→` 20px RAIL |
+| 步骤块内 | 主标题 22 bold at (+26, +22)；副说明 17 light at (+26, +56)；左侧 10px 色条 |
+| 三卡 | y = 330，580×232，间距 26；卡标题 23 bold at (+28, +14)；要点 19、行距 40、≤3 行 |
+| 关键数字表 | y = 616，维度 200 + 两列 796，固定 4 行 × 57：`论文口径` / `本仓实测（3090）` |
+| 一句话条 | y = 900，高 92，浅底 + 左侧色条；标签 18 bold + 正文 21 bold |
+| 页脚口径 | y = 1044 |
+
+硬约束：
+
+1. **数字列拆成"论文口径 / 本仓实测"**，不许把论文数字塞进实测列（这是最容易出的错）。
+2. 步骤 5 步、卡片 3 张、数字 4 行 —— 数量固定，多出来的内容改写成一句话或进页脚。
+3. 长英文串（`provided / colmap / ...`）要么改写中文，要么靠 `_fit()` 降字号：
+   副说明最低 13、卡片要点 16、步骤主标题 17、页标题 32。
+4. 每张卡的 3 行要点是"事实 + 数字"，不写形容词堆砌。
+
 ## 6. 内容纪律（比版式更重要）
 
 1. **无口径不出图**：页脚必须能回答"数字哪来的、能不能横比"。
@@ -154,6 +177,7 @@ y=1044 页脚口径（17px light）
 |---|---|
 | `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排；出图脚本在 `D:/splatanything_figures/_build/fig12_13_compare.py`（一次性脚本不入库，见 §10） |
 | `splatanything` fig00–fig11 | ⚠️ 1920×1200 历史口径，未重排；重排需按 §2 重算栅格 |
+| `compare_4methods` p01–p04 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3），脚本 `D:/compare_4methods_figures/_build/make_method_pages.py` |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |
 
@@ -183,4 +207,5 @@ F.footer(d, '口径：...（数据来源 + 不可比之处）')
 F.save(im, 'fig14_xxx.png')
 ```
 
-完整可跑样例见 `D:/splatanything_figures/_build/fig12_13_compare.py`。
+完整可跑样例见 `D:/splatanything_figures/_build/fig12_13_compare.py`（双栏对照页）；
+方法一页纸见 `D:/compare_4methods_figures/_build/make_method_pages.py`（`import onepager`）。
