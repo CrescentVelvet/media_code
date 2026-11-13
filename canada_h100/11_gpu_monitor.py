@@ -270,7 +270,9 @@ def bar(pct, width=14, color=None, on=True):
     if not on:
         return body
     if color is None:
-        color = C["green"] if pct >= 85 else (C["yellow"] if pct >= 30 else C["red"])
+        # 配色语义＝「热度」：占用越高越红（满负荷 = 烫），空闲才绿。
+        # 别改成"高=好=绿"——保活/训练满负荷时一屏绿会让人以为没跑起来。
+        color = C["red"] if pct >= 85 else (C["yellow"] if pct >= 30 else C["green"])
     return color + body + C["reset"]
 
 
@@ -278,10 +280,10 @@ def util_color(u, on):
     if u < 0:
         return paint("  --", C["dim"], on)
     if u >= 85:
-        return paint("%3d%%" % u, C["green"], on)
+        return paint("%3d%%" % u, C["red"], on)
     if u >= 30:
         return paint("%3d%%" % u, C["yellow"], on)
-    return paint("%3d%%" % u, C["red"], on)
+    return paint("%3d%%" % u, C["green"], on)
 
 
 def human_gib(mib):
