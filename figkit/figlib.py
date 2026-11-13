@@ -108,6 +108,45 @@ def text(d, xy, s, size=24, color=INK, bold=False, light=False, anchor='la'):
     d.text(xy, s, font=font(size, bold, light), fill=color, anchor=anchor)
 
 
+def fit_size(d, s, size, min_size, max_w, bold=False, light=False):
+    """按实际字宽降字号，直到放得下（PIL 无自动换行，先量后画）。"""
+    while size > min_size and d.textlength(s, font=font(size, bold, light)) > max_w:
+        size -= 1
+    return size
+
+
+def wrap(d, s, size, max_w, max_lines=2, bold=False):
+    """按实际字宽折行：CJK 逐字可断，拉丁/数字串整词换行（不拦腰截断），
+    超出行数时末行加省略号。"""
+    lines, cur = [], ''
+    for ch in s:
+        if ch == '\n':
+            lines.append(cur)
+            cur = ''
+            continue
+        if cur and d.textlength(cur + ch, font=font(size, bold)) > max_w:
+            cut = cur.rfind(' ')
+            k = len(cur)
+            while k > 0 and ord(cur[k - 1]) < 128 and cur[k - 1] != ' ':
+                k -= 1
+            if k > 0 and k < len(cur):      # 行尾是拉丁词 → 整词挪到下一行
+                cut = k
+            if cut <= 0:
+                cut = len(cur)
+            lines.append(cur[:cut].strip())
+            cur = (cur[cut:] + ch).lstrip()
+        else:
+            cur += ch
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        while lines[-1] and d.textlength(lines[-1] + '…', font=font(size, bold)) > max_w:
+            lines[-1] = lines[-1][:-1]
+        lines[-1] += '…'
+    return lines
+
+
 # ---------------------------------------------------------------- 页眉 / 页脚（§6.1）
 def header(d, title, sub=None, size=None):
     """左上竖条 + 标题 + 副标题 + 通栏分隔线。size 可显式指定（长标题需降字号时）。"""
@@ -140,6 +179,11 @@ def card_head(d, x, y, color, name, tag):
 def _badge_w(tag):
     # 无字体度量时的保守估算：中文 15 / 西文 9，两侧 padding 26
     return 26 + int(sum(15 if ord(c) > 127 else 9 for c in tag))
+
+
+def badge_w(tag):
+    """胶囊徽章宽度估算（中文 15 / 西文 9 + padding 26）。标签建议 ≤6 汉字。"""
+    return _badge_w(tag)
 
 
 def step(d, x, y, w, h, color, main, sub=None, tag=None, dim=False):
@@ -192,6 +236,43 @@ def table(d, x, y, w, rows, cols, dim_w=DIM_W, row_h=ROW_H):
                 size -= 1
             for j, ln in enumerate(lines):
                 text(d, (xs[i] + 2, ry + 4 + j * 26), ln, size, INK)
+        ry += row_h
+    return ry
+
+
+def table_n(d, x, y, headers, widths, rows, row_h=ROW_H, colors=None,
+            first_bold=True, size=FS_CELL, min_size=16):
+    """通用多列表格（≥2 列）：headers / widths / rows 一一对应。
+
+    列标题用 colors[i]（未给则 INK2）；首列默认加粗当"维度列"。
+    单元格自动折行（≤2 行，超出加省略号），仍放不下时降字号到 min_size。
+    """
+    xs = [x]
+    for w in widths[:-1]:
+        xs.append(xs[-1] + w)
+    total = sum(widths)
+    for i, h in enumerate(headers):
+        text(d, (xs[i] + 2, y - 1), h, FS_TH + 1,
+             colors[i] if colors else INK2, bold=True)
+    d.line([x, y + 30, x + total, y + 30], fill=RULE, width=2)
+
+    ry = y + 38
+    for k, cells in enumerate(rows):
+        if k % 2 == 1:
+            d.rectangle([x - 12, ry - 4, x + total + 6, ry + row_h - 8], fill=BG_SOFT)
+        for i, cell in enumerate(cells):
+            bold = first_bold and i == 0
+            avail = widths[i] - 26
+            sz = size + (2 if bold else 0)
+            while sz > min_size and max(
+                    d.textlength(s, font=font(sz, bold)) for s in str(cell).split('\n')) > avail:
+                sz -= 1
+            lines = []
+            for part in str(cell).split('\n'):
+                lines += wrap(d, part, sz, avail, max_lines=2 - min(len(lines), 1), bold=bold)
+            top = ry + max(4, (row_h - 8 - 28 * len(lines[:2])) // 2)   # 单行也垂直居中
+            for j, ln in enumerate(lines[:2]):
+                text(d, (xs[i] + 2, top + j * 28), ln, sz, INK, bold=bold)
         ry += row_h
     return ry
 

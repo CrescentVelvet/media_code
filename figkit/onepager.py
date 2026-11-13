@@ -31,24 +31,32 @@ def _sec(d, x, y, s):
 
 def _fit(d, s, size, min_size, max_w, bold=False, light=False):
     """按实际字宽降字号，避免长英文串冲出块边框（PIL 无自动换行）。"""
-    while size > min_size and d.textlength(s, font=F.font(size, bold, light)) > max_w:
-        size -= 1
-    return size
+    return F.fit_size(d, s, size, min_size, max_w, bold, light)
 
 
 def _steps(d, y, steps, color):
-    """横向 5 步 + 箭头。steps=[(主, 副)]×5"""
+    """横向 5 步 + 箭头。steps=[(主, 副[, 徽章])]×5；同级文字统一字号（取最紧的一格）。"""
     inner_w = STEP_W - 52
-    for i, (main, sub) in enumerate(steps):
+    tags = [it[2] if len(it) > 2 else None for it in steps]
+    text_ws = [inner_w - (F.badge_w(t) + 10 if t else 0) for t in tags]
+    main_sz = min(_fit(d, it[0], FS_STEP, 17, tw, bold=True)
+                  for it, tw in zip(steps, text_ws))
+    sub_sz = min(_fit(d, it[1], FS_STEP_SUB, 13, inner_w, light=True)
+                 for it in steps if it[1])
+    for i, item in enumerate(steps):
+        main, sub, tag = item[0], item[1], tags[i]
+        tw = F.badge_w(tag) if tag else 0
         x = F.M + i * (STEP_W + STEP_GAP)
         F.rrect(d, [x, y, x + STEP_W, y + STEP_H], 10, (255, 255, 255), color)
         F.rrect(d, [x + 2, y + 2, x + 12, y + STEP_H - 2], 4, color)
-        F.text(d, (x + 26, y + 22), main,
-               _fit(d, main, FS_STEP, 17, inner_w, bold=True), F.INK, bold=True)
+        F.text(d, (x + 26, y + 22), main, main_sz, F.INK, bold=True)
         if sub:
-            F.text(d, (x + 26, y + 56), sub,
-                   _fit(d, sub, FS_STEP_SUB, 13, inner_w, light=True), F.INK2, light=True)
-        if i < 4:
+            F.text(d, (x + 26, y + 56), sub, sub_sz, F.INK2, light=True)
+        if tag:
+            bx, by = x + STEP_W - tw - 14, y + 8
+            F.rrect(d, [bx, by, bx + tw, by + 24], 12, color)
+            F.text(d, (bx + tw / 2, by + 2), tag, 16, (255, 255, 255), bold=True, anchor='ma')
+        if i < len(steps) - 1:
             F.text(d, (x + STEP_W + STEP_GAP / 2, y + STEP_H / 2), '→',
                    20, F.RAIL, anchor='mm')
 
@@ -68,38 +76,43 @@ def _cards(d, y, cards, color):
                    _fit(d, ln, FS_BULLET, 16, inner_w), F.INK)
 
 
-def _numbers(d, y, rows, color):
-    """关键数字：4 行（维度 / 论文口径 / 本仓实测）。"""
+def _numbers(d, y, rows, color, cols=None):
+    """关键数字：4 行（维度 / 两列口径）。"""
+    cols = cols or ('论文口径', '本仓实测（3090）')
     F.table(d, F.M, y, F.W - 2 * F.M, rows,
-            [('论文口径', 796, color), ('本仓实测（3090）', 796, F.INDIGO)],
+            [(cols[0], 796, color), (cols[1], 796, F.INDIGO)],
             dim_w=200, row_h=57)
 
 
-def _takeaway(d, y, s, color):
-    F.rrect(d, [F.M, y, F.W - F.M, y + TAKE_H], 12, F.CARD_FILL, F.CARD_EDGE)
-    F.rrect(d, [F.M + 2, y + 2, F.M + 12, y + TAKE_H - 2], 5, color)
-    F.text(d, (F.M + 30, y + 12), '一句话', 18, F.INK2, bold=True)
-    size = FS_TAKE
-    while size > 17 and d.textlength(s, font=F.font(size, bold=True)) > F.W - 2 * F.M - 60:
-        size -= 1
-    F.text(d, (F.M + 30, y + 42), s, size, F.INK, bold=True)
+def takeaway(d, y, s, color, h=TAKE_H, label='一句话', size=FS_TAKE):
+    """底部结论条：单行或两行（传 list）。"""
+    lines = [s] if isinstance(s, str) else list(s)
+    F.rrect(d, [F.M, y, F.W - F.M, y + h], 12, F.CARD_FILL, F.CARD_EDGE)
+    F.rrect(d, [F.M + 2, y + 2, F.M + 12, y + h - 2], 5, color)
+    F.text(d, (F.M + 30, y + 12), label, 18, F.INK2, bold=True)
+    for i, ln in enumerate(lines[:2]):
+        sz = size - (3 if i else 0)
+        while sz > 17 and d.textlength(ln, font=F.font(sz, bold=True)) > F.W - 2 * F.M - 60:
+            sz -= 1
+        F.text(d, (F.M + 30, y + 40 + i * 32), ln, sz, F.INK, bold=True)
 
 
-def page(d, meta, steps, cards, numbers, takeaway):
-    """meta: name / sub / source / color。"""
+def page(d, meta, steps, cards, numbers, takeaway_text):
+    """meta: name / sub / source / color；可选 secs（三个区标签）、num_cols（两列标题）。"""
     color = meta['color']
     title_size = _fit(d, meta['name'], F.FS_TITLE, 32, F.W - 2 * F.M - 480, bold=True)
     F.header(d, meta['name'], meta['sub'], size=title_size)
     if meta.get('source'):
         F.text(d, (F.W - F.M, 44), meta['source'], 19, F.INK2, light=True, anchor='ra')
 
-    _sec(d, F.M, SEC_Y, '①  它怎么走')
+    secs = meta.get('secs') or ('①  它怎么走', '②  三个关键设计', '③  关键数字：论文口径 vs 本仓实测')
+    _sec(d, F.M, SEC_Y, secs[0])
     _steps(d, STEP_Y, steps, color)
 
-    _sec(d, F.M, CARD_Y - 30, '②  三个关键设计')
+    _sec(d, F.M, CARD_Y - 30, secs[1])
     _cards(d, CARD_Y, cards, color)
 
-    _sec(d, F.M, NUM_Y - 30, '③  关键数字：论文口径 vs 本仓实测')
-    _numbers(d, NUM_Y, numbers, color)
+    _sec(d, F.M, NUM_Y - 30, secs[2])
+    _numbers(d, NUM_Y, numbers, color, meta.get('num_cols'))
 
-    _takeaway(d, TAKE_Y, takeaway, color)
+    takeaway(d, TAKE_Y, takeaway_text, color)
