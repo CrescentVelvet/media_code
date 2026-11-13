@@ -41,6 +41,14 @@
   UTIL     每卡 算力占用率条
   PROCS    进程表：GPU / PID / USER / 进程名 / 显存
 
+## 队列面板 QUEUE（nvitop 没有的，补 slurm 场景刚需）
+
+自己的全部作业（不限 GPU）：JOBID / 作业名 / 状态 / 卡数 / 已跑时间 / 节点或
+排队原因。RUNNING 绿、PENDING 黄，被监控跟随的作业标 ◀。PENDING 时 %R 给的
+是排队原因（Resources=等卡、Priority=等优先级），一眼看出任务卡在哪。
+每帧数据来自监控本来就有的 squeue 扫描（--rescan 秒一次），零额外开销；
+--no-queue 可关掉。
+
 ## 界面行为（对齐 nvitop）
 
 TTY 常驻模式跑在终端**备用屏幕**里（\033[?1049h），每帧回光标左上角原地重绘、
@@ -241,6 +249,20 @@ def pad(s, width, align="left"):
     return (fill + s) if align == "right" else (s + fill)
 
 
+def fit(s, width):
+    """按显示宽度截断（CJK=2），超长末尾加 …，防止长作业名把行撑爆。"""
+    if dwidth(s) <= width:
+        return s
+    out, w = "", 0
+    for ch in s:
+        cw = 2 if ord(ch) > 0x2E7F else 1
+        if w + cw > width - 1:
+            break
+        out += ch
+        w += cw
+    return out + "…"
+
+
 def bar(pct, width=14, color=None, on=True):
     """两段式进度条：实心 + 空心。颜色按占用高低分档。"""
     pct = max(0.0, min(100.0, float(pct)))
@@ -343,6 +365,38 @@ def render(frame, header_lines, enable_color, show_procs=True, width=100):
     return out
 
 
+def render_queue(rows, follow_jid, enable_color, width=100):
+    """作业队列面板：自己的全部作业（不限 GPU、含 PENDING）。
+
+    RUNNING 绿 / PENDING 黄 / 其余灰；被监控跟随的作业行尾标 ◀。
+    PENDING 时 squeue 的 %R 给的是排队原因（Resources=等卡、Priority=等优先级），
+    所以最后一列叫「节点/原因」。
+    """
+    state_c = {"RUNNING": C["green"], "PENDING": C["yellow"],
+               "COMPLETING": C["cyan"]}
+    lines = []
+    title = "  QUEUE  %d 个作业" % len(rows)
+    if not rows:
+        title += paint("（无）", C["dim"], enable_color)
+    lines.append(paint(title, C["bold"], enable_color))
+    lines.append("  " + paint("─" * width, C["dim"], enable_color))
+    hdr = (pad("JOBID", 11) + pad("作业名", 22) + pad("状态", 11)
+           + pad("卡", 4) + pad("已跑", 9) + "节点/原因")
+    lines.append("  " + paint(hdr, C["bold"], enable_color))
+    for r in rows:
+        jid, name, st, elapsed, node = r[0], r[2], r[3], r[4], r[5]
+        n = job_gpus(r[6])
+        if st != "RUNNING":
+            elapsed = "-"          # PENDING 的 %M 恒为 0，显示没意义
+        mark = " ◀" if jid == follow_jid else ""
+        row = (pad(jid, 11) + pad(fit(name, 20), 22) + pad(st, 11)
+               + pad(str(n) if n > 0 else "-", 4) + pad(elapsed, 9))
+        if enable_color:
+            row = paint(row, state_c.get(st, C["dim"]), True)
+        lines.append("  " + row + fit(node or "-", 30) + mark)
+    return lines
+
+
 # ---------------------------------------------------------------- 采样
 
 def build_remote_cmd(jobid, interval, with_procs, native, env_script):
@@ -414,6 +468,8 @@ def main():
     ap.add_argument("--no-bar", action="store_true", help="纯文本模式")
     ap.add_argument("--no-color", action="store_true", help="禁用颜色")
     ap.add_argument("--no-procs", action="store_true", help="不显示进程表")
+    ap.add_argument("--no-queue", action="store_true",
+                    help="不显示作业队列面板（QUEUE）")
     ap.add_argument("--native", action="store_true",
                     help="不用 pynvml，改用 nvidia-smi -lms（兼容兜底，慢很多）")
     ap.add_argument("--log", default="", help="把每帧追加到该 jsonl")
@@ -427,6 +483,7 @@ def main():
     enable_color = (not args.no_color) and sys.stdout.isatty()
     tty = sys.stdout.isatty()
     show_procs = (not args.no_procs) and (not args.no_bar)
+    show_queue = not args.no_queue
 
     # ---- 作业发现：监控与任何作业彻底解耦 ----------------------------
     # 监控**不持有**任何作业句柄，只按 squeue 去"找"当前占卡的作业。因此下面
@@ -437,24 +494,7 @@ def main():
     # 监控只被 Ctrl-C 结束。这是「时刻监控」的关键。
     host = sh(["hostname"], 5)[1].strip() or "?"
 
-    def scan_jobs():
-        """可挂的作业列表：只要 RUNNING 且拿到 GPU 的。
-
-        排序 (GPU 张数, 作业号) 倒序 —— 训练作业占得多就跟训练，保活占满
-        8 卡就自动跟保活；同分取新作业，链式续期能平滑换过去。
-        PENDING 一律不挂：srun --jobid 对排队中的作业会卡住。
-        """
-        out = []
-        for r in my_jobs():
-            if r[3] not in ("RUNNING", "COMPLETING"):
-                continue
-            n = job_gpus(r[6])
-            if n <= 0:
-                continue
-            out.append((n, r[0], r[2], r[3], r[5]))
-        out.sort(key=lambda x: (x[0], int(x[1]) if x[1].isdigit() else 0),
-                 reverse=True)
-        return out
+    # （可挂作业挑选已内联进主循环的 squeue 扫描，一次扫描同时喂 QUEUE 面板）
 
     gen = {"n": 0}
 
@@ -529,6 +569,7 @@ def main():
     last_scan = 0.0
     retry_at = {}           # jobid -> 下次允许重连的时间戳（防采样器崩溃热循环）
     fails = {}              # jobid -> 连续失败次数
+    queue_rows = []         # 上次 squeue 快照，喂 QUEUE 面板（含 PENDING）
 
     rescan = max(1.0, args.rescan)
 
@@ -568,10 +609,14 @@ def main():
             if (now_m - last_scan) >= rescan:
                 last_scan = now_m
 
+                # 一次 squeue 两用：喂 QUEUE 面板（全部作业，含 PENDING），
+                # 同时从里面挑 RUNNING 的 GPU 作业作为跟随候选
+                queue_rows = my_jobs()
+
                 if args.jobid:
                     # 锁定模式：只认 --jobid，它不在 RUNNING 就纯等待，绝不换作业
                     found = None
-                    for r in my_jobs():
+                    for r in queue_rows:
                         if r[0] == args.jobid and r[3] in ("RUNNING", "COMPLETING"):
                             found = r
                             break
@@ -599,7 +644,16 @@ def main():
                             last_err = ""
                         want_jid = jid2
                 else:
-                    cands = scan_jobs()
+                    cands = []
+                    for r in queue_rows:
+                        if r[3] not in ("RUNNING", "COMPLETING"):
+                            continue
+                        n = job_gpus(r[6])
+                        if n <= 0:
+                            continue
+                        cands.append((n, r[0], r[2], r[3], r[5]))
+                    cands.sort(key=lambda x: (x[0], int(x[1]) if x[1].isdigit() else 0),
+                               reverse=True)
                     if not cands:
                         # 没作业了：收会话、回等待态，**不退出**
                         if sess is not None:
@@ -692,6 +746,10 @@ def main():
                 head = "[%s] %s · 无占用 GPU 的作业 · 每 %.0fs 重扫队列" % (
                     ts, host, rescan)
             lines = [head]
+
+            if show_queue:
+                lines.append("")
+                lines.extend(render_queue(queue_rows, jobid, enable_color))
 
             if frame is None:
                 lines.append("")
