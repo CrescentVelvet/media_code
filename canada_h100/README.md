@@ -3,6 +3,44 @@
 > 账号 `00950754` · 登录 `ssh h100` · 实测记录 2026-11-13
 > 节点 8×H100 PCIe 80GB · 192 核 · 1.35T 内存
 
+## ⭐ 最常用命令（先看这里）
+
+```bash
+ssh h100
+cd /data/00950754/code/media_code/canada_h100
+```
+
+| 我要做什么 | 命令 |
+|---|---|
+| **占卡（启动保活）** | `./10_hold.sh start` — 8 卡 / 24h / high / 显存 90% / 自动续期 |
+| **看卡（实时监控）** | `./10_hold.sh mon` — 显存 MEM + 算力 UTIL + 进程表，1s 刷新，Ctrl-C 退出 |
+| 看队列 + 显卡快照 | `./10_hold.sh stat` |
+| 跟保活日志 | `./10_hold.sh tail` |
+| **停止保活** | `./10_hold.sh stop` → **再跑 `./10_hold.sh ls` 复查** |
+| 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=hold_gpu` |
+
+保活的三个常用变体：
+
+```bash
+./10_hold.sh start 4 12 high      # 4 卡 / 12h（其余默认）
+HOLD_MEM_RATIO=0 ./10_hold.sh start   # 只占算力，不垫显存
+HOLD_CHAIN=0 ./10_hold.sh start       # 不自动续期，跑完就退
+```
+
+监控的三个常用变体：
+
+```bash
+python3 11_gpu_monitor.py -i 0.5      # 0.5s 刷新（最小 0.2s）
+python3 11_gpu_monitor.py --once      # 只打一次，适合脚本里取数
+python3 11_gpu_monitor.py --no-procs  # 不显示进程表
+```
+
+> ⚠️ **停止必须两步**：`stop` 只杀当前作业，链式续期可能已经提交了下一个。跑完 `stop` 一定再 `ls` 复查，还有 RUNNING/PENDING 就 `./10_hold.sh stop <JOBID>`。否则典型症状是「我明明停了，十分钟后卡又满了」。详见 §4.4。
+>
+> ⚠️ **登录节点没有 GPU**，`nvidia-smi` 报 `Failed to initialize NVML` 是正常的。看卡一律用 `./10_hold.sh mon`（它会自己 `srun` 进计算节点采样）。
+
+参数细节：保活见 §4.1，监控见 §4.2，启停操作手册见 §4.4。
+
 ## 目录约定（2026-11-13 定）
 
 **本目录 `canada_h100/` 只放「这台机器本身」的运维脚本**：建环境、体检、保活、监控、存储策略。
@@ -24,13 +62,7 @@ cd /data/00950754/code/media_code/canada_h100
 sbatch 01_verify_env.sbatch                 # 环境体检（约 1 分钟）
 ```
 
-日常最常用的两条：
-
-```bash
-cd /data/00950754/code/media_code/canada_h100
-./10_hold.sh start        # 占卡（8 卡 24h）
-./10_hold.sh stat         # 看队列 + 看卡，一条命令
-```
+日常保活与监控的命令见页首「最常用命令」速查表。
 
 ## 一、环境已建好
 
@@ -184,25 +216,31 @@ python3 11_gpu_monitor.py -i 2               # 2s 一次（最小 0.2s）
 python3 11_gpu_monitor.py --once             # 只打一次
 python3 11_gpu_monitor.py --jobid 201362394  # 指定作业（默认自动找最新的 RUNNING）
 python3 11_gpu_monitor.py --no-procs         # 不显示进程表（快一点）
+python3 11_gpu_monitor.py --no-bar           # 纯文本（不画进度条，好复制）
 python3 11_gpu_monitor.py --log mon.jsonl    # 顺带落盘
 ```
 
 输出（三块：合计行 + 每卡表 + 进程表）：
 
 ```
- 8 x NVIDIA H100 PCIe   MEM 573.6/633.4 GiB(91%)   UTIL 均 100%   功耗 2776W   procs 8
+[2026-11-13 08:38:29] 登录节点 h100a011 · job=201362583(RUNNING) · 刷新 1.0s
+数据来源: pynvml @ 计算节点 h100a011
 
-  GPU 型号                  算力   算力占用       显存   显存占用       显存GiB     温度  功耗
-  ---------------------------------------------------------------------------------------
-  0   NVIDIA H100 PCIe      100%   ████████████   91%    ███████████░   71.7/79.2    64C   347/350W
-  1   NVIDIA H100 PCIe      100%   ████████████   91%    ███████████░   71.7/79.2    61C   347/350W
+  合计  8 卡 · 显存 574.5G/637.2G (90%) · 平均 UTIL 100% · 功耗 2780W
+  ──────────────────────────────────────────────────────────────────────────
+  GPU  型号/状态      UTIL 算力占用            MEM% 显存占用      显存GiB   温度 功耗
+  ──────────────────────────────────────────────────────────────────────────
+  0    H100 80G        100% ██████████████       90% █████████████░  71.8/79.6  66C  349/350W
+  1    H100 80G        100% ██████████████       90% █████████████░  71.8/79.6  64C  346/350W
   ...
 
-  PROCS
-   GPU    PID      USER       进程名                          显存
-     0   1234567  00950754   10_hold_gpu.py                 71.7 GiB
-     1   1234568  00950754   10_hold_gpu.py                 71.7 GiB
+  PROCS  8 个进程
+  ──────────────────────────────────────────────────────────────────────────
+  GPU  PID       USER        进程名                  显存
+  0    3957060   00950754    python                  71.3G
 ```
+
+> `MEM%` 是**真实占用率**（已用/总量）。NVML 另有一个 `memory util`（显存控制器忙闲）字段，和占用率是两回事、并排看极易混淆，所以**表格里不显示**了，但 `--log` 的 jsonl 里仍保留 `mem_util`，需要时自己取。
 
 **为什么不用 nvitop**：nvitop 的本体（`cli.py` / `tui/`）是 **GPL-3.0**，抄进仓库会传染整个项目；它的 API 层（`nvitop/api/`）虽是 Apache-2.0，但它依赖 `nvmlInit()` 直连 NVML，而**本集群登录节点没有 NVML**（`nvmlInit()` 报 `NVMLError_Unknown`）。两个理由一起决定了：**学它的原理，不抄它的代码**。
 

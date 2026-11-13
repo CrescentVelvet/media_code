@@ -244,9 +244,9 @@ def render(frame, header_lines, enable_color, show_procs=True, width=100):
     out.append(paint(summary, C["bold"], enable_color))
 
     out.append("  " + paint("─" * width, C["dim"], enable_color))
-    hdr = (pad("GPU", 5) + pad("型号/状态", 14) + pad(" UTIL", 6) + pad("算力占用", 20)
-           + pad("MEM", 6) + pad("显存占用", 20) + pad("显存GiB", 13)
-           + pad("MEM%", 6) + pad("温度", 6) + pad("功耗", 12))
+    hdr = (pad("GPU", 5) + pad("型号/状态", 14) + pad(" UTIL", 7) + pad("算力占用", 20)
+           + pad(" MEM%", 7) + pad("显存占用", 20) + pad("显存GiB", 13)
+           + pad("温度", 6) + pad("功耗", 12))
     out.append("  " + paint(hdr, C["bold"], enable_color))
     out.append("  " + paint("─" * width, C["dim"], enable_color))
 
@@ -260,24 +260,24 @@ def render(frame, header_lines, enable_color, show_procs=True, width=100):
         pw = ("%.0f/%.0fW" % (g["power"], g["cap"])) if g["power"] >= 0 else "  --"
         row = (pad(idx, 5)
                + pad("H100 80G", 14)
-               + pad(("  " + util_color(g["util"], False)), 6)
+               + pad(("  " + util_color(g["util"], False)), 7)
                + pad(bar(g["util"], 14, on=False), 20)
-               + pad("%4d%%" % g["mem_util"], 6)
+               # 这列是「显存控制器利用率」(nvml memory util)，跟下面的真实占用率
+               # 是两回事，并排很容易看混，所以只留占用率。原值仍在 --log 的 jsonl 里。
+               + pad("%4.0f%%" % mpct, 7)
                + pad(bar(mpct, 14, on=False), 20)
                + pad("%.1f/%.1f" % (used / 1024.0, total / 1024.0), 13)
-               + pad("%4.0f%%" % mpct, 6)
                + pad(("%dC" % g["temp"]) if g["temp"] >= 0 else "--", 6)
                + pad(pw, 12))
         if enable_color:
             # 着色要在「宽度已对齐」之后做：颜色码零宽，先拼再着色不会错位
             row = (pad(idx, 5)
                    + pad("H100 80G", 14)
-                   + pad("  " + util_color(g["util"], True), 6)
+                   + pad("  " + util_color(g["util"], True), 7)
                    + pad(bar(g["util"], 14, on=True), 20)
-                   + pad("%4d%%" % g["mem_util"], 6)
+                   + pad("%4.0f%%" % mpct, 7)
                    + pad(bar(mpct, 14, on=True), 20)
                    + pad("%.1f/%.1f" % (used / 1024.0, total / 1024.0), 13)
-                   + pad("%4.0f%%" % mpct, 6)
                    + pad(("%dC" % g["temp"]) if g["temp"] >= 0 else "--", 6)
                    + pad(pw, 12))
         out.append("  " + row)

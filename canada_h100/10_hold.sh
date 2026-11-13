@@ -89,7 +89,8 @@ cmd_stat() {
 }
 
 cmd_mon() {
-    shift 2>/dev/null || true
+    # 注意：子命令名已由下面的 case 分支 shift 掉，这里不能再 shift，
+    # 否则 `./10_hold.sh mon -i 0.5` 会把 -i 吃掉，只剩一个裸 0.5。
     exec python3 "$MON" "$@"
 }
 
