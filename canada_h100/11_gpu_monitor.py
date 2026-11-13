@@ -41,6 +41,12 @@
   UTIL     每卡 算力占用率条
   PROCS    进程表：GPU / PID / USER / 进程名 / 显存
 
+## 界面行为（对齐 nvitop）
+
+TTY 常驻模式跑在终端**备用屏幕**里（\033[?1049h），每帧回光标左上角原地重绘、
+隐藏光标，Ctrl-C 退出时恢复屏幕并显示光标，scrollback 不被刷屏污染。
+帧高超过终端行数时从底部截断（只砍进程表，最后一行给提示），保证不滚屏。
+
 用法：
   ./10_hold.sh mon                       # 常驻监控（推荐）
   ./11_gpu_monitor.py -i 0.5             # 0.5s 刷新
@@ -526,6 +532,14 @@ def main():
 
     rescan = max(1.0, args.rescan)
 
+    # TTY 常驻模式进「备用屏幕」+ 隐藏光标（nvitop 同款行为）：
+    # 面板占满一块独立屏幕，退出时恢复原终端内容，且刷新不再污染 scrollback。
+    # 只有 Ctrl-C/异常走 finally 恢复；--once 与非 TTY（重定向）不进备用屏幕。
+    alt_screen = tty and not args.once
+    if alt_screen:
+        sys.stdout.write("\033[?1049h\033[?25l")
+        sys.stdout.flush()
+
     # want_jid：**确认处于 RUNNING** 才非空。② 只允许对 want_jid 起会话，
     # 这样"作业没了"就只是纯等待，绝不会拿死 ID 去反复 srun 撞错。
     want_jid = ""
@@ -700,8 +714,20 @@ def main():
                     except Exception:
                         pass
 
-            if tty and not args.once:
-                sys.stdout.write("\033[H\033[2J")
+            if alt_screen:
+                # 帧高超过终端行数时，超出的部分会把屏幕顶上去，造成"整屏往下滚"
+                # 的错觉——所以从底部截断到正好放下（只砍进程表，GPU 表不动），
+                # 并给一行提示告诉用户怎么看到全部内容。
+                rows = shutil.get_terminal_size().lines
+                if len(lines) > rows:
+                    overflow = len(lines) - (rows - 1)
+                    lines = lines[:rows - 1]
+                    lines.append(paint(
+                        "… 终端 %d 行装不下本帧（截掉 %d 行，多为进程表）；"
+                        "拉高窗口或用 --no-procs" % (rows, overflow),
+                        C["dim"], enable_color))
+                # \033[H 回左上角 + \033[J 清到屏尾：上一帧较长的残留一并抹掉
+                sys.stdout.write("\033[H\033[J")
             print("\n".join(lines), flush=True)
 
             if args.once:
@@ -718,9 +744,14 @@ def main():
             if sess is None:
                 time.sleep(max(0.5, rescan / 2.0))
     except KeyboardInterrupt:
-        print("\n已退出监控。")
-        return 0
+        pass                    # 退出提示在 finally 里、退出备用屏幕之后再打
     finally:
+        if alt_screen:
+            # 先恢复光标/退出备用屏幕，再打印退出提示，否则提示会画在备用
+            # 屏幕里随退出被抹掉，用户看不到
+            sys.stdout.write("\033[?25h\033[?1049l")
+            sys.stdout.flush()
+            print("已退出监控。")
         close_session()
 
 
