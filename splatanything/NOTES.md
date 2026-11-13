@@ -192,7 +192,30 @@ opacity = Σ(w·w) / Σw          ← 注意不是加权平均，是"权重平�
 
 ---
 
-## 7. 排错
+## 7. 训练改造：官方缺哪三块（E-15 实测）
+
+官方是纯推理发布包，要反传必须自己补三处。**都不需要改官方源码**，适配层
+`09_train_probe.py` 就是这套做法。
+
+| 缺什么 | 官方现状 | 补法 |
+| --- | --- | --- |
+| 梯度 | `GaussianWorldMirror.forward` 挂 `@torch.no_grad()`；`inference.py` 还套 `inference_mode()` | 别删装饰器——直接调 `model.encode` + `model.gs_renderer`。官方 forward 也就这两句，数值等价（实测 max\|Δ\| 4.77e-07） |
+| 光栅化 | **完全没有**，`rasterization.py` 注释 "no rasterization or training" | 用 gsplat；约定见 `03_render_eval.py`（`inv(c2w)` 当 viewmats、colors 传 SH DC、**别再加 0.5 偏置**） |
+| 可反传的合并 | `merge_voxels` 两处 in-place：列视图 `scatter_add_`、`quats /= norm` → autograd 报 "modified by an inplace operation ... version 5; expected 4" | 换成逐项等价的 `index_add`（合并规则不变，仍按体素中心加权，opacity 仍是 `Σw²/Σw`），输出与原实现差 4.77e-07 |
+
+### 7.1 三个必知的坑
+
+1. **`depth` 是 5 维 `[B,S,H,W,1]`**（DPT 末尾挂了个单通道）。`depth.shape[-2:]` 得到 `(H,1)`，
+   拿去当宽高会渲出 1 像素宽。渲染尺寸**一律从输入图取**。
+2. **`opacity` 分支没有梯度是正常的**。合并时 `values = weights if name == 'opacities' else ...`，
+   解码出的 opacity 通道根本不参与计算（真正生效的是 merge weight）。12 个输出通道里
+   只有它精确为 0，**不能用它判训练链坏了**。
+3. **`scales = exp(raw).clamp_max(0.3)` 对 lr 极敏感**。1×1 卷积 256 通道累加，Adam 首步
+   就能把 raw log-scale 推 ~+5 → scale 从 1.77e-3 跳到 clamp 上限 0.3（169 倍）→ 下一步
+   全部被 `filter_large_scale_infer` 清空 → 渲染成黑图、loss 变成常数。**`lr=1e-3` 必炸**
+   （实测），冒烟用 1e-5；真训要分通道 lr 或梯度裁剪。
+
+## 8. 排错
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
@@ -204,5 +227,5 @@ opacity = Σ(w·w) / Σw          ← 注意不是加权平均，是"权重平�
 | 输出目录同名覆盖 | `inference.py` 直接写 `OUT/SCENE/` | `02` 已处理：改输出根加时间戳 |
 | gsplat `AttributeError: 'NoneType' object has no attribute 'CameraModelType'` | CUDA 后端没编出来（缺 nvcc） | `conda install -n $CONDA_ENV -c nvidia cuda-nvcc=12.6` |
 | gsplat `_jit_compile() missing 2 required positional arguments` | gsplat 1.5.3 与 torch 2.7.1 的 JIT 接口不兼容 | 降到 `gsplat==1.5.2`（v2 实测可用的版本） |
-| gsplat 编译 `#include <glm/gtc/type_ptr.hpp>` 找不到 | 1.5.2 不内置 glm（1.5.3 才自带 third_party/glm） | 需要 glm 头文件；本机尚未打通，见 EXPERIMENTS 遗留项 |
+| gsplat 编译 `#include <glm/gtc/type_ptr.hpp>` 找不到 | 1.5.2 不内置 glm（1.5.3 才自带 third_party/glm） | **已打通**：`git clone --depth 1 https://github.com/g-truc/glm.git ~/repos/glm_src`，`_gsplat_env.sh` 把它加进 `CPATH`（同时补 conda 的 `targets/*/include` 与 `TORCH_CUDA_ARCH_LIST`） |
 | nvcc `gcc: No such file or directory` | 本机 WSL 没装 gcc/g++ | 借用已有 conda env 的 gcc（`envs/infinisplat_v2/bin`），或 `conda install gxx_linux-64` |

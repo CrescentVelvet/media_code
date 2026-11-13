@@ -137,6 +137,13 @@ GPU=0 RESULT="$HOME/output/splatanything_results/panel/jiajia_hold_8v" \
 # 多配置汇总（交集视角上严格可比）
 python splatanything/08b_nvs_compare.py \
   --runs a/nvs_summary.json b/nvs_summary.json --csv cmp.csv
+
+# ── I) 训练成本冒烟（WB-4，3v / 504²，只训属性头）──
+bash splatanything/09_run_train_probe.sh
+#   → $SPLATANYTHING_RESULTS_DIR/train_probe.json + train_probe_ckpt.pt
+#   等价前向 → 1 step → 100 step → 存恢复，全套约 2 min（不含首次 JIT 编译）
+bash splatanything/09_run_train_probe.sh --stages sweep --sweep-lr 1e-3,1e-4,1e-5
+#   找不炸的 lr：scale 头是 exp()，lr=1e-3 一步就顶到 clamp 上限（E-15 §4）
 ```
 
 **03 新增指标**（同一份 `eval_summary.json`）：`psnr_fg`（alpha>0.5 前景）、`psnr_bg`
@@ -209,9 +216,11 @@ media_code/splatanything/
 ├── 08_nvs_eval.sh           # held-out NVS 评测（source 建云，留出只评分）
 ├── 08_nvs_eval.py
 ├── 08b_nvs_compare.py       # 多配置汇总（在交集视角上重算，才可比）
+├── 09_run_train_probe.sh    # 训练成本冒烟（等价可导前向 → 1/100 step → 存恢复）
+├── 09_train_probe.py
 ├── hf_download.py           # 镜像分块并发下载（含 --noproxy）
 ├── NOTES.md                 # 原理（GSN / 体素合并 / 预处理）与排错
-├── EXPERIMENTS.md           # 实测台账（E-01~E-10）
+├── EXPERIMENTS.md           # 实测台账（E-01~E-15）
 └── ROUTE_VALIDATION_REPORT.md  # 按 WB 任务单回填的验收报告
 
 官方仓（Linux fs，稀疏检出）: ~/repos/SplatAnything
