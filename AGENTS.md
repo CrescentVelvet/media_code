@@ -539,6 +539,20 @@ gc 撕掉，533 条历史全靠 `git fetch origin` 从远端恢复，只丢了�
 本地未推的提交一旦对象库损毁就永久丢失。**建议在跑完一个可验证的阶段后及时 push**，
 不要攒几天。
 
+### 多落点协作：服务器 commit → 用户 push → 本机 pull（2026-11-13 峰哥定）
+
+代码在两处落点：本机 `C:\code\media_code`、服务器 `/data/00950754/code/media_code`。
+
+- **允许 AI 直接在服务器落点 commit**（只 commit，不 push）。服务器改动常有「只能在那
+  实测才有意义」的部分（路径、sbatch、节点行为），当场提交最省事。
+- **push 一律由用户手动做**，本机与服务器都一样；AI 只负责把 commit 做好。
+- **不要试图两边各改一份再对齐**：那样必然产生两个内容相同、hash 不同的 commit，
+  `git pull` 会报分歧，`reset --hard` 收场，白折腾。**同一改动只在一处提交**。
+- 用户 push 后，另一侧 `git pull --rebase`（或 `git fetch && git reset --hard origin/main`，
+  仅在该侧没有未提交改动时）跟进。
+- 提交前确认 `core.fileMode=false`（两边都要），否则 `chmod +x` 会造出本地没有的
+  mode change，pull 时假冲突。核对真同步用 `git ls-tree -r HEAD <path> | sha256sum` 两边比。
+
 ### 本地：禁止会被中断撕裂仓库的写操作
 
 - **不要在同一条命令里串多个 git 写操作**，尤其是 `git stash` / `git stash pop` /
