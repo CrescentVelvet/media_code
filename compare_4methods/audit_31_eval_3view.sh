@@ -21,4 +21,6 @@ echo "🚀 [audit_31] 三图评测（统一渲 32 GT 相机 × 五方法）"
 ONLY="${ONLY:-}" OUT="${OUT:-}" GT_CAMS="${GT_CAMS:-}" BASE3="${BASE3:-}" \
   CROP_SQ="${CROP_SQ:-}" REFINE="${REFINE:-}" REFINE_RES="${REFINE_RES:-}" \
   REFINE_ITERS="${REFINE_ITERS:-}" EVAL_RES="${EVAL_RES:-}" \
+  BG="${BG:-}" MASKS="${MASKS:-}" MASKDIR="${MASKDIR:-}" MASK_REGIONS="${MASK_REGIONS:-}" \
+  SAVE_DIR="${SAVE_DIR:-}" SAVE_VIEWS="${SAVE_VIEWS:-}" \
   exec python "$CODE/compare_4methods/audit_31_eval_3view.py"

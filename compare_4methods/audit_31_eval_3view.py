@@ -28,12 +28,21 @@
   EVAL_RES=512  统一评测分辨率（原分辨率 1435² 会逼半分辨率训练的 3DGS 输出没学过的频段）
   V32=1         32 视角版对照（此时 REFINE 不生效）
 
+  BG=auto       ★ 渲染合成底色。auto=读 3DGS 训练目录的 cfg_args.white_background；
+                white/black 强制。**这一项在 E-14 之前是硬编码白底，把两个 3DGS 方法
+                自洽分从 ~37 dB 压到 ~10 dB**（它们的 white_background=False，模型学的是
+                黑底合成，alpha 中位只有 0.98，2% 的白边 = 5 个灰阶的系统误差）。
+  MASKS=1       ★ 按 person / face / hand 区域算非 PSNR 指标（见 region_metrics.py）
+  MASKDIR=...   区域 mask 根目录，子目录 person/ face/ hand/，文件名 = ref 图 stem 前缀
+  MASK_REGIONS  mask 子目录清单，默认 "person,face,hand"
+
 ⚠️ 三图输入时**必须同时开 CROP_SQ=1 和 REFINE=1**，否则量到的是 3 点对齐的残差
 （实测 2.0~2.7°，在 fx≈1381 下把 PSNR 封顶在 13.6 dB），不是方法差异。详见 EXPERIMENTS E-13。
 """
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +53,7 @@ from skimage.metrics import structural_similarity as ssim
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import audit_24_five_way_video as a24  # read_ply / read_cams / umeyama / warp
+import region_metrics as rm             # 非 PSNR 区域指标（模糊/重影/纹理/错位）
 
 O = os.path.expanduser("~/output")
 # 注意 .sh 用 OUT="${OUT:-}" 传参，空串要回落到默认值（get 不挡空串）
@@ -60,6 +70,20 @@ ONLY = os.environ.get("ONLY", "").strip()
 REFINE = bool(os.environ.get("REFINE", "").strip())
 REFINE_RES = int(os.environ.get("REFINE_RES") or 512)
 REFINE_ITERS = int(os.environ.get("REFINE_ITERS") or 200)
+
+# BG：合成底色。E-14 之前一律白底，把两个 3DGS 方法（white_background=False，
+# 模型学的是黑底合成）自洽分从 ~37 dB 压到 ~10 dB。auto 读 cfg_args 决定。
+BG = (os.environ.get("BG") or "auto").strip().lower()
+# MASKS=1：按区域算非 PSNR 指标（模糊 / 重影 / 纹理 / 错位），见 region_metrics.py
+MASKS = bool(os.environ.get("MASKS", "").strip())
+MASKDIR = os.environ.get("MASKDIR") or O + "/batch_4methods/masks_jiajia"
+MASK_REGIONS = [s.strip() for s in
+                (os.environ.get("MASK_REGIONS") or "person,face,hand").split(",") if s.strip()]
+
+# SAVE_VIEWS=2,21 → 把这两个 GT 视角的渲染图存成 PNG（出图/目视复核用，不影响指标）
+SAVE_DIR = os.environ.get("SAVE_DIR", "").strip()
+SAVE_VIEWS = {int(x) for x in
+              (os.environ.get("SAVE_VIEWS") or "").replace(",", " ").split()}
 
 # V32=1：同口径对照跑 32 视角版（GT 侧不变；self3 层变成「渲自己相机 vs 自己 32 张输入图」，
 # 即不 warp 的 all32——32v 方法输入图就是 GT 32 帧，顺序与各家预测相机一致）
@@ -170,6 +194,99 @@ def sharpness(bgr):
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+def resolve_bg(ply_path):
+    """合成底色 → (值, 来源说明)。
+
+    3DGS 官方 train.py 的 --white_background 决定训练时背景是黑还是白；PLY 里没有
+    这个信息，但训练目录会留一份 cfg_args（argparse Namespace 的 repr）。模型学到的是
+    「高斯 + 底色」的合成结果，底色给错时 alpha<1 的像素会有 (1-α)·Δbg 的系统偏移：
+    本场景 α 中位 0.98，白↔黑差 5 个灰阶，实测直接把自洽 PSNR 从 37.4 打到 14.9。
+    """
+    if BG in ("white", "w", "1"):
+        return 1.0, "white(强制)"
+    if BG in ("black", "b", "0"):
+        return 0.0, "black(强制)"
+    p = Path(ply_path).resolve()
+    for up in list(p.parents)[:6]:
+        cfg = up / "cfg_args"
+        if cfg.exists():
+            t = cfg.read_text(encoding="utf-8", errors="replace")
+            m = re.search(r"white_background=(True|False)", t)
+            if m:
+                v = 1.0 if m.group(1) == "True" else 0.0
+                return v, f"auto({up.name}/cfg_args white_background={m.group(1)})"
+            return 0.0, f"auto({up.name}/cfg_args 无该字段→黑)"
+    # 无 cfg_args（前馈方法）：E-14 实测六个方法**全部**偏好黑底
+    # （DA3-GS +4.14、VGGT-Ω +7.51、DA3+3DGS +7.10、v2 +1.11、SA +0.43、QS +0.04 dB）
+    return 0.0, "auto(无 cfg_args→黑底)"
+
+
+def own_intrinsics(kind, path, W, H):
+    """方法自带内参 → 逐视角 K 列表（已缩放到 W×H）。
+
+    仅 json（3DGS 训练产物）可用。**主点固定 (W/2, H/2)**：官方 3DGS 只从 FOV
+    构造投影矩阵，主点隐含在图像中心，cameras.json 里压根没有 cx/cy —— 用 COLMAP
+    的真值 cy 去渲它的 PLY 会掉 24 dB（实测 42.9 → 18.8）。
+    """
+    if kind != "json":
+        return None
+    j = json.load(open(path))
+    out = []
+    for e in j:
+        f = W / float(e["width"])
+        out.append(np.array([[e["fx"] * f, 0.0, W / 2.0],
+                             [0.0, e["fy"] * f, H / 2.0], [0.0, 0.0, 1.0]]))
+    return out
+
+
+def _load_instances(stem, region):
+    """同帧同区域的逐实例二值 mask 列表（SAM3 每实例一个文件）。"""
+    d = Path(MASKDIR) / region
+    if not d.is_dir():
+        return []
+    fs = [f for f in sorted(d.glob(stem + "*.mask.png")) if f.name.startswith(stem + ".")]
+    out = []
+    for f in fs:
+        a = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
+        if a is not None and a.max() > 0:
+            out.append((a > 127).astype(np.uint8))
+    return out
+
+
+def load_region_masks(stem, regions):
+    """{区域: 二值 mask}，已做主体门控。
+
+    门控理由（实测）：SAM3 对这些室内帧会检出背景里的海报人脸（单帧 5 个实例，
+    分别 0.5/0.1/0.1/0.0/0.0%），直接 OR 会把指标摊到无关区域上。做法是
+    ① person 里面积 < 最大实例 10% 的丢掉（镜像/路人/海报）；
+    ② face / hand 只保留 60% 以上面积落在主体 mask 内的实例。
+    """
+    inst = {r: _load_instances(stem, r) for r in regions}
+    out = {}
+    if inst.get("person"):
+        areas = [int(m.sum()) for m in inst["person"]]
+        amax = max(areas)
+        pm = np.zeros_like(inst["person"][0])
+        for m, a in zip(inst["person"], areas):
+            if a >= 0.10 * amax:
+                pm |= m
+        if pm.sum():
+            out["person"] = pm
+    for r in regions:
+        if r == "person" or not inst.get(r):
+            continue
+        m = np.zeros_like(inst[r][0])
+        for cand in inst[r]:
+            if "person" in out:
+                inside = float((cand & out["person"]).sum()) / max(1, int(cand.sum()))
+                if inside < 0.6:
+                    continue
+            m |= cand
+        if m.sum():
+            out[r] = m
+    return out or None
+
+
 def main():
     from gsplat import rasterization
 
@@ -245,7 +362,6 @@ def main():
         raise SystemExit("❌ GPU 空闲显存 < 4 GiB——可能有其它任务在跑（或其残留），"
                          "活锁风险高，拒跑。等其退出或 wsl --shutdown 清残留后再试。")
     Kt = torch.from_numpy(K).float().to(dev)[None]
-    bg = torch.ones(3, device=dev)
     refs_rgb = [cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB) for p in refs]
     refs_sharp = [sharpness(cv2.imread(str(p))) for p in refs]
     # self3 自洽口径对照：3 张输入图（帧 0/40/81 原图，尺寸与 GT ref 相同）
@@ -273,6 +389,15 @@ def main():
     in_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in in_rgb]
     log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
 
+    if SAVE_DIR and SAVE_VIEWS:
+        d = Path(SAVE_DIR) / "GT"
+        d.mkdir(parents=True, exist_ok=True)
+        for i in SAVE_VIEWS:
+            if i < len(refs_rgb):
+                cv2.imwrite(str(d / ("v%03d.png" % i)),
+                            cv2.cvtColor(refs_rgb[i], cv2.COLOR_RGB2BGR))
+        log(f"💾 已存 GT 视角 {sorted(SAVE_VIEWS)} → {d}")
+
     result = {"gt": {"cams": str(GT_CAMS), "images": str(GT_IMAGES), "size": [W, H],
                      "crop": CROP,
                      "input3_idx": idx3, "input3_nn_dist_m": nn_dist},
@@ -280,12 +405,28 @@ def main():
     # 每张 ref 的锐度（供「渲染锐度/ref 锐度」比例）
     result["ref_sharpness"] = refs_sharp
 
+    # ── 区域 mask（每帧一次，方法间共用）──
+    view_masks = None
+    if MASKS:
+        view_masks = {}
+        for i, p in enumerate(refs):
+            view_masks[i] = load_region_masks(Path(p).stem, MASK_REGIONS)
+        got = {r: sum(1 for m in view_masks.values() if m and r in m) for r in MASK_REGIONS}
+        log(f"🎭 区域 mask: {got}（共 {len(refs)} 帧）｜根目录 {MASKDIR}")
+        if not any(got.values()):
+            raise SystemExit(f"❌ MASKS=1 但 {MASKDIR} 下一个 mask 都没找到")
+        result["maskdir"] = str(MASKDIR)
+        result["mask_counts"] = got
+
     for c in CASES:
         if not Path(c["ply"]).exists():
             log(f"⏭️  {c['name']}: 缺产物 {c['ply']}（对应步骤未跑完？）")
             continue
         g = a24.read_ply(c["ply"])
         n_pts = g["n"]
+        bgv, bgsrc = resolve_bg(c["ply"])
+        bg = torch.full((3,), bgv, device=dev)
+        log(f"🎨 {c['name']}: 合成底色 {bgsrc} → {bgv:.0f}")
         Cx, dx, upx = read_cams_any(*c["cams"])
         # V32：32v 方法的对齐基准 = 全部 32 个 GT 相机（其预测相机就是 32 图训练分布）
         aidx = np.arange(len(Cref)) if V32 else idx3
@@ -328,6 +469,7 @@ def main():
         # 不 warp；K 统一用 GT K（对照图是 1439×1919 原图；QuerySplat 的预测 K
         # 是 512² 归一化画布口径，直接用会踩 E18 画幅坑，故一律不用方法自带 K）。
         vms = read_viewmats(*c["cams"])
+        ownK = own_intrinsics(c["cams"][0], c["cams"][1], W, H)
         nv = min(len(vms), len(in_rgb))
         G0 = {k: torch.from_numpy(g[k]).to(dev)
               for k in ("means", "quats", "scales", "opac", "sh")}
@@ -340,18 +482,34 @@ def main():
                     W, H, sh_degree=g["deg"], packed=False,
                     backgrounds=bg[None], render_mode="RGB")
             srgb = simg[0].clamp(0, 1).mul(255).byte().cpu().numpy()
-            srows.append(dict(view=iv, psnr=psnr(srgb, in_rgb[iv]),
-                              ssim=float(ssim(in_rgb[iv], srgb, channel_axis=2, data_range=255)),
-                              sharp=sharpness(cv2.cvtColor(srgb, cv2.COLOR_RGB2BGR))))
-            log(f"   self3 frame {iv+1}/{nv}  PSNR {srows[-1]['psnr']:.2f}")
+            row = dict(view=iv, psnr=psnr(srgb, in_rgb[iv]),
+                       ssim=float(ssim(in_rgb[iv], srgb, channel_axis=2, data_range=255)),
+                       sharp=sharpness(cv2.cvtColor(srgb, cv2.COLOR_RGB2BGR)))
+            if ownK is not None and iv < len(ownK):
+                with torch.no_grad():
+                    oimg, _, _ = rasterization(
+                        G0["means"], G0["quats"], G0["scales"], G0["opac"], G0["sh"],
+                        torch.from_numpy(vms[iv]).float().to(dev)[None],
+                        torch.from_numpy(ownK[iv]).float().to(dev)[None],
+                        W, H, sh_degree=g["deg"], packed=False,
+                        backgrounds=bg[None], render_mode="RGB")
+                orgb = oimg[0].clamp(0, 1).mul(255).byte().cpu().numpy()
+                row["psnr_ownK"] = psnr(orgb, in_rgb[iv])
+            srows.append(row)
+            log(f"   self3 frame {iv+1}/{nv}  PSNR {row['psnr']:.2f}"
+                + (f"（自带内参 {row['psnr_ownK']:.2f}）" if "psnr_ownK" in row else ""))
         self3 = dict(
             psnr=float(np.mean([r["psnr"] for r in srows])),
             ssim=float(np.mean([r["ssim"] for r in srows])),
             sharp=float(np.mean([r["sharp"] for r in srows])),
             sharp_ratio=float(np.mean([r["sharp"] / s for r, s in zip(srows, in_sharp)])))
+        if any("psnr_ownK" in r for r in srows):
+            self3["psnr_ownK"] = float(np.mean([r.get("psnr_ownK", r["psnr"]) for r in srows]))
         del G0
         torch.cuda.empty_cache()
-        log(f"   self3(自洽) 均 PSNR {self3['psnr']:.2f} dB ｜ 锐度比 {self3['sharp_ratio']:.2f}")
+        log(f"   self3(自洽) 均 PSNR {self3['psnr']:.2f} dB"
+            + (f"（自带内参 {self3['psnr_ownK']:.2f}）" if 'psnr_ownK' in self3 else "")
+            + f" ｜ 锐度比 {self3['sharp_ratio']:.2f}")
 
         g = a24.warp(g, s, R, t)
         G = {k: torch.from_numpy(g[k]).to(dev)
@@ -369,10 +527,26 @@ def main():
                     backgrounds=bg[None], render_mode="RGB")
             rgb = img[0].clamp(0, 1).mul(255).byte().cpu().numpy()   # RGB
             amed = float(alpha.median())
+            # 覆盖率：alpha≥0.5 的像素比例。报告它是为了把「重建到了但糊」和
+            # 「根本没重建这块」分开——后者在含底色合成里会被记成颜色错误。
+            cov = float((alpha[0, ..., 0] >= 0.5).float().mean())
             bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            rows.append(dict(view=i, psnr=psnr(rgb, refs_rgb[i]),
-                             ssim=float(ssim(refs_rgb[i], rgb, channel_axis=2, data_range=255)),
-                             sharp=sharpness(bgr)))
+            row = dict(view=i, psnr=psnr(rgb, refs_rgb[i]),
+                       ssim=float(ssim(refs_rgb[i], rgb, channel_axis=2, data_range=255)),
+                       sharp=sharpness(bgr), coverage=cov)
+            if SAVE_DIR and i in SAVE_VIEWS:
+                d = Path(SAVE_DIR) / c["name"].replace(" ", "_").replace("+", "_")
+                d.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(d / ("v%03d.png" % i)), bgr)
+            if view_masks and view_masks.get(i):
+                regs = {}
+                for rname, mk in view_masks[i].items():
+                    mm = rm.all_metrics(refs_rgb[i], rgb, mk)
+                    if mm:
+                        regs[rname] = mm
+                if regs:
+                    row["regions"] = regs
+            rows.append(row)
             if (i + 1) % 16 == 0:
                 log(f"   frame {i+1}/{len(Cref)}  α中位 {amed:.3f}")
             elif i < 4:  # 每方法开头几帧逐帧报——活锁会在几分钟内暴露而不是挂一晚上
@@ -385,22 +559,44 @@ def main():
             ss = [rows[i]["ssim"] for i in idxs]
             sh = [rows[i]["sharp"] for i in idxs]
             rsh = [refs_sharp[i] for i in idxs]
+            cv_ = [rows[i]["coverage"] for i in idxs]
             return dict(psnr=float(np.mean(ps)), ssim=float(np.mean(ss)),
                         sharp=float(np.mean(sh)),
-                        sharp_ratio=float(np.mean([a / b for a, b in zip(sh, rsh)])))
+                        sharp_ratio=float(np.mean([a / b for a, b in zip(sh, rsh)])),
+                        coverage=float(np.mean(cv_)))
+
+        def agg_regions(idxs):
+            out = {}
+            for r in MASK_REGIONS:
+                sel = [rows[i]["regions"][r] for i in idxs
+                       if "regions" in rows[i] and r in rows[i]["regions"]]
+                if sel:
+                    out[r] = rm.summarize(sel)
+            return out or None
+
         holdout_idx = [i for i in range(len(Cref)) if i not in idx3]
+        regs_all = agg_regions(range(len(Cref)))
         result["methods"][c["name"]] = dict(
-            ply=c["ply"], n_pts=n_pts,
+            ply=c["ply"], n_pts=n_pts, bg=bgv, bg_source=bgsrc,
             align="OK", scale=s, rel=rel, ang_deg=ang,
             refine=({k: v for k, v in rinfo.items() if k not in ("R", "t")} if rinfo else None),
             self3=self3,
             all32=agg(range(len(Cref))),
             input3=agg(idx3), holdout=agg(holdout_idx),
+            regions_all32=regs_all,
+            regions_holdout=agg_regions(holdout_idx),
             per_view=rows)
         log(f"   all32(GT相机) PSNR {result['methods'][c['name']]['all32']['psnr']:.2f} dB "
             f"｜ input3 {result['methods'][c['name']]['input3']['psnr']:.2f} "
             f"｜ holdout {result['methods'][c['name']]['holdout']['psnr']:.2f} "
-            f"｜ 锐度比 {result['methods'][c['name']]['all32']['sharp_ratio']:.2f}")
+            f"｜ 锐度比 {result['methods'][c['name']]['all32']['sharp_ratio']:.2f} "
+            f"｜ 覆盖 {result['methods'][c['name']]['all32']['coverage']*100:.1f}%")
+        if regs_all:
+            for rn, rv in regs_all.items():
+                log(f"     [{rn}] PSNR {rv['psnr']:.2f} ｜ SSIM {rv.get('ssim', float('nan')):.3f} "
+                    f"｜ 锐度比 {rv['sharp_ratio']:.2f} ｜ 高频比 {rv['hf_ratio']:.2f} "
+                    f"｜ 边缘F1 {rv['edge_f1']:.3f} ｜ 鬼影率 {rv['ghost_rate']:.2f} "
+                    f"｜ 位移 {rv['flow_med_px']:.2f}px ｜ 散度 {rv['flow_div']:+.3f}")
 
     Path(OUT).parent.mkdir(parents=True, exist_ok=True)
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:

@@ -1,7 +1,7 @@
 # 出图台账（PPT / 汇报用）
 
 > 图不纳入仓库（体积 19 MB）。成品在 **`D:\splatanything_figures\`**：
-> `figures/` 17 张成品 · `raw/` 原始 contact sheet · `pairs/` 436 张按视角配对的单图 ·
+> `figures/` 18 张成品 · `raw/` 原始 contact sheet · `pairs/` 436 张按视角配对的单图 ·
 > `metrics.json` 读数汇总 · `_build/` 出图脚本 · 同名 zip 为打包版。
 > 数据源全部来自 `~/output/splatanything_results/`，读数对应 [EXPERIMENTS.md](EXPERIMENTS.md) E-04~E-10。
 
@@ -33,6 +33,29 @@
 | `fig13_v2_vs_v3` | 方法对比：InfiniSplat v2 vs v3（同上版式） | 机制示意，非实验结果 |
 | `fig14_r1_angle_buckets` | R1 角距分桶：四方法 × 三档角度 + 5 行读数表 | **held-out**，512² + 精化对齐 |
 | `fig15_align_cost` | 3 点对齐的 dB 上限（折线）+ 精化前后输入视角读数（6 方法） | 口径诊断，左图是理论上限 |
+| `fig16_region_metrics` | 人脸条 + 区域读数表：PSNR 排名与锐度排名相反 | **held-out**，512² 黑底 + SAM3 mask |
+
+## 区域指标与底色修正（fig16，2026-11-13）
+
+对应 `EXPERIMENTS.md` **E-14**。这张是"PSNR 不能当排名"的正面证据页。
+
+| 图 | 数据源 | 一次性脚本 |
+|---|---|---|
+| fig16 | `~/output/batch_4methods/eval_3view_jiajia_bgmask.json`（`audit_31` 的 `BG=auto MASKS=1` 产物）+ `render_crops/*/v021.png` | `D:/splatanything_figures/_build/fig16_region_metrics.py` |
+
+**讲这张时的红线**：
+
+1. 六个方法**全部偏好黑底**（DA3-GS +4.1、VGGT-Ω +7.5、DA3+3DGS +7.1 dB）。所以 fig14/15 与
+   E-12/E-13 的白底读数**不可与本节相减**，只能各自内部比。
+2. **PSNR 第 1 的 QuerySplat 是锐度第 6**。别把 fig16 的全区 PSNR 列当排名用；
+   这张图的结论恰恰是"排名反过来"。
+3. 两类失败模式要分开说：QuerySplat / DA3-GS 是**糊**（锐度 0.03/0.09）；
+   VGGT-Ω / DA3+3DGS 是**锐但重影**（锐度 0.82/0.61、鬼影率 0.09/0.05）。
+4. 页脚那句"3DGS 记死像素网格"不能省：DA3+3DGS 在**原生 720×960 是 43.4 dB**，
+   重采样到 512² 只剩 17.9 dB。这个偏差只对 3DGS 系成立，是口径不是画质。
+5. mask 来自 SAM3，不是人工标注；face/hand 已按 person 主体门控，但窄区域（手部 ~0.18% 画面）
+   读数波动比人脸大，别单独拿手部数字下结论。
+
 
 ## R1 分桶与对齐诊断（fig14/15，2026-11-13）
 
