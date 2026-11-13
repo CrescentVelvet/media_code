@@ -22,6 +22,19 @@
 - **进程表**只需要一次 `/proc` 读取，不再每帧拉 `nvidia-smi`
 - srun 只在启动时握手一次，之后走管道，不会每次排队
 
+## 常驻语义（关键）
+
+**监控的生命周期与任何作业无关。** 它只做一件事：定期扫 `squeue` 找一个占 GPU
+的作业，`srun --jobid=<那个> --overlap` 进去采样。所以：
+
+  ./10_hold.sh stop        作业消失 → 面板转"等待中"，**监控不退出**
+  ./10_hold.sh start       新作业出现 → 自动接上（最多 rescan 秒延迟）
+  sbatch 训练作业           同样自动接上——两个都在时跟占卡多的那个
+  Ctrl-C                   唯一能结束监控的操作
+
+跨作业自动换台：链式续期换作业、保活被训练作业顶掉、采样器崩了，都会自动
+重连，`srun` 只握手一次，不会拖垮登录节点。
+
 ## 三块信息（对齐 nvitop）
 
   MEM      每卡 已用/总量 + 占用率条
@@ -29,9 +42,9 @@
   PROCS    进程表：GPU / PID / USER / 进程名 / 显存
 
 用法：
-  ./11_gpu_monitor.py                    # 自动找自己的 hold_gpu，1s 刷新
+  ./10_hold.sh mon                       # 常驻监控（推荐）
   ./11_gpu_monitor.py -i 0.5             # 0.5s 刷新
-  ./11_gpu_monitor.py --jobid 201362442  # 指定作业
+  ./11_gpu_monitor.py --jobid 201362442  # 锁定某一个作业
   ./11_gpu_monitor.py --once             # 打一帧就退出（可重定向到文件）
   ./11_gpu_monitor.py --no-color         # 无颜色（日志/重定向）
 """
@@ -155,8 +168,13 @@ def sh(cmd, timeout=30):
 
 
 def my_jobs(name_filter=""):
+    """列出自己的作业。列：0=ID 1=分区 2=名字 3=状态 4=已跑 5=节点 6=TRES。
+
+    `%b` 给的是 `gres/gpu:h100:8` 这种分配明细，用来判断这个作业占了几张卡
+    —— 监控要能盯训练作业，就不能只按作业名筛选。
+    """
     rc, out, _ = sh(["squeue", "-a", "-u", os.environ.get("USER", ""), "-h",
-                     "-o", "%i|%P|%j|%T|%M|%R"])
+                     "-o", "%i|%P|%j|%T|%M|%R|%b"])
     if rc != 0:
         return []
     rows = []
@@ -164,10 +182,25 @@ def my_jobs(name_filter=""):
         p = ln.split("|")
         if len(p) < 6:
             continue
+        while len(p) < 7:
+            p.append("")
         if name_filter and name_filter not in p[2]:
             continue
         rows.append(p)
     return rows
+
+
+def job_gpus(tres):
+    """从 `%b` 的 TRES 串里取 GPU 张数，取不到按 0 算。"""
+    for part in (tres or "").split(","):
+        part = part.strip()
+        if not part.startswith("gres/gpu"):
+            continue
+        try:
+            return int(part.rsplit(":", 1)[1])
+        except (ValueError, IndexError):
+            return 1        # 写成 gres/gpu:1 或直接 gres/gpu
+    return 0
 
 
 # ---------------------------------------------------------------- 渲染
@@ -367,7 +400,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--interval", type=float, default=1.0,
                     help="刷新间隔秒（默认 1.0，最小 0.2）")
-    ap.add_argument("--jobid", default="", help="指定作业 ID；默认自动找自己的 hold_gpu")
+    ap.add_argument("--jobid", default="",
+                    help="锁定一个作业 ID（默认自动跟随当前占卡的作业，可随时换成训练作业）")
+    ap.add_argument("--rescan", type=float, default=3.0,
+                    help="无作业时每几秒扫一次队列（默认 3.0，最小 1.0）")
     ap.add_argument("--once", action="store_true", help="只打一帧就退出")
     ap.add_argument("--no-bar", action="store_true", help="纯文本模式")
     ap.add_argument("--no-color", action="store_true", help="禁用颜色")
@@ -386,103 +422,276 @@ def main():
     tty = sys.stdout.isatty()
     show_procs = (not args.no_procs) and (not args.no_bar)
 
-    # 定位作业
-    jobid, jstate = args.jobid, ""
-    if not jobid:
-        for r in my_jobs("hold_gpu") or my_jobs():
-            jobid, jstate = r[0], r[3]
-            break
-    if not jobid:
-        print("没有找到自己的作业，无法进计算节点读数。")
-        print("先启动保活： ./10_hold.sh start        然后： ./11_gpu_monitor.py")
-        return 2
+    # ---- 作业发现：监控与任何作业彻底解耦 ----------------------------
+    # 监控**不持有**任何作业句柄，只按 squeue 去"找"当前占卡的作业。因此下面
+    # 这些操作都**不会**让监控退出，只会让它换个作业跟：
+    #   ./10_hold.sh stop   作业消失 → 转等待态
+    #   ./10_hold.sh start  新作业出现 → 自动接上
+    #   sbatch 训练作业      同样自动接上（训练占卡多则优先跟训练）
+    # 监控只被 Ctrl-C 结束。这是「时刻监控」的关键。
+    host = sh(["hostname"], 5)[1].strip() or "?"
 
-    node = "?"
-    rc, out, _ = sh(["squeue", "-j", jobid, "-h", "-o", "%N|%T|%M"], 10)
-    if rc == 0 and out.strip():
-        parts = out.strip().split("|")
-        node = parts[0] if parts else "?"
-        jstate = parts[1] if len(parts) > 1 else jstate
+    def scan_jobs():
+        """可挂的作业列表：只要 RUNNING 且拿到 GPU 的。
 
-    proc, err = start_stream(jobid, interval, show_procs, args.native,
-                             args.env_script)
-    if proc is None:
-        print("启动远端采样器失败: %s" % err)
-        return 1
-
-    frames = queue.Queue(maxsize=8)
-    stopped = {"v": False}
-    err_lines = []
-
-    def read_stderr():
-        """独立线程读 stderr，一是避免 PIPE 写满阻塞，二是出错时能给出真实原因。"""
-        try:
-            for line in proc.stderr:
-                line = line.rstrip()
-                if line:
-                    err_lines.append(line)
-                    del err_lines[:-6]      # 只留最后 6 行
-        except Exception:
-            pass
-
-    threading.Thread(target=read_stderr, daemon=True).start()
-
-    def reader():
-        for line in proc.stdout:
-            if stopped["v"]:
-                break
-            line = line.strip()
-            if not line:
+        排序 (GPU 张数, 作业号) 倒序 —— 训练作业占得多就跟训练，保活占满
+        8 卡就自动跟保活；同分取新作业，链式续期能平滑换过去。
+        PENDING 一律不挂：srun --jobid 对排队中的作业会卡住。
+        """
+        out = []
+        for r in my_jobs():
+            if r[3] not in ("RUNNING", "COMPLETING"):
                 continue
+            n = job_gpus(r[6])
+            if n <= 0:
+                continue
+            out.append((n, r[0], r[2], r[3], r[5]))
+        out.sort(key=lambda x: (x[0], int(x[1]) if x[1].isdigit() else 0),
+                 reverse=True)
+        return out
+
+    gen = {"n": 0}
+
+    def open_session(jid):
+        """起一次采样会话（srun + 两条读线程）。返回 (sess, 错误串)。"""
+        proc, err = start_stream(jid, interval, show_procs, args.native,
+                                 args.env_script)
+        if proc is None:
+            return None, "启动远端采样器失败: %s" % err
+        gen["n"] += 1
+        mygen = gen["n"]
+        frames = queue.Queue(maxsize=16)
+        err_lines = []
+
+        def read_stderr():
+            """独立线程读 stderr，一是避免 PIPE 写满阻塞，二是出错时能给出真实原因。"""
             try:
-                obj = json.loads(line)
-            except ValueError:
-                continue
-            if obj.get("fatal"):
-                frames.put(obj)
-                continue
-            if args.native:
-                obj = parse_nvsmi_loop(line) or {}
-            if obj.get("gpus"):
-                frames.put(obj)
-        frames.put({"eof": True})
+                for line in proc.stderr:
+                    line = line.rstrip()
+                    if line:
+                        err_lines.append(line)
+                        del err_lines[:-6]      # 只留最后 6 行
+            except Exception:
+                pass
 
-    th = threading.Thread(target=reader, daemon=True)
-    th.start()
+        def reader():
+            try:
+                for line in proc.stdout:
+                    if gen["n"] != mygen:       # 已被新会话取代，悄悄退场
+                        return
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except ValueError:
+                        continue
+                    if args.native:
+                        obj = parse_nvsmi_loop(line) or {}
+                    if obj.get("gpus") or obj.get("fatal"):
+                        try:
+                            frames.put_nowait(obj)
+                        except queue.Full:
+                            pass
+            finally:
+                try:
+                    frames.put_nowait({"eof": True})
+                except queue.Full:
+                    pass
 
-    nframes = 0
+        threading.Thread(target=read_stderr, daemon=True).start()
+        threading.Thread(target=reader, daemon=True).start()
+        return {"proc": proc, "frames": frames, "err_lines": err_lines}, ""
+
+    # ---- 主循环：常驻 + 跟随 + 自动重连 ------------------------------
+    # 监控是**常驻**的，生命周期与任何作业无关。作业的增删改都不影响它：
+    #   ① 没作业          → 停在等待态，每 --rescan 秒扫一次队列
+    #   ② 出现作业        → 自动起采样会话接上（保活、训练一视同仁）
+    #   ③ 作业结束/被取消 → 收掉会话回到等待态，**不退出**
+    #   ④ 采样器异常退出  → 该作业冷却几秒后重试，仍不退出
+    # 所以 `./10_hold.sh stop` 只会让面板变成"无作业"，`sbatch` 训练作业后
+    # 它会自己接上去。**只有 Ctrl-C 能结束监控。**
+    sess = None
+    jobid = ""
+    jname = ""
+    node = host
+    jstate = ""
+    ngpu = 0
+    total_frames = 0
     last_err = ""
+    last_frame = None
+    last_scan = 0.0
+    retry_at = {}           # jobid -> 下次允许重连的时间戳（防采样器崩溃热循环）
+    fails = {}              # jobid -> 连续失败次数
+
+    rescan = max(1.0, args.rescan)
+
+    # want_jid：**确认处于 RUNNING** 才非空。② 只允许对 want_jid 起会话，
+    # 这样"作业没了"就只是纯等待，绝不会拿死 ID 去反复 srun 撞错。
+    want_jid = ""
+
+    def close_session():
+        """收掉当前会话。注意：只杀本地 srun 采样器，**绝不碰作业本身**。"""
+        nonlocal sess
+        if sess is not None:
+            try:
+                sess["proc"].terminate()
+                sess["proc"].wait(timeout=3)
+            except Exception:
+                try:
+                    sess["proc"].kill()
+                except Exception:
+                    pass
+        sess = None
+
     try:
         while True:
-            try:
-                frame = frames.get(timeout=max(5.0, interval * 6))
-            except queue.Empty:
-                last_err = "采样超时（远端 %.0fs 无输出；作业可能在排队/刚启动）" % (
-                    max(5.0, interval * 6))
-                frame = None
-            if frame and frame.get("eof"):
-                last_err = last_err or "远端采样器已退出"
-                if err_lines:
-                    last_err += "\n  远端 stderr: " + " | ".join(err_lines[-3:])
-                frame = None
-            if frame and frame.get("fatal"):
-                print(frame["err"])
-                return 2
+            now_m = time.time()
 
-            now = time.strftime("%Y-%m-%d %H:%M:%S")
-            header = ["[%s] 登录节点 %s · job=%s(%s) · 刷新 %.1fs"
-                      % (now, sh(["hostname"], 5)[1].strip() or "?", jobid,
-                         jstate or "?", interval)]
-            if frame is None:
-                header.append("")
-                header.append("  " + (last_err or "等待第一帧…"))
-                lines = header
+            # ---------- ① 定期扫队列，决定跟哪个作业 ----------
+            # 扫队列只**决定跟谁**，不直接开会话；开会话统一由 ② 做，
+            # 且只对 want_jid（已确认 RUNNING）做。
+            if (now_m - last_scan) >= rescan:
+                last_scan = now_m
+
+                if args.jobid:
+                    # 锁定模式：只认 --jobid，它不在 RUNNING 就纯等待，绝不换作业
+                    found = None
+                    for r in my_jobs():
+                        if r[0] == args.jobid and r[3] in ("RUNNING", "COMPLETING"):
+                            found = r
+                            break
+                    if found is None:
+                        if sess is not None:
+                            close_session()
+                        if want_jid:        # 刚从"有"变成"没有"，报一次
+                            last_err = ("作业 %s 已结束/被取消，继续等待同一 ID…"
+                                        % args.jobid)
+                        else:
+                            last_err = ("作业 %s 不在运行（排队中或 ID 有误），等待中…"
+                                        % args.jobid)
+                        want_jid = ""
+                        last_frame = None
+                        jobid, jname, jstate, ngpu = args.jobid, "", "", 0
+                    else:
+                        n2, jid2, jn2, js2, node2 = (
+                            job_gpus(found[6]), found[0], found[2], found[3],
+                            found[5] or host)
+                        jobid, jname, jstate, ngpu = jid2, jn2, js2, n2
+                        node = node2
+                        if want_jid != jid2:
+                            close_session()     # 作业号变了才重建会话
+                            last_frame = None
+                            last_err = ""
+                        want_jid = jid2
+                else:
+                    cands = scan_jobs()
+                    if not cands:
+                        # 没作业了：收会话、回等待态，**不退出**
+                        if sess is not None:
+                            close_session()
+                            last_err = "当前没有占 GPU 的作业，等待中…"
+                        elif jobid:
+                            last_err = "作业 %s 已结束/被取消，等待新作业…" % jobid
+                        want_jid = ""
+                        jobid, jname, jstate, ngpu = "", "", "", 0
+                        last_frame = None
+                    else:
+                        n2, jid2, jn2, js2, node2 = cands[0]
+                        jobid, jname, jstate, ngpu = jid2, jn2, js2, n2
+                        node = node2 or host
+                        if want_jid != jid2:
+                            # 目标变了：start 了新作业、或训练作业起来了
+                            close_session()
+                            last_frame = None
+                            last_err = ""
+                            print("\n→ 跟随作业 %s（%s，%d 卡）\n"
+                                  % (jobid, jname or "-", ngpu), flush=True)
+                        want_jid = jid2
+
+            # ---------- ② 有确认在跑的作业但没会话 → 起会话 ----------
+            # 关键：只对 want_jid 起会话。作业没了 want_jid 就是空，
+            # 于是这里什么都不做，只是安静等待，不会拿死 ID 去撞 srun。
+            if want_jid and sess is None and now_m >= retry_at.get(want_jid, 0):
+                s, e = open_session(want_jid)
+                if s is None:
+                    fails[want_jid] = fails.get(want_jid, 0) + 1
+                    back = min(30.0, 2.0 * fails[want_jid])
+                    retry_at[want_jid] = time.time() + back
+                    last_err = "%s（%.0fs 后重试）" % (e, back)
+                else:
+                    sess = s
+                    fails[want_jid] = 0
+                    last_err = ""
+                    last_frame = None
+
+            # ---------- ③ 收帧 ----------
+            frame = None
+            stale = False
+            if sess is not None:
+                try:
+                    frame = sess["frames"].get(timeout=max(0.5, interval * 2))
+                except queue.Empty:
+                    frame = None
+                    if last_frame is not None:
+                        stale = True    # 有旧帧就继续显示，不刷错误
+                    else:
+                        last_err = "暂无数据（作业刚启动？）"
+                if frame and frame.get("eof"):
+                    frame = None
+                    msg = "采样器退出"
+                    if sess["err_lines"]:
+                        msg += "：" + " | ".join(sess["err_lines"][-2:])
+                    close_session()
+                    # 作业还在的话退避几秒重连；作业没了 ① 会发现并转纯等待
+                    if want_jid:
+                        fails[want_jid] = fails.get(want_jid, 0) + 1
+                        retry_at[want_jid] = (
+                            time.time() + min(30.0, 2.0 * fails[want_jid]))
+                        last_err = msg + "，自动重连中…"
+                    else:
+                        last_err = msg
+                elif frame and frame.get("fatal"):
+                    # 采样器致命错误（如环境脚本失效）：报出来并冷却重试，不退出
+                    last_err = str(frame.get("err", "采样器致命错误"))
+                    close_session()
+                    if want_jid:
+                        fails[want_jid] = fails.get(want_jid, 0) + 1
+                        retry_at[want_jid] = (
+                            time.time() + min(60.0, 3.0 * fails[want_jid]))
+                    frame = None
+
+            if frame is not None:
+                last_frame = frame
+                total_frames += 1
+            elif stale:
+                frame = last_frame
+
+            # ---------- ④ 渲染 ----------
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            if jobid:
+                head = ("[%s] %s · job=%s %s" % (ts, host, jobid,
+                                                ("(%s,%d卡)" % (jname, ngpu))
+                                                if jname else ""))
+                head += " @ %s · %s · 刷新 %.1fs" % (node, jstate or "?", interval)
             else:
-                nframes += 1
+                head = "[%s] %s · 无占用 GPU 的作业 · 每 %.0fs 重扫队列" % (
+                    ts, host, rescan)
+            lines = [head]
+
+            if frame is None:
+                lines.append("")
+                lines.append("  " + (last_err or "等待中…"))
+                if not jobid:
+                    lines.append("")
+                    lines.append("  监控常驻：执行 start / stop / sbatch 都不影响本面板，")
+                    lines.append("  检测到占 GPU 的作业会自动接上。Ctrl-C 退出监控。")
+            else:
                 src = ("nvidia-smi -lms" if args.native
                        else "pynvml @ 计算节点 %s" % node)
-                header.append("数据来源: %s" % src)
-                lines = render(frame, header, enable_color,
+                lines.append("数据来源: %s%s" % (
+                    src, "   ⚠️ 数据停滞" if stale else ""))
+                lines = render(frame, lines, enable_color,
                                show_procs=show_procs)
                 if args.log:
                     try:
@@ -496,20 +705,23 @@ def main():
             print("\n".join(lines), flush=True)
 
             if args.once:
+                if frame is None:
+                    print("\n（当前没有可采样的作业；去掉 --once 即为常驻监控）")
+                    return 2
                 return 0
             if not tty:
-                print("", flush=True)   # 非 tty 时留空行分隔
-            if not args.once and nframes == 1:
-                print("\n(Ctrl-C 退出；不会影响正在跑的任务)", flush=True)
+                print("", flush=True)
+            if total_frames == 1:
+                print("\n(Ctrl-C 退出监控；stop/start/sbatch 都不会影响它)", flush=True)
+
+            # 等待态要限速：没会话时 ③ 只阻塞 interval*2 就返回，若不睡会狂刷屏
+            if sess is None:
+                time.sleep(max(0.5, rescan / 2.0))
     except KeyboardInterrupt:
         print("\n已退出监控。")
         return 0
     finally:
-        stopped["v"] = True
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+        close_session()
 
 
 if __name__ == "__main__":

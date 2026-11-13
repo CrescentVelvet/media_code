@@ -6,9 +6,13 @@
 #   ./10_hold.sh start 8 48h high 0.95  8 卡 / 48h / 显存垫到 95%
 #   ./10_hold.sh ls                   我的保活任务
 #   ./10_hold.sh stat                 队列 + 每卡实时占用（一条命令看全）
-#   ./10_hold.sh mon                  进 nvitop 风格实时监控（1s 刷新，Ctrl-C 退）
 #   ./10_hold.sh tail [JOBID]         跟日志
 #   ./10_hold.sh stop [JOBID]         停止（不给 ID 就停全部保活任务）
+#   ./10_hold.sh mon [参数]           便捷入口，等价于 ./11_gpu_monitor.py
+#
+# ⚠️ 本脚本**只管作业**，不启动、不停止监控。监控是独立程序：
+#     在另一个终端跑 ./11_gpu_monitor.py（或本脚本的 mon 便捷入口）。
+#     它常驻，stop/start 都不会让它退出，只有 Ctrl-C 能结束它。
 #
 # 档位说明：**默认且推荐 high**。这台机器独占，没有别人抢，保活的目的就是让管理员
 # 看到卡被吃满；low/mid 是早期防"占着不用"的省电档，占空比一低 util 读数就在
@@ -89,6 +93,7 @@ cmd_stat() {
 }
 
 cmd_mon() {
+    # 便捷入口，等价于直接跑 11_gpu_monitor.py。
     # 注意：子命令名已由下面的 case 分支 shift 掉，这里不能再 shift，
     # 否则 `./10_hold.sh mon -i 0.5` 会把 -i 吃掉，只剩一个裸 0.5。
     exec python3 "$MON" "$@"
@@ -106,7 +111,8 @@ cmd_stop() {
     else
         scancel "$job" && echo "已取消 $job"
     fi
-    echo "提示：若开了链式续期，已经提交的「下一个」作业不会随之取消，"
+    echo "说明：只取消作业，不碰任何其它进程；监控面板会转成「等待中」并继续运行。"
+    echo "      若开了链式续期，已提交的「下一个」作业不会随之取消，"
     echo "      用 $0 ls 确认，必要时 $0 stop <那个JOBID>"
 }
 
@@ -130,6 +136,6 @@ case "${1:-help}" in
     stop|c|kill) shift; cmd_stop "$@" ;;
     tail|log|l) shift; cmd_tail "$@" ;;
     *)
-        sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
         ;;
 esac
