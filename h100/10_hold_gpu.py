@@ -4,8 +4,11 @@
 为什么要真算：分区按 AllocTRES 记账，只要 GPU 被占住就算我的；
 但 util=0 的"占着不用"更解释不清，所以这里跑真实算力负载，可调强度。
 
-每个 GPU 起一个子进程，互不干扰；CUDA_VISIBLE_DEVICES 已经由 Slurm 约束，
-这里只做「按物理卡号各起一个进程」这一件事。
+每个 GPU 起一个子进程，互不干扰。子进程在 `import torch` 之前把
+CUDA_VISIBLE_DEVICES 收窄成单卡号，这样 torch 一定落在正确的那张卡上。
+
+⚠️ 注意 nvidia-smi **不认** CUDA_VISIBLE_DEVICES（实测 CVD=1/2/3 时它仍列全部 8 卡，
+out[0] 恒为物理卡 0），所以查询必须显式带 `-i <物理卡号>`。
 
 输出：逐行文本到 stdout（即 Slurm 的 .out），同时写 <rundir>/gpuN.jsonl 便于后处理。
 """
@@ -15,6 +18,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 DUTY = {"low": 0.35, "mid": 0.75, "high": 1.0}
@@ -97,10 +101,11 @@ def chain_next(args, ids):
 def gpu_stat(gpu_id=None):
     """查单卡的 util / 显存 / 温度 / 功耗。
 
-    gpu_id=None 表示「本进程可见的卡」——worker 里 CUDA_VISIBLE_DEVICES 已被收窄
-    成单卡，nvidia-smi 不带 -i 就只会列出那一张，比按序号/UUID 指定更可靠
-    （踩过两次：物理序号在 CVD 收窄后语义漂移；torch 的 uuid 不带 GPU- 前缀，
-    而 nvidia-smi -i 还必须是本作业可见的卡）。
+    ⚠️ 必须显式传 -i <物理卡号>。**nvidia-smi 不认 CUDA_VISIBLE_DEVICES**：
+    实测 CVD=1/2/3 时 `nvidia-smi --query-gpu` 仍输出全部 8 行，且 out[0] 恒为
+    物理卡 0。所以「worker 里 CVD 已收窄成单卡，不带 -i 就只列一张」的说法是错的
+    ——8 个 worker 会全部读到卡 0 的数值（8 卡日志 power 几乎一样就是这么来的）。
+    -i <数字> 才精确：实测 CVD=3 时 `-i 3` 返回 index 3。
     """
     q = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw"
     cmd = ["nvidia-smi"]
@@ -227,34 +232,61 @@ def worker(phys_id, args, max_s, stop_flag):
     t0 = time.time()
     next_report = t0 + args.interval
     iters = 0
-    util_hist = []
+
+    # 采样必须放独立线程（实测第七次才对）：
+    #   nvidia-smi 单次调用要 0.6~1.2s（主要是 NVML 初始化 + PCI 枚举）。原先在
+    #   主循环里同步调它 → 这 1 秒 Python 不再提交 kernel，GPU 队列被跑空，
+    #   nvidia-smi 的采样窗全落在空档里，于是 8 张卡全报 util=0% / 102W / 58C，
+    #   而外部同时刻看是 100% / 349W / 66C。**GPU 明明是满的，是读数把自己饿死了。**
+    #   丢到线程里后主循环不间断 replay，subprocess 等待期间也释放 GIL。
+    shared = {"st": None, "ts": 0.0, "util_sum": 0.0, "pw_sum": 0.0, "n": 0}
+    lock = threading.Lock()
+
+    def sampler():
+        while not stop_flag["stop"]:
+            st = gpu_stat(phys_id)
+            if st:
+                with lock:
+                    shared["st"] = st
+                    shared["ts"] = time.time()
+                    # 累计均值：nvidia-smi 只有瞬时值，low/mid 档若单看瞬时值，
+                    # 采样点落在 burst 内就是 100%/350W，会让人以为没在省电。
+                    shared["util_sum"] += st["util"]
+                    if st["power"] >= 0:
+                        shared["pw_sum"] += st["power"]
+                    shared["n"] += 1
+            # 采样周期 = interval，但至少留 1s 给下次；sleep 可被 stop 打断
+            end = time.time() + max(1.0, args.interval)
+            while not stop_flag["stop"] and time.time() < end:
+                time.sleep(0.2)
+
+    th = threading.Thread(target=sampler, daemon=True)
+    th.start()
 
     def report(now):
-        """采样并打印。必须在 burst 提交之后、synchronize 之前调用：nvidia-smi 的
-        utilization.gpu 是上次查询到现在的活跃占比，若在睡眠段之后查会读 0%
-        （low 强度全打印 0% 就是这么来的）。"""
-        st = gpu_stat()
+        """打印一行状态。数值取自采样线程的最新一份，主循环不再阻塞。"""
+        with lock:
+            st = shared["st"]
+            util_avg = shared["util_sum"] / shared["n"] if shared["n"] else 0.0
+            pw_avg = shared["pw_sum"] / shared["n"] if shared["n"] else 0.0
         el = int(now - t0)
         real = (busy_s / (now - t0) * 100.0) if now > t0 else 0.0
         if st:
             mem_gib = st["mem_used"] / 1024.0
             tot_gib = st["mem_total"] / 1024.0
             pw = ("%.0fW" % st["power"]) if st["power"] >= 0 else "n/a"
-            util_hist.append(st["util"])
-            if len(util_hist) > 10:
-                util_hist.pop(0)
-            avg = sum(util_hist) / float(len(util_hist))
-            line = (tag + " t=%ds util=%d%%(近%d次均 %.0f%%) 实测占空比=%.0f%% "
-                    "mem=%.1f/%.1fGiB temp=%dC power=%s iters=%d"
-                    % (el, st["util"], len(util_hist), avg, real,
-                       mem_gib, tot_gib, st["temp"], pw, iters))
+            line = (tag + " t=%ds util=%d%%(均 %.0f%%) 实测占空比=%.0f%% "
+                    "mem=%.1f/%.1fGiB temp=%dC power=%s(均 %.0fW) iters=%d"
+                    % (el, st["util"], util_avg, real, mem_gib, tot_gib,
+                       st["temp"], pw, pw_avg, iters))
         else:
-            line = tag + " t=%ds iters=%d (nvidia-smi 查询失败)" % (el, iters)
+            line = tag + " t=%ds iters=%d (nvidia-smi 尚未返回)" % (el, iters)
         print(line, flush=True)
         if args.rundir:
             rec = {"ts": round(now, 1), "gpu": phys_id, "elapsed": el,
                    "iters": iters, "size": n, "intensity": args.intensity,
                    "duty": duty, "duty_measured": round(real / 100.0, 4),
+                   "util_avg": round(util_avg, 1), "power_avg": round(pw_avg, 1),
                    "per_iter_ms": round(per_iter * 1e3, 3),
                    "cuda_graph": graph is not None}
             if st:

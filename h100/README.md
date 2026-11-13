@@ -179,7 +179,11 @@ python3 11_gpu_monitor.py --probe            # 没作业时临时排队探针取
 
 **坑 A：8 卡任务全挤在卡 0**。`multiprocessing` spawn 的子进程继承父进程 `CUDA_VISIBLE_DEVICES="0,1,..."`，每个子进程里的 `cuda:0` 都是物理卡 0。必须在 `import torch` **之前**把环境变量收窄成单卡号，并加 `device_count()==1` 自检。
 
-**坑 B：`util` 读数在 0% 和 100% 之间乱跳**。`nvidia-smi` 的 `utilization.gpu` 是"**最近一次查询到当前**这一窗口内，有 kernel 在跑的时间占比"——采样点落在睡眠段就恒读 0%。做法是采样点选在 burst 刚提交完、`synchronize` 之前。顺带：`nvidia-smi -i GPU-<uuid>` 会报 `No devices were found`（torch 给的 uuid 不带 `GPU-` 前缀），worker 里 CVD 已收窄成单卡，直接不带 `-i` 查即可。
+**坑 B：`util` 读数在 0% 和 100% 之间乱跳**。`nvidia-smi` 的 `utilization.gpu` 是"**最近一次查询到当前**这一窗口内，有 kernel 在跑的时间占比"——采样点落在睡眠段就恒读 0%。做法是采样点选在 burst 刚提交完、`synchronize` 之前。注意 `nvidia-smi -i GPU-<uuid>` 会报 `No devices were found`（torch 给的 uuid 不带 `GPU-` 前缀），所以用数字索引。
+
+**坑 B-2（曾让 8 卡日志全线造假）：`nvidia-smi` 根本不认 `CUDA_VISIBLE_DEVICES`**。原以为 worker 里 CVD 收窄成单卡后不带 `-i` 就只列一张卡 —— 实测 **CVD=1/2/3 时 `--query-gpu` 仍输出全部 8 行，且 `out[0]` 恒为物理卡 0**。于是 8 个 worker 全部读到卡 0 的数（这就是 8 卡日志 power 几乎一样的原因）。必须显式 `-i <物理卡号>`，索引与 `torch.cuda.get_device_properties(0).uuid` 对齐验证过无漂移。
+
+**坑 D：同步调 `nvidia-smi` 会把 GPU 饿死**。单次 `nvidia-smi` 开销实测 **0.60~1.23 s**（NVML 初始化 + PCI 枚举），比一次 CUDA Graph replay（19~48 ms）长 20 倍。在主循环里同步采样，等于每轮都有 1 秒多不提交 kernel，日志就恒读 `0% / 10xW`，而外部 `nvidia-smi` 同期看到的是 `100% / 349W`。修法：采样挪到**守护线程**，主循环只读共享变量；线程里 `subprocess` 等待会释放 GIL，不挡提交。修后单卡实测 `util=100% 实测占空比=94~99% power=346W`，与外部观测一致。
 
 **坑 C（最隐蔽）：Python 喂不饱 GPU，占空比形同虚设**。`mid` 标称 75%，实测只有 **17%**、功耗 128W。根因不是睡眠算法，而是 **Python 每秒只能提交约 490 次 matmul**（每次 GPU 侧约 0.3ms），GPU 每秒只拿到约 0.17s 的活就断了。把睡眠时长怎么折算都没用。
 
