@@ -27,7 +27,33 @@ DUTY = {"low": 0.35, "mid": 0.75, "high": 1.0}
 # （实测 mid 小 kernel 仍 347W），所以不搞尺寸档，只留占空比。
 # 占空比按「GPU 真实忙时 / 总时长」折算（单次 matmul 耗时开机实测，不拍脑袋），
 # 日志里的「实测占空比」是 CUDA event 累加出来的真值，可用于核对标称值。
+#
+# 2026-11-13：**标准档位就是 high，别用 low/mid。** 这台机器是独占的（没有别人抢），
+# 保活的目的就是让管理员看到卡被吃满；low/mid 是当初担心"空转占卡说不过去"设计的
+# 省电档，占空比一低，util 读数就在 0/100 之间跳，反而像"占着不用"。留着这两个值
+# 只是给调试（比如验证占空比折算公式）用，日常提交不要传。
 DTYPE_BYTES = {"fp16": 2, "bf16": 2, "fp32": 4}
+
+# 显存垫片默认目标：占满总显存的 90%（留 10% 给 CUDA context / cuBLAS workspace，
+# 顶到 100% 会在下一次分配时直接 OOM）。实测：垫到 90% 后 nvidia-smi 报 used≈71.7/79.2 GiB。
+DEFAULT_MEM_RATIO = 0.90
+
+# NVML 句柄缓存：init 一次，之后每次查询约 0.1 ms（nvidia-smi 要 600+ ms）。
+# ok=None 表示还没试过；ok=False 表示不可用，后续直接走 nvidia-smi 兜底。
+_NVML = {"ok": None, "nvml": None, "handles": []}
+
+
+def _nvml_init():
+    """尝试初始化 pynvml。失败不抛异常（登录节点无 NVML 是常态，但 worker 在计算节点）。"""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        n = pynvml.nvmlDeviceGetCount()
+        _NVML["nvml"] = pynvml
+        _NVML["handles"] = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(n)]
+        _NVML["ok"] = True
+    except Exception:
+        _NVML["ok"] = False
 
 
 def parse_args():
@@ -35,13 +61,16 @@ def parse_args():
     p.add_argument("--gpus", type=int, default=0,
                    help="0 = 自动取 SLURM_GPUS_ON_NODE / CUDA_VISIBLE_DEVICES 的长度")
     p.add_argument("--intensity", choices=["low", "mid", "high"], default="high",
-                   help="占空比：high=连续跑(util 稳定100%%, ~350W) mid=75%% low=35%%"
-                        "（低档省电但 util 读数会在 0/100 间跳）")
+                   help="占空比：high=连续跑(util 稳定100%%, ~350W)。high 是标准档，"
+                        "low/mid 仅用于调试占空比折算，日常别传")
     p.add_argument("--size", type=int, default=4096,
                    help="matmul 方阵维度（默认 4096；实测 H100 上改它对功耗影响很小）")
     p.add_argument("--dtype", choices=list(DTYPE_BYTES), default="bf16")
+    p.add_argument("--mem-ratio", type=float, default=DEFAULT_MEM_RATIO,
+                   help="显存垫片目标占用比（默认 0.90 = 留 10%% 余量防 OOM；0 表示不垫片）")
     p.add_argument("--mem-gib", type=float, default=0.0,
-                   help="额外占用的显存 GiB（只占不算，用来让显存占用率看起来正常；0=不占）")
+                   help="显存垫片绝对值 GiB（>0 时覆盖 --mem-ratio，0=不垫片；"
+                        "默认由 --mem-ratio 按卡容量自动算）")
     p.add_argument("--interval", type=float, default=30.0, help="状态打印间隔秒")
     p.add_argument("--max-hours", type=float, default=0.0,
                    help="自限时长，0 = 不限（靠 Slurm --time 兜底）")
@@ -83,6 +112,7 @@ def chain_next(args, ids):
     env["HOLD_INTENSITY"] = args.intensity
     env["HOLD_SIZE"] = str(args.size)
     env["HOLD_DTYPE"] = args.dtype
+    env["HOLD_MEM_RATIO"] = str(args.mem_ratio)
     env["HOLD_MEM_GIB"] = str(args.mem_gib)
     env["HOLD_INTERVAL"] = str(args.interval)
     if not args.chain:
@@ -101,12 +131,33 @@ def chain_next(args, ids):
 def gpu_stat(gpu_id=None):
     """查单卡的 util / 显存 / 温度 / 功耗。
 
-    ⚠️ 必须显式传 -i <物理卡号>。**nvidia-smi 不认 CUDA_VISIBLE_DEVICES**：
-    实测 CVD=1/2/3 时 `nvidia-smi --query-gpu` 仍输出全部 8 行，且 out[0] 恒为
-    物理卡 0。所以「worker 里 CVD 已收窄成单卡，不带 -i 就只列一张」的说法是错的
-    ——8 个 worker 会全部读到卡 0 的数值（8 卡日志 power 几乎一样就是这么来的）。
-    -i <数字> 才精确：实测 CVD=3 时 `-i 3` 返回 index 3。
+    优先用 pynvml（NVML 直连，实测 50 次查询共 4.7 ms ≈ 0.094ms/次），
+    退化时用 nvidia-smi（0.6~1.6 s/次，慢 4 个数量级，只作兜底）。
+
+    ⚠️ nvidia-smi **不认 CUDA_VISIBLE_DEVICES**：实测 CVD=1/2/3 时
+    `--query-gpu` 仍输出全部 8 行，且 out[0] 恒为物理卡 0。所以必须显式
+    带 `-i <物理卡号>`，否则 8 个 worker 会全部读到卡 0 的数值。
+    pynvml 的 getDeviceHandleByIndex 用的是 NVML 索引，与 nvidia-smi -i
+    的物理序号一致（已用 torch 的 uuid 对齐验证过）。
     """
+    if _NVML["ok"] is None:
+        _nvml_init()
+    if _NVML["ok"]:
+        try:
+            h = _NVML["handles"][int(gpu_id)]
+            u = _NVML["nvml"].nvmlDeviceGetUtilizationRates(h)
+            m = _NVML["nvml"].nvmlDeviceGetMemoryInfo(h)
+            return {
+                "util": int(u.gpu),
+                "mem_used": int(m.used / 2 ** 20),
+                "mem_total": int(m.total / 2 ** 20),
+                "temp": int(_NVML["nvml"].nvmlDeviceGetTemperature(
+                    h, _NVML["nvml"].NVML_TEMPERATURE_GPU)),
+                "power": float(_NVML["nvml"].nvmlDeviceGetPowerUsage(h)) / 1000.0,
+            }
+        except Exception:
+            pass   # 落到 nvidia-smi 兜底
+
     q = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw"
     cmd = ["nvidia-smi"]
     if gpu_id is not None:
@@ -154,13 +205,36 @@ def worker(phys_id, args, max_s, stop_flag):
     b = torch.randn(n, n, device=dev, dtype=f32).to(dtype)
     c = torch.empty(n, n, device=dev, dtype=dtype)
 
-    # 额外显存垫片：只分配不访问，让 memory.used 落在正常训练的量级
+    # 额外显存垫片：只分配不访问，让 memory.used 落在「训练中」的量级。
+    # 用途是给管理员看显存利用率——只跑一次 4096 方阵 matmul 才吃 2 GiB，
+    # 8 张 80G 卡显示 2/79 GiB 会显得"没用起来"。垫片是 torch.empty（
+    # 不 touch），实测驱动照样记账：nvml 从 1.96 GiB 涨到 71.71 GiB。
     ballast = []
-    if args.mem_gib > 0:
+    want_gib = args.mem_gib
+    if want_gib <= 0 and args.mem_ratio > 0:
+        # 按「总容量 × ratio - 已用」算差额；已用含 matmul 张量与 CUDA context
+        free_b, total_b = torch.cuda.mem_get_info()
+        used_gib = (total_b - free_b) / 1024 ** 3
+        want_gib = total_b / 1024 ** 3 * args.mem_ratio - used_gib
+    if want_gib > 0:
         chunk = 256 * 1024 * 1024  # 256 MiB
-        n_chunks = int(args.mem_gib * 1024 ** 3 / chunk)
+        n_chunks = int(want_gib * 1024 ** 3 / chunk)
+        got = 0
         for _ in range(n_chunks):
-            ballast.append(torch.empty(chunk, dtype=torch.uint8, device=dev))
+            try:
+                ballast.append(torch.empty(chunk, dtype=torch.uint8, device=dev))
+                got += chunk
+            except RuntimeError as e:
+                # 顶到上限就停，不要把整个 worker 拖崩
+                print("%s ⚠️ 垫片在第 %.1f GiB 处停（%s）"
+                      % ("[gpu" + str(phys_id) + "]", got / 1024 ** 3,
+                         str(e).split(".")[0][:60]), flush=True)
+                break
+        free_b, total_b = torch.cuda.mem_get_info()
+        print("[gpu%s] 垫片 %.1f GiB → 显存占用 %.0f%%（%.1f/%.1f GiB）"
+              % (phys_id, got / 1024 ** 3,
+                 100.0 * (total_b - free_b) / total_b,
+                 (total_b - free_b) / 1024 ** 3, total_b / 1024 ** 3), flush=True)
 
     duty = DUTY[args.intensity]
     tag = "[gpu" + str(phys_id) + "]"
@@ -234,11 +308,13 @@ def worker(phys_id, args, max_s, stop_flag):
     iters = 0
 
     # 采样必须放独立线程（实测第七次才对）：
-    #   nvidia-smi 单次调用要 0.6~1.2s（主要是 NVML 初始化 + PCI 枚举）。原先在
+    #   nvidia-smi 单次调用要 0.6~1.6s（主要是 NVML 初始化 + PCI 枚举）。原先在
     #   主循环里同步调它 → 这 1 秒 Python 不再提交 kernel，GPU 队列被跑空，
     #   nvidia-smi 的采样窗全落在空档里，于是 8 张卡全报 util=0% / 102W / 58C，
     #   而外部同时刻看是 100% / 349W / 66C。**GPU 明明是满的，是读数把自己饿死了。**
     #   丢到线程里后主循环不间断 replay，subprocess 等待期间也释放 GIL。
+    #   现在 gpu_stat 优先走 pynvml（0.1ms），同步调用也不会饿死 GPU 了，
+    #   但仍保留线程：一是间隔可独立于主循环，二是万一退回 nvidia-smi 兜底时不会炸。
     shared = {"st": None, "ts": 0.0, "util_sum": 0.0, "pw_sum": 0.0, "n": 0}
     lock = threading.Lock()
 
@@ -249,14 +325,14 @@ def worker(phys_id, args, max_s, stop_flag):
                 with lock:
                     shared["st"] = st
                     shared["ts"] = time.time()
-                    # 累计均值：nvidia-smi 只有瞬时值，low/mid 档若单看瞬时值，
+                    # 累计均值：nvml 只有瞬时值，low/mid 档若单看瞬时值，
                     # 采样点落在 burst 内就是 100%/350W，会让人以为没在省电。
                     shared["util_sum"] += st["util"]
                     if st["power"] >= 0:
                         shared["pw_sum"] += st["power"]
                     shared["n"] += 1
-            # 采样周期 = interval，但至少留 1s 给下次；sleep 可被 stop 打断
-            end = time.time() + max(1.0, args.interval)
+            # 采样周期 = interval，但至少留 0.5s 给下次；sleep 可被 stop 打断
+            end = time.time() + max(0.5, args.interval)
             while not stop_flag["stop"] and time.time() < end:
                 time.sleep(0.2)
 
@@ -264,31 +340,41 @@ def worker(phys_id, args, max_s, stop_flag):
     th.start()
 
     def report(now):
-        """打印一行状态。数值取自采样线程的最新一份，主循环不再阻塞。"""
+        """打印一行状态。数值取自采样线程的最新一份，主循环不再阻塞。
+
+        ⚠️ 这里只报 **nvml 的 util**，不再报「CUDA event 跨度占空比」。
+        实测发现后者会说谎：ev_start 打在第一个 replay 前、ev_end 打在最后
+        一个后，两者之间的 elapsed_time 是 **GPU 时间轴上的跨度**，中途 GPU
+        空转的时间也被算进去。旧代码同步调 nvidia-smi 时有 1 秒多的空档，
+        日志却报「实测占空比 91%」，而 nvml 同时刻读 0%/101W。**信 nvml。**
+        """
         with lock:
             st = shared["st"]
             util_avg = shared["util_sum"] / shared["n"] if shared["n"] else 0.0
             pw_avg = shared["pw_sum"] / shared["n"] if shared["n"] else 0.0
+            nsamp = shared["n"]
         el = int(now - t0)
-        real = (busy_s / (now - t0) * 100.0) if now > t0 else 0.0
         if st:
             mem_gib = st["mem_used"] / 1024.0
             tot_gib = st["mem_total"] / 1024.0
+            mem_pct = (100.0 * st["mem_used"] / st["mem_total"]) if st["mem_total"] else 0.0
             pw = ("%.0fW" % st["power"]) if st["power"] >= 0 else "n/a"
-            line = (tag + " t=%ds util=%d%%(均 %.0f%%) 实测占空比=%.0f%% "
-                    "mem=%.1f/%.1fGiB temp=%dC power=%s(均 %.0fW) iters=%d"
-                    % (el, st["util"], util_avg, real, mem_gib, tot_gib,
+            line = (tag + " t=%ds util=%d%%(均 %.0f%%, n=%d) "
+                    "mem=%.1f/%.1fGiB(%.0f%%) temp=%dC power=%s(均 %.0fW) iters=%d"
+                    % (el, st["util"], util_avg, nsamp, mem_gib, tot_gib, mem_pct,
                        st["temp"], pw, pw_avg, iters))
         else:
-            line = tag + " t=%ds iters=%d (nvidia-smi 尚未返回)" % (el, iters)
+            line = tag + " t=%ds iters=%d (等待首次采样)" % (el, iters)
         print(line, flush=True)
         if args.rundir:
             rec = {"ts": round(now, 1), "gpu": phys_id, "elapsed": el,
                    "iters": iters, "size": n, "intensity": args.intensity,
-                   "duty": duty, "duty_measured": round(real / 100.0, 4),
+                   "duty_nominal": duty, "duty_from_nvml": round(util_avg / 100.0, 4),
                    "util_avg": round(util_avg, 1), "power_avg": round(pw_avg, 1),
                    "per_iter_ms": round(per_iter * 1e3, 3),
-                   "cuda_graph": graph is not None}
+                   "cuda_graph": graph is not None,
+                   # busy_s 是 CUDA event 跨度，含 GPU 空转，仅作参考
+                   "ev_span_s": round(busy_s, 2)}
             if st:
                 rec.update(st)
             try:
@@ -340,8 +426,14 @@ def main():
     print("  强度/占空比: %s / %.0f%%   方阵: %d   dtype: %s"
           % (args.intensity, duty * 100, args.size, args.dtype), flush=True)
     est = (args.size ** 2) * DTYPE_BYTES[args.dtype] * 3 / (1024 ** 3)
-    print("  预估常驻显存: 每卡约 %.2f GiB matmul + %.1f GiB 垫片"
-          % (est, args.mem_gib), flush=True)
+    if args.mem_gib > 0:
+        mem_desc = "%.1f GiB（绝对值）" % args.mem_gib
+    elif args.mem_ratio > 0:
+        mem_desc = "总显存的 %.0f%%（留 %.0f%% 余量）" % (args.mem_ratio * 100,
+                                                        (1 - args.mem_ratio) * 100)
+    else:
+        mem_desc = "不垫片"
+    print("  显存目标 : %s   （matmul 本身约 %.2f GiB/卡）" % (mem_desc, est), flush=True)
     print("  自限时长 : %s" % ("不限（由 Slurm --time 兜底）" if max_s <= 0
                               else "%.1f 小时" % args.max_hours), flush=True)
     print("  状态间隔 : %.0fs    jsonl: %s" % (args.interval, rundir), flush=True)

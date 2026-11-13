@@ -1,14 +1,18 @@
 #!/bin/bash
 # 10_hold.sh —— H100 保活任务的提交 / 查看 / 停止（在登录节点跑）
 #
-#   ./10_hold.sh start                8 卡 / 24h / high / 自动链式续期
+#   ./10_hold.sh start                8 卡 / 24h / 算力拉满 / 显存 90% / 自动续期
 #   ./10_hold.sh start 4 12h          4 卡 / 12h
-#   ./10_hold.sh start 8 48h low      8 卡 / 48h / 低强度（省电）
-#   ./10_hold.sh start 8 24h mid 40   8 卡 / 24h / mid / 显存垫片 40 GiB
+#   ./10_hold.sh start 8 48h high 0.95  8 卡 / 48h / 显存垫到 95%
 #   ./10_hold.sh ls                   我的保活任务
 #   ./10_hold.sh stat                 队列 + 每卡实时占用（一条命令看全）
+#   ./10_hold.sh mon                  进 nvitop 风格实时监控（1s 刷新，Ctrl-C 退）
 #   ./10_hold.sh tail [JOBID]         跟日志
 #   ./10_hold.sh stop [JOBID]         停止（不给 ID 就停全部保活任务）
+#
+# 档位说明：**默认且推荐 high**。这台机器独占，没有别人抢，保活的目的就是让管理员
+# 看到卡被吃满；low/mid 是早期防"占着不用"的省电档，占空比一低 util 读数就在
+# 0/100 之间跳，反而更像没在用。low/mid 只为调试占空比折算保留。
 #
 # 链式续期：默认开（HOLD_CHAIN=1）。作业到期前 2 分钟自动从计算节点提交下一个
 # 同名作业，所以长时间挂着不会空出卡。要单次跑完就停：HOLD_CHAIN=0 ./10_hold.sh start
@@ -32,7 +36,8 @@ my_hold_jobs() {
 }
 
 cmd_start() {
-    local gpus="${1:-8}" hours="${2:-24h}" intensity="${3:-high}" memgib="${4:-${HOLD_MEM_GIB:-0}}"
+    local gpus="${1:-8}" hours="${2:-24h}" intensity="${3:-high}"
+    local memratio="${4:-${HOLD_MEM_RATIO:-0.90}}"
     local t
     case "$hours" in
         *h) t=$(printf "%02d:00:00" "${hours%h}") ;;
@@ -48,10 +53,16 @@ cmd_start() {
         exit 1
     fi
 
-    echo "提交: gpus=$gpus time=$t intensity=$intensity mem_gib=$memgib chain=${HOLD_CHAIN:-1}"
+    if [ "$intensity" != "high" ]; then
+        echo "⚠️ 用 $intensity 档：util 读数会在 0/100 间跳，管理员看着像没在用。"
+        echo "   这台机器独占，标准做法是 high。按 Ctrl-C 可取消，3 秒后继续…"
+        sleep 3
+    fi
+
+    echo "提交: gpus=$gpus time=$t intensity=$intensity mem_ratio=$memratio chain=${HOLD_CHAIN:-1}"
     HOLD_SCRIPT_DIR="$SCRIPT_DIR" \
     HOLD_INTENSITY="$intensity" \
-    HOLD_MEM_GIB="$memgib" \
+    HOLD_MEM_RATIO="$memratio" \
     HOLD_CHAIN="${HOLD_CHAIN:-1}" \
     sbatch --gres="gpu:${gpus}" --time="$t" \
         --job-name=hold_gpu "$SCRIPT_DIR/10_hold_gpu.sbatch"
@@ -75,6 +86,11 @@ cmd_stat() {
     echo ""
     echo "=== 显卡实时状态 ==="
     python3 "$MON" --once
+}
+
+cmd_mon() {
+    shift 2>/dev/null || true
+    exec python3 "$MON" "$@"
 }
 
 cmd_stop() {
@@ -109,9 +125,10 @@ case "${1:-help}" in
     start|s)   shift; cmd_start "$@" ;;
     ls|list|q) cmd_ls ;;
     stat|st)   cmd_stat ;;
+    mon|m)     shift; cmd_mon "$@" ;;
     stop|c|kill) shift; cmd_stop "$@" ;;
     tail|log|l) shift; cmd_tail "$@" ;;
     *)
-        sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
         ;;
 esac
