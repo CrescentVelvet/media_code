@@ -41,6 +41,12 @@
   临时文件走「备份+搬移」到 `/mnt/d/output/media_code_*_backup_<date>/`，判定无用要落到
   「结论已入库 / 已被正式脚本取代 / 无进程在跑」三条。
 - commit 后按需更新 EXPERIMENTS.md（实验结论），与 README（运行命令）分离。
+- **多落点协作（2026-11-13 峰哥定）**：代码在两处落点——本机 `C:\code\media_code`（主）、
+  服务器 `00950754@69.48.159.15:/data/00950754/code/media_code`（SSH 别名 `h100`）。
+  **AI 可在任一落点 commit，但 push 一律用户手动**；同一改动只在一处提交，另一侧
+  `git pull --rebase` 跟进。**`.workbuddy/memory/` 只在本机写，服务器只读不写**——
+  两边同时 append 同一日期文件必冲突；服务器侧的结论回本机补记或写 `<algo>/EXPERIMENTS.md`。
+  两边都要 `core.fileMode=false`，否则 `chmod +x` 造出假 mode change。规范原文 AGENTS.md §11。
 - **入库边界：只入可复用脚本与规格文档**（2026-11-13 峰哥定）：成品图与一次性出图脚本
   **都不进 GitHub**。判断标准「换个内容还能直接用的入库，绑定某一张图的不入库」。
   落点：可复用的放 `figkit/`（SPEC + figlib/chartlib）与 `*/FIGURES.md` 台账；一次性脚本
