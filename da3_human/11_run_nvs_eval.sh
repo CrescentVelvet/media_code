@@ -3,7 +3,7 @@
 # 用法: wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/da3_human/11_run_nvs_eval.sh [PLY标签]
 set +u
 TAG="${1:-max}"
-BASE=/home/velvet/output/da3_human_results/bench_504_32v
+BASE=${BASE:-/home/velvet/output/da3_human_results/bench_first_32v_fast}
 SCRIPT=/mnt/c/code/media_code/da3_human/10_eval_nvs_32to125.py
 
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
