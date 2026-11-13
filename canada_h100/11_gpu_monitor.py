@@ -262,28 +262,35 @@ def fit(s, width):
     return out + "…"
 
 
+# 256 色热度渐变（低→高）：绿 → 黄绿 → 黄 → 金 → 橙 → 红，8 档。
+# 语义仍是「热度」：满负荷=红=烫，空闲=绿；档多只是让过渡顺滑。
+# 别改成"高=好=绿"——保活/训练满负荷时一屏绿会让人以为没跑起来。
+HEAT_RAMP = [82, 148, 190, 226, 220, 214, 208, 196]
+
+
+def heat_color(pct):
+    """占用率 → 256 色渐变码（8 档，替换早期三档红绿灯）。"""
+    pct = max(0.0, min(100.0, float(pct)))
+    idx = min(len(HEAT_RAMP) - 1, int(pct / 100.0 * len(HEAT_RAMP)))
+    return "\033[38;5;%dm" % HEAT_RAMP[idx]
+
+
 def bar(pct, width=14, color=None, on=True):
-    """两段式进度条：实心 + 空心。颜色按占用高低分档。"""
+    """两段式进度条：实心 + 空心。颜色按占用走热度渐变。"""
     pct = max(0.0, min(100.0, float(pct)))
     fill = int(round(pct / 100.0 * width))
     body = "█" * fill + "░" * (width - fill)
     if not on:
         return body
     if color is None:
-        # 配色语义＝「热度」：占用越高越红（满负荷 = 烫），空闲才绿。
-        # 别改成"高=好=绿"——保活/训练满负荷时一屏绿会让人以为没跑起来。
-        color = C["red"] if pct >= 85 else (C["yellow"] if pct >= 30 else C["green"])
+        color = heat_color(pct)
     return color + body + C["reset"]
 
 
 def util_color(u, on):
     if u < 0:
         return paint("  --", C["dim"], on)
-    if u >= 85:
-        return paint("%3d%%" % u, C["red"], on)
-    if u >= 30:
-        return paint("%3d%%" % u, C["yellow"], on)
-    return paint("%3d%%" % u, C["green"], on)
+    return paint("%3d%%" % u, heat_color(u), on)
 
 
 def human_gib(mib):
