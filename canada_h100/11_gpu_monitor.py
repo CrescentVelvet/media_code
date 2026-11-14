@@ -12,24 +12,30 @@
 所以本脚本不抄代码，只学它的**原理**：不用 `nvidia-smi` 起进程（0.6~1.6 s/次），
 改成 `pynvml` 直连 NVML（实测 0.094 ms/次，快 4 个数量级）。
 
-## 架构：远端采样器 + 本地渲染
+## 架构：DCGM exporter 主源 + srun 补进程表
 
-登录节点 → `srun --jobid=<ID> --overlap` 起一个常驻 python → 它用 pynvml 每
-`--interval` 采一次，把「一帧」以单行 JSON 打到 stdout → 本地读取、渲染 TUI。
+**主源（GPU 表）**：管理员提供的 `dcgm-exporter`（登录节点 `localhost:9835/metrics`
+直连可达，Prometheus 文本格式）。每帧一次 HTTP GET + 纯文本解析，**不依赖任何
+作业、不占任何卡、不受 cgroup 设备隔离限制**——没作业时也能看全机 8 卡，这是
+它比旧 srun 采样器的本质优势。指标：GPU_UTIL / FB_USED+FB_FREE / GPU_TEMP /
+POWER_USAGE / MEM_COPY_UTIL，还白送 XID/ECC 硬件健康指标（暂未展示）。
 
-这样做的收益：
-- 刷新率能到 1s 甚至 0.5s（原来每次采样都要新起一个 srun + nvidia-smi，至少 2s）
-- **进程表**只需要一次 `/proc` 读取，不再每帧拉 `nvidia-smi`
-- srun 只在启动时握手一次，之后走管道，不会每次排队
+**辅源（PROCS 进程表）**：DCGM 没有 PID 级指标，进程表仍走
+`srun --jobid=<ID> --overlap` 常驻 python + pynvml，从 /proc 读进程信息，
+只取 procs 字段合并进 DCGM 帧。没有作业时进程表自然留空——符合预期。
+
+DCGM 拉取失败时（exporter 宕机）自动降级：有作业就退回纯 srun 采样帧，
+没作业才显示错误。`--no-dcgm` 可完全禁用回旧行为。
 
 ## 常驻语义（关键）
 
-**监控的生命周期与任何作业无关。** 它只做一件事：定期扫 `squeue` 找一个正在
-跑 GPU 的作业，`srun --jobid=<那个> --overlap` 进去采样。所以：
+**监控的生命周期与任何作业无关。** GPU 数据来自 exporter，作业只决定
+"进程表跟谁采"。所以：
 
-  squeue 里没有作业        面板转"等待中"，**监控不退出**
-  新作业出现              自动接上（最多 rescan 秒延迟）
-  Ctrl-C                 唯一能结束监控的操作
+  ./10_hold.sh stop        作业消失 → 进程表清空，GPU 表**照常刷新**，监控不退出
+  ./10_hold.sh start       新作业出现 → 进程表自动接上（最多 rescan 秒延迟）
+  sbatch 训练作业           同样自动接上——两个都在时跟占卡多的那个
+  Ctrl-C                   唯一能结束监控的操作
 
 跨作业自动换台：作业结束后又提交了新作业、采样器崩了，都会自动重连，
 `srun` 只握手一次，不会拖垮登录节点。
@@ -57,16 +63,19 @@ TTY 常驻模式跑在终端**备用屏幕**里（\033[?1049h），每帧回光�
 用法：
   ./11_gpu_monitor.py                    # 常驻监控（推荐）
   ./11_gpu_monitor.py -i 0.5             # 0.5s 刷新
-  ./11_gpu_monitor.py --jobid 201362442  # 锁定某一个作业
+  ./11_gpu_monitor.py --jobid 201362442  # 锁定某一个作业（只影响进程表跟谁）
   ./11_gpu_monitor.py --once             # 打一帧就退出（可重定向到文件）
   ./11_gpu_monitor.py --no-color         # 无颜色（日志/重定向）
+  ./11_gpu_monitor.py --no-dcgm          # 禁用 DCGM，退回纯 srun 采样
 """
 import argparse
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
+import urllib.request
 import sys
 import threading
 import time
@@ -326,7 +335,9 @@ def render(frame, header_lines, enable_color, show_procs=True, width=100):
             continue
         used, total = g["used"], g["total"]
         mpct = 100.0 * used / total if total else 0.0
-        pw = ("%.0f/%.0fW" % (g["power"], g["cap"])) if g["power"] >= 0 else "  --"
+        pw = "  --" if g["power"] < 0 else (
+            "%.0f/%.0fW" % (g["power"], g["cap"]) if g.get("cap", 0) > 0
+            else "%.0fW" % g["power"])
         row = (pad(idx, 5)
                + pad("H100 80G", 14)
                + pad(("  " + util_color(g["util"], False)), 7)
@@ -407,6 +418,73 @@ def render_queue(rows, follow_jid, enable_color, width=100):
 
 # ---------------------------------------------------------------- 采样
 
+# dcgm-exporter 暴露的字段 → 帧内键。total 由 used+free 合成（NVML total 口径）。
+DCGM_FIELDS = {
+    "util": "DCGM_FI_DEV_GPU_UTIL",
+    "mem_util": "DCGM_FI_DEV_MEM_COPY_UTIL",
+    "used": "DCGM_FI_DEV_FB_USED",
+    "free": "DCGM_FI_DEV_FB_FREE",
+    "temp": "DCGM_FI_DEV_GPU_TEMP",
+    "power": "DCGM_FI_DEV_POWER_USAGE",
+}
+
+DCGM_LINE = re.compile(
+    r'^(DCGM_FI_DEV_[A-Z_]+)\{[^}]*gpu="(\d+)"[^}]*\}\s+([-+0-9.eE]+)$')
+
+
+def fetch_dcgm(url, timeout=3.0):
+    """从 dcgm-exporter 拉一帧，转成与 pynvml 采样器完全相同的 frame 结构。
+
+    返回 {"t":..., "gpus":[{i,util,mem_util,used,total,temp,power,cap,procs}]}
+    ；拉取失败/解析不到任何 GPU 返回 None（调用方降级到 srun 采样）。
+    cap 无对应 DCGM 指标，恒 -1（渲染层显示单功率值）。
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    vals = {}          # (field, gpu_idx) -> float
+    hostname = ""
+    for ln in text.splitlines():
+        m = DCGM_LINE.match(ln)
+        if not m:
+            continue
+        metric, gi, v = m.group(1), int(m.group(2)), m.group(3)
+        if not hostname:
+            h = ln.find('hostname="')
+            if h != -1:
+                hostname = ln[h + 10:ln.find('"', h + 10)]
+        try:
+            vals[(metric, gi)] = float(v)
+        except ValueError:
+            continue
+    idxs = sorted({gi for (_, gi) in vals})
+    if not idxs:
+        return None
+    gpus = []
+    for gi in idxs:
+        g = {"i": gi, "util": -1, "mem_util": -1, "used": 0, "total": 0,
+             "temp": -1, "power": -1.0, "cap": -1.0, "procs": []}
+        for key, metric in DCGM_FIELDS.items():
+            if (metric, gi) not in vals:
+                continue
+            v = vals[(metric, gi)]
+            if key in ("util", "mem_util"):
+                g[key] = int(v)
+            elif key == "used":
+                g["used"] = int(v)
+            elif key == "free":
+                g["total"] = g["used"] + int(v)   # NVML total ≈ used+free
+            elif key == "temp":
+                g["temp"] = int(v)
+            elif key == "power":
+                g["power"] = round(v, 1)
+        gpus.append(g)
+    return {"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "host": hostname,
+            "dcgm": True, "gpus": gpus}
+
+
 def build_remote_cmd(jobid, interval, with_procs, native, env_script):
     """构造进计算节点跑采样器的命令。
 
@@ -478,6 +556,10 @@ def main():
     ap.add_argument("--no-procs", action="store_true", help="不显示进程表")
     ap.add_argument("--no-queue", action="store_true",
                     help="不显示作业队列面板（QUEUE）")
+    ap.add_argument("--dcgm", default="http://localhost:9835/metrics",
+                    help="dcgm-exporter 地址（GPU 表主源；置空或 --no-dcgm 退回纯 srun 采样）")
+    ap.add_argument("--no-dcgm", action="store_true",
+                    help="禁用 DCGM 主源，退回旧的纯 srun 采样行为")
     ap.add_argument("--native", action="store_true",
                     help="不用 pynvml，改用 nvidia-smi -lms（兼容兜底，慢很多）")
     ap.add_argument("--log", default="", help="把每帧追加到该 jsonl")
@@ -492,6 +574,7 @@ def main():
     tty = sys.stdout.isatty()
     show_procs = (not args.no_procs) and (not args.no_bar)
     show_queue = not args.no_queue
+    dcgm_url = "" if args.no_dcgm else args.dcgm
 
     # ---- 作业发现：监控与任何作业彻底解耦 ----------------------------
     # 监控**不持有**任何作业句柄，只按 squeue 去"找"当前跑着 GPU 的作业。因此
@@ -606,6 +689,7 @@ def main():
     try:
         while True:
             now_m = time.time()
+            new_sess = False    # ② 刚建会话时置位，③a 首帧改阻塞等待
 
             # ---------- ① 定期扫队列，决定跟哪个作业 ----------
             # 扫队列只**决定跟谁**，不直接开会话；开会话统一由 ② 做，
@@ -659,10 +743,10 @@ def main():
                     cands.sort(key=lambda x: (x[0], int(x[1]) if x[1].isdigit() else 0),
                                reverse=True)
                     if not cands:
-                        # 没作业了：收会话、回等待态，**不退出**
+                        # 没作业了：收会话、进程表留空，**不退出**（GPU 表照常刷）
                         if sess is not None:
                             close_session()
-                            last_err = "当前没有占 GPU 的作业，等待中…"
+                            last_err = "没有占 GPU 的作业，进程表留空（GPU 表继续刷新）"
                         elif jobid:
                             last_err = "作业 %s 已结束/被取消，等待新作业…" % jobid
                         want_jid = ""
@@ -677,14 +761,16 @@ def main():
                             close_session()
                             last_frame = None
                             last_err = ""
-                            print("\n→ 跟随作业 %s（%s，%d 卡）\n"
+                            print("\n→ 进程表跟随作业 %s（%s，%d 卡）\n"
                                   % (jobid, jname or "-", ngpu), flush=True)
                         want_jid = jid2
 
-            # ---------- ② 有确认在跑的作业但没会话 → 起会话 ----------
+            # ---------- ② 有确认在跑的作业但没会话 → 起会话（只采进程表） ----------
             # 关键：只对 want_jid 起会话。作业没了 want_jid 就是空，
             # 于是这里什么都不做，只是安静等待，不会拿死 ID 去撞 srun。
-            if want_jid and sess is None and now_m >= retry_at.get(want_jid, 0):
+            # DCGM 主源可用时，会话的唯一价值是进程表（show_procs=False 就不开）。
+            if (want_jid and show_procs and sess is None
+                    and now_m >= retry_at.get(want_jid, 0)):
                 s, e = open_session(want_jid)
                 if s is None:
                     fails[want_jid] = fails.get(want_jid, 0) + 1
@@ -693,51 +779,84 @@ def main():
                     last_err = "%s（%.0fs 后重试）" % (e, back)
                 else:
                     sess = s
+                    new_sess = True
                     fails[want_jid] = 0
                     last_err = ""
                     last_frame = None
 
-            # ---------- ③ 收帧 ----------
+            # ---------- ③ 收帧：DCGM 主源 + srun 会话只补进程表 ----------
             frame = None
             stale = False
-            if sess is not None:
-                try:
-                    frame = sess["frames"].get(timeout=max(0.5, interval * 2))
-                except queue.Empty:
-                    frame = None
-                    if last_frame is not None:
-                        stale = True    # 有旧帧就继续显示，不刷错误
-                    else:
-                        last_err = "暂无数据（作业刚启动？）"
-                if frame and frame.get("eof"):
-                    frame = None
-                    msg = "采样器退出"
-                    if sess["err_lines"]:
-                        msg += "：" + " | ".join(sess["err_lines"][-2:])
-                    close_session()
-                    # 作业还在的话退避几秒重连；作业没了 ① 会发现并转纯等待
-                    if want_jid:
-                        fails[want_jid] = fails.get(want_jid, 0) + 1
-                        retry_at[want_jid] = (
-                            time.time() + min(30.0, 2.0 * fails[want_jid]))
-                        last_err = msg + "，自动重连中…"
-                    else:
-                        last_err = msg
-                elif frame and frame.get("fatal"):
-                    # 采样器致命错误（如环境脚本失效）：报出来并冷却重试，不退出
-                    last_err = str(frame.get("err", "采样器致命错误"))
-                    close_session()
-                    if want_jid:
-                        fails[want_jid] = fails.get(want_jid, 0) + 1
-                        retry_at[want_jid] = (
-                            time.time() + min(60.0, 3.0 * fails[want_jid]))
-                    frame = None
+            procs_by_gpu = {}
+            srun_frame = None
 
-            if frame is not None:
+            # ③a. 非阻塞排空 srun 会话队列，只留最新一帧的 procs。
+            # 不再用阻塞 get 定节奏——节奏统一由 ④ 后的 sleep 控制。
+            # 例外：会话刚建立时首帧要等一等（srun 握手有 1~2s），--once
+            # 模式更要多等几秒，否则拿到 DCGM 帧就退出、进程表永远是空的。
+            if sess is not None:
+                first = True
+                while True:
+                    try:
+                        if first and new_sess:
+                            f = sess["frames"].get(
+                                timeout=8.0 if args.once else 1.5)
+                        else:
+                            f = sess["frames"].get_nowait()
+                    except queue.Empty:
+                        break
+                    first = False
+                    if f.get("eof"):
+                        msg = "采样器退出"
+                        if sess["err_lines"]:
+                            msg += "：" + " | ".join(sess["err_lines"][-2:])
+                        close_session()
+                        # 作业还在的话退避几秒重连；作业没了 ① 会发现并转纯等待
+                        if want_jid:
+                            fails[want_jid] = fails.get(want_jid, 0) + 1
+                            retry_at[want_jid] = (
+                                time.time() + min(30.0, 2.0 * fails[want_jid]))
+                            last_err = msg + "，自动重连中…"
+                        else:
+                            last_err = msg
+                        break
+                    if f.get("fatal"):
+                        # 采样器致命错误（如环境脚本失效）：报出来并冷却重试，不退出
+                        last_err = str(f.get("err", "采样器致命错误"))
+                        close_session()
+                        if want_jid:
+                            fails[want_jid] = fails.get(want_jid, 0) + 1
+                            retry_at[want_jid] = (
+                                time.time() + min(60.0, 3.0 * fails[want_jid]))
+                        break
+                    if f.get("gpus"):
+                        srun_frame = f
+                        for g in f["gpus"]:
+                            procs_by_gpu[g["i"]] = g.get("procs", [])
+
+            # ③b. DCGM 主源；拉取失败就降级用 srun 全帧，再没有就复读旧帧
+            if dcgm_url:
+                d = fetch_dcgm(dcgm_url)
+                if d is not None:
+                    frame = d
+                    for g in frame["gpus"]:
+                        g["procs"] = procs_by_gpu.get(g["i"], [])
+                elif srun_frame is not None:
+                    frame = srun_frame
+                elif last_frame is not None:
+                    frame = last_frame
+                    stale = True
+                else:
+                    last_err = last_err or "DCGM 不可达，且没有运行中作业可降级采样"
+            elif srun_frame is not None:
+                frame = srun_frame
+            elif last_frame is not None:
+                frame = last_frame
+                stale = True
+
+            if frame is not None and not stale:
                 last_frame = frame
                 total_frames += 1
-            elif stale:
-                frame = last_frame
 
             # ---------- ④ 渲染 ----------
             ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -747,8 +866,8 @@ def main():
                                                 if jname else ""))
                 head += " @ %s · %s · 刷新 %.1fs" % (node, jstate or "?", interval)
             else:
-                head = "[%s] %s · 无占用 GPU 的作业 · 每 %.0fs 重扫队列" % (
-                    ts, host, rescan)
+                head = ("[%s] %s · 无作业（GPU 表照常刷新）· 每 %.0fs 重扫队列"
+                        % (ts, host, rescan))
             lines = [head]
 
             if show_queue:
@@ -760,11 +879,17 @@ def main():
                 lines.append("  " + (last_err or "等待中…"))
                 if not jobid:
                     lines.append("")
-                    lines.append("  监控常驻：执行 start / stop / sbatch 都不影响本面板，")
-                    lines.append("  检测到占 GPU 的作业会自动接上。Ctrl-C 退出监控。")
+                    lines.append("  监控常驻：GPU 表走 DCGM 与作业无关；进程表在")
+                    lines.append("  检测到占 GPU 的作业后自动接上。Ctrl-C 退出监控。")
             else:
-                src = ("nvidia-smi -lms" if args.native
-                       else "pynvml @ 计算节点 %s" % node)
+                if frame.get("dcgm"):
+                    src = "dcgm-exporter @ %s" % (frame.get("host") or node)
+                    if procs_by_gpu:
+                        src += " + pynvml 进程表"
+                elif args.native:
+                    src = "nvidia-smi -lms"
+                else:
+                    src = "pynvml @ 计算节点 %s" % node
                 lines.append("数据来源: %s%s" % (
                     src, "   ⚠️ 数据停滞" if stale else ""))
                 lines = render(frame, lines, enable_color,
@@ -802,9 +927,10 @@ def main():
             if total_frames == 1:
                 print("\n(Ctrl-C 退出监控；stop/start/sbatch 都不会影响它)", flush=True)
 
-            # 等待态要限速：没会话时 ③ 只阻塞 interval*2 就返回，若不睡会狂刷屏
-            if sess is None:
-                time.sleep(max(0.5, rescan / 2.0))
+            # 统一限速到 --interval：DCGM GET 是本地 HTTP 很快，但空转时
+            # （无会话/拉取失败）不睡满节奏就会狂刷 squeue 和 exporter
+            dt = time.time() - now_m
+            time.sleep(max(0.1, interval - dt))
     except KeyboardInterrupt:
         pass                    # 退出提示在 finally 里、退出备用屏幕之后再打
     finally:
