@@ -20,6 +20,7 @@ chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./10_hold.sh 报 P
 | 跟保活日志 | `./10_hold.sh tail` |
 | **停止保活** | `./10_hold.sh stop` → **再跑 `./10_hold.sh ls` 复查** |
 | 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=hold_gpu` / `--name=sa_train` |
+| **自动看门（防空卡）** | `./13_gpu_watchdog.sh install 2` — 每 2h 查一次显存，掉了自动拉起；`status` 看最近结果 |
 
 **最省心的用法：监控开一个终端常驻，另一个终端随便折腾。**
 
@@ -502,6 +503,45 @@ util/功耗是另一回事 —— 后者本身就是「这卡在真算」的直�
 目的不是收敛质量，而是**每张卡都被真实负载吃满**。DDP 每步 all-reduce 在 PCIe 上是瓶颈
 （实测 22.8 GB/s，见 §5），反而拖慢。一卡一进程天然容错：某张卡 OOM 或崩了不影响其它卡。
 做真训练要收敛再说 DDP/FSDP 的事。
+
+### 4.5 显存看门狗：`13_gpu_watchdog.sh`
+
+作业的意义是**占住卡别让管理员看见空置**，所以判据只有一个：卡上有没有显存占用。
+作业名、loss、step 一律不看。
+
+```bash
+./13_gpu_watchdog.sh install 2    # 装 cron，每 2 小时查一次（幂等，重复跑只改间隔）
+./13_gpu_watchdog.sh status       # 最近一次判定 + 历史尾部
+./13_gpu_watchdog.sh run          # 立刻查一次
+./13_gpu_watchdog.sh report 48    # 最近 48h 的判定流水
+./13_gpu_watchdog.sh uninstall    # 从 crontab 摘掉
+```
+
+判定与动作：
+
+| 判定 | 条件 | 动作 |
+|---|---|---|
+| `OK` | 有 RUNNING 作业，且最低单卡显存 ≥ 30% | 无 |
+| `WAIT` | 显存低，但作业运行 < 10 分钟 | 无（宽限，防误杀刚启动的） |
+| `BAD` | 显存低，且已跑满宽限期 | `12_sa_train.sh stop` → 等队列清空 → `start` |
+| `PEND` | 无 RUNNING，但有 PENDING | 无（排队中，别重复提交） |
+| `EMPTY` | 完全没有作业 | `12_sa_train.sh start` |
+| `UNKN` | `srun` 取不到显存采样 | 无（宁可不动手，也不误杀） |
+| `BOOT` / `FAIL` | 拉起成功 / 失败（含输出） | — |
+
+阈值可用环境变量改：`WATCHDOG_MEM_MIN`（默认 0.30）、`WATCHDOG_GRACE_MIN`（默认 10）、
+`WATCHDOG_GPUS` / `WATCHDOG_HOURS`（默认 8 / 24h）、`WATCHDOG_DRYRUN=1`（只看不动手）。
+
+日志 `/data/00950754/logs/gpu_watchdog.log`，最近状态 `/data/00950754/runs/watchdog_status.json`。
+
+两个坑（都已修，别改回去）：
+
+1. **`srun` 会把 PATH 透传进计算节点**。cron 的 PATH 比登录 shell 窄，`env -i` 下更是为空，
+   于是报 `execve(): nvidia-smi: No such file or directory` —— 看起来像作业坏了，其实是找不到命令。
+   脚本里显式兜底 `PATH` 且 `nvidia-smi` 写绝对路径 `/usr/bin/nvidia-smi`。
+2. **`scancel` 后作业会先进 `COMPLETING` 还挂在 `squeue` 里**，此时 `12_sa_train.sh start`
+   会以「已有训练任务」拒绝提交。脚本会等它真消失（最多 90s），等不到就放弃本轮、下轮再来，
+   避免出现「旧的杀了、新的起不来」的空卡窗口。
 
 
 ## 五、GPU 拓扑（影响多卡策略）
