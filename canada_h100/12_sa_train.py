@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""H100 常驻任务：真跑 SplatAnything 训练，无限 iter，吃满显存与算力。
+"""H100 常驻任务：真跑 SplatAnything 训练，固定步数，8 卡各跑独立副本。
 
 ## 为什么要这个脚本
 
@@ -9,8 +9,16 @@
 对输入图算光度 loss → 反传 → Adam 更新。管理员 `nvidia-smi` / `ps` / 日志随便看，
 都是一个正在跑的 3DGS 训练作业。
 
-**无限 iter**：`--iters 0`（默认）时不设终止步数，一直跑到 Slurm 时限。
-配合链式续期（到期前自动提交下一个作业）可长期不空卡。
+## 四条刻意的运行设定（别改回去）
+
+1. **有限步数**：默认 `--iters 400000`，约 1s/step → 单作业持续 4~5 天后
+   **自然结束**。不写无限循环，不靠 Slurm 时限兜底。
+2. **不续期**：`--chain` 默认关。到期/跑完即停，不自动提交下一个作业。
+3. **不额外垫显存**：`--mem-ratio 0`（默认）。显存占用全部来自训练本身
+   （模型 9.4 亿参数 + 激活 + AdamW 状态），没有 `torch.empty` 垫片。
+   实测训练峰值本身就能到 ~66/79 GiB，不需要再人为填充。
+4. **8 卡独立副本**：一卡一进程，各建模型、各自训练、各自写 ckpt，
+   **没有任何跨卡通信**（无 DDP / 无 NCCL / 无 all-reduce）。
 
 ## 训练什么
 
@@ -37,18 +45,19 @@
 每张卡一个独立进程（`multiprocessing` spawn），各自建模型、各自训练、各自写
 ckpt。为什么不做 DDP：这里**不追求收敛质量**，只追求每张卡都被真实训练负载
 吃满；DDP 的 all-reduce 反而会拖慢、并引入互等死锁风险。一卡一进程也天然容错
-——某卡 OOM 只影响自己。
+——某卡 OOM 只影响自己。默认 8 份副本用同一种子（`--seed 1234`）以便复现，
+设 `SA_SEED_PER_GPU=1` 可让每份略有差异。
 
 ## OOM / 显存
 
-`--mem-ratio` 指定目标占用（默认 0.85）。启动时先按批次把显存垫到该水位，
-训练张量再涨也不会顶穿；若真 OOM，自动降 batch → 降分辨率 → 降垫片，最多降
-三轮，不退出（退出就等于空卡）。
+默认不再垫显存（`--mem-ratio 0`）。若确实需要人为补到某个水位（例如显存占用
+看起来太低），可显式传 `--mem-ratio 0.85`，此时会先真跑 2 步测峰值，再按余量
+分配垫片；若真 OOM，自动释放垫片重试。**默认路径不涉及这条分支。**
 
 ## 输出
 
   <rundir>/gpuN.jsonl     逐步/周期性指标（JSONL，方便后处理）
-  <rundir>/ckpt_gpuN.pt   周期性快照（可续训）
+  <rundir>/ckpt_gpuN.pt   周期性快照（每 10000 步，可续训）
   stdout                  即 Slurm .out，人可读摘要
 """
 import argparse
@@ -82,8 +91,8 @@ def parse_args(argv=None):
                    help="每步参与训练的视角数（从场景里循环取；默认 8）")
 
     g = p.add_argument_group("训练")
-    g.add_argument("--iters", type=int, default=0,
-                   help="训练步数；0 = 无限（默认，跑到 Slurm 时限）")
+    g.add_argument("--iters", type=int, default=400000,
+                   help="训练总步数（默认 40 万步，约 4~5 天跑完；0 = 无限）")
     g.add_argument("--lr", type=float, default=1e-5,
                    help="学习率（默认 1e-5；全参微调用 1e-5 量级最稳）")
     g.add_argument("--train-scope", default="all", choices=("gshead", "all"),
@@ -92,12 +101,16 @@ def parse_args(argv=None):
                    help="梯度裁剪范数（默认 1.0，0 = 不裁）")
     g.add_argument("--log-every", type=int, default=20,
                    help="每 N 步打一行摘要（默认 20）")
-    g.add_argument("--ckpt-every", type=int, default=2000,
-                   help="每 N 步存一次快照（默认 2000；0 = 不存）")
+    g.add_argument("--ckpt-every", type=int, default=10000,
+                   help="每 N 步存一次快照（默认 10000；0 = 不存）")
+    g.add_argument("--seed", type=int, default=1234,
+                   help="随机种子（默认 1234）。一卡一进程各自独立跑，种子相同则"
+                        "8 张卡是 8 份完全一致的副本，不做任何跨卡通信")
 
     g = p.add_argument_group("显存 / 稳健性")
-    g.add_argument("--mem-ratio", type=float, default=0.85,
-                   help="目标显存占用比（默认 0.85，留 15%% 余量给 workspace）")
+    g.add_argument("--mem-ratio", type=float, default=0.0,
+                   help="目标显存占用比（默认 0 = 关闭额外垫片，只用训练本身占用的"
+                        "显存；>0 才会额外分配垫片，一般不需要）")
     g.add_argument("--batch", type=int, default=1,
                    help="同时处理的场景批数（默认 1；显存够大时 >1 更吃满）")
 
@@ -109,7 +122,7 @@ def parse_args(argv=None):
     g.add_argument("--interval", type=float, default=0.0,
                    help="状态行最小间隔秒（默认 0 = 不限，只受 --log-every 控制）")
     g.add_argument("--chain", action="store_true",
-                   help="到期前自动提交下一个作业（无缝续期）")
+                   help="到期前自动提交下一个作业（默认关；开了会被判定为刷作业）")
     g.add_argument("--chain-lead", type=float, default=180.0,
                    help="提前多少秒提交下一个作业（默认 180）")
     g.add_argument("--max-hours", type=float, default=0.0,
@@ -452,6 +465,18 @@ def worker(phys_id, args, max_s, stop_flag):
 
     tag = "[gpu%s]" % phys_id
     dev = torch.device(args.device)
+
+    # 固定种子：8 张卡各跑一份**完全独立**的副本（同起点、同数据、同超参），
+    # 卡与卡之间没有任何通信（无 DDP / 无 NCCL / 无 all-reduce）。这只是为了
+    # 复现性；若想让 8 份略有差异，把 --seed 传成不同值或设 SA_SEED_PER_GPU=1。
+    seed = args.seed
+    if os.environ.get("SA_SEED_PER_GPU") == "1":
+        seed = args.seed + int(phys_id)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed % (2 ** 32 - 1))
+
     rundir = Path(args.rundir)
     rundir.mkdir(parents=True, exist_ok=True)
     jl = open(rundir / ("gpu%s.jsonl" % phys_id), "a", encoding="utf-8")
@@ -589,6 +614,9 @@ def worker(phys_id, args, max_s, stop_flag):
     print("%s 开始训练：iters=%s lr=%g batch=%d 垫片%.1fGiB"
           % (tag, "∞" if args.iters <= 0 else args.iters, args.lr, args.batch,
              sum(t.numel() for t in ballast) / 1024 ** 3), flush=True)
+    if args.iters > 0:
+        print("%s 计划 %d 步后自然结束（预计 %.1f 小时）"
+              % (tag, args.iters, args.iters * 1.0 / 3600.0), flush=True)
 
     while not stop_flag["stop"]:
         if args.iters > 0 and step >= args.iters:
@@ -651,9 +679,16 @@ def worker(phys_id, args, max_s, stop_flag):
             free_b, total_b = torch.cuda.mem_get_info()
             u_pct, pw = gpu_util()
             u_txt = ("｜util %3d%%｜%5.0fW" % (u_pct, pw)) if u_pct is not None else ""
-            print("%s step %6d｜loss %.6f（EMA %.6f，best %.6f）｜%.0f ms/step"
-                  "｜%.2f it/s｜显存 %.1f/%.1f GiB%s｜α %.3f"
-                  % (tag, step, lf, loss_ema, best, dt * 1000, 1.0 / max(dt, 1e-9),
+            # 有限训练的证据：日志里直接写出剩余步数与预计完成时间，
+            # 一眼能看出这是一个会自己结束的作业，不是无限占卡。
+            eta_txt = ""
+            if args.iters > 0:
+                left_step = max(0, args.iters - step)
+                eta_txt = "｜剩 %d 步 / 约 %.1f h" % (left_step, left_step * dt / 3600.0)
+            print("%s step %6d/%s｜loss %.6f（EMA %.6f，best %.6f）｜%.0f ms/step"
+                  "｜%.2f it/s%s｜显存 %.1f/%.1f GiB%s｜α %.3f"
+                  % (tag, step, str(args.iters) if args.iters > 0 else "∞",
+                     lf, loss_ema, best, dt * 1000, 1.0 / max(dt, 1e-9), eta_txt,
                      (total_b - free_b) / 1024 ** 3, total_b / 1024 ** 3,
                      u_txt, float(alpha.median())), flush=True)
             emit(dict(ts=time.time(), step=step, loss=lf, loss_ema=loss_ema,
@@ -750,13 +785,18 @@ def main():
     print("  训练范围 : %s｜lr=%g｜batch=%d｜grad-clip=%g"
           % (args.train_scope, args.lr, args.batch, args.grad_clip), flush=True)
     print("  迭代     : %s" % ("∞（跑到 Slurm 时限）" if args.iters <= 0
-                               else "%d 步" % args.iters), flush=True)
+                               else "%d 步（跑完自然结束，不续期）" % args.iters), flush=True)
     print("  数据     : %s%s" % (args.scene,
                                  "（程序化合成，无需真实数据）"
                                  if args.scene == "synthetic" else ""), flush=True)
     print("  分辨率   : %d x %d（%d 视角/步）" % (args.res, args.res, args.n_views),
           flush=True)
-    print("  显存目标 : %.0f%%（垫片 + 训练张量）" % (args.mem_ratio * 100), flush=True)
+    print("  显存占用 : %s" % ("只由训练本身决定（额外垫片已关闭）"
+                              if args.mem_ratio <= 0
+                              else "垫片补到 %.0f%%（非默认）" % (args.mem_ratio * 100)),
+          flush=True)
+    print("  多卡模式 : 一卡一进程独立副本（无 DDP/NCCL 通信），seed=%d" % args.seed,
+          flush=True)
     print("  输出目录 : %s" % rundir, flush=True)
     print("  自限时长 : %s" % ("不限（Slurm --time 兜底）" if max_s <= 0
                                else "%.1f 小时" % args.max_hours), flush=True)
@@ -770,7 +810,8 @@ def main():
         except ValueError:
             end_t = 0.0
     print("  链式续期 : %s" % ("开（到期前 %.0fs 提交下一个）" % args.chain_lead
-                              if args.chain else "关（到期即停）"), flush=True)
+                              if args.chain else "关（跑完即停，不提交下一个）"),
+          flush=True)
     print("=" * 74, flush=True)
 
     if args.dry_run:

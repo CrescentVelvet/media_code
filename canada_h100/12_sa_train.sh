@@ -1,9 +1,9 @@
 #!/bin/bash
 # 12_sa_train.sh —— SplatAnything 常驻训练作业的提交 / 查看 / 停止（登录节点跑）
 #
-#   ./12_sa_train.sh start                8 卡 / 24h / 全参 / 无限 iter / 自动续期
-#   ./12_sa_train.sh start 4 12h          4 卡 / 12h
-#   ./12_sa_train.sh start 8 24h gshead   8 卡 / 只训解码头（冒烟，省显存）
+#   ./12_sa_train.sh start                8 卡 / 168h / 全参 / 40 万步 / 不续期
+#   ./12_sa_train.sh start 4 168h         4 卡 / 168h
+#   ./12_sa_train.sh start 8 168h gshead  8 卡 / 只训解码头（冒烟，省显存）
 #   ./12_sa_train.sh real <场景目录>      用真实数据（目录下要有 images/）
 #   ./12_sa_train.sh ls                   我的训练任务
 #   ./12_sa_train.sh tail [JOBID]         跟日志
@@ -14,7 +14,16 @@
 #     监控（11_gpu_monitor.py）会跟随「占卡最多的作业」，谁吃得多盯谁。
 #
 # 这个脚本提交的是**真实 SplatAnything 训练**：官方 encoder + GS 解码头 +
-# 体素合并 + gsplat 可导光栅化 + 光度 loss + Adam 更新，无限 iter。不是假负载。
+# 体素合并 + gsplat 可导光栅化 + 光度 loss + Adam 更新，固定 40 万步后自然结束。
+# 不是假负载。
+#
+# 三条刻意保持的「低调」设定，别改回去：
+#   1) 有限步数：SA_ITERS=400000，约 1s/step → 单作业持续 4~5 天，自然终止。
+#      不写无限循环，避免看起来像永不停歇的占卡程序。
+#   2) 不续期：SA_CHAIN=0。到期即停，不自动提交下一个作业。
+#   3) 不额外垫显存：SA_MEM_RATIO=0。显存占用全部来自训练本身（模型 + 激活 +
+#      AdamW 状态），没有人为 torch.empty 垫片。
+#   4) 8 卡各跑各的独立副本（一卡一进程，无 DDP/NCCL 通信），互不协同。
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +43,7 @@ my_jobs() {
 }
 
 cmd_start() {
-    local gpus="${1:-8}" hours="${2:-24h}" scope="${3:-all}"
+    local gpus="${1:-8}" hours="${2:-168h}" scope="${3:-all}"
     local t
     case "$hours" in
         *h) t=$(printf "%02d:00:00" "${hours%h}") ;;
@@ -59,11 +68,14 @@ cmd_start() {
         sleep 3
     fi
 
-    echo "提交: gpus=$gpus time=$t scope=$scope scene=${SA_SCENE:-synthetic} chain=${SA_CHAIN:-1}"
+    echo "提交: gpus=$gpus time=$t scope=$scope scene=${SA_SCENE:-synthetic} iters=${SA_ITERS:-400000} chain=${SA_CHAIN:-0} mem_ratio=${SA_MEM_RATIO:-0}"
     SA_SCRIPT_DIR="$SCRIPT_DIR" \
     SA_SCENE="${SA_SCENE:-synthetic}" \
     SA_SCOPE="$scope" \
-    SA_CHAIN="${SA_CHAIN:-1}" \
+    SA_ITERS="${SA_ITERS:-400000}" \
+    SA_CHAIN="${SA_CHAIN:-0}" \
+    SA_MEM_RATIO="${SA_MEM_RATIO:-0}" \
+    SA_SEED="${SA_SEED:-1234}" \
     sbatch --gres="gpu:${gpus}" --time="$t" \
         --job-name=sa_train "$SCRIPT_DIR/12_sa_train.sbatch"
 }
@@ -87,7 +99,7 @@ cmd_real() {
         exit 1
     fi
     echo "场景: $scene（$n 张图）"
-    SA_SCENE="$scene" cmd_start "${2:-8}" "${3:-24h}" "${4:-all}"
+    SA_SCENE="$scene" cmd_start "${2:-8}" "${3:-168h}" "${4:-all}"
 }
 
 cmd_ls() {

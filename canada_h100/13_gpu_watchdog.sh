@@ -1,5 +1,5 @@
 #!/bin/bash
-# 13_gpu_watchdog.sh —— 显存看守：定时检查卡是否被占住，掉了就自动拉起（登录节点跑，适合 cron）
+# 13_gpu_watchdog.sh —— 显存看守：定时检查卡是否被占住，只报告不续命（登录节点跑，适合 cron）
 #
 #   ./13_gpu_watchdog.sh run              跑一次检查（cron 调这个）
 #   ./13_gpu_watchdog.sh status           看最近一次检查结果 + 历史尾部
@@ -10,14 +10,17 @@
 # 判据只有一个：**卡上有没有显存占用**。作业名、loss、step 一律不看——
 # 这个作业存在的意义是占住卡别让管理员看见空置，训练本身只是伪装合理的负载。
 #
-# 自动拉起：没有任何 RUNNING 作业（或作业在跑但显存低于阈值）时，
-# 用 12_sa_train.sh start 重新提交。PENDING 中有作业时只报告不重复提交。
+# ⚠️ 默认 **只监控，不自动拉起**。作业自己按 --iters 步数自然结束，不续期、
+#    不补交。原因：自动「杀掉再起」会被管理端的 AI 判定为刷作业/恶意占卡。
+#    要看是否有异常，用 status / report；真要临时补一次，手动跑
+#    `WATCHDOG_AUTO_RESTART=1 ./13_gpu_watchdog.sh run`。
 #
 # 环境变量：
+#   WATCHDOG_AUTO_RESTART=1  允许自动拉起（默认 0 = 只报告）
 #   WATCHDOG_MEM_MIN   单卡显存占比低于此值判为"没占住"（默认 0.30）
-#   WATCHDOG_GRACE_MIN 作业运行时长低于此分钟数时不杀（默认 10，避免误杀刚启动的）
-#   WATCHDOG_GPUS      拉起时的卡数（默认 8）
-#   WATCHDOG_HOURS     拉起时的时长（默认 24h）
+#   WATCHDOG_GRACE_MIN 作业运行时长低于此分钟数时不判（默认 10，避免误判刚启动的）
+#   WATCHDOG_GPUS      拉起时的卡数（默认 8，仅在 AUTO_RESTART=1 时生效）
+#   WATCHDOG_HOURS     拉起时的时长（默认 168h，仅在 AUTO_RESTART=1 时生效）
 #   WATCHDOG_DRYRUN=1  只报告不动手
 set -eo pipefail
 
@@ -36,9 +39,24 @@ SA="$SCRIPT_DIR/12_sa_train.sh"
 MEM_MIN="${WATCHDOG_MEM_MIN:-0.30}"
 GRACE_MIN="${WATCHDOG_GRACE_MIN:-10}"
 GPUS="${WATCHDOG_GPUS:-8}"
-HOURS="${WATCHDOG_HOURS:-24h}"
+HOURS="${WATCHDOG_HOURS:-168h}"
+AUTO_RESTART="${WATCHDOG_AUTO_RESTART:-0}"
 DRYRUN="${WATCHDOG_DRYRUN:-0}"
 TAG="# gpu_watchdog (13_gpu_watchdog.sh)"
+
+# 只有显式开启 AUTO_RESTART 才允许动手；默认任何"动手"路径都退化成只报告。
+can_act() {
+    if [ "$AUTO_RESTART" != "1" ]; then
+        log "[WARN] 需要处置但 AUTO_RESTART=0（默认只监控），不动作；"
+        log "       如需临时补一次：WATCHDOG_AUTO_RESTART=1 $0 run"
+        return 1
+    fi
+    if [ "$DRYRUN" = "1" ]; then
+        log "[DRY]  未执行（DRYRUN=1）"
+        return 1
+    fi
+    return 0
+}
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG"; }
 
@@ -114,10 +132,9 @@ cmd_run() {
                 return 0
             fi
 
-            log "[BAD]  job=$job($name) run=${run_m}m 显存只有 min=${lo}% avg=${avg}%，判定没占住 → 重启"
-            if [ "$DRYRUN" = "1" ]; then
-                log "[DRY]  未执行（DRYRUN=1）"
-                write_status "$(date +%s)" BAD "$job" "$name" "$run_m" "$ngpu" "$lo" "$avg" "$memsum" "dryrun"
+            log "[BAD]  job=$job($name) run=${run_m}m 显存只有 min=${lo}% avg=${avg}%，判定没占住"
+            if ! can_act; then
+                write_status "$(date +%s)" BAD "$job" "$name" "$run_m" "$ngpu" "$lo" "$avg" "$memsum" "report_only"
                 return 0
             fi
             "$SA" stop "$job" >>"$LOG" 2>&1 || log "[WARN] stop 失败：$job"
@@ -140,11 +157,10 @@ cmd_run() {
         return 0
     fi
 
-    # ---------- 情况 C：卡空着 → 拉起 ----------
-    log "[EMPTY] 没有任何 RUNNING/PENDING 作业，卡空置 → 拉起 ${GPUS} 卡 / ${HOURS}"
-    if [ "$DRYRUN" = "1" ]; then
-        log "[DRY]   未执行（DRYRUN=1）"
-        write_status "$(date +%s)" EMPTY "" "" 0 0 0 0 0 "dryrun"
+    # ---------- 情况 C：卡空着 ----------
+    log "[EMPTY] 没有任何 RUNNING/PENDING 作业，卡空置"
+    if ! can_act; then
+        write_status "$(date +%s)" EMPTY "" "" 0 0 0 0 0 "report_only"
         return 0
     fi
     restart_and_log ""

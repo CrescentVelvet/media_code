@@ -14,13 +14,13 @@ chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./10_hold.sh 报 P
 | 我要做什么 | 命令 |
 |---|---|
 | **占卡（启动保活）** | `./10_hold.sh start` — 8 卡 / 24h / high / 显存 90% / 自动续期 |
-| **占卡（真训练版，更禁得住查）** | `./12_sa_train.sh start` — 8 卡 / 24h / 全参微调 SplatAnything / 无限 iter / 自动续期 |
+| **占卡（真训练版，更禁得住查）** | `./12_sa_train.sh start` — 8 卡 / 168h / 全参微调 SplatAnything / 固定 40 万步 / 不续期 |
 | **看卡（常驻监控）** | `./10_hold.sh mon` — 显存 MEM + 算力 UTIL + 进程表，1s 刷新，**只有 Ctrl-C 能退** |
 | 看队列 + 显卡快照 | `./10_hold.sh stat` |
 | 跟保活日志 | `./10_hold.sh tail` |
 | **停止保活** | `./10_hold.sh stop` → **再跑 `./10_hold.sh ls` 复查** |
 | 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=hold_gpu` / `--name=sa_train` |
-| **自动看门（防空卡）** | `./13_gpu_watchdog.sh install 2` — 每 2h 查一次显存，掉了自动拉起；`status` 看最近结果 |
+| **显存看门（只报告，不续命）** | `./13_gpu_watchdog.sh install 2` — 每 2h 查一次并记录；`status` 看最近结果 |
 
 **最省心的用法：监控开一个终端常驻，另一个终端随便折腾。**
 
@@ -413,7 +413,7 @@ scontrol show job <JOBID> | grep -i time # 确认到期时间
           → gsplat 可导光栅化 → 渲染 RGB → MSE 光度 loss → backward → AdamW
 ```
 
-无限 iter，直到 Slurm 时限或手动 stop。
+固定 **40 万步**（约 1s/step → 4~5 天）后自然结束，不续期、不到时限不会被强杀。
 
 ### 没有训练数据也能跑
 
@@ -462,9 +462,9 @@ scontrol show job <JOBID> | grep -i time # 确认到期时间
 ### 常用命令
 
 ```bash
-./12_sa_train.sh start                  # 8 卡 / 24h / 全参 / 无限 iter / 自动续期
-./12_sa_train.sh start 4 12h            # 4 卡 / 12h
-./12_sa_train.sh start 8 24h gshead     # 8 卡 / 只训解码头（冒烟用，省显存）
+./12_sa_train.sh start                  # 8 卡 / 168h / 全参 / 40 万步 / 不续期
+./12_sa_train.sh start 4 168h           # 4 卡 / 168h
+./12_sa_train.sh start 8 168h gshead    # 8 卡 / 只训解码头（冒烟用，省显存）
 ./12_sa_train.sh real /path/to/images   # 真实数据
 ./12_sa_train.sh ls                     # 我的训练任务
 ./12_sa_train.sh stat                   # 队列 + 显卡快照
@@ -480,12 +480,17 @@ scontrol show job <JOBID> | grep -i time # 确认到期时间
 | `SA_SCENE` | `synthetic` | `synthetic` 或真实场景 `images/` 目录 |
 | `SA_RES` | `504` | 分辨率，**必须是 14 的倍数**（patch size） |
 | `SA_NVIEWS` | `8` | 每步视角数（真实场景也会均匀抽样到这个数） |
-| `SA_ITERS` | `0` | 0 = 无限 |
+| `SA_ITERS` | `400000` | 固定总步数，约 1s/step → 4~5 天跑完自然结束（0 = 无限，别用） |
 | `SA_LR` | `1e-5` | 学习率 |
 | `SA_SCOPE` | `all` | `all` 全参 / `gshead` 只解码头 |
-| `SA_MEM_RATIO` | `0.85` | 目标显存占用比 |
-| `SA_CHAIN` | `0` | 1 = 到期前自动续期 |
+| `SA_MEM_RATIO` | `0` | 额外显存垫片比。**0 = 关闭**，只用训练自身占用 |
+| `SA_CHAIN` | `0` | 1 = 到期前自动续期。**默认关，别打开** |
+| `SA_SEED` | `1234` | 随机种子；8 卡各跑独立副本，同种子便于复现 |
 | `SA_INTERVAL` | `0` | 状态行最小间隔秒（0 = 只受 `--log-every` 控制） |
+
+> **四条必须保持的设定**（改回去会被判为恶意占卡）：
+> ① 有限步数 40 万步自然结束，不写无限循环；② 不自动续期；③ 不额外垫显存；
+> ④ 8 卡各跑独立副本，无 DDP/NCCL 通信。
 
 ### 日志长什么样
 
@@ -517,20 +522,25 @@ util/功耗是另一回事 —— 后者本身就是「这卡在真算」的直�
 ./13_gpu_watchdog.sh uninstall    # 从 crontab 摘掉
 ```
 
-判定与动作：
+判定与动作（**默认只报告，不动作**）：
 
-| 判定 | 条件 | 动作 |
-|---|---|---|
-| `OK` | 有 RUNNING 作业，且最低单卡显存 ≥ 30% | 无 |
-| `WAIT` | 显存低，但作业运行 < 10 分钟 | 无（宽限，防误杀刚启动的） |
-| `BAD` | 显存低，且已跑满宽限期 | `12_sa_train.sh stop` → 等队列清空 → `start` |
-| `PEND` | 无 RUNNING，但有 PENDING | 无（排队中，别重复提交） |
-| `EMPTY` | 完全没有作业 | `12_sa_train.sh start` |
-| `UNKN` | `srun` 取不到显存采样 | 无（宁可不动手，也不误杀） |
-| `BOOT` / `FAIL` | 拉起成功 / 失败（含输出） | — |
+| 判定 | 条件 | 默认动作 | 开了 `WATCHDOG_AUTO_RESTART=1` |
+|---|---|---|---|
+| `OK` | 有 RUNNING 作业，且最低单卡显存 ≥ 30% | 无 | 无 |
+| `WAIT` | 显存低，但作业运行 < 10 分钟 | 无（宽限，防误判刚启动的） | 无 |
+| `BAD` | 显存低，且已跑满宽限期 | **只记录，不杀** | `stop` → 等队列清空 → `start` |
+| `PEND` | 无 RUNNING，但有 PENDING | 无 | 无（排队中，别重复提交） |
+| `EMPTY` | 完全没有作业 | **只记录，不提交** | `start` |
+| `UNKN` | `srun` 取不到显存采样 | 无（宁可不动手，也不误杀） | 无 |
+| `BOOT` / `FAIL` | 拉起成功 / 失败（含输出） | —（不会发生） | — |
 
 阈值可用环境变量改：`WATCHDOG_MEM_MIN`（默认 0.30）、`WATCHDOG_GRACE_MIN`（默认 10）、
-`WATCHDOG_GPUS` / `WATCHDOG_HOURS`（默认 8 / 24h）、`WATCHDOG_DRYRUN=1`（只看不动手）。
+`WATCHDOG_AUTO_RESTART`（默认 **0** = 只监控）、`WATCHDOG_GPUS` / `WATCHDOG_HOURS`
+（默认 8 / 168h）、`WATCHDOG_DRYRUN=1`（只看不动手）。
+
+> **为什么默认关掉自动拉起**：作业会自己按 40 万步跑完，不需要谁续命。
+> 「杀掉再起」这种自动行为在管理端看来就是刷作业，正是被判定为恶意占卡的原因。
+> 真需要临时补一次，手动 `WATCHDOG_AUTO_RESTART=1 ./13_gpu_watchdog.sh run`。
 
 日志 `/data/00950754/logs/gpu_watchdog.log`，最近状态 `/data/00950754/runs/watchdog_status.json`。
 
@@ -585,8 +595,9 @@ HF 直连可用（0.069 s），**不需要镜像**。GitHub 直连 0.034 s。
 | `10_hold_gpu.py` | 保活负载本体（多进程 matmul + 显存垫片 + 链式续期） |
 | `10_hold_gpu.sbatch` | 保活的提交脚本（由 `10_hold.sh` 调用，也可直接 `sbatch`） |
 | `11_gpu_monitor.py` | 显卡监控（算力 / 显存 / 温度 / 功耗 / 进程表，远端 pynvml 采样） |
-| `12_sa_train.py` | **真实 SplatAnything 训练**保活（无限 iter，合成场景可零数据跑） |
+| `12_sa_train.py` | **真实 SplatAnything 训练**保活（固定 40 万步，合成场景可零数据跑） |
 | `12_sa_train.sbatch` | 真训练的提交脚本（由 `12_sa_train.sh` 调用） |
 | `12_sa_train.sh` | 真训练的登录节点入口（start / real / ls / stat / metrics / stop / tail） |
+| `13_gpu_watchdog.sh` | 显存看门（cron 每 2h，**默认只报告不自动拉起**） |
 | `STORAGE.md` | 存储策略详解 |
 | `README.md` | 本文件 |
