@@ -7,28 +7,24 @@
 #SBATCH --time=168:00:00
 #SBATCH -o /data/00950754/logs/sa_train_%j.out
 
-# SplatAnything 常驻训练（真训练，固定 40 万步，8 卡各跑独立副本，到期即停不续期）
+# SplatAnything 单节点多卡训练：torchrun 起 N 个进程，NCCL 数据并行。
 #
 # 通常不直接 sbatch 本文件，而用同目录的 12_sa_train.sh：
-#   ./12_sa_train.sh start            8 卡 / 168h / 全参微调 / 40 万步 / 不续期
-#   ./12_sa_train.sh start 4 168h     4 卡 / 168h
+#   ./12_sa_train.sh start             8 卡 / 168h / 全参 / 25 万步
+#   ./12_sa_train.sh start 4 168h      4 卡 / 168h
+#   ./12_sa_train.sh scene <场景目录>   指定单场景
 #   ./12_sa_train.sh stop
 #
-# 直接提交也行：
-#   sbatch 12_sa_train.sbatch
-#   sbatch --gres=gpu:4 --time=48:00:00 12_sa_train.sbatch
-#
-# 环境变量（统一加 SA_ 前缀，避免与 conda 的激活钩子撞名）：
-#   SA_SCENE=synthetic       synthetic = 程序化 360° 环绕场景（无数据也能真训）
-#                            或真实场景 images 目录
-#   SA_RES=504               训练分辨率长边（必须是 14 的倍数）
-#   SA_NVIEWS=8              每步视角数
-#   SA_ITERS=400000          固定总步数（≈1s/step → 约 4.6 天）；0 = 无限
-#   SA_LR=1e-5               学习率
-#   SA_SCOPE=all             all = 全参微调；gshead = 只训解码头（冒烟）
-#   SA_MEM_RATIO=0           额外显存垫片比；0 = 关闭（默认），只用训练自身占用
-#   SA_CHAIN=0               到期自动续期；默认 0 = 关闭
-#   SA_RUNDIR=               输出目录（显式指定时沿用，缺省按作业号新建）
+# 环境变量（SA_ 前缀）：
+#   SA_SCENE=       单场景 images 目录，给了就全卡共用
+#   SA_SCENES=      逗号分隔的多个场景目录；空 = examples/ 下 6 个按 rank 轮转
+#   SA_RES=504      训练分辨率长边（14 的倍数）
+#   SA_NVIEWS=8     每步视角数
+#   SA_ROTATE=500   每 N 步轮换视角窗口
+#   SA_ITERS=250000 总步数；0 = 不限
+#   SA_LR=1e-5      学习率
+#   SA_SCOPE=all    all = 全参微调；gshead = 只训解码头
+#   SA_RUNDIR=      输出目录（缺省按作业号新建）
 
 set -eo pipefail
 echo "job=$SLURM_JOB_ID node=$(hostname) start=$(date -Is)"
@@ -39,43 +35,44 @@ echo "脚本目录: $SCRIPT_DIR"
 
 source /data/00950754/envs/activate_splatanything.sh
 
-SCENE="${SA_SCENE:-synthetic}"
-RES="${SA_RES:-504}"
-NVIEWS="${SA_NVIEWS:-8}"
-ITERS="${SA_ITERS:-400000}"
-LR="${SA_LR:-1e-5}"
-SCOPE="${SA_SCOPE:-all}"
-MEM_RATIO="${SA_MEM_RATIO:-0}"
-INTERVAL="${SA_INTERVAL:-0}"
+RUNDIR="${SA_RUNDIR:-/data/00950754/runs/sa_train/job_${SLURM_JOB_ID}}"
+mkdir -p "$RUNDIR"
 
-# 全参训练（9.4 亿参数）的梯度与 AdamW 状态是巨型块分配，极易撞碎片。
-# OOM 报错本身也建议开这个：分割段落由驱动统一管理，省掉大量空洞。
+# 全参训练（9.4 亿参数）的梯度与 AdamW 状态是巨型块分配，分段由驱动统一管理
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
-EXTRA=()
-[ -n "${SA_RUNDIR:-}" ] && EXTRA+=(--rundir "$SA_RUNDIR")
-[ "${SA_CHAIN:-0}" = "1" ] && EXTRA+=(--chain)
-[ "${SA_POSE:-0}" = "1" ] && EXTRA+=(--pose-mode)
-EXTRA+=(--seed "${SA_SEED:-1234}")
+ARGS=(
+    --res "${SA_RES:-504}"
+    --n-views "${SA_NVIEWS:-8}"
+    --rotate-every "${SA_ROTATE:-500}"
+    --iters "${SA_ITERS:-250000}"
+    --lr "${SA_LR:-1e-5}"
+    --train-scope "${SA_SCOPE:-all}"
+    --seed "${SA_SEED:-1234}"
+    --rundir "$RUNDIR"
+    --ckpt-every "${SA_CKPT_EVERY:-20000}"
+)
+[ -n "${SA_SCENE:-}" ] && ARGS+=(--scene "$SA_SCENE")
+[ -n "${SA_SCENES:-}" ] && ARGS+=(--scenes "$SA_SCENES")
+[ "${SA_POSE:-0}" = "1" ] && ARGS+=(--pose-mode)
+[ "${SA_RESUME:-0}" = "1" ] && ARGS+=(--resume)
 
-# 权重缺失时自动补齐（只在计算节点需读权重时才跑，登录节点也能跑）
+NGPU="${SLURM_GPUS_ON_NODE:-8}"
+if ! [[ "$NGPU" =~ ^[0-9]+$ ]]; then
+    NGPU=8
+fi
+
 if [ ! -f /data/00950754/models/splatanything/SplatAnything.ckpt ]; then
-    echo "⚠️ 权重缺失，先跑 00_setup_sa.sh 下载（16 GB）"
+    echo "❌ 权重缺失，先跑 00_setup_env.sh 下载"
     exit 1
 fi
 
-mkdir -p /data/00950754/runs/sa_train
+echo "启动 torchrun: ${NGPU} 进程  rundir=$RUNDIR  iters=${SA_ITERS:-250000}"
 cd /data/00950754/code/media_code/canada_h100
 
-python "$SCRIPT_DIR/12_sa_train.py" \
-    --scene "$SCENE" \
-    --res "$RES" \
-    --n-views "$NVIEWS" \
-    --iters "$ITERS" \
-    --lr "$LR" \
-    --train-scope "$SCOPE" \
-    --mem-ratio "$MEM_RATIO" \
-    --interval "$INTERVAL" \
-    "${EXTRA[@]}"
+# 单节点独立启动：--standalone 让 torchrun 自建 rendezvous，不依赖外部服务
+torchrun --standalone --nnodes=1 --nproc_per_node="$NGPU" \
+    "$SCRIPT_DIR/12_sa_train.py" "${ARGS[@]}"
 
 echo "end=$(date -Is)"

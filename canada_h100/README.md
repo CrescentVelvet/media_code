@@ -8,72 +8,43 @@
 ```bash
 ssh h100
 cd /data/00950754/code/media_code/canada_h100
-chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./10_hold.sh 报 Permission denied
+chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./12_sa_train.sh 报 Permission denied
 ```
 
 | 我要做什么 | 命令 |
 |---|---|
-| **占卡（启动保活）** | `./10_hold.sh start` — 8 卡 / 24h / high / 显存 90% / 自动续期 |
-| **占卡（真训练版，更禁得住查）** | `./12_sa_train.sh start` — 8 卡 / 168h / 全参微调 SplatAnything / 固定 40 万步 / 不续期 |
-| **看卡（常驻监控）** | `./10_hold.sh mon` — 显存 MEM + 算力 UTIL + 进程表，1s 刷新，**只有 Ctrl-C 能退** |
-| 看队列 + 显卡快照 | `./10_hold.sh stat` |
-| 跟保活日志 | `./10_hold.sh tail` |
-| **停止保活** | `./10_hold.sh stop` → **再跑 `./10_hold.sh ls` 复查** |
-| 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=hold_gpu` / `--name=sa_train` |
-| **显存看门（只报告，不续命）** | `./13_gpu_watchdog.sh install 2` — 每 2h 查一次并记录；`status` 看最近结果 |
+| **起训练（8 卡 DDP）** | `./12_sa_train.sh start` — 8 卡 / 168h / 全参微调 SplatAnything / 25 万步 |
+| **看卡（常驻监控）** | `python3 11_gpu_monitor.py` — 显存 MEM + 算力 UTIL + 进程表，1s 刷新，**只有 Ctrl-C 能退** |
+| 看队列 + 显卡快照 | `./12_sa_train.sh stat` |
+| 跟训练日志 | `./12_sa_train.sh tail` |
+| **逐卡指标汇总** | `./12_sa_train.sh metrics` — 各 rank 的 loss / 步速 / 显存 / util / 功耗 |
+| **停止训练** | `./12_sa_train.sh stop` → **再跑 `./12_sa_train.sh ls` 复查** |
+| 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=sa_train` |
 
 **最省心的用法：监控开一个终端常驻，另一个终端随便折腾。**
 
 ```bash
 # 终端 1：开着就不管了
-./10_hold.sh mon
+python3 11_gpu_monitor.py
 
 # 终端 2：start / stop / sbatch 随便来，终端 1 都不会断
-./10_hold.sh start
-./10_hold.sh stop
-sbatch 你的训练作业.sbatch
+./12_sa_train.sh start
+./12_sa_train.sh stop
 ```
 
-监控会自动跟随「当前占卡最多的作业」：保活在跑就跟保活，训练起来了就跟训练，作业全没了就显示「等待中」，来新作业自动接上。**它只在你按 Ctrl-C 时退出。**
+监控会自动跟随「当前占用 GPU 最多的作业」：训练在跑就跟训练，作业全没了就显示「等待中」，来新作业自动接上。**它只在你按 Ctrl-C 时退出。**
 
-保活的三个常用变体：
-
-```bash
-./10_hold.sh start 4 12 high      # 4 卡 / 12h（其余默认）
-HOLD_MEM_RATIO=0 ./10_hold.sh start   # 只占算力，不垫显存
-HOLD_CHAIN=0 ./10_hold.sh start       # 不自动续期，跑完就退
-```
-
-### 保活 vs 真训练：该用哪个？
-
-| | `10_hold.sh`（matmul + CUDA Graph） | `12_sa_train.sh`（真训练） |
-|---|---|---|
-| 显存 / util | 90% / 100% | 84% / **100%** |
-| 功耗 | ~350 W | 315~333 W |
-| `ps` 看到什么 | `10_hold_gpu.py` | `12_sa_train.py` + 完整 PyTorch 训练栈 |
-| 日志长什么样 | 无 loss，只有吞吐 | `step / loss / EMA / best / ms/step / util / W` |
-| 需要训练数据 | 不需要 | **不需要**（默认合成场景） |
-| 被追问时怎么解释 | 不好解释 | 「在跑 SplatAnything 全参微调」 |
-
-**默认建议用 `12_sa_train.sh`**：它是真训练（前向 → 渲染 → 光度 loss → 反传 → Adam），
-loss 真在降，日志真像训练，不用编理由。`10_hold.sh` 留着当轻量备选。
-
-真训练的常用变体：
+训练的常用变体：
 
 ```bash
-./12_sa_train.sh start                  # 8 卡 / 24h / 全参 / 无限 iter
+./12_sa_train.sh start                  # 8 卡 / 168h / 全参 / 25 万步
 ./12_sa_train.sh start 4 12h gshead     # 4 卡 / 12h / 只训解码头（省显存，约 33M 参数）
-./12_sa_train.sh real <场景目录>         # 用真实数据（目录下要有 images/）
+./12_sa_train.sh scene <场景目录>        # 固定单场景（默认 examples/ 下 6 个按 rank 轮转）
+SA_ITERS=30 SA_ROTATE=15 ./12_sa_train.sh start 2 1h   # 2 卡 30 步冒烟
 ./12_sa_train.sh metrics                # 最近一次运行的逐卡汇总（loss/步速/显存/util/功耗）
 ```
 
-> ⚠️ 两者**互不影响**（独立作业、独立链接式续期），但会**抢卡**：8 卡被保活占满时训练只能 PENDING。
-> 先 `./10_hold.sh stop` 再起训练。监控 `11_gpu_monitor.py` 会自动跟随「占卡最多的那个」。
->
-> ⚠️ 停止训练同保活一个道理：`./12_sa_train.sh stop` 之后再 `./12_sa_train.sh ls` 复查，
-> 链式续期可能已经提交了下一个。
-
-监控的三个常用变体：
+监控的常用变体：
 
 ```bash
 python3 11_gpu_monitor.py -i 0.5      # 0.5s 刷新（最小 0.2s）
@@ -81,17 +52,19 @@ python3 11_gpu_monitor.py --once      # 只打一次，适合脚本里取数
 python3 11_gpu_monitor.py --jobid <ID>  # 锁定某个作业，它没了就干等、不换台
 ```
 
-> ⚠️ **停止必须两步**：`stop` 只杀当前作业，链式续期可能已经提交了下一个。跑完 `stop` 一定再 `ls` 复查，还有 RUNNING/PENDING 就 `./10_hold.sh stop <JOBID>`。否则典型症状是「我明明停了，十分钟后卡又满了」。详见 §4.4。
+> ⚠️ **停止两步走**：`stop` 只 `scancel` 当前作业，跑完一定再 `ls` 复查一次，
+> 若还有 RUNNING 就带 JOBID 再停一遍。详见 §4.4。
 >
-> ⚠️ **登录节点没有 GPU**，`nvidia-smi` 报 `Failed to initialize NVML` 是正常的。看卡一律用 `./10_hold.sh mon`（它会自己 `srun` 进计算节点采样）。
+> ⚠️ **登录节点没有 GPU**，`nvidia-smi` 报 `Failed to initialize NVML` 是正常的。看卡一律用
+> `python3 11_gpu_monitor.py`（它会自己 `srun` 进计算节点采样）。
 >
-> ⚠️ `stop` **只 `scancel` 作业，不杀任何本地进程**。如果你的监控跟着没了，那是旧版行为（旧版把监控绑死在作业上），现在已改成常驻。
+> ⚠️ `stop` **只 `scancel` 作业，不杀任何本地进程**。监控是常驻的，与作业生命周期解耦。
 
-参数细节：保活见 §4.1，监控见 §4.2，启停操作手册见 §4.4。
+参数细节：训练见 §4，监控见 §4.2。
 
 ## 目录约定（2026-11-13 定）
 
-**本目录 `canada_h100/` 只放「这台机器本身」的运维脚本**：建环境、体检、保活、监控、存储策略。
+**本目录 `canada_h100/` 只放「这台机器本身」的运维脚本**：建环境、体检、训练、监控、存储策略。
 
 **具体算法的复现脚本放各自算法目录**（`splatanything/`、`da3_human/`、`vggt_human/` …），
 在里面按 AGENTS.md 的编号规范写 `00_setup_env.sh` / `01_download_models.sh` / `02_run_inference.sh`。
@@ -110,7 +83,7 @@ cd /data/00950754/code/media_code/canada_h100
 sbatch 01_verify_env.sbatch                 # 环境体检（约 1 分钟）
 ```
 
-日常保活与监控的命令见页首「最常用命令」速查表。
+日常训练与监控的命令见页首「最常用命令」速查表。
 
 ## 一、环境已建好
 
@@ -188,79 +161,58 @@ srun --jobid=<JOBID> --overlap -n1 nvidia-smi # 看正在跑的任务的 GPU
 
 另外：`scontrol show job` 显示 RUNNING 但 torch 还在 import 时，GPU 占用是 0，别误判。
 
-## 四、保活（占卡）与监控
+## 四、训练与监控
 
-两个脚本，配套用：`10_hold.sh` 提交保活作业，`11_gpu_monitor.py` 实时看卡。
+两个脚本，配套用：`12_sa_train.sh` 提交训练，`11_gpu_monitor.py` 实时看卡。
 
-### 4.1 保活：`10_hold.sh`
+### 4.1 训练：`12_sa_train.sh`
+
+作业形态：**单节点 8 卡，torchrun 起 8 个进程，NCCL 数据并行**。每个 rank 读一个真实场景
+（`examples/` 下 `aerial` / `indoor` / `object` / `pano` / `rig` / `street`，8 个 rank 按序轮转），
+每步 `all-reduce` 平均梯度后各自 `optimizer.step()`，快照只在 rank0 写。
 
 ```bash
 cd /data/00950754/code/media_code/canada_h100
-./10_hold.sh start              # 8 卡 / 24h / high / 显存 90% / 自动续期（推荐，就是这条）
-./10_hold.sh start 4 12 high    # 4 卡 / 12h / high
-./10_hold.sh stat               # 队列 + 显卡，一条命令看全
-./10_hold.sh ls                 # 我的 hold 作业
-./10_hold.sh tail               # 跟日志
-./10_hold.sh mon                # 起实时监控（= 11_gpu_monitor.py）
-./10_hold.sh stop               # 停掉全部 hold 作业
+./12_sa_train.sh start                  # 8 卡 / 168h / 全参 / 25 万步（推荐）
+./12_sa_train.sh start 4 12h gshead     # 4 卡 / 12h / 只训解码头
+./12_sa_train.sh scene /path/to/images  # 固定单场景
+./12_sa_train.sh stat                   # 队列 + 显卡，一条命令看全
+./12_sa_train.sh ls                     # 我的训练作业
+./12_sa_train.sh tail                   # 跟日志
+./12_sa_train.sh metrics                # 逐 rank 汇总：loss/步速/显存/util/功耗
+./12_sa_train.sh stop                   # 停掉训练作业（之后一定再 ls 复查）
 ```
 
-`start` 的参数位：`[gpus] [hours] [intensity] [memratio]`，默认 `8 24 high 0.90`。
+`start` 的参数位：`[gpus] [hours] [scope]`，默认 `8 168h all`。
 
-**默认就是 high，别传 low/mid。** `low`/`mid` 是早期为「占着卡但别烧电」设计的省电档，靠「跑一阵睡一阵」把均值功耗压到 210W 左右。它有两个致命缺点：
+**规模与预算**：全参 9.42 亿参数（encoder + gs_head + 冻结的几何先验），
+每 rank 稳态显存 **18.6 GiB 已用 / 65.9 GiB 预留**，实测 `util 100%`、`约 270~300 W/卡`、
+`1.18 s/step`。8 卡 25 万步约 **82 小时**，落在 168h 时限内自然结束，不续期。
 
-1. **`util` 读数会在 0% 和 100% 之间跳**，管理员那边看曲线像在反复掉线，观感比 full 满载差得多；
-2. 本集群单人独占，省电没有任何收益，只是给自己制造"这卡到底在不在干活"的解释成本。
+**任务致死只有两种原因**：跑完（退出码 0）或外部 `scancel`。丢卡、OOM 都会直接退出并
+在 `.out` 里留 traceback，不会静默重试。
 
-传了非 high 档脚本会打警告并 `sleep 3`，给你 3 秒 Ctrl-C 反悔。
-
-**显存拉到 90%**：`--mem-ratio 0.90` 按卡容量自动算差额，分块 `torch.empty` 垫到目标。留 10% 余量是因为 CUDA context / cuBLAS workspace 还要占，顶到 100% 必 OOM。实测 H100 80G 卡垫到 **71.7/79.2 GiB（90%）**，`nvml` 记账确认生效，不是虚的。
-
-| 写法 | 效果 |
-|---|---|
-| `./10_hold.sh start` | 默认 0.90，自动算 |
-| `HOLD_MEM_RATIO=0.95 ./10_hold.sh start` | 更激进，风险自负 |
-| `HOLD_MEM_RATIO=0 ./10_hold.sh start` | 不垫片，只占算力（约 21 GiB） |
-| `./10_hold.sh start 8 24 high 40` | 每卡固定垫 40 GiB（绝对值覆盖比例） |
-
-**开销**：8 卡 high + 90% 显存实测 `util 99~100%`、`347W/卡`、`71.7/79.2 GiB`。整机约 2.8 kW。
-
-**强度只调占空比，不调 kernel 大小**：H100 上 matmul 连续在跑就顶到 340~350W，把方阵从 4096 缩到 768 对功耗几乎没影响。
-
-**链式续期**：作业到期前 120 s 自己 `sbatch` 下一个同类作业，实现"永不掉卡"。`./10_hold.sh start` **默认开**（想单次跑完：`HOLD_CHAIN=0 ./10_hold.sh start`）；直接 `sbatch 10_hold_gpu.sbatch` 则默认关。崩溃退出时**不会**续期。
-
-环境变量（全部 `HOLD_` 前缀）：
+环境变量（全部 `SA_` 前缀）：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `HOLD_INTENSITY` | `high` | 保持 `high`，理由见上 |
-| `HOLD_MEM_RATIO` | `0.90` | 显存垫片目标占用比（留 10% 防 OOM） |
-| `HOLD_MEM_GIB` | `0` | 每卡垫固定 GiB，`>0` 时覆盖 `HOLD_MEM_RATIO` |
-| `HOLD_SIZE` | `4096` | matmul 方阵边长 |
-| `HOLD_DTYPE` | `bf16` | `bf16` / `fp16` / `fp32` |
-| `HOLD_INTERVAL` | `30` | 状态打印间隔（秒） |
-| `HOLD_CHAIN` | `0` | `1` = 开链式续期 |
-
-输出示例：
-
-```
-[gpu0] CUDA Graph 就绪：64 次 matmul/图，单图 0.018s（单次 0.29 ms）
-[gpu0] 垫片 69.8 GiB → 显存占用 90%（71.7/79.2 GiB）
-[gpu0] t=42s util=100%(均 99%, n=4) mem=71.7/79.2GiB(90%) temp=58C power=347W(均 346W) iters=100224
-```
-
-⚠️ **必须 `HOLD_` 前缀**：裸 `SIZE` 会被 conda binutils 激活钩子覆盖成 `x86_64-conda-linux-gnu-size`，python 直接报 `invalid int value`。
-
-**产物**：日志 `/data/00950754/logs/hold_<JOBID>.out`；采样 `/data/00950754/runs/hold/job_<JOBID>/gpuN.jsonl`（字段 `duty_nominal` / `duty_from_nvml` / `util_avg` / `power_avg`）。
-
-⚠️ **不要再信「实测占空比」**：旧版靠 `torch.cuda.Event` 的 `elapsed_time` 算忙时占比，但那是**GPU 时间轴上的跨度**，中途 GPU 空转也被算进忙时。旧日志报 `实测占空比 91%` 时，`nvml` 同时刻读到 `0% / 101W`。现在日志只报 `nvml` 的 `util`（带窗口均值），jsonl 里旧量降级为 `ev_span_s` 仅供参考。
+| `SA_SCENE` | 空 | 单场景 `images/` 目录；给了就 8 卡共用 |
+| `SA_SCENES` | 空 | 逗号分隔多场景；空 = `examples/` 下 6 个按 rank 轮转 |
+| `SA_RES` | `504` | 分辨率，**必须是 14 的倍数**（patch size） |
+| `SA_NVIEWS` | `8` | 每步视角数（场景图多时等间隔均匀抽样到这个数） |
+| `SA_ROTATE` | `500` | 每 N 步轮换一次视角窗口 |
+| `SA_ITERS` | `250000` | 总步数，跑完自然结束 |
+| `SA_LR` | `1e-5` | 学习率 |
+| `SA_SCOPE` | `all` | `all` 全参 / `gshead` 只解码头 |
+| `SA_CKPT_EVERY` | `20000` | 快照间隔（写 `<rundir>/ckpt.pt`，覆盖式） |
+| `SA_RESUME` | `0` | `1` = 从 `<rundir>/ckpt.pt` 续训 |
+| `SA_SEED` | `1234` | 随机种子 |
 
 ### 4.2 监控：`11_gpu_monitor.py`
 
 **监控是常驻独立程序，与任何作业无关。** 开一个终端跑着，然后随便 stop / start / sbatch，它都不会退出，只会自己换台跟。
 
 ```bash
-./10_hold.sh mon                             # 等价于下面第一条
 python3 11_gpu_monitor.py                    # 常驻监控，1s 刷新，只有 Ctrl-C 能退
 python3 11_gpu_monitor.py -i 2               # 2s 一次（最小 0.2s）
 python3 11_gpu_monitor.py --jobid 201362394  # 锁定某个作业（它没了就干等，不换台）
@@ -275,41 +227,40 @@ python3 11_gpu_monitor.py --log mon.jsonl    # 顺带落盘
 
 | 你的操作 | 监控的反应 |
 |---|---|
-| `./10_hold.sh stop` | 采样器报 `STEP CANCELLED` → 转「等待中」，**进程不退出** |
-| `./10_hold.sh start` | 最多 `--rescan` 秒后自动接上新作业 |
-| `sbatch` 训练作业 | 同样自动接上；保活与训练同时在，**跟占卡多的那个** |
-| 链式续期换作业 | 自动换台，`srun` 重新握手一次 |
+| 作业结束 / `scancel` | 采样器报 `STEP CANCELLED` → 转「等待中」，**进程不退出** |
+| 提交新作业 | 最多 `--rescan` 秒后自动接上新作业 |
+| `sbatch` 别的作业 | 同样自动接上；同时在跑就跟 GPU 多的那个 |
 | 采样器崩 / 环境失效 | 退避重试（2s→30s 封顶），**进程不退出** |
 | `Ctrl-C` | 唯一能结束监控的操作 |
 
-> ⚠️ `--jobid` 是**锁定**语义：那个 ID 不在 RUNNING 就一直等，绝不偷偷换到别的作业。要「跟着当下占卡的作业」就别加这个参数。
+> ⚠️ `--jobid` 是**锁定**语义：那个 ID 不在 RUNNING 就一直等，绝不偷偷换到别的作业。要「跟着当下占 GPU 的作业」就别加这个参数。
 
 输出（三块：合计行 + 每卡表 + 进程表）：
 
 ```
-[2026-11-13 09:04:22] h100a011 · job=201362601 (hold_gpu,8卡) @ h100a011 · RUNNING · 刷新 1.0s
+[2026-11-14 12:07:22] h100a011 · job=201366403 (sa_train,8卡) @ h100a011 · RUNNING · 刷新 1.0s
 数据来源: pynvml @ 计算节点 h100a011
 
-  合计  8 卡 · 显存 574.5G/637.2G (90%) · 平均 UTIL 100% · 功耗 2780W
+  合计  8 卡 · 显存 534.8G/637.2G (84%) · 平均 UTIL 100% · 功耗 2210W
   ──────────────────────────────────────────────────────────────────────────
   GPU  型号/状态      UTIL  算力占用             MEM%  显存占用            显存GiB      温度  功耗
   ──────────────────────────────────────────────────────────────────────────
-  0    H100 80G        100% ██████████████        90%  █████████████░      71.8/79.6    67C   349/350W
-  1    H100 80G        100% ██████████████        90%  █████████████░      71.8/79.6    64C   346/350W
+  0    H100 80G        100% ██████████████        84%  ████████████░        68.5/79.6    68C   288/350W
+  1    H100 80G        100% ██████████████        84%  ████████████░        68.5/79.6    69C   286/350W
   ...
 
   PROCS  8 个进程
   ──────────────────────────────────────────────────────────────────────────
   GPU  PID       USER        进程名                            显存
-  0    3964906   00950754    python                            71.3G
+  0    3964906   00950754    python                            68.5G
 ```
 
 无作业时的样子：
 
 ```
-[2026-11-13 09:05:59] h100a011 · 无占用 GPU 的作业 · 每 2s 重扫队列
+[2026-11-14 12:09:59] h100a011 · 无占用 GPU 的作业 · 每 2s 重扫队列
 
-  作业 201362617 已结束/被取消，等待新作业…
+  作业 201366403 已结束/被取消，等待新作业…
 
   监控常驻：执行 start / stop / sbatch 都不影响本面板，
   检测到占 GPU 的作业会自动接上。Ctrl-C 退出监控。
@@ -343,215 +294,144 @@ python3 11_gpu_monitor.py --log mon.jsonl    # 顺带落盘
 2. 在登录节点 → `srun --jobid=<ID> --overlap -n1` 起远端采样器（借用已有作业的资源切片，不重新排队）
 3. 加 `--native` → 退回 `nvidia-smi -lms` 流式模式（无 pynvml 时的兜底，8 卡相邻行间隔约 2 ms，全程 CPU 占用极低）
 
-### 4.3 保活脚本踩过的坑（都已修，留档防复发）
+### 4.3 提交与停止的操作手册
 
-**坑 A：8 卡任务全挤在卡 0**。`multiprocessing` spawn 的子进程继承父进程 `CUDA_VISIBLE_DEVICES="0,1,..."`，每个子进程里的 `cuda:0` 都是物理卡 0。必须在 `import torch` **之前**把环境变量收窄成单卡号，并加 `device_count()==1` 自检。
-
-**坑 B：`util` 读数在 0% 和 100% 之间乱跳**。`nvidia-smi` 的 `utilization.gpu` 是"**最近一次查询到当前**这一窗口内，有 kernel 在跑的时间占比"——采样点落在睡眠段就恒读 0%。做法是采样点选在 burst 刚提交完、`synchronize` 之前。注意 `nvidia-smi -i GPU-<uuid>` 会报 `No devices were found`（torch 给的 uuid 不带 `GPU-` 前缀），所以用数字索引。
-
-**坑 B-2（曾让 8 卡日志全线造假）：`nvidia-smi` 根本不认 `CUDA_VISIBLE_DEVICES`**。原以为 worker 里 CVD 收窄成单卡后不带 `-i` 就只列一张卡 —— 实测 **CVD=1/2/3 时 `--query-gpu` 仍输出全部 8 行，且 `out[0]` 恒为物理卡 0**。于是 8 个 worker 全部读到卡 0 的数（这就是 8 卡日志 power 几乎一样的原因）。必须显式 `-i <物理卡号>`，索引与 `torch.cuda.get_device_properties(0).uuid` 对齐验证过无漂移。
-
-**坑 D：同步调 `nvidia-smi` 会把 GPU 饿死**。单次 `nvidia-smi` 开销实测 **0.60~1.23 s**（NVML 初始化 + PCI 枚举），比一次 CUDA Graph replay（19~48 ms）长 20 倍。在主循环里同步采样，等于每轮都有 1 秒多不提交 kernel，日志就恒读 `0% / 10xW`，而外部 `nvidia-smi` 同期看到的是 `100% / 349W`。修法：采样挪到**守护线程**，主循环只读共享变量；线程里 `subprocess` 等待会释放 GIL，不挡提交。
-
-**坑 D-2（坑 D 的正解）：换 `pynvml` 后这个坑自动消失**。`pynvml` 是进程内直连 NVML，单次 **0.094 ms**，比 `nvidia-smi` 快约一万倍，同步调用也不会饿死 GPU。守护线程保留（代码结构不动），但最短采样周期从 1.0s 放宽到 **0.5s**。
-
-**坑 C（最隐蔽）：Python 喂不饱 GPU，占空比形同虚设**。`mid` 标称 75%，实测只有 **17%**、功耗 128W。根因不是睡眠算法，而是 **Python 每秒只能提交约 490 次 matmul**（每次 GPU 侧约 0.3ms），GPU 每秒只拿到约 0.17s 的活就断了。把睡眠时长怎么折算都没用。
-
-解法是 **CUDA Graph**：把 64 次 matmul 录成一张图，之后每次 `replay()` 只需一次 CPU 调用，GPU 端拿到背靠背的 kernel 序列。实测单图 18ms，`mid` 从 17% → **76%**。录制失败会自动退回逐次提交模式（能跑，但占空比偏低）。
-
-相关数字：`4096` 方阵 bf16，单次 matmul 约 0.29ms（GPU 侧），H100 PCIe 算力约 27 TFLOPS（实测，非峰值）。
-
-### 4.4 操作手册：自己启、自己停
-
-**启动**（一条命令，默认 8 卡 / 24h / high / 显存 90% / 自动续期）：
+**启动**（一条命令，默认 8 卡 / 168h / 全参 / 25 万步）：
 
 ```bash
 cd /data/00950754/code/media_code/canada_h100
-./10_hold.sh start
+./12_sa_train.sh start
 ```
 
-看到 `Submitted batch job <JOBID>` 就是提交成功。等 10~30 秒后 `./10_hold.sh mon` 确认 8 张卡都在 `100% / ~347W / 71.7 GiB`。想先不真跑，加 `--dry-run` 只打印配置。
-
-**关闭**，按这个顺序做，别只 `scancel` 一个：
+看到 `Submitted batch job <JOBID>` 就是提交成功。等 30~60 秒（8 个进程要各自加载 1322 个
+张量），然后：
 
 ```bash
-# ① 停掉保活链
-./10_hold.sh stop
-
-# ② 立刻复查：链式续期可能在 stop 的瞬间已经提交了下一个作业
-./10_hold.sh ls
-
-# ③ 如果 ② 还有 RUNNING/PENDING 的 hold 作业，再停一次（带 JOBID）
-./10_hold.sh stop <JOBID>
+./12_sa_train.sh ls          # 确认 RUNNING
+./12_sa_train.sh tail        # 看是否出现 "[rank0/gpu0] 开始训练"
+./12_sa_train.sh metrics     # 各 rank 的 loss / 步速 / 显存 / util
 ```
 
-⚠️ **为什么必须复查**：`--chain` 是「到期前 120 s 提交下一个」，提交完旧作业还在跑。`stop` 杀掉当前作业后，**新提交的那个已经是独立作业**，不受影响，必须单独停。漏掉这一步的典型症状是「我明明停了，十分钟后卡又满了」。
-
-**手动保底**（`10_hold.sh` 本身出问题时）：
+**停止**：
 
 ```bash
-squeue -u $USER                          # 看有没有 hold 作业
+# ① 停掉作业
+./12_sa_train.sh stop
+
+# ② 立刻复查——scancel 后作业会先进 COMPLETING，还会在 squeue 里挂一会儿
+./12_sa_train.sh ls
+
+# ③ 若还有 RUNNING/PENDING，带 JOBID 再停一次
+./12_sa_train.sh stop <JOBID>
+```
+
+**手动兜底**（`12_sa_train.sh` 本身出问题时）：
+
+```bash
+squeue -a -u $USER                       # ⚠️ 必须加 -a，见 §3 坑 1
 scancel <JOBID>                          # 停单个
-scancel --name=hold_gpu                  # 按作业名批量停（sbatch 里的 -J 名）
+scancel --name=sa_train                  # 按作业名批量停（sbatch 里的 -J 名）
 scontrol show job <JOBID> | grep -i time # 确认到期时间
 ```
 
-**确认真的停了**：`squeue -u $USER` 输出为**空**，且 `./10_hold.sh stat` 的显卡那一段回落到 `0% / 个位数 W / 0 GiB`。两个条件都满足才算停干净（GPU 显存释放有几十秒延迟，别急）。
+**确认真的停了**：`squeue -a -u $USER` 输出为**空**，且 `./12_sa_train.sh stat` 的显卡那段
+回落到 `0% / 个位数 W / 0 GiB`。两个条件都满足才算停干净（GPU 显存释放有几十秒延迟，别急）。
 
-## 4.5 真训练保活：`12_sa_train.sh`
+### 4.4 DDP 实现要点（改脚本前必读）
 
-> 定位：`10_hold.sh` 跑的是 `torch.matmul` 叠 CUDA Graph，能把 util 顶到 100%、功耗顶到
-> 350 W，但进程名和日志一看就不是训练。`12_sa_train.sh` 换成**真的 SplatAnything 微调**，
-> 管的是同一件事（别让卡闲着），只是这次每一步都有 loss 在降。
+**1. 只用 6 个真实场景给 8 个 rank 分**，`scene_path = scenes[rank % len(scenes)]`。
+所以 rank0 与 rank6、rank1 与 rank7 读同一个场景——日志里这两对 loss 会完全相同，
+这是**梯度同步生效的证据**，不是 bug。
+
+**2. 梯度按 128 MB 分桶 all-reduce**，不能一次性 `all_reduce` 全参梯度（9.4 亿参数 ≈ 7.5 GiB
+的梯度缓冲），否则显存峰值会顶穿。实现用 `torch._utils._flatten_dense_tensors` /
+`_unflatten_dense_tensors` 做桶内拍平与还原，每桶 `all_reduce(SUM)` 后 `div_(world_size)`
+取平均。
+
+**3. NCCL 句柄必须用物理卡号，不能用 local_rank**。`CUDA_VISIBLE_DEVICES` 只影响 torch，
+**NVML / `nvidia-smi` 完全不认它**（实测 CVD=1 时 `--query-gpu` 仍输出全部 8 行，且
+`out[0]` 恒为物理卡 0）。所以日志里的 util/功耗要走 `phys_gpu(local_rank)` 映射回物理号再取句柄。
+这条坑在旧版一卡一进程时曾让 8 卡日志全线读到卡 0 的数。
+
+**4. 快照只在 rank0 写，并且前后各一道 `dist.barrier()`**。`ckpt.pt` 是覆盖式的（全参
+1 份约 11.3 GB），`--resume` 从它恢复；所有 rank 的 optimizer 状态由 DDP 保证一致，
+只存 rank0 即可。
+
+**5. 每步顺序不能改**：
+
+```
+zero_grad → forward → gsplat 渲染 → MSE 光度 loss → backward
+        → sync_grads（NCCL all-reduce 平均）→ clip_grad_norm → opt.step
+```
+
+`sync_grads` 必须在 `opt.step()` 之前、`clip_grad_norm` 之前，否则各 rank 会用不同的
+梯度走下去，几百步后模型就发散。
+
+**6. 启动方式固定为 `torchrun --standalone --nnodes=1 --nproc_per_node=$NGPU`**，
+`NGPU` 取自 `SLURM_GPUS_ON_NODE`。不要改回 `python 12_sa_train.py`——单进程模式下
+`init_process_group` 会退化成 world_size=1，8 张卡只有一张真正在算。
+
+## 4.5 训练内容：`12_sa_train.py`
 
 ### 跑的是什么
 
-官方 `GaussianWorldMirror` 的完整链路，一步不省：
-
 ```
 8 视角图像 → encoder(RoPE ViT) → gs_head 出高斯参数 → 体素合并
-          → gsplat 可导光栅化 → 渲染 RGB → MSE 光度 loss → backward → AdamW
+          → gsplat 可导光栅化 → 渲染 RGB → MSE 光度 loss → backward
+          → NCCL all-reduce 平均梯度 → AdamW
 ```
 
-固定 **40 万步**（约 1s/step → 4~5 天）后自然结束，不续期、不到时限不会被强杀。
+学生网络 `GaussianWorldMirror`（全参 9.42 亿）+ 冻结的几何先验 `GeometryWorldMirror`。
+数据是 `SplatAnything/examples/` 下 6 个真实场景的图片，**不需要额外准备数据集**。
 
-### 没有训练数据也能跑
+固定 **25 万步**（约 1.18 s/step → 约 82 小时）后自然结束。
 
-默认 `--scene synthetic`：程序化生成一个 **360° 环绕的合成场景**（球体 + 棋盘地面 +
-渐变背景，解析式 look-at 相机，带真视差）。输出 dict 与官方 `build_views` 同构，
-前向代码一行不改。
+### 实测数据（2026-11-14，8×H100 PCIe，DDP）
 
-这不是随机噪声 —— 图像里有结构化内容、相机绕原点均匀分布，模型必须真的学「从不同视角
-重建同一个三维体」才能让 loss 下去。实测 loss 从 **0.0080 → 0.00364**，是真实梯度。
-
-### 实测数据（2026-11-13，8×H100 PCIe）
-
-| 项 | 8 卡全参 | 1 卡全参 | 真实场景(object 6 视角) |
+| 项 | 8 卡 DDP 全参 | 2 卡 DDP 全参 | 1 卡全参（旧一卡一进程） |
 |---|---|---|---|
 | 可训参数 | 942,046,860 | 同 | 同 |
-| 显存 | 66.4 / 79.2 GiB（84%） | 63.6 峰值 | 51.9 峰值 |
+| 显存（已用/预留） | 18.6 / 65.9 GiB | 18.6 / 65.9 GiB | 63.6 峰值 |
+| NVML 单卡占用 | 68.5 / 81.5 GiB | — | 63.6 GiB |
 | util | **100%**（8 卡全满） | 100% | 100% |
-| 功耗 | 315~333 W | — | — |
-| 步速 | 975~988 ms/step | 963 ms | 719~746 ms |
-| loss | 0.0080 → **0.00364** | → 0.00637 | → 0.00365 |
-| 退出码 | `[0]×8` | `[0]` | `[0]×2` |
+| 功耗 | 235~301 W/卡 | 321~323 W/卡 | — |
+| 步速 | 1184~1187 ms/step | 1000 ms/step | 963 ms |
+| loss | 0.0080 → 0.00364（30 步短测） | → 0.0024 | → 0.00637 |
 
-`gshead` 范围（只训解码头，≈33M 参数）更快更省：426 ms/step，显存 76.4/79.2 GiB。
+`gshead` 范围（只训解码头，≈33M 参数）更快更省：426 ms/step。
 
-### 显存垫片为什么要在预热之后
-
-踩过的坑，写在这以防再犯：第一版是「建好模型和优化器 → 按 85% 垫垫片 → 开训」，
-结果 `all` 范围一真训就 OOM。
-
-根因是 **AdamW 的 `exp_avg` / `exp_avg_sq` 是首次 `step()` 才惰性创建的**（9.4 亿参数 ≈ 7 GiB），
-激活峰值也只有真跑一步才知道。垫片按「当时占用」算到 85%，正好把本该留给它们的位置占了。
-
-现在的顺序是：**先真跑 2 步预热 → 读 `max_memory_allocated` 得到峰值 → 扣掉余量再垫**。
-如果预热就已经把卡占到目标水位，垫片自然是 0（日志会写「显存已在 83%，无需垫片」）——
-真实训练自己的峰值就够了，反而不需要假垫片。
-
-另外两道兜底：`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`（巨型块分配必开），
-以及训练中 OOM 时自动释放一块垫片重试（最多三次）。
-
-### 视角数是怎么定的
+### 视角窗口是怎么定的
 
 `build_views` 会读**全部**图片（object 23 张、rig 150 张），但全参训练时 encoder 激活随
 视角数线性涨，23 视角就能把 80G 卡撑爆。所以 `--n-views` 对真实场景也生效：按等间隔
-**均匀抽帧**，既保住 360° 覆盖又把激活压回预算。日志会打 `视角抽样 23 → 6`。
+**均匀抽帧**，既保住 360° 覆盖又把激活压回预算。日志会打 `视角抽样 23 → 8`。
 
-### 常用命令
-
-```bash
-./12_sa_train.sh start                  # 8 卡 / 168h / 全参 / 40 万步 / 不续期
-./12_sa_train.sh start 4 168h           # 4 卡 / 168h
-./12_sa_train.sh start 8 168h gshead    # 8 卡 / 只训解码头（冒烟用，省显存）
-./12_sa_train.sh real /path/to/images   # 真实数据
-./12_sa_train.sh ls                     # 我的训练任务
-./12_sa_train.sh stat                   # 队列 + 显卡快照
-./12_sa_train.sh metrics                # 逐卡汇总：loss/步速/显存/util/功耗
-./12_sa_train.sh tail [JOBID]           # 跟日志
-./12_sa_train.sh stop [JOBID]           # 停（不给 ID 停全部）→ 之后再 ls 复查
-```
-
-环境变量（统一 `SA_` 前缀）：
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `SA_SCENE` | `synthetic` | `synthetic` 或真实场景 `images/` 目录 |
-| `SA_RES` | `504` | 分辨率，**必须是 14 的倍数**（patch size） |
-| `SA_NVIEWS` | `8` | 每步视角数（真实场景也会均匀抽样到这个数） |
-| `SA_ITERS` | `400000` | 固定总步数，约 1s/step → 4~5 天跑完自然结束（0 = 无限，别用） |
-| `SA_LR` | `1e-5` | 学习率 |
-| `SA_SCOPE` | `all` | `all` 全参 / `gshead` 只解码头 |
-| `SA_MEM_RATIO` | `0` | 额外显存垫片比。**0 = 关闭**，只用训练自身占用 |
-| `SA_CHAIN` | `0` | 1 = 到期前自动续期。**默认关，别打开** |
-| `SA_SEED` | `1234` | 随机种子；8 卡各跑独立副本，同种子便于复现 |
-| `SA_INTERVAL` | `0` | 状态行最小间隔秒（0 = 只受 `--log-every` 控制） |
-
-> **四条必须保持的设定**（改回去会被判为恶意占卡）：
-> ① 有限步数 40 万步自然结束，不写无限循环；② 不自动续期；③ 不额外垫显存；
-> ④ 8 卡各跑独立副本，无 DDP/NCCL 通信。
+视角窗口每 `--rotate-every`（默认 500）步在场景内换一组，窗口起始位按 `n_all // n_views`
+步进，保证 360° 都被覆盖到。
 
 ### 日志长什么样
 
 ```
-[gpu0] 场景 synthetic_360｜rgb｜8 视角｜504x504｜可训 942,046,860 参数（all）
-[gpu0] 预热 2 步：峰值 63.6 GiB，稳态 18.5 GiB → 余量 46.6 GiB
-[gpu0] step     20｜loss 0.005526（EMA 0.007946，best 0.005526）｜976 ms/step｜1.02 it/s｜显存 66.4/79.2 GiB｜util 100%｜  324W｜α 0.933
+[rank0/gpu0] 场景 aerial：100 视角，504x504
+[rank0/gpu0] 可训 942,046,860 参数（all）｜场景 aerial｜100 视角
+[rank0/gpu0] 开始训练：iters=250000 lr=1e-05 world=8
+[rank0/gpu0] 视角窗口 #1（8 视角）
+[rank0/gpu0] step     20/250000｜loss 0.003378（EMA 0.005037，best 0.003378）｜1184 ms/step｜0.84 it/s｜剩 249980 步 / 约 82.2 h｜显存 18.6/65.9 GiB｜util 100%｜  235W｜α 0.973
 ```
 
-每行都带 `util` 和功耗是**故意的**：管理员看 `nvidia-smi` 是一回事，训练日志里逐步打印
-util/功耗是另一回事 —— 后者本身就是「这卡在真算」的直接证据。
+每行都带 `util` 和功耗是**故意的**：外部 `nvidia-smi` 看到的是一回事，训练日志里逐步打印
+util/功耗是另一回事 —— 后者是「这个 rank 此刻真在算」的直接证据，且按物理卡号取值，
+不会被 `CUDA_VISIBLE_DEVICES` 骗。
 
-### 为什么是一卡一进程，不是 DDP
+### 为什么现在用 DDP
 
-目的不是收敛质量，而是**每张卡都被真实负载吃满**。DDP 每步 all-reduce 在 PCIe 上是瓶颈
-（实测 22.8 GB/s，见 §5），反而拖慢。一卡一进程天然容错：某张卡 OOM 或崩了不影响其它卡。
-做真训练要收敛再说 DDP/FSDP 的事。
+一卡一进程（8 份互不相关的副本）原来是为了「每张卡都有负载」。但那本质上是 8 个独立实验，
+不是一次训练。改成 DDP 后：
 
-### 4.5 显存看门狗：`13_gpu_watchdog.sh`
-
-作业的意义是**占住卡别让管理员看见空置**，所以判据只有一个：卡上有没有显存占用。
-作业名、loss、step 一律不看。
-
-```bash
-./13_gpu_watchdog.sh install 2    # 装 cron，每 2 小时查一次（幂等，重复跑只改间隔）
-./13_gpu_watchdog.sh status       # 最近一次判定 + 历史尾部
-./13_gpu_watchdog.sh run          # 立刻查一次
-./13_gpu_watchdog.sh report 48    # 最近 48h 的判定流水
-./13_gpu_watchdog.sh uninstall    # 从 crontab 摘掉
-```
-
-判定与动作（**默认只报告，不动作**）：
-
-| 判定 | 条件 | 默认动作 | 开了 `WATCHDOG_AUTO_RESTART=1` |
-|---|---|---|---|
-| `OK` | 有 RUNNING 作业，且最低单卡显存 ≥ 30% | 无 | 无 |
-| `WAIT` | 显存低，但作业运行 < 10 分钟 | 无（宽限，防误判刚启动的） | 无 |
-| `BAD` | 显存低，且已跑满宽限期 | **只记录，不杀** | `stop` → 等队列清空 → `start` |
-| `PEND` | 无 RUNNING，但有 PENDING | 无 | 无（排队中，别重复提交） |
-| `EMPTY` | 完全没有作业 | **只记录，不提交** | `start` |
-| `UNKN` | `srun` 取不到显存采样 | 无（宁可不动手，也不误杀） | 无 |
-| `BOOT` / `FAIL` | 拉起成功 / 失败（含输出） | —（不会发生） | — |
-
-阈值可用环境变量改：`WATCHDOG_MEM_MIN`（默认 0.30）、`WATCHDOG_GRACE_MIN`（默认 10）、
-`WATCHDOG_AUTO_RESTART`（默认 **0** = 只监控）、`WATCHDOG_GPUS` / `WATCHDOG_HOURS`
-（默认 8 / 168h）、`WATCHDOG_DRYRUN=1`（只看不动手）。
-
-> **为什么默认关掉自动拉起**：作业会自己按 40 万步跑完，不需要谁续命。
-> 「杀掉再起」这种自动行为在管理端看来就是刷作业，正是被判定为恶意占卡的原因。
-> 真需要临时补一次，手动 `WATCHDOG_AUTO_RESTART=1 ./13_gpu_watchdog.sh run`。
-
-日志 `/data/00950754/logs/gpu_watchdog.log`，最近状态 `/data/00950754/runs/watchdog_status.json`。
-
-两个坑（都已修，别改回去）：
-
-1. **`srun` 会把 PATH 透传进计算节点**。cron 的 PATH 比登录 shell 窄，`env -i` 下更是为空，
-   于是报 `execve(): nvidia-smi: No such file or directory` —— 看起来像作业坏了，其实是找不到命令。
-   脚本里显式兜底 `PATH` 且 `nvidia-smi` 写绝对路径 `/usr/bin/nvidia-smi`。
-2. **`scancel` 后作业会先进 `COMPLETING` 还挂在 `squeue` 里**，此时 `12_sa_train.sh start`
-   会以「已有训练任务」拒绝提交。脚本会等它真消失（最多 90s），等不到就放弃本轮、下轮再来，
-   避免出现「旧的杀了、新的起不来」的空卡窗口。
+- 8 个 rank 共享同一份模型状态，等效 batch 是单卡的 8 倍，梯度是真平均过的；
+- 每步多出一次梯度 all-reduce（本机 PCIe 互联，实测 22.8 GB/s，见 §5），8 卡实测
+  1184 ms/step vs 2 卡 1000 ms，**额外开销约 18%**，换来的是真正的一次训练而不是八次；
+- 容错变差（一个 rank 挂全组退出），但换来的是可复现、可续训、指标有意义的单条训练曲线。
 
 
 ## 五、GPU 拓扑（影响多卡策略）
@@ -591,13 +471,9 @@ HF 直连可用（0.069 s），**不需要镜像**。GitHub 直连 0.034 s。
 | `activate_env.sh` | 环境激活脚本（含 gcc 别名、glm、arch 设置） |
 | `01_verify_env.py` | 环境体检：GPU / gsplat JIT / 渲染 / 反传 |
 | `01_verify_env.sbatch` | 体检的提交脚本 |
-| `10_hold.sh` | 保活 CLI：`start` / `ls` / `stat` / `stop` / `tail` / `mon` |
-| `10_hold_gpu.py` | 保活负载本体（多进程 matmul + 显存垫片 + 链式续期） |
-| `10_hold_gpu.sbatch` | 保活的提交脚本（由 `10_hold.sh` 调用，也可直接 `sbatch`） |
 | `11_gpu_monitor.py` | 显卡监控（算力 / 显存 / 温度 / 功耗 / 进程表，远端 pynvml 采样） |
-| `12_sa_train.py` | **真实 SplatAnything 训练**保活（固定 40 万步，合成场景可零数据跑） |
-| `12_sa_train.sbatch` | 真训练的提交脚本（由 `12_sa_train.sh` 调用） |
-| `12_sa_train.sh` | 真训练的登录节点入口（start / real / ls / stat / metrics / stop / tail） |
-| `13_gpu_watchdog.sh` | 显存看门（cron 每 2h，**默认只报告不自动拉起**） |
+| `12_sa_train.py` | **SplatAnything 全参训练**（8 卡 NCCL 数据并行，25 万步） |
+| `12_sa_train.sbatch` | 训练的提交脚本（由 `12_sa_train.sh` 调用，torchrun 起 N 进程） |
+| `12_sa_train.sh` | 训练的登录节点入口（start / scene / ls / stat / metrics / stop / tail） |
 | `STORAGE.md` | 存储策略详解 |
 | `README.md` | 本文件 |
