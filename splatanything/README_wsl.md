@@ -195,7 +195,7 @@ bash splatanything/01_download_models.sh
 
 | var | default | note |
 | --- | --- | --- |
-| `MODE` | `rgb` | `rgb` = 模型自估位姿；`pose` = 读 `INPUT/prior_camera.json` |
+| `MODE` | `rgb` | `rgb` = 模型自估位姿；`pose` = 读 `INPUT/prior_camera.json`。**默认 rgb**（E-18）：参考相机参数不准会一致拉低质量，pose 仅在可信标定后作对照复活 |
 | `RESOLUTION` | `756 756` | 模型输入宽高，必须 14 的正整数倍；文档称支持 1K+ |
 | `INPUT` / `EXAMPLE` | — | 场景目录（含 `images/`）；`EXAMPLE` 指官方 `examples/<名>` |
 | `OUT_ROOT` | `$RESULTS_DIR/$MODE` | 输出根；inference 再套一层 `<scene>/` |
