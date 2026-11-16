@@ -8,7 +8,7 @@
 ```bash
 ssh h100
 cd /data/00950754/code/media_code/canada_h100
-chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./12_sa_train.sh 报 Permission denied
+chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./12_sa_train.sh 报 Permission denied（见坑 4）
 ```
 
 | 我要做什么 | 命令 |
@@ -160,6 +160,34 @@ srun --jobid=<JOBID> --overlap -n1 nvidia-smi # 看正在跑的任务的 GPU
 ```
 
 另外：`scontrol show job` 显示 RUNNING 但 torch 还在 import 时，GPU 占用是 0，别误判。
+
+### 坑 4：`./11_gpu_monitor.py` 报 Permission denied
+
+`bash: ./11_gpu_monitor.py: Permission denied` = 文件没有执行位。**不是脚本坏了**，
+`python3 11_gpu_monitor.py` 照样能跑。
+
+为什么会出现：本仓两边都设了 `core.fileMode=false`（AGENTS.md §11，避免 `chmod` 造出
+假 mode change 导致 pull 冲突），代价是**执行位不随 git 传播**——从本机 pull 到
+服务器、或在新 clone 里，`100644` 的脚本一律没有 `x`。
+
+```bash
+chmod +x *.sh *.py        # 手动补
+```
+
+服务器落点（`/data/00950754/code/media_code`）已装 `.git/hooks/fixperm`，由
+`post-checkout` / `post-merge` / `post-rewrite` 三个钩子触发，在 pull / checkout /
+rebase 后自动给 `canada_h100/` 下带 shebang 的 `.sh` / `.py` 补执行位，不用再手工 chmod。
+钩子是 `.git/hooks/` 里的**本地文件，不入库**——换新 clone 要重新装一份：
+
+```bash
+cp /data/00950754/code/media_code/.git/hooks/fixperm <新clone>/.git/hooks/
+for h in post-checkout post-merge post-rewrite; do
+  printf '#!/bin/sh\nexec "$(git rev-parse --git-dir)/hooks/fixperm"\n' > <新clone>/.git/hooks/$h
+  chmod +x <新clone>/.git/hooks/$h
+done
+# post-rewrite 的 stdin 要先吃掉，否则 hook 子进程写 EPIPE：
+#   printf '#!/bin/sh\ncat >/dev/null 2>&1\nexec "$(git rev-parse --git-dir)/hooks/fixperm"\n'
+```
 
 ## 四、训练与监控
 
