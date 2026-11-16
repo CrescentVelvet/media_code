@@ -1,20 +1,17 @@
 #!/bin/bash
-# 12_sa_train.sh —— SplatAnything 常驻训练作业的提交 / 查看 / 停止（登录节点跑）
+# 12_sa_train.sh —— SplatAnything 训练的提交 / 查看 / 停止（登录节点跑）
 #
-#   ./12_sa_train.sh start                8 卡 / 24h / 全参 / 无限 iter / 自动续期
-#   ./12_sa_train.sh start 4 12h          4 卡 / 12h
-#   ./12_sa_train.sh start 8 24h gshead   8 卡 / 只训解码头（冒烟，省显存）
-#   ./12_sa_train.sh real <场景目录>      用真实数据（目录下要有 images/）
-#   ./12_sa_train.sh ls                   我的训练任务
-#   ./12_sa_train.sh tail [JOBID]         跟日志
-#   ./12_sa_train.sh stop [JOBID]         停止（不给 ID 就停全部）
+#   ./12_sa_train.sh start                 8 卡 / 168h / 全参 / 25 万步
+#   ./12_sa_train.sh start 4 168h          4 卡 / 168h
+#   ./12_sa_train.sh start 8 168h gshead   8 卡 / 只训解码头（冒烟）
+#   ./12_sa_train.sh scene <场景目录>      指定单场景（默认轮转 examples/ 下 6 个）
+#   ./12_sa_train.sh ls                    我的训练任务
+#   ./12_sa_train.sh tail [JOBID]          跟日志
+#   ./12_sa_train.sh metrics [RUNDIR]      汇总各 rank 指标
+#   ./12_sa_train.sh stop [JOBID]          停止（不给 ID 就停全部）
 #
-# ⚠️ 与 10_hold.sh 的关系：两者都是独立作业，**互不影响**，但会抢卡。
-#     同一分区 8 卡被保活占满时，训练作业只能 PENDING。先 stop 保活再起训练。
-#     监控（11_gpu_monitor.py）会跟随「占卡最多的作业」，谁吃得多盯谁。
-#
-# 这个脚本提交的是**真实 SplatAnything 训练**：官方 encoder + GS 解码头 +
-# 体素合并 + gsplat 可导光栅化 + 光度 loss + Adam 更新，无限 iter。不是假负载。
+# 作业形态：单节点 8 卡，torchrun 起 8 个进程，NCCL 数据并行。各 rank 读不同的
+# 真实场景（examples/ 下 6 个按 rank 轮转），梯度 all-reduce 平均，rank0 落盘。
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +31,7 @@ my_jobs() {
 }
 
 cmd_start() {
-    local gpus="${1:-8}" hours="${2:-24h}" scope="${3:-all}"
+    local gpus="${1:-8}" hours="${2:-168h}" scope="${3:-all}"
     local t
     case "$hours" in
         *h) t=$(printf "%02d:00:00" "${hours%h}") ;;
@@ -50,29 +47,26 @@ cmd_start() {
         exit 1
     fi
 
-    local holdn
-    holdn="$(squeue -a -u "$(whoami)" -h -o '%j' 2>/dev/null | grep -c '^hold_gpu$' || true)"
-    if [ "${holdn:-0}" -gt 0 ]; then
-        echo "⚠️ 检测到 $holdn 个保活作业（hold_gpu）在跑，会抢卡导致本作业排队。"
-        echo "   先停保活：./10_hold.sh stop"
-        echo "   3 秒后继续提交…（Ctrl-C 取消）"
-        sleep 3
-    fi
-
-    echo "提交: gpus=$gpus time=$t scope=$scope scene=${SA_SCENE:-synthetic} chain=${SA_CHAIN:-1}"
+    echo "提交: gpus=$gpus time=$t scope=$scope iters=${SA_ITERS:-250000} scene=${SA_SCENE:-<examples 轮转>}"
+    echo "      rundir=${SA_RUNDIR:-<按作业号新建>} resume=${SA_RESUME:-0}"
     SA_SCRIPT_DIR="$SCRIPT_DIR" \
-    SA_SCENE="${SA_SCENE:-synthetic}" \
+    SA_SCENE="${SA_SCENE:-}" \
     SA_SCOPE="$scope" \
-    SA_CHAIN="${SA_CHAIN:-1}" \
+    SA_ITERS="${SA_ITERS:-250000}" \
+    SA_SEED="${SA_SEED:-1234}" \
+    SA_ROTATE="${SA_ROTATE:-500}" \
+    SA_CKPT_EVERY="${SA_CKPT_EVERY:-20000}" \
+    SA_RUNDIR="${SA_RUNDIR:-}" \
+    SA_RESUME="${SA_RESUME:-0}" \
     sbatch --gres="gpu:${gpus}" --time="$t" \
         --job-name=sa_train "$SCRIPT_DIR/12_sa_train.sbatch"
 }
 
-cmd_real() {
+cmd_scene() {
     local scene="${1:-}"
     if [ -z "$scene" ]; then
-        echo "用法: $0 real <场景目录>      # 目录下要有 images/"
-        echo "例:   $0 real /data/00950754/repos/SplatAnything/examples/object/images"
+        echo "用法: $0 scene <场景目录>      # 目录下要有图片"
+        echo "例:   $0 scene /data/00950754/repos/SplatAnything/examples/object/images"
         exit 1
     fi
     if [ ! -d "$scene" ]; then
@@ -87,7 +81,7 @@ cmd_real() {
         exit 1
     fi
     echo "场景: $scene（$n 张图）"
-    SA_SCENE="$scene" cmd_start "${2:-8}" "${3:-24h}" "${4:-all}"
+    SA_SCENE="$scene" cmd_start "${2:-8}" "${3:-168h}" "${4:-all}"
 }
 
 cmd_ls() {
@@ -114,9 +108,7 @@ cmd_stop() {
     else
         scancel "$job" && echo "已取消 $job"
     fi
-    echo "说明：只取消作业，不碰任何其它进程；监控面板会转成「等待中」并继续运行。"
-    echo "      若开了链式续期，已提交的「下一个」作业不会随之取消，"
-    echo "      用 $0 ls 确认，必要时 $0 stop <那个JOBID>"
+    echo "说明：只取消作业，不碰任何其它进程。"
 }
 
 cmd_tail() {
@@ -139,7 +131,7 @@ cmd_stat() {
     python3 "$SCRIPT_DIR/11_gpu_monitor.py" --once
 }
 
-# 查最近一次运行的指标（直接读 JSONL，不用进计算节点）
+# 汇总各 rank 指标（直接读 JSONL，不用进计算节点）
 cmd_metrics() {
     local d="${1:-}"
     if [ -z "$d" ]; then
@@ -148,34 +140,39 @@ cmd_metrics() {
     [ -n "$d" ] && [ -d "$d" ] || { echo "没有 run 目录（$RUNS）"; exit 1; }
     echo "=== $d ==="
     python3 - "$d" <<'PY'
-import json, sys, glob, os
+import glob
+import json
+import os
+import sys
+
 d = sys.argv[1]
-files = sorted(glob.glob(os.path.join(d, "gpu*.jsonl")))
+files = sorted(glob.glob(os.path.join(d, "metrics_rank*.jsonl")))
 if not files:
-    print("尚无指标（还没到第一个 log-every）"); raise SystemExit(0)
+    print("尚无指标（还没到第一个 log-every）")
+    raise SystemExit(0)
 for f in files:
-    rows = [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+    with open(f, encoding="utf-8") as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
     tr = [r for r in rows if "loss" in r]
     if not tr:
-        print("%-16s 无训练行" % os.path.basename(f)); continue
+        print("%-22s 无训练行" % os.path.basename(f))
+        continue
     a, b = tr[0], tr[-1]
-    used = b.get("mem_used_GB", 0); tot = b.get("mem_total_GB", 1)
-    # util 取最近若干行的均值，单点读数会被采样抖动带偏
     us = [r["util"] for r in tr[-10:] if isinstance(r.get("util"), int)]
     pw = [r["power_w"] for r in tr[-10:] if isinstance(r.get("power_w"), (int, float))]
     u_txt = ("  util %3.0f%%" % (sum(us) / len(us))) if us else "  util   - "
     p_txt = ("  %4.0fW" % (sum(pw) / len(pw))) if pw else ""
-    print("%-16s step %5d→%-5d  loss %.6f→%.6f  %.0f ms/step  %.2f it/s"
-          "  显存 %.1f/%.1f GiB (%.0f%%)%s%s"
+    print("%-22s step %5d→%-5d  loss %.6f→%.6f  %.0f ms/step  %.2f it/s"
+          "  显存 %.1f/%.1f GiB%s%s"
           % (os.path.basename(f), a["step"], b["step"], a["loss"], b["loss"],
-             b.get("step_s", 0) * 1000, b.get("it_s", 0), used, tot,
-             100.0 * used / max(tot, 1e-9), u_txt, p_txt))
+             b.get("step_s", 0) * 1000, b.get("it_s", 0),
+             b.get("mem_alloc_GB", 0), b.get("mem_reserved_GB", 0), u_txt, p_txt))
 PY
 }
 
 case "${1:-help}" in
     start|s)   shift; cmd_start "$@" ;;
-    real|r)    shift; cmd_real "$@" ;;
+    scene|real|r) shift; cmd_scene "$@" ;;
     ls|list|q) cmd_ls ;;
     stat|st)   cmd_stat ;;
     metrics|m) shift; cmd_metrics "$@" ;;

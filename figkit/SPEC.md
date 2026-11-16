@@ -101,6 +101,7 @@ y=1044 页脚口径（17px light）
 | InfiniSplat v2 | `#8B6FA8` |
 | InfiniSplat v3 (SplatAnything) | `#2F6BB5` |
 | QuerySplat | `#5B7FB5` |
+| VGGT / VGGT-Ω | `#207A58` |
 | 3DGS 精化系（参照） | `#B5763A` |
 
 新增方法时在 `figkit/figlib.py` 加常量并在本表登记，不要在图里随手写 hex。
@@ -206,8 +207,10 @@ y=1044 页脚口径（17px light）
 | 图 | 状态 |
 |---|---|
 | `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排；出图脚本在 `D:/splatanything_figures/_build/fig12_13_compare.py`（一次性脚本不入库，见 §10） |
-| `splatanything` fig00–fig11 | ⚠️ 1920×1200 历史口径，未重排；重排需按 §2 重算栅格 |
-| `compare_4methods` p01–p04 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3），脚本 `D:/compare_4methods_figures/_build/make_method_pages.py` |
+| `splatanything` fig00–fig09 | ⚠️ 1920×1200 历史口径，未重排；重排需按 §2 重算栅格 |
+| `splatanything` fig10 / fig11 | ✅ 2026-11-13 已重排为 1920×1080（原 1100/1210 插入 16:9 会溢出） |
+| `compare_4methods` p01–p05 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3 / VGGT），脚本 `D:/compare_4methods_figures/_build/make_method_pages.py` |
+| `compare_4methods` c01 失败模式对照 | ✅ 按 §5.7（`planpage.matrix`），脚本 `D:/compare_4methods_figures/_build/make_failure_page.py` |
 | `da3_human` q01–q06 实验方案页 | ✅ 按 §5.7（计划总览 / DA3 诊断 / R0 协议 / R1 配对 / R2 拆分 / R3 成本），脚本 `D:/da3_human_figures/_build/make_plan_pages.py` |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |
