@@ -211,6 +211,7 @@ y=1044 页脚口径（17px light）
 | `splatanything` fig10 / fig11 | ✅ 2026-11-13 已重排为 1920×1080（原 1100/1210 插入 16:9 会溢出） |
 | `compare_4methods` p01–p05 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3 / VGGT），脚本 `D:/compare_4methods_figures/_build/make_method_pages.py` |
 | `compare_4methods` c01 失败模式对照 | ✅ 按 §5.7（`planpage.matrix`），脚本 `D:/compare_4methods_figures/_build/make_failure_page.py` |
+| `compare_4methods` s01 SA vs DA3 改进页 | ✅ 按 §5.7（`planpage.matrix` 四列 + `notes` + `strip`），脚本 `D:/compare_4methods_figures/_build/make_sa_vs_da3_page.py` |
 | `da3_human` q01–q06 实验方案页 | ✅ 按 §5.7（计划总览 / DA3 诊断 / R0 协议 / R1 配对 / R2 拆分 / R3 成本），脚本 `D:/da3_human_figures/_build/make_plan_pages.py` |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |

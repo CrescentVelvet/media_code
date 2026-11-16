@@ -30,6 +30,17 @@ FINDINGS §3 的「现象 / 已证实 / 仍是推断」三列归因表（`planpa
 |---|---|---|
 | `c01_failure_modes.png` | 五方法失败模式对照 + 结论条 + 正确性锚点 | `FINDINGS.md` §3 / §2 |
 
+## SA vs DA3 改进专页 s01（2026-11-16）
+
+汇报第 2 篇的收尾页：四处改动（归一化空间 RDNorm→GSNorm / 几何教师解耦 / 高斯骨干可微调 /
+AnySplat 式体素合并）+ 没改的部分（仍是前馈、GSNorm 依赖几何教师、归一化常数论文与代码不一致），
+结论条把话头交给第 4 篇改进方案。**RDNorm 4.5× 漂移是 SA 论文 Fig.4 图注口径（对方自我报告），
+不是本仓实测；本页不含跨方法 PSNR 横比。**
+
+| 文件 | 内容 | 来源 |
+|---|---|---|
+| `s01_sa_vs_da3.png` | 四处改动 4 列对照表 + 「没改的部分」三条 + 结论条 | `media_paper/3D-20261112-SplatAnything.html`（GSNorm/架构/§5 失效条件）；`media_paper/3D-20251113-Depth-Anything-3.html`（DA3 三任务/GS-DPT 头）；DA3 高斯数 = `da3_human/EXPERIMENTS.md` E2 实测（190,512/层、32v 6.10M） |
+
 ## 三条容易讲错（已写进图内卡片或页脚）
 
 1. **DA3 的三个提升口径互不一致**：摘要 35.7% / 23.6%，正文 §7.1 是 25.1% / 21.5%，
@@ -47,6 +58,7 @@ FINDINGS §3 的「现象 / 已证实 / 仍是推断」三列归因表（`planpa
 cd D:/compare_4methods_figures/_build
 python make_method_pages.py            # p01–p05，FIGKIT / FIG_ROOT 可用环境变量覆盖
 python make_failure_page.py            # c01
+python make_sa_vs_da3_page.py          # s01
 ```
 
 依赖 pillow + numpy；模板与色板来自 `figkit/`（`import figlib` + `import onepager`），
