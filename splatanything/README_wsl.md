@@ -238,7 +238,7 @@ media_code/splatanything/
 ├── 11_render_orbit.py       #   轨迹生成 + cv2 写 mp4（复用 03 的 load/render）
 ├── hf_download.py           # 镜像分块并发下载（含 --noproxy）
 ├── NOTES.md                 # 原理（GSN / 体素合并 / 预处理）与排错
-├── EXPERIMENTS.md           # 实测台账（E-01~E-15）
+├── EXPERIMENTS.md           # 实测台账（E-01~E-17）
 └── ROUTE_VALIDATION_REPORT.md  # 按 WB 任务单回填的验收报告
 
 官方仓（Linux fs，稀疏检出）: ~/repos/SplatAnything
