@@ -24,6 +24,12 @@ WorkBuddy 回填 [路线验证报告](../splatanything/ROUTE_VALIDATION_REPORT.m
 
 ### 0.0 最新决策与第二轮任务（2026-11-12，优先于下文旧排期）
 
+> **2026-11-16 增补**：用户提出 QuerySplat 式解耦 + 低分辨率2DGS/高分辨率局部RGBA纹理。
+> 架构评审与 Q0～Q5 候选消融见 [SplatAnything NOTES §0](../splatanything/NOTES.md)，尚未实现，
+> 不自动替代 R2-N 或启动训练。下文“T0仅推理”是11月12日快照；本仓已有
+> `canada_h100/12_sa_train.py` 的普通3DGS可导训练，但其输入视角MSE不能证明本候选或held-out泛化。
+> 当前日常模式遵从 E-18：RGB自估；可信标定/UE GT才用pose控制，不再以参考look-at作真值。
+
 **用户已明确：三图 = 不同机位的三张人像图，不是近光心广角/主摄/长焦。**
 用户目视认为 SplatAnything 显著强于 DA3，据此将研发主线转到 SplatAnything；这是一项
 投入顺序决策，不等同于完成同口径定量验收。暂停 DA3 几何重训，保留正式导出基线；
