@@ -166,6 +166,26 @@ y=1044 页脚口径（17px light）
 4. 计划值 / 预注册门槛与实测值必须分列或分色，页脚写明"这是计划不是结果"。
 5. 用户观察（如"鼻子变宽"）不得在图上写成结论，须标"未证实"。
 
+### 5.8 一眼版（领导汇报，`exec` 风格，2026-11-16 从 e01–e05 提炼）
+
+与 §5.6/§5.7 的"执行者密度"相对：**给领导看的页按 3 秒阅读设计**。
+详细参数不进这版——同内容再出一版详细页放附录（`_detail/`），被追问时再翻。
+
+| 规则 | 数值 |
+|---|---|
+| 标题即结论 | 一句话 ≤25 字，描述性标题禁止（"相机与投影"→"三摄各记各的 6DoF，闭环 <0.5px 才冻结"） |
+| KPI 大数字 | 64–76px bold 方法色；三列卡 578×196，间距 29；标签 25 bold + 一行说明 19 |
+| 单视觉主体 | 每页只留 1 个图（示意图 / 大数字带）；信息块 ≤5 |
+| 正文最小字号 | 一眼版正文 ≥19px；17px 只允许页脚口径 |
+| 红线条 | 每页最多 1 条（什么事不许做），高 84–96 |
+| 细节去向 | 表格长句、参数表、分层定义 → 详细版附录页，一眼版只留"详细见附录 d0x" |
+
+硬约束：
+
+1. 一眼版与详细版**同一份内容来源**，改数字必须两边同步改。
+2. 一眼版删掉的信息必须能在附录页找到，不许只删不留。
+3. 页脚保留口径与 spec 章节号（汇报被追问时定位原文）。
+
 ## 6. 内容纪律（比版式更重要）
 
 1. **无口径不出图**：页脚必须能回答"数字哪来的、能不能横比"。
@@ -213,7 +233,8 @@ y=1044 页脚口径（17px light）
 | `compare_4methods` c01 失败模式对照 | ✅ 按 §5.7（`planpage.matrix`），脚本 `D:/compare_4methods_figures/_build/make_failure_page.py` |
 | `compare_4methods` s01 SA vs DA3 改进页 | ✅ 按 §5.7（`planpage.matrix` 四列 + `notes` + `strip`），脚本 `D:/compare_4methods_figures/_build/make_sa_vs_da3_page.py` |
 | `da3_human` q01–q06 实验方案页 | ✅ 按 §5.7（计划总览 / DA3 诊断 / R0 协议 / R1 配对 / R2 拆分 / R3 成本），脚本 `D:/da3_human_figures/_build/make_plan_pages.py` |
-| `da3_human` d01–d05 数据集规范页 | ✅ 按 §5.7（总览 / 相机投影 / 评估环顶视示意 / 验收 / 放行版本），脚本 `D:/da3_human_figures/_build/make_dataset_spec_pages.py` |
+| `da3_human` d01–d05 数据集规范页（详细版） | ✅ 按 §5.7（总览 / 相机投影 / 评估环顶视示意 / 验收 / 放行版本），脚本 `D:/da3_human_figures/_build/make_dataset_spec_pages.py` |
+| `da3_human` e01–e05 数据集规范页（一眼版，附录 `_detail/` 存 d 系列） | ✅ 按 §5.8，脚本 `D:/da3_human_figures/_build/make_dataset_exec_pages.py` |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |
 

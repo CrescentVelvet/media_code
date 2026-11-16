@@ -1,6 +1,6 @@
 # da3_human 配图台账
 
-> 版式规格：`../figkit/SPEC.md`（§5.6 单方法页 / §5.7 计划页）。
+> 版式规格：`../figkit/SPEC.md`（§5.6 单方法页 / §5.7 计划页 / §5.8 一眼版）。
 > **成品图与一次性出图脚本不入库**（AGENTS §14）；入库的只有本台账。
 
 ## 实验方案六页（2026-11-13，`q01`–`q06`）
@@ -58,6 +58,26 @@ FIG_ROOT=/path/to/dir python D:/da3_human_figures/_build/make_plan_pages.py   # 
 
 ```bash
 python D:/da3_human_figures/_build/make_dataset_spec_pages.py
+```
+
+## 数据集规范 · 一眼版（2026-11-16，`e01`–`e05`）
+
+`d01`–`d05` 的**汇报简化版**（同一 spec 内容，按 §5.8 一眼版规则重排：标题即结论、
+KPI 大数字 ≥64px、每页单视觉主体、细节留给 d 系列附录）。
+位置 / 脚本：`D:/da3_human_figures/_build/make_dataset_exec_pages.py`。
+
+| 文件 | 这页的论点 |
+|---|---|
+| `e01_dataset_overview.png` | 13 / 3 / 125 三个大数字 + 五件套目录即接口 + 后置边界一行 |
+| `e02_camera_projection.png` | 7.4× 焦距差 / <0.5px 闭环 / 4/3 陷阱三个大数字 + 换基一行 + 红线一条 |
+| `e03_eval_ring.png` | 顶视图为唯一视觉主体 + 125/50/75 三个大数字 + 背面与防泄漏各一句 |
+| `e04_acceptance.png` | 六个 √ 大清单 + 深度红线一条 + 输入组合三胶囊 |
+| `e05_release_roadmap.png` | 8 条 √ 胶囊 + 282 张 vs 5–10 人物大数字对照 + 版本一行 |
+
+再生成：
+
+```bash
+python D:/da3_human_figures/_build/make_dataset_exec_pages.py
 ```
 
 口径纪律：
