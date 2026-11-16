@@ -48,11 +48,16 @@ cmd_start() {
     fi
 
     echo "提交: gpus=$gpus time=$t scope=$scope iters=${SA_ITERS:-250000} scene=${SA_SCENE:-<examples 轮转>}"
+    echo "      rundir=${SA_RUNDIR:-<按作业号新建>} resume=${SA_RESUME:-0}"
     SA_SCRIPT_DIR="$SCRIPT_DIR" \
     SA_SCENE="${SA_SCENE:-}" \
     SA_SCOPE="$scope" \
     SA_ITERS="${SA_ITERS:-250000}" \
     SA_SEED="${SA_SEED:-1234}" \
+    SA_ROTATE="${SA_ROTATE:-500}" \
+    SA_CKPT_EVERY="${SA_CKPT_EVERY:-20000}" \
+    SA_RUNDIR="${SA_RUNDIR:-}" \
+    SA_RESUME="${SA_RESUME:-0}" \
     sbatch --gres="gpu:${gpus}" --time="$t" \
         --job-name=sa_train "$SCRIPT_DIR/12_sa_train.sbatch"
 }

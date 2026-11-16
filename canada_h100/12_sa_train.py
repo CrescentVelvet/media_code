@@ -488,6 +488,7 @@ def main():
     loss_ema = None
     best = None
     win = -1
+    win_bad = 0
     views = target = geometry = None
     max_s = args.max_hours * 3600.0
 
@@ -504,9 +505,16 @@ def main():
         cur = step // max(1, args.rotate_every)
         if cur != win:
             win = cur
+            # 先把上一窗口的张量真正放掉再建新的：赋值前旧 views 与该步 teacher
+            # 前向的中间激活会同时驻留，实测 reserved 从 65.9 一路爬到 73.3 GiB。
+            views = target = geometry = None
+            if use_cuda:
+                torch.cuda.empty_cache()
             views, target = slice_views(full, n_all, cur, args.n_views, dev)
             with torch.no_grad():
                 geometry = teacher(views, cond_flags=cond_flags)
+            if use_cuda:
+                torch.cuda.empty_cache()
             if cur > 0:
                 print("%s 视角窗口 #%d（%d 视角）"
                       % (tag, cur, views["img"].shape[1]), flush=True)
@@ -514,10 +522,35 @@ def main():
         step += 1
         t_step = time.perf_counter()
         opt.zero_grad(set_to_none=True)
-        preds = forward_train(model, views, geometry, cond_flags)
-        rgb, alpha = render_splats(preds, dev, hw)
-        loss = F.mse_loss(rgb, target)
-        loss.backward()
+        oom = False
+        try:
+            preds = forward_train(model, views, geometry, cond_flags)
+            rgb, alpha = render_splats(preds, dev, hw)
+            loss = F.mse_loss(rgb, target)
+            loss.backward()
+        except torch.OutOfMemoryError:
+            oom = True
+
+        # 跳窗必须整组一起跳：若各 rank 的 step 走岔，下一次 all_reduce 就对不上
+        # 集合点，NCCL 会一直挂到作业超时。
+        if world > 1:
+            flag = torch.tensor([1 if oom else 0], device=dev, dtype=torch.int32)
+            dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+            oom = bool(flag.item())
+        if oom:
+            # 视角恰好贴近几何时，gsplat 的 isect_tiles 会按 n_gauss × 覆盖 tile 数
+            # 申请大块临时缓冲（实测 2.93 GiB）而顶穿。同窗口重试形状不变，直接跳过。
+            opt.zero_grad(set_to_none=True)
+            preds = rgb = alpha = loss = None
+            if use_cuda:
+                torch.cuda.empty_cache()
+            win_bad += 1
+            if win_bad > 3:
+                raise SystemExit("%s ❌ 连续 %d 个窗口显存不足，放弃" % (tag, win_bad))
+            print("%s ⚠️ step %d 显存不足，跳过窗口 #%d（本作业第 %d 次）"
+                  % (tag, step, cur, win_bad), flush=True)
+            step = (cur + 1) * max(1, args.rotate_every)
+            continue
 
         sync_grads(params, world)
         if args.grad_clip > 0:
