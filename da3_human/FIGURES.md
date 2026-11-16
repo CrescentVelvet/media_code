@@ -40,3 +40,30 @@ FIG_ROOT=/path/to/dir python D:/da3_human_figures/_build/make_plan_pages.py   # 
 
 - `make_ppt_figures.py`（matplotlib 自制版式，1920×1080，未套 figkit 卡片/表格组件）；
   存量状态见 `figkit/SPEC.md` §9，暂不重排。
+
+## 数据集规范五页（2026-11-16，`d01`–`d05`）
+
+把 `24_ue_render_spec.md` V1.1（UE 人物多视角数据集构建规范）拆成五页汇报图。
+位置：`D:/da3_human_figures/figures/`；脚本：`D:/da3_human_figures/_build/make_dataset_spec_pages.py`。
+
+| 文件 | 这页的论点 | 内容来源（可回查） |
+|---|---|---|
+| `d01_dataset_overview.png` | 一次渲染三个环（A 13 张 / B 三摄 / C 125 张双角色）+ 目录即接口 + V1 边界 | spec §1 / §2 / §6 |
+| `d02_camera_projection.png` | 三摄 6DoF 独立 + 竖幅 filmback 4/3 陷阱 + w2c = inv(D@M_ue@C) + 闭环 <0.5px/<1px | spec §2.3 / §3.2–§3.4 |
+| `d03_eval_ring.png` | C 环 360° 顶视示意图：train_target 50（弧外监督）+ eval 75（held-out）+ 防泄漏反向规则 | spec §2.4 / §7 |
+| `d04_acceptance.png` | 自动验收六格 + 人工拼图 + 深度一致性红线（中位 <2cm 且同报 P95）+ 输入组合 | spec §8 / §7 |
+| `d05_release_roadmap.png` | 放行 8 条 + 数据量（282 张只够验证）+ 版本路线 V1.1→V3 | spec §12 / §9 |
+
+再生成：
+
+```bash
+python D:/da3_human_figures/_build/make_dataset_spec_pages.py
+```
+
+口径纪律：
+
+1. `d03` 的 az 序号 k ↔ 方位角 k×14.4°、0=正面；角色点集 {6,7,9,10,12,13,15,16,18,19} /
+   {0~5,20~24} / {8,11,14,17} 与 §2.4 表逐一核对过（10+11+4 = 25 方位 × 5 俯仰 = 125 张）。
+2. `d02` 的 fx 差 7.4× = 10923/1479，算法可复验；filmback 4/3 陷阱与 >1% 阈值是 spec 原文。
+3. `d05` 的「282 张不足以支持泛化结论」是 spec §9 原文，汇报勿夸大。
+4. 雅黑无 ✅/↔ 字形（SPEC §6），统一用 √ ·——本批出图时又踩了一次，已按规范修。
