@@ -410,3 +410,17 @@ N3 合并/footprint、N4 域与像素预算）在**没有共同靶子**时无法
 否则上下对比看到的差异里混着位置偏移。本轮 16 个可见视角 |Δ|≤0.035，0 个失配。
 注意这个量只能在**同框**下算——跨分辨率直接比重心是没有意义的。
 
+
+## 9. 跨视角深度一致性滤波（E-19，SA 仓 f8ebce1）
+
+- 实现位置：`~/repos/SplatAnything/src/models/models/rasterization.py` 的
+  `cross_view_depth_consensus`，在 GSN 之后、DPTDecoder 提升之前调用；
+  配置键 `depth_consensus_enable/tau_vis/tau_gap/min_margin`（`configs/inference.yaml`，默认关）。
+- 运行方式：`sed 替换 enable:true` 生成实验配置，`--config_path` 传入（先例
+  `configs/exp_depth_consensus_strict.yaml`：τvis=0.02、margin=4，是当前的更好工作点）。
+- 验证口径：E-18 探针（`D:/tmp/r2n/E18_layer_ghost.py`，双拷贝拟合 + 肤色高斯深度直方图）
+  + `03_render_eval.py` 自洽渲染。strict 档重影 b/a 4.97→0.08（003），PSNR/SSIM 全场最优。
+- **⛔ inf×bool=NaN 教训**：float 张量含 inf 投票时，`tensor * bool_mask` 会把 inf·False 算成
+  NaN（bool 提升为 0.0），无声污染下游所有统计。必须 `torch.where(mask, t, 0)`。
+  本次的下游放大链：NaN 深度 → 体素键 INT64_MIN → `coords - min` 溢出 →
+  200 万高斯塌缩成 1974。滤波/掩码类改动，输出后立刻打印 nan/inf 占比。
