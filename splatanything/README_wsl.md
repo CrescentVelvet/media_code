@@ -145,7 +145,13 @@ bash splatanything/09_run_train_probe.sh
 bash splatanything/09_run_train_probe.sh --stages sweep --sweep-lr 1e-3,1e-4,1e-5
 #   找不炸的 lr：scale 头是 exp()，lr=1e-3 一步就顶到 clamp 上限（E-15 §4）
 
-# ── J) R2-N 鼻部坏例指认包（不产质量结论，只出可点名的图）──
+# ── J) 360° 轨道视频（对 02 的输出目录绕场景中心渲一圈 mp4）──
+GPU=0 RESULT="$HOME/output/splatanything_results/rgb/portrait_1059" \
+  bash splatanything/11_run_orbit.sh
+#   → $RESULT/orbit.mp4 + orbit.orbit.json（轨迹参数）
+#   视角稀疏时背面是空的属预期：前馈重建只保证输入视角附近的质量
+
+# ── K) R2-N 鼻部坏例指认包（不产质量结论，只出可点名的图）──
 bash splatanything/10_run_nose_sheet.sh
 #   → /mnt/d/tmp/r2n/sheets/sheet_<run>.png   每个 run 一张，块编号 A01/B03
 #   → /mnt/d/tmp/r2n/sheets/nose_case_manifest.json   待填 pick / symptom
@@ -228,6 +234,8 @@ media_code/splatanything/
 ├── 08b_nvs_compare.py       # 多配置汇总（在交集视角上重算，才可比）
 ├── 09_run_train_probe.sh    # 训练成本冒烟（等价可导前向 → 1/100 step → 存恢复）
 ├── 09_train_probe.py
+├── 11_run_orbit.sh          # 360° 轨道视频（mp4；先 _env.sh 再 _gsplat_env.sh）
+├── 11_render_orbit.py       #   轨迹生成 + cv2 写 mp4（复用 03 的 load/render）
 ├── hf_download.py           # 镜像分块并发下载（含 --noproxy）
 ├── NOTES.md                 # 原理（GSN / 体素合并 / 预处理）与排错
 ├── EXPERIMENTS.md           # 实测台账（E-01~E-15）
