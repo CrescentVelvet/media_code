@@ -9,6 +9,39 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## 三图前馈纹理化 2DGS 方案图（2026-11-16）
+
+用户要求的整体算法与实验方案图，**均为机制/计划图，不是新方案实测结果**。
+7 张 1920×1080 RGB PNG，16:9，可整页铺入 PPT；逐张目视检查文字、连线和页脚。
+
+- 成品：`D:/splatanything_texture_figures/figures/`
+- 总览：`D:/splatanything_texture_figures/contact_sheet.png`
+- 打包：`D:/splatanything_texture_figures/splatanything_texture_plan_20261116.zip`
+- 内容脚本：`D:/splatanything_texture_figures/_build/make_plan_figures.py`（一次性，不入库）
+- 可复用组件：`figkit/diagram.py`（文字边界检查、节点、折线箭头、局部纹理盘面示意），
+  规格见 `figkit/SPEC.md` §5.9；修改内容不会要求修改组件库。
+- 清单与布局审计：输出根目录 `README.md` / `manifest.json` / `layout_audit.json`。
+
+| 图 | 用途 | 来源与必要口径 |
+|---|---|---|
+| `01_overall_route.png` | 整体路线、已有基础与新候选 | NOTES §0 + 主计划 §0.0；E-15普通属性头100步通过，不代表新架构通过 |
+| `02_algorithm_architecture.png` | 冻结双编码器、低密度几何与高分辨率纹理、可导渲染 | NOTES §0.1～0.4；仅借鉴QuerySplat解耦，不称其原版输出纹理2DGS |
+| `03_local_texture_mechanism.png` | 普通盘面 / RGB / RGBA纹理对照 | NOTES §0.3；颜色和alpha为示意值，首版四块指2×2采样，非四个子高斯 |
+| `04_training_and_evaluation.png` | source/target隔离、训练反馈及评测口径 | R0/R1；仅训练身份反传，测试只评分，target不进重建特征 |
+| `05_ablation_plan.png` | Q0～Q5单变量消融 | NOTES §0.5；不含实测胜负，Q1/Q2颜色训练预算需对齐 |
+| `06_nose_diagnosis.png` | 鼻部四类假设、检查和对应改造 | R2-N；用户观察不等于双层表面或人物数据不足已证实 |
+| `07_milestones_and_gates.png` | 新算子、100步成本探测、域训练与独立验收 | E-15 + NOTES §0.5；新纹理架构成本未知，后续训练按实测排期 |
+
+再生成（默认输出仓外，可用 `--figkit` / `--out` 覆盖）：
+
+```powershell
+& C:/Users/wangyufeng/.workbuddy/binaries/python/envs/default/Scripts/python.exe `
+  D:/splatanything_texture_figures/_build/make_plan_figures.py
+```
+
+本组不复用近光心三摄的实测图，主任务仍是**不同机位三张人像图**。
+图库与ZIP不入Git；只提交组件、规格、台账与memory。
+
 ## 三机位领导汇报页（t01–t06，2026-11-16；t06 同日补 three_cam 组）
 
 > 成品在 **`D:\portrait_3cam_figures\figures\`**（6 张 1920×1080）·
