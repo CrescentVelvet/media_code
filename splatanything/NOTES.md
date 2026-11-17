@@ -419,7 +419,9 @@ N3 合并/footprint、N4 域与像素预算）在**没有共同靶子**时无法
 - 运行方式：`sed 替换 enable:true` 生成实验配置，`--config_path` 传入（先例
   `configs/exp_depth_consensus_strict.yaml`：τvis=0.02、margin=4，是当前的更好工作点）。
 - 验证口径：E-18 探针（`D:/tmp/r2n/E18_layer_ghost.py`，双拷贝拟合 + 肤色高斯深度直方图）
-  + `03_render_eval.py` 自洽渲染。strict 档重影 b/a 4.97→0.08（003），PSNR/SSIM 全场最优。
+  + `03_render_eval.py` 自洽渲染。strict 档量化上重影 b/a 4.97→0.08（003）、PSNR/SSIM 全场最优，
+  **但用户目视复核（11-17）不判优化：重影目视仍在、侧面几何仍糙、发尾新增白色条纹 → 未通过验收，
+  保持默认关，不进正式链路**。签名改善 ≠ 观感改善，量化结论对外引用时必须带这句。
 - **⛔ inf×bool=NaN 教训**：float 张量含 inf 投票时，`tensor * bool_mask` 会把 inf·False 算成
   NaN（bool 提升为 0.0），无声污染下游所有统计。必须 `torch.where(mask, t, 0)`。
   本次的下游放大链：NaN 深度 → 体素键 INT64_MIN → `coords - min` 溢出 →
