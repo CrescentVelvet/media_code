@@ -41,7 +41,32 @@
 **实测否定了「前表面 / 遮挡背面」的说法**：两层 z 中位差 0.187 mm、`|dz|<1mm` 占 41.6%、
 45% 的像素第二层更近；且在渲染分辨率上横向错位中位仅 **0.746 px**。所以两层是
 **同一表面的两次亚像素采样**，alpha 合成等价于轻度低通 + 深度排序，而不是两个表面。
-详见 [EXPERIMENTS.md](EXPERIMENTS.md) S0.5。
+详见 [EXPERIMENTS.md](EXPERIMENTS.md) S0.5。跨视角复测（S1a）该错位为 0.73~0.80 px，
+**中位只放大 1.0~1.9 倍**，结论不变。
+
+
+### 输入亮度口径：`load_rgb` 返回 0..255，`predict` 内部再 /255（2026-11-17 踩坑）
+
+官方 `cli/predict.py:168` 是 `torch.from_numpy(image.copy()).float().permute(2,0,1) / 255.0`，
+而入参 `image` 来自 `io.load_rgb()`，**是 uint8 0..255**。自己封装时若把读取函数改成返回
+0..1 的 float（很自然，因为要拿去算 PSNR），就会变成**两次归一化**：
+
+- 结果不报错、不出 NaN、shape 与取值范围都正常，但网络吃到的图是 1/255 亮度（近乎全黑）；
+- 几何全错：`dxy` 2.33mm → 19.3mm、`dz` +0.19mm → −4.14mm、z 中位 2.43m → 1.56m；
+- 极端危险之处在于**推理链路完全不报警**，只有拿跨次运行的同一指标对拍才看得出来。
+
+对策：把「喂网络」与「算 GT」拆成两个函数（`load_rgb` 返回 uint8 / `load_rgb_gt` 返回 0..1），
+并在 `predict` 入口断言 `max(image) > 1.5`。
+
+
+### `apply_transform` 必须传 3×4，不能加 batch 维（2026-11-17 踩坑）
+
+`utils/gaussians.py:116` 是 `mean_vectors @ transform_linear.T + transform_offset`。
+`.T` 对 **>2 维**张量是"整体倒序"而非矩阵转置（PyTorch 已对此 deprecate）。传 `[1,3,4]` 会得到
+`[3,N,3]`，`len(mean_vectors)` 变 3，而 `GSplatRenderer` 正是用 `len(gaussians.mean_vectors)`
+定 batch 大小（`gsplat.py` 里 `for ib in range(batch_size)`），于是 `quaternions[ib]`
+`IndexError: index 1 is out of bounds for dimension 0 with size 1`。
+**按 docstring 传 `3×4` 即可**，返回 batch 维保持不变。
 
 
 ### 本地接口核查（官方仓 aed6527，2026-11-17）
