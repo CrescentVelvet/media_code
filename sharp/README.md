@@ -37,6 +37,19 @@ GPU=0 INPUT=/mnt/d/dataset/sample RENDER=1 \
   bash sharp/02_run_inference.sh
 # 3) 归档到 D 盘
 bash sharp/08_move_output.sh
+
+# ── 机制诊断（纯推理，不训练，不占训练资源）────────────────────
+# 4) 层数消融：一份前馈输出按 layer-major 拆两层，full/layer0/layer1 各自渲染
+GPU=0 INPUT=/mnt/d/dataset/sample/xxx.heic \
+  OUT_DIR=~/output/sharp_results/03_layer_ablation \
+  bash sharp/03_layer_ablation.sh
+# 5) 受控干预：复制/抖动/缩放/改opacity/换色 + 双底色 + 几何错位诊断
+GPU=0 INPUT=/mnt/d/dataset/sample/xxx.heic \
+  OUT_DIR=~/output/sharp_results/04_controlled \
+  RENDER_SCALE=0.5 JITTER_PX=0.5 \
+  bash sharp/04_controlled_ablation.sh
+# 04 支持 `--bg black,white`（默认两者都跑）；单层 PSNR 对底色极敏感，见 EXPERIMENTS.md
+# 产出 layer_ablation.json / controlled_ablation.json，含 layer_gap、d1_geometry、H3 分档
 ```
 
 ## 首次准备
@@ -68,6 +81,9 @@ bash sharp/01_download_models.sh
 | `SHARP_RESULTS_DIR` | `~/output/sharp_results` | 输出根（写在 `proxy.env`） |
 | `TORCH_CUDA_ARCH_LIST` | `8.6` | 3090 = sm_86；换卡要覆盖 |
 | `SRC` | 空（01） | 导入外部已下载的权重文件 |
+| `OUT_DIR` | `$RESULTS_DIR/03_layer_ablation`<br>`$RESULTS_DIR/04_controlled_ablation` | 03/04 的输出目录 |
+| `RENDER_SCALE` | `0.5` | 04 的渲染分辨率缩放（0.5 → 960×720，速度×4） |
+| `JITTER_PX` | `0.5` | 04 里 `layer0_dup_jit` 的像素抖动量 |
 
 ## 目录布局
 
@@ -84,7 +100,10 @@ media_code/sharp/                 # 本目录（编排脚本）
 - **实测（3090）**：单图 02 脚本端到端 42 秒（首次）/ 26 秒（JIT 缓存后），其中权重加载约 30 秒；
   产出 `.ply` 66 MB / 1,179,648 个高斯。论文给的 <1s 是 A100 上的纯前馈推理时间，不含权重加载。
 - 输出 `.ply` 遵循 OpenCV 坐标系（x 右 / y 下 / z 前），中心在 `(0,0,+z)`；
-  第三方渲染器需自行缩放旋转居中。有 EXIF 焦距的照片才有准确度量尺度（无则按 30mm 兜底）。
+  第三方渲染器需自行缩放旋转居中。焦距来自EXIF（无则按30mm兜底）；有EXIF也不保证预测尺度准确。
+  **焦距不只是尺度**：`disparity_factor = f_px/width` 同时进入网络作为条件输入（5 通道视差归一化），
+  焦距错 → 输入本身就错，事后乘系数只能改尺度、补不回细节。
 - `gsplat` 是纯 Python wheel，CUDA 核**首次运行时 JIT 编译**（实测 113 秒）→ 必须装 nvcc + gcc，
   且需把 `$CONDA_PREFIX/targets/x86_64-linux/include` 补进 `$CONDA_PREFIX/include`
   （`00a` 已自动处理，详见 [`README_wsl.md`](README_wsl.md) 排错表）。
+- 三图人像接入边界见 [NOTES.md](NOTES.md)，试跑与验收状态见 [EXPERIMENTS.md](EXPERIMENTS.md)。
