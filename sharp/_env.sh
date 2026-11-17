@@ -88,12 +88,25 @@ MODEL_DIR="${MODEL_DIR:-${SHARP_MODEL_DIR:-$REPO_DIR/../../model/sharp}}"
 RESULTS_DIR="${RESULTS_DIR:-${SHARP_RESULTS_DIR:-$REPO_DIR/../sharp_results}}"
 
 # Checkpoint (single file — the whole model, encoder included).
-SHARP_CKPT="${SHARP_CKPT:-$MODEL_DIR/sharp_2572gikvuh.pt}"
+# 权重复用池优先（AGENTS.md：下载前先搜 D:\wheel，新下载落 wheel + 消费侧软链）。
+# 顺序：显式 SHARP_CKPT > MODEL_DIR > WHEEL 池。池里已有就别再下 2.7G。
+SHARP_WHEEL_DIR="${SHARP_WHEEL_DIR:-/mnt/d/wheel/sharp_ms}"
+SHARP_CKPT="${SHARP_CKPT:-}"
+if [ -z "$SHARP_CKPT" ]; then
+    if [ -f "$MODEL_DIR/sharp_2572gikvuh.pt" ]; then
+        SHARP_CKPT="$MODEL_DIR/sharp_2572gikvuh.pt"
+    elif [ -f "$SHARP_WHEEL_DIR/sharp_2572gikvuh.pt" ]; then
+        SHARP_CKPT="$SHARP_WHEEL_DIR/sharp_2572gikvuh.pt"
+    else
+        # 都没有：留给 01_download_models.sh 落盘到消费侧
+        SHARP_CKPT="$MODEL_DIR/sharp_2572gikvuh.pt"
+    fi
+fi
 SHARP_CKPT_URL="${SHARP_CKPT_URL:-https://ml-site.cdn-apple.com/models/sharp/sharp_2572gikvuh.pt}"
 # 迅雷备份镜像 (HF, 非 gated, 无需 token)
 SHARP_CKPT_URL_HF="${SHARP_CKPT_URL_HF:-https://huggingface.co/apple/Sharp/resolve/main/sharp_2572gikvuh.pt}"
 # 官方文件字节数，下载后校验用（HTTP HEAD 实测值）
 SHARP_CKPT_SIZE="${SHARP_CKPT_SIZE:-2809738232}"
 
-export REPO_DIR SHARP_DIR SHARP_REPO MODEL_DIR RESULTS_DIR \
+export REPO_DIR SHARP_DIR SHARP_REPO MODEL_DIR RESULTS_DIR SHARP_WHEEL_DIR \
        SHARP_CKPT SHARP_CKPT_URL SHARP_CKPT_URL_HF SHARP_CKPT_SIZE CUDA_HOME
