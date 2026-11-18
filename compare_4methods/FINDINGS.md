@@ -624,7 +624,21 @@ GT 侧不变：GT K@1439×1919、32 GT 相机、32 GT 原图）。
 **判据**：每家 ①能否跑通（OOM/活锁 = 不支持，记为结果不硬凑）②耗时/显存 vs 默认档
 ③§8 同口径 all32 PSNR/SSIM vs 32v 基线（17.30 / 14.90 / 19.81 / 11.29 / 11.71）。
 
-**实测**：（待填）
+**实测（2026-11-19 批量收官，五家全灭，无一家产出 2K 结果）**：
+
+| 方法 | 2K 判决 | 死因 | 耗时 |
+|---|---|---|---|
+| QuerySplat | ❌ 不支持 | 发布权重硬锁 512²（options.py:103 守卫，非显存问题） | 12s |
+| InfiniSplat v2 | ❌ OOM | PyTorch 已分配 58.6 GiB（2.4×24GB），远超官方训练上限 1022 长边 | 18.8min |
+| VGGT-Ω | ❌ 不实用 | 单次前向 2h 未完成（exit 124）；显存没爆（register 注意力），是慢 | 2h timeout |
+| DA3 | ❌ OOM | 66.7 GiB，卡在 Dual-DPT head 全分辨率上采样（head_utils.py:228），非注意力 | 86.8min |
+| DA3-GS 导出 | ❌ OOM | 与 DA3 同一前向，同点 refinenet1（dualdpt.py:304）OOM 66.7 GiB | 80.8min |
+| 3DGS 回炉 RES=1 | — 未开始 | 前馈全灭，回炉输入（FF init）不存在，自动跳过 | — |
+
+**预测复盘**：6 条预测对 4 条——VGGT「最可能跑通」打脸（慢死非 OOM）、DA3「24GB 临界」
+方向对但死点在 head 非注意力、QS 判 OOM 实际更狠（直接锁死）、3DGS 回炉因前馈全灭
+未获验证（无输入）。中间档（DA3-GS 504→1008 = −0.34 dB 负收益，P0 已有）佐证：
+**升分辨率不是五家的瓶颈，跨视角几何一致性才是**。2K 结论 = 支持度问题非质量收益问题。
 
 **§9 实测流水（边跑边填）**：
 - QuerySplat ❌ **官方权重硬锁 512²**：改 yaml 到 1920×1440 被 `options.py:103` 守卫拒
@@ -642,3 +656,8 @@ GT 侧不变：GT K@1439×1919、32 GT 相机、32 GT 原图）。
 - DA3 @PROCESS_RES=1920（32 视角）❌ **OOM 66.7GB**：backbone 前向过了（慢但活），
   挂在 Dual-DPT head 上采样（`head_utils.py:228` custom_interpolate，单次要 6.89GiB）；
   86.8min 后 OOM。**卡点不是注意力是 head 的全分辨率特征图**。
+- DA3-GS 导出 @1920（97 全 SH 导出，32 视角）❌ **OOM 66.7GB，与 DA3 同一死点**：
+  `dualdpt.py:304 refinenet1` → `dpt.py:456` → `head_utils.py:228` custom_interpolate
+  （分配 6.89GiB 失败），80.8min 后 OOM。97 的第一步 97（全 SH 导出）即挂，
+  98（FF init）未执行。批量收官：**五家全灭，无 2K 产物**，V2K=1 统一评测无输入可用。
+
