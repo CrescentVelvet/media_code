@@ -639,3 +639,6 @@ GT 侧不变：GT K@1439×1919、32 GT 相机、32 GT 原图）。
   （VRAM 稳定 24.2GB），但单次前向 2 小时未完成，判「能装下但不实用」。
 - 中途干预记录：首版 90d 顺序 da3 打头且无超时保护，DA3 前向 70min+ 未完阻塞全批；
   已重排 qs→is→vggt→da3→da3gs、失败续跑、各步 timeout（推理 4h / 3DGS 8h）。
+- DA3 @PROCESS_RES=1920（32 视角）❌ **OOM 66.7GB**：backbone 前向过了（慢但活），
+  挂在 Dual-DPT head 上采样（`head_utils.py:228` custom_interpolate，单次要 6.89GiB）；
+  86.8min 后 OOM。**卡点不是注意力是 head 的全分辨率特征图**。
