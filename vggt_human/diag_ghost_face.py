@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 os.environ.setdefault("OMP_NUM_THREADS", "8")
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 MODE = os.environ.get("MODE", "stats")
 STEM = os.environ.get("STEM", "")
 PID = os.environ.get("PID", "01")

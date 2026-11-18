@@ -99,7 +99,7 @@ $MODEL_DIR/
 | `01b_link_local_weights.sh` | 迅雷下好的目录 → 软链接成 HF cache 布局 |
 | `02_make_input.py` / `.sh` | 单图/图目录 → 输入 json（相机轨迹见 NOTES 第 3 节） |
 | `02_run_inference.sh` | 调官方 `cli.py` → PLY / SPZ / MP4 |
-| `08_move_output.sh` | WSL：结果搬到 `/mnt/d/output/flashworld_results` |
+| `08_move_output.sh` | WSL：结果搬到 `/mnt/d/output/results/flashworld_results` |
 | `run_all.sh` | 02 + 02 一键 |
 
 ## 目录布局

@@ -9,7 +9,7 @@
 #
 # 用法：
 #   bash sharp/08_move_output.sh
-#   SRC=~/output/sharp_results DST=/mnt/d/output/sharp_results bash sharp/08_move_output.sh
+#   SRC=~/output/sharp_results DST=/mnt/d/output/results/sharp_results bash sharp/08_move_output.sh
 #   DRY_RUN=1 bash sharp/08_move_output.sh      # 预览，不实际移动
 set -o pipefail
 
@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 SRC="${SRC:-$RESULTS_DIR}"
-DST="${DST:-/mnt/d/output/sharp_results}"
+DST="${DST:-/mnt/d/output/results/sharp_results}"
 
 echo "📦 [08] 搬运结果到 Windows D: 盘"
 echo "  📁 源:   $SRC"

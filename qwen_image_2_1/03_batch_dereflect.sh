@@ -14,7 +14,7 @@ source "$SCRIPT_DIR/_env.sh"
 # 参数（全用 ${VAR:-default}，可被外部覆盖）
 export MODEL_PATH="${MODEL_PATH:-/mnt/d/wheel/qwen_image21_ms}"
 export INPUT_DIR="${INPUT_DIR:-/mnt/d/dataset/物体反光数据/耳机白/image}"
-export OUTPUT_DIR="${OUTPUT_DIR:-/mnt/d/output/qwen_image_2_1_dereflect/耳机白/image}"
+export OUTPUT_DIR="${OUTPUT_DIR:-/mnt/d/output/results/qwen_image_2_1_dereflect/耳机白/image}"
 export GLOB="${GLOB:-*.jpg}"
 # 默认 prompt：去反光，同时强约束「除反光外一切不变」（重建需要跨视角一致性）
 export PROMPT="${PROMPT:-去除图像中物体表面的镜面反光、眩光和光斑，恢复被反光遮挡的真实表面纹理和颜色。严格保持物体的形状、位置、拍摄视角、背景和其他所有内容完全不变，输出一张干净、无反光、写实的照片。}"

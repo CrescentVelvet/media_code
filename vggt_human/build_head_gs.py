@@ -15,7 +15,7 @@
   5. 写 3DGS 标准 PLY (sh_degree=3) + 可视化 (黑底渲染 / 原图叠加 / 拼图)。
 
 Env:
-  RESULTS_DIR    输出根 (默认 /mnt/d/output/vggt_human_ms)
+  RESULTS_DIR    输出根 (默认 /mnt/d/output/results/vggt_human_ms)
   SOURCE_DIR     COLMAP 源 (默认 $RESULTS_DIR/03_source)
   FIT_DIR        拟合输出 (默认 $RESULTS_DIR/03e_head_3dmm)
   MASKS_DIR      SAM3 face mask (默认 $RESULTS_DIR/03_sam3_face_masks_cleaned)
@@ -44,7 +44,7 @@ sys.path.insert(0, str(HERE))
 from face_center_3d import parse_colmap_cameras  # noqa: E402
 from fit_head_3dmm import build_proj_matrices, qvec2rotmat  # noqa: E402
 
-RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 SOURCE_DIR = os.environ.get("SOURCE_DIR", f"{RESULTS_DIR}/03_source")
 FIT_DIR = os.environ.get("FIT_DIR", f"{RESULTS_DIR}/03e_head_3dmm")
 MASKS_DIR = os.environ.get("MASKS_DIR", f"{RESULTS_DIR}/03_sam3_face_masks")

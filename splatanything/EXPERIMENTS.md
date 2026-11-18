@@ -61,7 +61,7 @@
 
 > 状态：**产物交付**。输入 `D:/dataset/人像三摄像头数据/IMG_20261110_105915/16/18.jpg`
 > （3072×4096 竖图，全身+街景，脸占比小）。两版 PLY+轨道视频在
-> `D:\output\splatanything_results\portrait_1059{,_pose}\`。
+> `D:\output\results\splatanything_results\portrait_1059{,_pose}\`。
 
 ### 1. 两版自洽口径（3v @756²，03 同一评测）
 
@@ -1320,7 +1320,7 @@ pose 模式的自洽逐视角：cam_00 17.32 / cam_01 18.98 / cam_02 20.34；锐
    会污染深度）；或者让机位真的转 —— 13 个方位角实测 18.39 dB（E-10），相机不需要多，
    需要的是**方位角变化**。
 
-图：`D:/splatanything_figures/figures/fig10_three_cam.png`（rgb 模式的失败链）、
+图：`D:/ppt/figures/splatanything/figures/fig10_three_cam.png`（rgb 模式的失败链）、
 `fig11_three_cam_pose.png`（两模式对照）。脚本：`D:/tmp/sa_roundtrip/{prep_three_cam,
 mk_three_cam_pose,analyze_three_cam}.py`。
 

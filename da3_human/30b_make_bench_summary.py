@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """30b_make_bench_summary.py — 视角数分桶 + 多包基线摸底 的 PPT 汇总图。
 
-输入：D:\\output\\bench_viewcount_view\\<tag>\\eval\\multiview_report.json（WSL 侧拷出）
+输入：D:\\output\\results\\bench_viewcount_view\\<tag>\\eval\\multiview_report.json（WSL 侧拷出）
 输出：同目录 ppt\\ 下汇总图（不入 git）。
 
 图 0：视角数 scaling（PSNR mean/min、LPIPS、FG PSNR、高斯数）
@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = Path(r"D:\output\bench_viewcount_view")
+SRC = Path(r"D:\output\results\bench_viewcount_view")
 OUT = SRC / "ppt"
 OUT.mkdir(parents=True, exist_ok=True)
 

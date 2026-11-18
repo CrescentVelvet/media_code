@@ -60,7 +60,7 @@ bash scene_splatter/01_download_models.sh             # 三份权重（wheel 三
 
 ## 跑完搬输出
 ```bash
-bash scene_splatter/08_move_output.sh        # ~/output/... → /mnt/d/output/scene_splatter_results
+bash scene_splatter/08_move_output.sh        # ~/output/... → /mnt/d/output/results/scene_splatter_results
 ```
 
 ## 已知坑点

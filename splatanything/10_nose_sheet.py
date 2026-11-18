@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-PAIRS = Path(os.environ.get('SA_PAIRS', 'D:/splatanything_figures/pairs'))
+PAIRS = Path(os.environ.get('SA_PAIRS', 'D:/output/results/splatanything_figures_assets/pairs'))
 FONT_DIR = Path(os.environ.get('SA_FONT_DIR', 'C:/Windows/Fonts'))
 
 # 候选 run：sub 是 pairs 下的子目录名，(gt_pre, rd_pre) 是文件前缀

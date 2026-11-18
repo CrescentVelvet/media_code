@@ -11,7 +11,7 @@ import numpy as np, torch
 from PIL import Image
 from pathlib import Path
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 PID = os.environ.get("PID", "00")
 N_VIS = int(os.environ.get("N_VIS", "8"))
 

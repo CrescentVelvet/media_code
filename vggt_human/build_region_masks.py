@@ -49,7 +49,7 @@ sys.path.insert(0, str(HERE))
 from face_center_3d import parse_colmap_cameras  # noqa: E402
 from fit_head_3dmm import qvec2rotmat  # noqa: E402
 
-RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 SOURCE_DIR = os.environ.get("SOURCE_DIR", f"{RESULTS_DIR}/03_source")
 FIT_DIR = os.environ.get("FIT_DIR", f"{RESULTS_DIR}/03e_head_3dmm")
 HEAD_GS_DIR = os.environ.get("HEAD_GS_DIR", f"{FIT_DIR}")

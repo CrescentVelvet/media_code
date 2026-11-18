@@ -203,7 +203,7 @@ dataset_root/<sequence_id>/          # seq_id = <人物>_env<N>，如 ada_env1
   cameras.json     meta.json     render_config.json
 ```
 
-> 本地已有 Blender 验证集 `D:\output\sim_dataset\asian_girl_v0\` 是第一版格式
+> 本地已有 Blender 验证集 `D:\output\results\sim_dataset\asian_girl_v0\` 是第一版格式
 > （`depth/` + JPG），验收脚本两种目录名都认；UE 量产按本表 `depth_radial/` + PNG。
 
 **cameras.json**（键 = 文件名去扩展名；矩阵仅为格式示意，生产填真实值；w2c/c2w 都存，验收验互逆）：

@@ -12,7 +12,7 @@
 # 可选环境变量：
 #   DATASET_DIR=/mnt/d/dataset/手部微动样例   # 样例根目录
 #   BATCH_ROOT=~/output/hand_micro            # 每样例工作目录（Linux fs）
-#   PREVIEW_DIR=/mnt/d/output/hand_micro_preview  # 预览图输出（Windows 侧看）
+#   PREVIEW_DIR=/mnt/d/output/results/hand_micro_preview  # 预览图输出（Windows 侧看）
 #   MAX_FRAMES=150        # 喂给 VGGT 的最大帧数（均匀抽帧）
 #   ITERATIONS=30000      # 3DGS 训练轮数
 #   ONLY=男生室内          # 只跑名字包含该子串的样例（调试用）
@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/_env.sh"
 
 DATASET_DIR="${DATASET_DIR:-/mnt/d/dataset/手部微动样例}"
 BATCH_ROOT="${BATCH_ROOT:-$HOME/output/hand_micro}"
-PREVIEW_DIR="${PREVIEW_DIR:-/mnt/d/output/hand_micro_preview}"
+PREVIEW_DIR="${PREVIEW_DIR:-/mnt/d/output/results/hand_micro_preview}"
 MAX_FRAMES="${MAX_FRAMES:-150}"
 ITERATIONS="${ITERATIONS:-30000}"
 ONLY="${ONLY:-}"

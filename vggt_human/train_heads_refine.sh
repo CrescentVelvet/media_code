@@ -23,8 +23,8 @@ for pid in 01 02; do
     echo "=================================================================="
     echo ">>> head p$pid 10k 精修（从 4k checkpoint 续训）"
     echo "=================================================================="
-    if RESULTS_DIR=/mnt/d/output/vggt_human_ms MODEL_KIND=head PID=$pid ITERATIONS=10000 \
-       START_PLY=/mnt/d/output/vggt_human_ms/03i_head_p$pid/point_cloud/iteration_4000/point_cloud.ply \
+    if RESULTS_DIR=/mnt/d/output/results/vggt_human_ms MODEL_KIND=head PID=$pid ITERATIONS=10000 \
+       START_PLY=/mnt/d/output/results/vggt_human_ms/03i_head_p$pid/point_cloud/iteration_4000/point_cloud.ply \
        LR_SCALE=1.0 DENSIFY_UNTIL=0 \
        bash 03i_train_three_models.sh; then
         echo "✅ head p$pid 10k done"

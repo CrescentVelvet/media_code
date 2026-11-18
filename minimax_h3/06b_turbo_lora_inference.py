@@ -42,7 +42,7 @@ def main():
     PROMPT_FILE = os.environ.get("PROMPT_FILE", "")
     FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
     LAST_FRAME = os.environ.get("LAST_FRAME", "")
-    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/results_turbo")
+    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/results_turbo")
     if not TASK:
         TASK = "fl2va" if FIRST_FRAME else "t2va"
     OUTPUT_NAME = os.environ.get("OUTPUT_NAME") or f"{TASK}_turbo_seed{os.environ.get('SEED','0')}.mp4"

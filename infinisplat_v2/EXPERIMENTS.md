@@ -267,7 +267,7 @@ poses[..., :3, 3] *= (raw_scale / radius)[:, None, None]   # raw_scale、radius 
 4. 📌 若要继续 ROI 路线，唯一有希望的变体是「固定视场 + 视场不变的前提下提长边」
    （等价于把整图 777 的预算集中到固定窗口），但那仍受 E-27 的深度精度上限约束。
 
-产物：`D:\output\infinisplat_v2_results_20261102\{jiajia_roi*_518, jiajia_roifix*_518,
+产物：`D:\output\results\infinisplat_v2_results_20261102\{jiajia_roi*_518, jiajia_roifix*_518,
 jiajia_roi030_da3pose}` + `_diag\{roi_eval_*.json, roifix030_compare.jpg, s4_*.png}`。
 
 ## 2026-11-02 · 预算重分配：加分辨率 vs 加视角（Step 2）

@@ -7,7 +7,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
-DEST="${DEST:-/mnt/d/output/flame_human_results}"
+DEST="${DEST:-/mnt/d/output/results/flame_human_results}"
 SRC="${RESULTS_DIR:-$REPO_DIR/../flame_human_results}"
 
 echo "🚚 [flame_human 10] 搬运结果"

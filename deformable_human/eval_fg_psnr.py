@@ -8,10 +8,10 @@
 
 用法（WSL，deformable_human env）：
   python deformable_human/eval_fg_psnr.py \
-      --scene_dir /mnt/d/output/deformable_human_results/hand_motion/colmap_scene \
+      --scene_dir /mnt/d/output/results/deformable_human_results/hand_motion/colmap_scene \
       --model_a ~/output/deformable_human_results/hand_motion/model \
       --model_b ~/output/deformable_human_results/hand_motion/model_mask \
-      --out_dir  /mnt/d/output/deformable_human_results/hand_motion/mask_ab_compare
+      --out_dir  /mnt/d/output/results/deformable_human_results/hand_motion/mask_ab_compare
 
 依赖：numpy + PIL（env 里随 torchvision 自带，无新增依赖）。
 test 视角选取口径与训练一致：排序后每 8 帧取 1（llffhold=8）。

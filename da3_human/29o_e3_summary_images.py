@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """E3 scale 封顶对照的汇报配图生成（Windows，workbuddy python，自带 pillow）。
 
-输入：D:\\output\\e3_scale_view\\（29n 产物 + GT_v*.png + e3_report.json）
-输出：D:\\output\\e3_scale_view\\ppt\\ppt_e3_*.png
+输入：D:\\output\\results\\e3_scale_view\\（29n 产物 + GT_v*.png + e3_report.json）
+输出：D:\\output\\results\\e3_scale_view\\ppt\\ppt_e3_*.png
 """
 import json
 import os
@@ -13,7 +13,7 @@ sys.path.insert(0, r"C:\Users\wangyufeng\.workbuddy\binaries\python\envs\default
 
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = Path(r"D:\output\e3_scale_view")
+SRC = Path(r"D:\output\results\e3_scale_view")
 OUT = SRC / "ppt"
 OUT.mkdir(parents=True, exist_ok=True)
 

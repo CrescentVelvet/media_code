@@ -38,7 +38,7 @@
 │       └── WSL: ~/model/             # proxy.env 覆盖
 └── <algorithm>_results/              # 输出（repo 外）
     ├── 服务器: $REPO_DIR/../<algo>_results
-    └── WSL: ~/output/<algo>_results   # proxy.env 覆盖；跑完用 08 搬到 /mnt/d/output/
+    └── WSL: ~/output/<algo>_results   # proxy.env 覆盖；跑完用 08 搬到 /mnt/d/output/results/
 ```
 
 ### 机器目录 vs 算法目录（2026-11-13 峰哥定）
@@ -507,7 +507,7 @@ pip install --force-reinstall --no-deps "setuptools<70"
 | 官方代码 | `~/repos/<repo>` | Linux fs，编译快 |
 | 权重根 | `~/model/<algo>` | Linux fs，读大文件快 |
 | 输出 | `~/output/<algo>_results` | Linux fs，训练写文件快 |
-| 最终结果 | `/mnt/d/output/<algo>_results` | Windows 盘，08 搬运后存这里 |
+| 最终结果 | `/mnt/d/output/results/<algo>_results` | Windows 盘，08 搬运后存这里（2026-11-18 起加 `results/` 层） |
 | 输入数据 | `/mnt/d/dataset/...` | Windows 盘，只读无所谓慢 |
 
 README 命令示例用**相对路径**（`../../model/...`、`../Reconstruction/...`），不要用绝对路径。WSL README 用 `~/` 和 `/mnt/d/` 路径。
@@ -617,10 +617,40 @@ AI 助手（无论哪个工具）完成实质工作后，必须往 `.workbuddy/m
   - ✅ 入库：figkit 库与规格、`<algo>/FIGURES.md` 出图台账（图清单 + 口径 + 再生成命令）
   - ❌ 不入库：成品图（`.gitignore` 已排除 `*.png *.jpg *.mp4`）、一次性出图脚本
   - 判断标准：**换个内容还能直接用的 → 入库；绑定某一张图的 → 不入库**
-  - 一次性脚本放 `D:/<项目>_figures/_build/`，成品放同目录 `figures/`，旧版存 `_legacy_*/`；
-    台账里写清脚本路径，保证"图能从台账重新跑出来"
+  - 一次性脚本放 `D:/ppt/figures/<项目>/_build/`，成品放同目录 `figures/`，旧版存 `_legacy_*/`；
+    台账里写清脚本路径，保证"图能从台账重新跑出来"（目录已从 `D:/<项目>_figures/` 收敛，见 §15）
 - **唯一例外**（历史遗留）：`minimax_h3/examples/*.jpg` 是官方示例输入，保留。
 - **出图纪律**：每张图必须有页脚口径（数据来源 + 不可比之处）；不跨口径比分数；
   机制图标注"机制示意，非实验结果"；按区域裁剪必须逐视角定框；雅黑无 `✓✗` 用 `√×`。
   完整清单见 `figkit/SPEC.md` §6、§8。
+
+## 15. D 盘落点规范（2026-11-18 峰哥定，先读这一节）
+
+**动 D 盘任何目录前，先读 `D:\ppt\README.md`**（规格源，放在盘上不依赖仓库）。
+
+历史问题：每次做 PPT 就新建一个目录，D 盘根目录堆积 `*_figures`、`*_report_*`、
+`ppt_sharp_*` 等 7~8 个平铺目录，杂乱且引用路径互相漂移。2026-11-18 已全部收敛：
+
+| 类型 | 落点 | 例子 |
+|---|---|---|
+| PPT 工程 | `D:\ppt\decks\<YYYYMMDD>-<标题>\` | `20261116-三图人像重建技术路线汇报/` |
+| 配图工程（脚本+成品） | `D:\ppt\figures\<项目>\` | `compare_4methods/`、`da3_human/` |
+| 实验结果 | `D:\output\results\<algo>_results\` | `output/results/som_human_results/` |
+| 备份/废弃 | `D:\output\_backup\<原名>_<日期>\` | `output/_backup/dup_pptx_20261118/` |
+
+**硬规则（违反即返工）**：
+
+1. **D 盘根目录禁止新建** `*_figures`、`*_report_*`、`*_ppt_*`、`*_assets` 目录。
+   要建就建在 `D:\ppt\figures\<项目>\`。
+2. PPT 的 `.slide` 里**不写绝对路径**，图片一律 `<Image src='assets/xxx.png'>` 相对引用
+   —— 这是 deck 目录能整体搬迁而不破坏 workbuddy 预览的技术前提。
+3. **PPT 不放 `D:\output`**，实验产物不放 `D:\ppt`。
+4. **配图成品与素材分离**：成品图/脚本进 `ppt/figures/`，原始素材（pairs/raw/cloud 等）
+   进 `output/results/<项目>_assets/` —— 素材体积大且是可再生输入。
+5. 搬到 `decks/` 后**不改 `slides/` 里的相对路径**（改了反而断）。
+6. 删除前先判 `is_symlink()`（§11 红线的延伸）。
+
+**当前已迁移**：22 个历史 deck（原 `D:\工作文档`）、7 个 figures 工程（原 `D:\` 根）、
+63 个 output 平铺目录（→ `results/` 57 项 + `_backup/` 8 项）。迁移时 297 处代码/文档
+路径引用已批量改写，改写脚本为一次性脚本（不入库）。
 

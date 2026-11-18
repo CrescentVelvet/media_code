@@ -2,7 +2,7 @@
 # 08_move_output.sh —【WSL 专用】把**单个场景**的全部产物从 Linux fs 剪切到 D: 盘。
 #
 # 逻辑与 deformable_human/08_move_output.sh 相同，仅默认目标目录改为
-# /mnt/d/output/som_human_results/<scene>/。
+# /mnt/d/output/results/som_human_results/<scene>/。
 #
 # ⚠️ 有任务正在读写该场景目录时禁止执行。
 #
@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/_env.sh"
 
 SCENE_NAME="${SCENE_NAME:?❌ ERROR: 必须指定 SCENE_NAME（按场景搬运）}"
 SRC="${SRC:-$RESULTS_DIR/$SCENE_NAME}"
-DST="${DST:-/mnt/d/output/som_human_results/$SCENE_NAME}"
+DST="${DST:-/mnt/d/output/results/som_human_results/$SCENE_NAME}"
 
 echo "📦 [08] 搬运结果到 Windows D: 盘"
 echo "  📁 源:   $SRC"

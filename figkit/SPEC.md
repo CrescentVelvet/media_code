@@ -205,7 +205,7 @@ y=1044 页脚口径（17px light）
 涉及方法本身时沿用已有方法身份色。验收页可用§5.7关系表；关系表不受双方法差异表5行限制。
 仍须逐张目视检查 PNG；自动文字边界检查不能代替连线与语义检查。
 
-示例内容脚本：`D:/splatanything_texture_figures/_build/make_plan_figures.py`（不入库）。
+示例内容脚本：`D:/ppt/figures/splatanything_texture/_build/make_plan_figures.py`（不入库）。
 本轮7张图清单及再生成命令见 `splatanything/FIGURES.md`。
 
 ## 6. 内容纪律（比版式更重要）
@@ -248,15 +248,15 @@ y=1044 页脚口径（17px light）
 
 | 图 | 状态 |
 |---|---|
-| `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排；出图脚本在 `D:/splatanything_figures/_build/fig12_13_compare.py`（一次性脚本不入库，见 §10） |
+| `splatanything` fig12 / fig13 | ✅ 已按本规格（1920×1080）重排；出图脚本在 `D:/ppt/figures/splatanything/_build/fig12_13_compare.py`（一次性脚本不入库，见 §10） |
 | `splatanything` fig00–fig09 | ⚠️ 1920×1200 历史口径，未重排；重排需按 §2 重算栅格 |
 | `splatanything` fig10 / fig11 | ✅ 2026-11-13 已重排为 1920×1080（原 1100/1210 插入 16:9 会溢出） |
-| `compare_4methods` p01–p05 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3 / VGGT），脚本 `D:/compare_4methods_figures/_build/make_method_pages.py` |
-| `compare_4methods` c01 失败模式对照 | ✅ 按 §5.7（`planpage.matrix`），脚本 `D:/compare_4methods_figures/_build/make_failure_page.py` |
-| `compare_4methods` s01 SA vs DA3 改进页 | ✅ 按 §5.7（`planpage.matrix` 四列 + `notes` + `strip`），脚本 `D:/compare_4methods_figures/_build/make_sa_vs_da3_page.py` |
-| `da3_human` q01–q06 实验方案页 | ✅ 按 §5.7（计划总览 / DA3 诊断 / R0 协议 / R1 配对 / R2 拆分 / R3 成本），脚本 `D:/da3_human_figures/_build/make_plan_pages.py` |
-| `da3_human` d01–d05 数据集规范页（详细版） | ✅ 按 §5.7（总览 / 相机投影 / 评估环顶视示意 / 验收 / 放行版本），脚本 `D:/da3_human_figures/_build/make_dataset_spec_pages.py` |
-| `da3_human` e01–e05 数据集规范页（一眼版，附录 `_detail/` 存 d 系列） | ✅ 按 §5.8，脚本 `D:/da3_human_figures/_build/make_dataset_exec_pages.py` |
+| `compare_4methods` p01–p05 方法一页纸 | ✅ 按 §5.6（DA3-GS / QuerySplat / v2 / v3 / VGGT），脚本 `D:/ppt/figures/compare_4methods/_build/make_method_pages.py` |
+| `compare_4methods` c01 失败模式对照 | ✅ 按 §5.7（`planpage.matrix`），脚本 `D:/ppt/figures/compare_4methods/_build/make_failure_page.py` |
+| `compare_4methods` s01 SA vs DA3 改进页 | ✅ 按 §5.7（`planpage.matrix` 四列 + `notes` + `strip`），脚本 `D:/ppt/figures/compare_4methods/_build/make_sa_vs_da3_page.py` |
+| `da3_human` q01–q06 实验方案页 | ✅ 按 §5.7（计划总览 / DA3 诊断 / R0 协议 / R1 配对 / R2 拆分 / R3 成本），脚本 `D:/ppt/figures/da3_human/_build/make_plan_pages.py` |
+| `da3_human` d01–d05 数据集规范页（详细版） | ✅ 按 §5.7（总览 / 相机投影 / 评估环顶视示意 / 验收 / 放行版本），脚本 `D:/ppt/figures/da3_human/_build/make_dataset_spec_pages.py` |
+| `da3_human` e01–e05 数据集规范页（一眼版，附录 `_detail/` 存 d 系列） | ✅ 按 §5.8，脚本 `D:/ppt/figures/da3_human/_build/make_dataset_exec_pages.py` |
 | `compare_4methods` A19/A20/A21 系列 | ⚠️ matplotlib 自制版式（1920×1080），未套本规格的卡片/表格组件 |
 | `da3_human/make_ppt_figures.py` | ⚠️ 同上 |
 
@@ -276,7 +276,7 @@ sys.path.insert(0, r'C:/code/media_code/figkit')   # 或设 FIGKIT 环境变量
 
 import figlib as F
 
-F.set_root(r'D:/splatanything_figures')   # 成品落 <root>/figures/
+F.set_root(r'D:/ppt/figures/splatanything')   # 成品落 <root>/figures/
 im, d = F.canvas()                        # 1920×1080
 F.header(d, '结论句标题', '一句话副标题')
 F.card_head(d, F.M, F.CARD_Y, F.C_DA3, 'DA3-GS', '一次前向直出')
@@ -286,6 +286,6 @@ F.footer(d, '口径：...（数据来源 + 不可比之处）')
 F.save(im, 'fig14_xxx.png')
 ```
 
-完整可跑样例见 `D:/splatanything_figures/_build/fig12_13_compare.py`（双栏对照页）；
-方法一页纸见 `D:/compare_4methods_figures/_build/make_method_pages.py`（`import onepager`）；
-计划页见 `D:/da3_human_figures/_build/make_plan_pages.py`（`import planpage`）。
+完整可跑样例见 `D:/ppt/figures/splatanything/_build/fig12_13_compare.py`（双栏对照页）；
+方法一页纸见 `D:/ppt/figures/compare_4methods/_build/make_method_pages.py`（`import onepager`）；
+计划页见 `D:/ppt/figures/da3_human/_build/make_plan_pages.py`（`import planpage`）。

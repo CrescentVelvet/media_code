@@ -9,7 +9,7 @@
 #
 # 用法：
 #   bash osediff/08_move_output.sh
-#   SRC=~/output/osediff_results DST=/mnt/d/output/osediff_results bash osediff/08_move_output.sh
+#   SRC=~/output/osediff_results DST=/mnt/d/output/results/osediff_results bash osediff/08_move_output.sh
 #   DRY_RUN=1 bash osediff/08_move_output.sh   # 预览，不实际移动
 set -o pipefail
 
@@ -19,8 +19,8 @@ source "$SCRIPT_DIR/_env.sh"
 
 # 源目录（默认 RESULTS_DIR，与 01-04 一致）
 SRC="${SRC:-$RESULTS_DIR}"
-# 目标目录（默认 D:\output\osediff_results）
-DST="${DST:-/mnt/d/output/osediff_results}"
+# 目标目录（默认 D:\output\results\osediff_results）
+DST="${DST:-/mnt/d/output/results/osediff_results}"
 # 训练产物也一起搬（如果存在）
 MOVE_EXTRA_DIRS="${MOVE_EXTRA_DIRS:-1}"
 

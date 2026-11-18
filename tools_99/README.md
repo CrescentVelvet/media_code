@@ -48,11 +48,11 @@ import。族 B（可视化）与族 D（出参数）都吃 Remy 采集包，视�
 cd /mnt/c/code/media_code
 
 # 99a 收集 ply（压平成 <批次>/ply/<task>.ply）
-SRC_ROOT=/mnt/d/output/recon_human_results/B003_Human_Data_w_pose \
+SRC_ROOT=/mnt/d/output/results/recon_human_results/B003_Human_Data_w_pose \
   bash -c 'python tools_99/99a_collect_ply.py'
 
 # 99b 封装 MP4（自动判 UWA / COLMAP 模式；COLMAP 型现场生成三件套）
-SRC_ROOT=/mnt/d/output/recon_human_results/B003_Human_Data_w_pose \
+SRC_ROOT=/mnt/d/output/results/recon_human_results/B003_Human_Data_w_pose \
 TOOL_DIR=/mnt/d/model/UWA_Sample_Tool_v3 \
   python tools_99/99b_pack_ply_to_mp4.py
 # 输出：<批次>/mp4/<task>.mp4 + <批次>/mp4_work/<task>/（KEEP_WORK 默认 1 保留）
@@ -68,7 +68,7 @@ INIT_FOV_SCALE=1.25 PHI_MARGIN=40 THETA_MARGIN=40 \
 # DRY_RUN=1 只打印收窄前后范围
 
 # 99e 反向解封装
-MP4=/mnt/d/output/recon_human_results/<批次>/mp4/taskA.mp4 \
+MP4=/mnt/d/output/results/recon_human_results/<批次>/mp4/taskA.mp4 \
   python tools_99/99e_unpack_mp4_to_ply.py
 ```
 

@@ -13,8 +13,8 @@ import os
 import numpy as np
 from PIL import Image
 
-PNG_DIR = "/mnt/d/output/flashworld_input/jiabao_png"
-BASE = "/mnt/d/output/flashworld_results"
+PNG_DIR = "/mnt/d/output/results/flashworld_input/jiabao_png"
+BASE = "/mnt/d/output/results/flashworld_results"
 RENDERS = {
     "1cond":  BASE + "/04_render_narrow",
     "2cond":  BASE + "/06_multi_cond/render_2cond",

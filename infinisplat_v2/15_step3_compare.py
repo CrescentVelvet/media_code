@@ -11,10 +11,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-BASE = Path("/mnt/d/output/infinisplat_v2_results_20261101/jiajia")
+BASE = Path("/mnt/d/output/results/infinisplat_v2_results_20261101/jiajia")
 FT = Path(os.path.expanduser("~/output/infinisplat_v2_results/_s3ft"))
-IMGS = Path("/mnt/d/output/infinisplat_v2_results_20261101/_captures/jiajia/images")
-OUT = Path("/mnt/d/output/infinisplat_v2_results_20261102/_diag")
+IMGS = Path("/mnt/d/output/results/infinisplat_v2_results_20261101/_captures/jiajia/images")
+OUT = Path("/mnt/d/output/results/infinisplat_v2_results_20261102/_diag")
 OUT.mkdir(parents=True, exist_ok=True)
 
 

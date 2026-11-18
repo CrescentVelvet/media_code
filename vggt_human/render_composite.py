@@ -14,7 +14,7 @@ from scipy.spatial.transform import Rotation as _Rot
 
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 ITERS = os.environ.get("ITERS", "4000")                      # 默认（兼容旧用法）
 HEAD_ITERS = os.environ.get("HEAD_ITERS", ITERS)             # head 各自 iteration
 BODY_ITERS = os.environ.get("BODY_ITERS", ITERS)             # body 各自 iteration

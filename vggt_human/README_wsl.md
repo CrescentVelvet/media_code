@@ -29,7 +29,7 @@ WSL 自动把 Windows 盘挂到 `/mnt/`，命令里用正斜杠：
 |---|---|
 | `C:\code\media_code` | `/mnt/c/code/media_code` |
 | `D:\dataset\sample` | `/mnt/d/dataset/sample` |
-| `D:\output` | `/mnt/d/output` |
+| `D:\output\results` | `/mnt/d/output/results` |
 
 **路径策略**（哪些放 Linux fs，哪些放 Windows 盘）：
 
@@ -164,7 +164,7 @@ SKIP_HYPIR=1 bash vggt_human/00a_setup_env.sh
     ├── 01_face_enhance.sh        # 以下脚本与服务器共用，通过 proxy.env 自动用 WSL 路径
     ├── 02_run_inference.sh
     ├── ...
-    └── 08_move_output.sh          # 训练完把结果从 Linux fs 剪切到 D:\output
+    └── 08_move_output.sh          # 训练完把结果从 Linux fs 剪切到 D:\output\results
 
 /mnt/d/                           # Windows D: 盘
 ├── dataset/                      # 输入数据（只读，drvfs 慢但无所谓）
@@ -315,20 +315,20 @@ python vggt_human/face_metrics.py \
     --masks_dir $RESULTS_DIR/06b_face_masks \
     --out $RESULTS_DIR/face_metrics.json
 
-# ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output（释放 WSL 空间）──
-# 预览（不实际移动，默认 DST=/mnt/d/output/vggt_human_results）：
+# ── 8) 训练完后：把结果从 Linux fs 剪切到 D:\output\results（释放 WSL 空间）──
+# 预览（不实际移动，默认 DST=/mnt/d/output/results/vggt_human_results）：
 # DRY_RUN=1 bash vggt_human/08_move_output.sh
 
-# 实际搬运（默认 ~/output/vggt_human_results → /mnt/d/output/vggt_human_results）：
+# 实际搬运（默认 ~/output/vggt_human_results → /mnt/d/output/results/vggt_human_results）：
 bash vggt_human/08_move_output.sh
 
 # 若想搬到别的目录，才需要显式传 DST，例如：
 # SRC=~/output/vggt_human_results \
-# DST=/mnt/d/output/vggt_human_results \
+# DST=/mnt/d/output/results/vggt_human_results \
 # bash vggt_human/08_move_output.sh
 ```
 
-- 结果：VGGT-Omega 推理 → `02_vggt/<scene>/predictions.npz`；COLMAP 场景 → `03_source/`；3DGS 高斯 → `04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/vggt_human_results/`。
+- 结果：VGGT-Omega 推理 → `02_vggt/<scene>/predictions.npz`；COLMAP 场景 → `03_source/`；3DGS 高斯 → `04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply`。跑完 step 08 后全部搬到 `/mnt/d/output/results/vggt_human_results/`。
 - PLY 可拖到 [supersplat](https://playcanvas.com/supersplat/editor) 在线查看。
 
 ## 数据集体检 / 采集包预处理工具（99 系列）

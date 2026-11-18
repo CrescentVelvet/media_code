@@ -84,7 +84,7 @@ bash flashworld/02_run_inference.sh
 
 # ── 3) 搬到 Windows 盘（vhdx 空间有限）──
 KEEP_SRC=0 bash flashworld/08_move_output.sh
-# 输出：/mnt/d/output/flashworld_results/
+# 输出：/mnt/d/output/results/flashworld_results/
 ```
 
 一键版（2 + 1 合并）：

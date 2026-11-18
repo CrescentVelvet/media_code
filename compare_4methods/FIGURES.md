@@ -1,6 +1,6 @@
 # 出图台账（PPT 用）
 
-> 图不纳入仓库（体积 + 一次性）。成品在 **`D:/compare_4methods_figures/figures/`**，
+> 图不纳入仓库（体积 + 一次性）。成品在 **`D:/ppt/figures/compare_4methods/figures/`**，
 > 出图脚本在同目录 `_build/`（一次性脚本，不入库）。
 > 版式规格见 [`figkit/SPEC.md`](../figkit/SPEC.md) §5.6（单方法页）/ §2（画布栅格）。
 
@@ -55,7 +55,7 @@ AnySplat 式体素合并）+ 没改的部分（仍是前馈、GSNorm 依赖几�
 ## 重新出图
 
 ```bash
-cd D:/compare_4methods_figures/_build
+cd D:/ppt/figures/compare_4methods/_build
 python make_method_pages.py            # p01–p05，FIGKIT / FIG_ROOT 可用环境变量覆盖
 python make_failure_page.py            # c01
 python make_sa_vs_da3_page.py          # s01

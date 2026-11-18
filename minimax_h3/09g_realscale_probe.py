@@ -33,7 +33,7 @@ import torch
 MODEL_PATH = os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms")
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 OUTPUT_DIR = os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/diag_probe")
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/diag_probe")
 W = int(os.environ.get("W", "64"))
 H = int(os.environ.get("H", "64"))
 NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))

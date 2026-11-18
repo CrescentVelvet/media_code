@@ -13,10 +13,10 @@ pycolmap 4.2 注入路径（C builtin，无 inspect.signature，经 probe 确认
 
 用法:
   python inject_closeup_cameras.py \
-      --source_dir  /mnt/d/output/vggt_human_ms/03b_source_ba \
-      --poses_dir   /mnt/d/output/vggt_human_ms/06c_512_enhanced \
-      --enhanced_root /mnt/d/output/vggt_human_ms/06c_512_enhanced \
-      --out_dir     /mnt/d/output/vggt_human_ms/06e_source_closeup \
+      --source_dir  /mnt/d/output/results/vggt_human_ms/03b_source_ba \
+      --poses_dir   /mnt/d/output/results/vggt_human_ms/06c_512_enhanced \
+      --enhanced_root /mnt/d/output/results/vggt_human_ms/06c_512_enhanced \
+      --out_dir     /mnt/d/output/results/vggt_human_ms/06e_source_closeup \
       [--persons p00,p01,p02] [--dry_run]
 
 输出:

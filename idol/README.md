@@ -48,7 +48,7 @@ PLY=~/output/idol_results/fur-egg-chair.ply \
 PORT=7860 bash idol/03_run_demo.sh
 
 # 6) 结果从 Linux fs 搬到 Windows 盘
-RESULTS_DIR=~/output/idol_results DEST=/mnt/d/output/idol_results \
+RESULTS_DIR=~/output/idol_results DEST=/mnt/d/output/results/idol_results \
   bash idol/08_move_output.sh
 ```
 

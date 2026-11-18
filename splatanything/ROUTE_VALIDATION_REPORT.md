@@ -40,7 +40,7 @@
 审查直接读取了 `nvs_compare.json`、`nvs_compare_object.json`（WSL 根路径
 `/home/velvet/output/splatanything_results/`），并核对 03/08/08b 源码。
 人像共同 11 target 的 3v/8v/13v 全图 PSNR = 15.00/17.76/18.39 dB；这是旧底色协议读数，
-不是 SA 相对 DA3 的提升。查看 `D:/splatanything_figures/figures/fig01b_human_detail.png`
+不是 SA 相对 DA3 的提升。查看 `D:/ppt/figures/splatanything/figures/fig01b_human_detail.png`
 （3v self）和 `fig04a_nvs_human.png`（13v held-out）可见脸/衣物细节仍有模糊，
 但不能将后者当成 3v held-out 图，也未在本次审查目视 DA3 配对图。
 

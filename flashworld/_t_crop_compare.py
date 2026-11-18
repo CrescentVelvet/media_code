@@ -5,7 +5,7 @@ import sys
 
 from PIL import Image, ImageDraw
 
-R = "D:/output/flashworld_results/07_long_cond/render_"
+R = "D:/output/results/flashworld_results/07_long_cond/render_"
 FRAME = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 SLOT41 = {f: i for i, f in enumerate(
     [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
@@ -16,7 +16,7 @@ groups = [("traj41_cond12", SLOT41[FRAME]), ("traj41_cond41", SLOT41[FRAME]),
           ("traj82_cond24", FRAME), ("traj82_cond41", FRAME),
           ("traj82_cond82", FRAME)]
 
-gt_p = glob.glob("D:/output/flashworld_input/jiabao_png/%03d_*.png" % FRAME)[0]
+gt_p = glob.glob("D:/output/results/flashworld_input/jiabao_png/%03d_*.png" % FRAME)[0]
 gt = Image.open(gt_p).convert("RGB")
 gt = gt.resize((int(gt.width * 704 / gt.height), 704))
 x0 = (gt.width - 480) // 2
@@ -42,6 +42,6 @@ for label, c in crops:
     d.text((x + 4, 12), label, fill=(0, 0, 0))
     canvas.paste(c, (x, 40))
     x += c.width + 10
-out = "D:/output/flashworld_results/07_long_cond/crop_compare_f%03d.png" % FRAME
+out = "D:/output/results/flashworld_results/07_long_cond/crop_compare_f%03d.png" % FRAME
 canvas.save(out)
 print("saved", out)

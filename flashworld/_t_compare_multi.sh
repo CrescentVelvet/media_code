@@ -13,14 +13,14 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 FRAMES = [0, 6, 11, 17, 23]
-PNG_DIR = "/mnt/d/output/flashworld_input/jiabao_png"
+PNG_DIR = "/mnt/d/output/results/flashworld_input/jiabao_png"
 RENDERS = {
-    "1cond": "/mnt/d/output/flashworld_results/04_render_narrow",
-    "2cond": "/mnt/d/output/flashworld_results/06_multi_cond/render_2cond",
-    "3cond": "/mnt/d/output/flashworld_results/06_multi_cond/render_3cond",
+    "1cond": "/mnt/d/output/results/flashworld_results/04_render_narrow",
+    "2cond": "/mnt/d/output/results/flashworld_results/06_multi_cond/render_2cond",
+    "3cond": "/mnt/d/output/results/flashworld_results/06_multi_cond/render_3cond",
 }
 COND_FRAMES = {"1cond": {0}, "2cond": {0, 23}, "3cond": {0, 11, 23}}
-OUT = "/mnt/d/output/flashworld_results/06_multi_cond/compare_psnr.png"
+OUT = "/mnt/d/output/results/flashworld_results/06_multi_cond/compare_psnr.png"
 W, H = 480, 704
 
 

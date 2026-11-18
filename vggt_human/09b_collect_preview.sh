@@ -4,7 +4,7 @@
 set -u
 
 BATCH_ROOT="${1:-$HOME/output/hand_micro}"
-PREVIEW_DIR="${2:-/mnt/d/output/hand_micro_preview}"
+PREVIEW_DIR="${2:-/mnt/d/output/results/hand_micro_preview}"
 
 mkdir -p "$PREVIEW_DIR"
 

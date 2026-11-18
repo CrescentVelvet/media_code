@@ -64,7 +64,7 @@ SEED = int(os.environ.get("SEED", "42"))
 # N 次去噪要传 N+1 —— 官方 doc 原文确认，所以 50 步传 51。
 NIS = int(os.environ.get("NUM_INFERENCE_STEPS", "51"))
 OUTPUT_DIR = os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/diag_baseline")
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/diag_baseline")
 PROMPT = os.environ.get("PROMPT", "A red fox trotting through a snowy pine forest, "
                                   "snow crunching underfoot")
 FIRST_FRAME = os.environ.get("FIRST_FRAME", "")

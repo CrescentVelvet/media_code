@@ -43,7 +43,7 @@
 - 便宜且确定的动作：预测前把 4:3 图 letterbox 成方形（消除拉伸，修一类 B 类错），实验时带上。
 
 **汇报材料**：PPT 已补两页（P4 SHARP 算法框架、P5 双层深度机制与边界），
-`D:/output/ppt_sharp_sh1b/`，16 页版。
+`D:/ppt/decks/20261118-SHARP单图重建支线结论汇报/`，16 页版。
 
 ---
 
@@ -81,7 +81,7 @@
 **门槛**：追平 SA 需要 `15.23−12.59 = ` **+2.64 dB**；本仓 DA3 先例（前馈 init + 2k 步）
 实测 +3.1 dB。**余量约 0.5 dB**，任何一个静默 bug 都能吃掉全部收益，必须一次做对。
 
-**视觉证据**（成品图与视频不入库，落 `D:/output/ppt_sharp_sh1b/assets/`）：
+**视觉证据**（成品图与视频不入库，落 `D:/ppt/decks/20261118-SHARP单图重建支线结论汇报/assets/`）：
 `fig_quad.png`（GT/SA/单云/并联 × 3 视角）、`orbit_swing.mp4` + `orbit_swing.gif`
 （同轨迹 ±28° 摆动三格并排）。
 
@@ -491,8 +491,8 @@ v4 要求对拍 A系+T_BA 与 B系+I 两条渲染路径。**首版判据写错�
 - 改动：`sharp/05_cross_view_consistency.py`（fy 分离 + `fy_audit` + npy 存 mask +
   `check_render_equivalence` 重写）、`sharp/06_cross_view_fair_compare.py`
   （双线性 warp + `inb` + 掩码拆分 + `_verdict(n_eval_p)`）
-- 重跑日志：`D:/output/media_code_tmp_scan_2026-11-17/p5_05.log` / `p5_06.log`
-- 汇总脚本：`D:/output/media_code_tmp_scan_2026-11-17/sum_p5.py`（读三个 `fair_compare.json`
+- 重跑日志：`D:/output/results/media_code_tmp_scan_2026-11-17/p5_05.log` / `p5_06.log`
+- 汇总脚本：`D:/output/results/media_code_tmp_scan_2026-11-17/sum_p5.py`（读三个 `fair_compare.json`
   按完整 ID 去重）
 - 产物目录不变，仍为 `~/output/sharp_results/S1a_crossview_13v_{small22,small26,large125}/`
 
@@ -576,16 +576,16 @@ SH0.5源视图消融值得保留：全分辨率full 30.57、l0 23.86、l1 23.41�
    source。高频/锐度是辅助指标，不能取代对真实target的LPIPS/PSNR与双边缘检查。
 5. 未达到SH1b门槛不启动融合/优化；达到后才检验SHARP初始化是否优于SA初始化的同预算优化。
 
-复核产物：`D:/output/sharp_review_20261118/raw_summary.json`（含原始文件SHA256、去重明细、Q2），
-重算脚本`D:/output/sharp_review_20261118/audit_results.py`。本轮未修改05/06实现；工作区现有
+复核产物：`D:/output/results/sharp_review_20261118/raw_summary.json`（含原始文件SHA256、去重明细、Q2），
+重算脚本`D:/output/results/sharp_review_20261118/audit_results.py`。本轮未修改05/06实现；工作区现有
 05/06修复属于此前实验，需执行方单独提交并补回归检查，本节不把源码检查写成运行验收。
 
 ### 5. SH0原生试跑补记（实际运行于2026-11-17）
 
 佳佳000/004/022三张1439×1919图，官方`aed6527`、已有权重，通过02脚本独立推理与原生轨迹，
 脚本端到端70s（含加载/写PLY/视频），每图1,179,648高斯、60帧视频。三张均30mm兜底；
-这与后续05使用prior的实验不同。输出`D:/output/sharp_portrait_probe_20261117/`，manifest
-记录输入/权重hash；日志`D:/output/sharp_portrait_probe_20261117.log`。
+这与后续05使用prior的实验不同。输出`D:/output/results/sharp_portrait_probe_20261117/`，manifest
+记录输入/权重hash；日志`D:/output/results/sharp_portrait_probe_20261117.log`。
 原生视频能生成，但未做共同target评测；000/004的PLY分别有1/6个非有限opacity logit，
 导入训练前须区分合法0/1端点的无限logit与NaN，显式验证解码值，不能仅以文件生成判训练可用。
 

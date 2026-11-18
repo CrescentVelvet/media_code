@@ -94,7 +94,7 @@ export LORA_PATH
 export MODEL_PATH="${MODEL_PATH:-/mnt/d/wheel/minimaxh3_ms}"
 export PORT="${PORT:-8000}"
 export DEVICE="${DEVICE:-cuda:0}"
-export OUTPUT_DIR="${OUTPUT_DIR:-/mnt/d/output/minimaxh3_rotate_results/results_int8turbo}"
+export OUTPUT_DIR="${OUTPUT_DIR:-/mnt/d/output/results/minimaxh3_rotate_results/results_int8turbo}"
 export MAX_PIXELS="${MAX_PIXELS:-1032192}"          # 768p 配方 1344x768；3090 OOM 改 522240 + 544p checkpoint
 export FPS="${FPS:-24}"
 export NUM_FRAMES="${NUM_FRAMES:-124}"

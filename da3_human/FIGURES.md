@@ -6,7 +6,7 @@
 ## 实验方案六页（2026-11-13，`q01`–`q06`）
 
 把 `EXPERIMENT_PLAN.md` §0 / §0.0 的 R0～R4 排期与判据拆成六页，供汇报 / 答辩直接铺满整页。
-位置：`D:/da3_human_figures/figures/`；脚本：`D:/da3_human_figures/_build/make_plan_pages.py`。
+位置：`D:/ppt/figures/da3_human/figures/`；脚本：`D:/ppt/figures/da3_human/_build/make_plan_pages.py`。
 
 | 文件 | 这页的论点 | 内容来源（可回查） |
 |---|---|---|
@@ -20,8 +20,8 @@
 再生成：
 
 ```bash
-python D:/da3_human_figures/_build/make_plan_pages.py
-FIG_ROOT=/path/to/dir python D:/da3_human_figures/_build/make_plan_pages.py   # 换输出根
+python D:/ppt/figures/da3_human/_build/make_plan_pages.py
+FIG_ROOT=/path/to/dir python D:/ppt/figures/da3_human/_build/make_plan_pages.py   # 换输出根
 ```
 
 ## 口径纪律（这几页最容易出错的地方）
@@ -44,7 +44,7 @@ FIG_ROOT=/path/to/dir python D:/da3_human_figures/_build/make_plan_pages.py   # 
 ## 数据集规范五页（2026-11-16，`d01`–`d05`）
 
 把 `24_ue_render_spec.md` V1.1（UE 人物多视角数据集构建规范）拆成五页汇报图。
-位置：`D:/da3_human_figures/figures/`；脚本：`D:/da3_human_figures/_build/make_dataset_spec_pages.py`。
+位置：`D:/ppt/figures/da3_human/figures/`；脚本：`D:/ppt/figures/da3_human/_build/make_dataset_spec_pages.py`。
 
 | 文件 | 这页的论点 | 内容来源（可回查） |
 |---|---|---|
@@ -57,14 +57,14 @@ FIG_ROOT=/path/to/dir python D:/da3_human_figures/_build/make_plan_pages.py   # 
 再生成：
 
 ```bash
-python D:/da3_human_figures/_build/make_dataset_spec_pages.py
+python D:/ppt/figures/da3_human/_build/make_dataset_spec_pages.py
 ```
 
 ## 数据集规范 · 一眼版（2026-11-16，`e01`–`e05`）
 
 `d01`–`d05` 的**汇报简化版**（同一 spec 内容，按 §5.8 一眼版规则重排：标题即结论、
 KPI 大数字 ≥64px、每页单视觉主体、细节留给 d 系列附录）。
-位置 / 脚本：`D:/da3_human_figures/_build/make_dataset_exec_pages.py`。
+位置 / 脚本：`D:/ppt/figures/da3_human/_build/make_dataset_exec_pages.py`。
 
 | 文件 | 这页的论点 |
 |---|---|
@@ -77,7 +77,7 @@ KPI 大数字 ≥64px、每页单视觉主体、细节留给 d 系列附录）�
 再生成：
 
 ```bash
-python D:/da3_human_figures/_build/make_dataset_exec_pages.py
+python D:/ppt/figures/da3_human/_build/make_dataset_exec_pages.py
 ```
 
 口径纪律：

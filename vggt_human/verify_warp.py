@@ -17,7 +17,7 @@ import numpy as np
 
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 PID = os.environ.get("PID", "00")
 HEAD_DIR = f"{RESULTS}/03e_head_3dmm"
 OUT_DIR = f"{RESULTS}/03e_head_3dmm/vis_warpcheck"

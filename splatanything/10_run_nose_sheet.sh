@@ -7,4 +7,4 @@ conda activate flame_human
 
 OUT="${OUT:-/mnt/d/tmp/r2n/sheets}"
 EXTRA="${EXTRA:-}"
-python splatanything/10_nose_sheet.py --out "$OUT" --pairs /mnt/d/splatanything_figures/pairs $EXTRA
+python splatanything/10_nose_sheet.py --out "$OUT" --pairs /mnt/d/output/results/splatanything_figures_assets/pairs $EXTRA

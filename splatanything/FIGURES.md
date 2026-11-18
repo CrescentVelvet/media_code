@@ -1,6 +1,6 @@
 # 出图台账（PPT / 汇报用）
 
-> 图不纳入仓库。成品在 **`D:\splatanything_figures\`**：
+> 图不纳入仓库。成品在 **`D:\ppt\figures\splatanything\`**：
 > `figures/` **6 张**成品（fig10/11/14/15/16/17）· `raw/` 12 张原始 contact sheet ·
 > `pairs/` 14 组 439 张按视角配对的单图 · `metrics.json` 读数汇总 ·
 > `_build/` 出图脚本 · 同名 zip 为打包版。
@@ -11,13 +11,13 @@
 
 ## 人物数据 LoRA 优先汇报（2026-11-17）
 
-- 新稿：`D:/route_report_20261116/实验进展汇报_20261117_LoRA优先/实验进展汇报_20261117_LoRA优先.pptx`，
-  14页，可编辑文本；原稿 `D:/route_report_20261116/实验进展汇报/实验进展汇报.pptx` 保留。
+- 新稿：`D:/ppt/decks/20261117-实验进展汇报/实验进展汇报_20261117_LoRA优先.pptx`，
+  14页，可编辑文本；原稿 `D:/ppt/decks/20261116-实验进展汇报/实验进展汇报.pptx` 保留。
 - 来源：[主计划 L0～L4](../da3_human/EXPERIMENT_PLAN.md)与本目录EXPERIMENTS中的证据审查。
   **方案尚未执行**；E-21外部深度替换失败不能证伪人物数据适配，E-20局域不一致不证明数据根因。
 - 修改页01/03/05/06/07/11/12/13，新增14；第11页训练读数仅为11月16日历史快照。
   02/04/08/09/10为历史背景，当前决策以07与12～14页为准；不把旧进展当作LoRA实验结果。
-- 一次性内容生成器：`D:/route_report_20261116/_build/update_lora_report_20261117.py`。
+- 一次性内容生成器：`D:/ppt/decks/20261117-实验进展汇报/_build/update_lora_report_20261117.py`。
   生成器准备新目录内 `slides/*.slide` / `DESIGN.md` / `UPDATE.md`；PPT从原稿复制后更新。
 - 再生成：先运行生成器，再用本机 `slidep` 打开副本，按页执行
   `upsert-dsl <新稿> --dsl-file <新目录>/slides/NN.slide --page-index <NN-1>`；
@@ -33,10 +33,10 @@
 用户要求的整体算法与实验方案图，**均为机制/计划图，不是新方案实测结果**。
 7 张 1920×1080 RGB PNG，16:9，可整页铺入 PPT；逐张目视检查文字、连线和页脚。
 
-- 成品：`D:/splatanything_texture_figures/figures/`
-- 总览：`D:/splatanything_texture_figures/contact_sheet.png`
-- 打包：`D:/splatanything_texture_figures/splatanything_texture_plan_20261116.zip`
-- 内容脚本：`D:/splatanything_texture_figures/_build/make_plan_figures.py`（一次性，不入库）
+- 成品：`D:/ppt/figures/splatanything_texture/figures/`
+- 总览：`D:/ppt/figures/splatanything_texture/contact_sheet.png`
+- 打包：`D:/ppt/figures/splatanything_texture/splatanything_texture_plan_20261116.zip`
+- 内容脚本：`D:/ppt/figures/splatanything_texture/_build/make_plan_figures.py`（一次性，不入库）
 - 可复用组件：`figkit/diagram.py`（文字边界检查、节点、折线箭头、局部纹理盘面示意），
   规格见 `figkit/SPEC.md` §5.9；修改内容不会要求修改组件库。
 - 清单与布局审计：输出根目录 `README.md` / `manifest.json` / `layout_audit.json`。
@@ -55,7 +55,7 @@
 
 ```powershell
 & C:/Users/wangyufeng/.workbuddy/binaries/python/envs/default/Scripts/python.exe `
-  D:/splatanything_texture_figures/_build/make_plan_figures.py
+  D:/ppt/figures/splatanything_texture/_build/make_plan_figures.py
 ```
 
 本组不复用近光心三摄的实测图，主任务仍是**不同机位三张人像图**。
@@ -63,8 +63,8 @@
 
 ## 三机位领导汇报页（t01–t06，2026-11-16；t06 同日补 three_cam 组）
 
-> 成品在 **`D:\portrait_3cam_figures\figures\`**（6 张 1920×1080）·
-> 一次性脚本 `D:\portrait_3cam_figures\_build\make_ppt_pages.py`（不入库，§10）·
+> 成品在 **`D:\ppt\figures\portrait_3cam\figures\`**（6 张 1920×1080）·
+> 一次性脚本 `D:\ppt\figures\portrait_3cam\_build\make_ppt_pages.py`（不入库，§10）·
 > 素材副本在 `_build/assets/`。1059 组对应 **E-17**；three_cam 组对应其
 > run.json + eval_summary.json（2026-11-16，同口径同脚本，未单列 E 号）。
 > 版式：t01/t03/t05 按 §5.8 一眼版（领导 3 秒阅读），t02 按 §5.6 单方法页，t04 按 §5.7 口径对照。
@@ -129,7 +129,7 @@
 
 | 图 | 数据源 | 一次性脚本 |
 |---|---|---|
-| fig16 | `~/output/batch_4methods/eval_3view_jiajia_bgmask.json`（`audit_31` 的 `BG=auto MASKS=1` 产物）+ `render_crops/*/v021.png` | `D:/splatanything_figures/_build/fig16_region_metrics.py` |
+| fig16 | `~/output/batch_4methods/eval_3view_jiajia_bgmask.json`（`audit_31` 的 `BG=auto MASKS=1` 产物）+ `render_crops/*/v021.png` | `D:/ppt/figures/splatanything/_build/fig16_region_metrics.py` |
 
 **讲这张时的红线**：
 
@@ -151,7 +151,7 @@
 
 | 图 | 数据源 | 一次性脚本 |
 |---|---|---|
-| fig14 | `~/output/batch_4methods/eval_3view_jiajia_r512.json` → `audit_32_angle_buckets.py` 的 `angle_buckets.json` | `D:/splatanything_figures/_build/fig14_r1_buckets.py` |
+| fig14 | `~/output/batch_4methods/eval_3view_jiajia_r512.json` → `audit_32_angle_buckets.py` 的 `angle_buckets.json` | `D:/ppt/figures/splatanything/_build/fig14_r1_buckets.py` |
 | fig15 | 左：`D:/tmp/align_sensitivity.py`（GT 自比测上限）；右：同一 eval json 的 `refine.psnr_pre/_post` | `.../fig15_align_cost.py` |
 
 **讲这两张时的红线**：
@@ -167,7 +167,7 @@
 
 版式已固化为 **`figkit/SPEC.md`**（1920×1080 满版）：左右两栏各 6 步流水线同 y 对齐 +
 下方 5 行差异表，第 6 步用"灰化 / 徽章 / 高亮环"表达差异而非错位。
-出图脚本 `D:/splatanything_figures/_build/fig12_13_compare.py`（`import figlib`，**一次性脚本不入库**）；
+出图脚本 `D:/ppt/figures/splatanything/_build/fig12_13_compare.py`（`import figlib`，**一次性脚本不入库**）；
 `_legacy_1200/` 存 1200 版旧图与旧脚本。
 
 这两张**不是本仓实测结果图**，是把代码/文档里已核实的机制差异画成对照页，供 PPT 讲
@@ -194,7 +194,7 @@
 
 | 图 | 数据源 | 一次性脚本 |
 |---|---|---|
-| fig17 | `D:/tmp/train_probe.json`（`09_train_probe.py --stages all` 产物） | `D:/splatanything_figures/_build/fig17_train_cost.py` |
+| fig17 | `D:/tmp/train_probe.json`（`09_train_probe.py --stages all` 产物） | `D:/ppt/figures/splatanything/_build/fig17_train_cost.py` |
 
 **讲这张时的红线**：
 
@@ -228,13 +228,13 @@
 
 ```bash
 # fig17：训练成本冒烟（数据来自 WSL 侧 09_train_probe.py --stages all）
-cd D:/splatanything_figures/_build && python fig17_train_cost.py
+cd D:/ppt/figures/splatanything/_build && python fig17_train_cost.py
 
 # fig14/15：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
-cd D:/splatanything_figures/_build && python fig14_r1_buckets.py && python fig15_align_cost.py
+cd D:/ppt/figures/splatanything/_build && python fig14_r1_buckets.py && python fig15_align_cost.py
 
 # fig12/13：走 figkit（1920×1080，规格见 figkit/SPEC.md）；一次性脚本在 D 盘，不入库
-cd D:/splatanything_figures/_build && python fig12_13_compare.py
+cd D:/ppt/figures/splatanything/_build && python fig12_13_compare.py
 FIG_ROOT=/path/to/dir python fig12_13_compare.py    # 换输出根目录
 
 # fig10/11：2026-11-13 已按 1920×1080 重排（原 1100/1210，插入 16:9 会溢出）；fig00~fig09 仍是 1920×1200 历史口径（未套 figkit）

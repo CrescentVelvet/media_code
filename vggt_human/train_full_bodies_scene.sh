@@ -10,7 +10,7 @@ for spec in "body 00" "body 01" "body 02" "scene"; do
     echo "=================================================================="
     echo ">>> 完整训练 $KIND ${PID:+p$PID} (30k iter, densify 15k)"
     echo "=================================================================="
-    if RESULTS_DIR=/mnt/d/output/vggt_human_ms MODEL_KIND=$KIND PID=${PID:-00} ITERATIONS=30000 \
+    if RESULTS_DIR=/mnt/d/output/results/vggt_human_ms MODEL_KIND=$KIND PID=${PID:-00} ITERATIONS=30000 \
        LR_SCALE=1.0 DENSIFY_UNTIL=15000 bash 03i_train_three_models.sh; then
         echo "✅ $KIND ${PID:+p$PID} done"
     else

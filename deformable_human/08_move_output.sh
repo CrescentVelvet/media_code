@@ -3,7 +3,7 @@
 #
 # 目录约定（2026-10-08 起）：一个输入数据一个文件夹，训练/渲染/数据集全部收在
 #   $RESULTS_DIR/<scene>/            （Linux fs，训练期间）
-#   /mnt/d/output/deformable_human_results/<scene>/   （归档后）
+#   /mnt/d/output/results/deformable_human_results/<scene>/   （归档后）
 #
 # ⚠️ 有任务正在读写该场景目录时禁止执行（08 会移走输入数据集 colmap_scene）。
 #
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/_env.sh"
 
 SCENE_NAME="${SCENE_NAME:?❌ ERROR: 必须指定 SCENE_NAME（按场景搬运）}"
 SRC="${SRC:-$RESULTS_DIR/$SCENE_NAME}"
-DST="${DST:-/mnt/d/output/deformable_human_results/$SCENE_NAME}"
+DST="${DST:-/mnt/d/output/results/deformable_human_results/$SCENE_NAME}"
 
 echo "📦 [08] 搬运结果到 Windows D: 盘"
 echo "  📁 源:   $SRC"

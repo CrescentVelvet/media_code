@@ -14,7 +14,7 @@
 | Windows | WSL |
 |---|---|
 | D:\wheel\qwen_image21_ms | /mnt/d/wheel/qwen_image21_ms |
-| D:\output\qwen_image_2_1_results | /mnt/d/output/qwen_image_2_1_results |
+| D:\output\results\qwen_image_2_1_results | /mnt/d/output/results/qwen_image_2_1_results |
 
 ## 前提条件
 - WSL2 Ubuntu 24.04 + NVIDIA Windows 驱动（CUDA 透传）+ `~/miniconda3`
@@ -41,12 +41,12 @@ cd /mnt/c/code/media_code
 
 # ── 1) 文生图冒烟（2048x2048，40 步，固定种子）──
 #    输入：无
-#    输出：/mnt/d/output/qwen_image_2_1_results/t2i_*.png
+#    输出：/mnt/d/output/results/qwen_image_2_1_results/t2i_*.png
 GPU=0 MODE=t2i \
   PROMPT="A neon shop sign that reads \"QWEN IMAGE 2.1\", rainy night, reflections on wet pavement" \
   ASPECT=1:1 STEPS=40 SEED=42 \
   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-  RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+  RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
   bash qwen_image_2_1/02_run_inference.sh
 
 # ── 2) 图像编辑（可选；IMAGES 逗号分隔，最多 10 张参考图）──
@@ -54,7 +54,7 @@ GPU=0 MODE=t2i \
 #   IMAGES=/mnt/d/dataset/sample/input.png \
 #   PROMPT="Change the background to a sunset beach" \
 #   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-#   RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+#   RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
 #   bash qwen_image_2_1/02_run_inference.sh
 
 # ── 3) RGBA 透明图（可选；prompt 必须含官方约定句式）──
@@ -62,7 +62,7 @@ GPU=0 MODE=t2i \
 #   PROMPT="This is an RGBA image with transparency. A cute cartoon dragon sticker. The image has alpha channel and the background is transparent." \
 #   ASPECT=1:1 \
 #   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-#   RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+#   RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
 #   bash qwen_image_2_1/02_run_inference.sh
 ```
 

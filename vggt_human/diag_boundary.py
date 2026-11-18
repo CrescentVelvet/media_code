@@ -6,7 +6,7 @@ from PIL import Image
 from pathlib import Path
 import cv2
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 PID = os.environ.get("PID", "00")
 N_VIS = int(os.environ.get("N_VIS", "8"))
 

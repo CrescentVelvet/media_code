@@ -3,8 +3,8 @@
 import re
 from PIL import Image, ImageDraw
 
-TXT = r"D:/output/flashworld_results/06_multi_cond/sweep_psnr.txt"
-OUT = r"D:/output/flashworld_results/06_multi_cond/sweep_curve.png"
+TXT = r"D:/output/results/flashworld_results/06_multi_cond/sweep_psnr.txt"
+OUT = r"D:/output/results/flashworld_results/06_multi_cond/sweep_curve.png"
 HEADER = ["1cond", "2cond", "3cond", "5cond", "8cond", "12cond", "24cond"]
 # 配色（matplotlib viridis 近似采样）
 COLORS = [(68, 1, 84), (49, 54, 149), (42, 120, 142), (53, 183, 121),

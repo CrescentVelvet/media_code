@@ -92,7 +92,7 @@ int8 + `enable_group_offload(offload_type="leaf_level")`，VAE 也 offload，CPU
 | 帧间相关（皮尔逊）            | +0.796          | **+0.8066**           | ⚠️ 不能区分，见 §9              |
 | 肉眼                   | 细密 RGB 雪花（电视雪花） | **红狐狸在积雪松林行走，六帧步态连贯** | 通过                        |
 
-产物：`/mnt/d/output/minimaxh3_rotate_results/diag_baseline/baseline_t2va_seed42.mp4`  
+产物：`/mnt/d/output/results/minimaxh3_rotate_results/diag_baseline/baseline_t2va_seed42.mp4`  
 （960×544 / 124 帧 / 24 fps / 5.17 s / AAC 双声道）。  
 同目录 `latent_decode1.pt`（7.2 MB）**已被本轮覆盖**，现存的是修复后版本；  
 坏时代那份已不存在，只能引用日志里的统计数字。
@@ -269,7 +269,7 @@ E-03 的价值在于确立了之后一直沿用的判据（std 比值 + 残差�
 
 ## 10. 产物索引
 
-路径前缀 `/mnt/d/output/minimaxh3_rotate_results/`：
+路径前缀 `/mnt/d/output/results/minimaxh3_rotate_results/`：
 
 | 路径 | 内容 |
 |---|---|

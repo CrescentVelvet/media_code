@@ -232,7 +232,7 @@ HF_TOKEN=hf_xxx bash minimax_h3/01_download_models.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
+OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
@@ -242,7 +242,7 @@ bash minimax_h3/06d_int8_turbo_serve.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
+OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
@@ -252,7 +252,7 @@ bash minimax_h3/06d_int8_turbo_serve.sh
 GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 LORA_PATH=/mnt/d/wheel/minimaxh3_ms/minimax_h3_turbo/minimax_h3_fl2v_turbo_4step_v1.1_768p_bf16.safetensors \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8turbo \
+OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/results_int8turbo \
 DEVICE=cuda:0 \
 MAX_PIXELS=1032192 \
 NUM_FRAMES=124 \
@@ -296,7 +296,7 @@ GPU=0 \
 MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
 DEVICE=cuda:0 \
 MAX_PIXELS=133120 \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_int8 \
+OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/results_int8 \
 bash minimax_h3/06c_int8_serve.sh
 
 # 另一个终端发请求（06c/06d API 一致）：
@@ -325,7 +325,7 @@ SEED=42 \
 TASK=fl2va \
 FIRST_FRAME=/mnt/d/dataset/测试数据sample/3fe0604320a24d66a8bde164edf18c11/image_jpg/679448043695000.jpg \
 PROMPT="integrated_multimodal_description: [Shot 1] Cinematic medium-wide shot. The subject shown in the first frame stands perfectly centered in frame, stock-still and frozen in place — absolutely no body movement. The camera is mounted rigidly on a perfectly horizontal circular ring track at fixed height, gliding along the track in a smooth, perfectly level, constant-speed 360-degree orbit around the subject. [Shot 2] At 00:06.000, the camera completes the full 360-degree revolution and stops exactly at the starting front-facing angle, the subject still perfectly frozen in its original pose.\noverall_soundscape: A near-silent, steady room tone with only a faint, constant ambient hum.\nnon_diegetic_music: A single sustained ambient synth drone, unchanging and continuous throughout." \
-OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/results_turbo \
+OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/results_turbo \
 OUTPUT_NAME=rotate_360_turbo.mp4 \
 bash minimax_h3/06b_turbo_lora_inference.sh
 

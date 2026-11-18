@@ -8,7 +8,7 @@
 set -eo pipefail
 cd /mnt/c/code/media_code/vggt_human
 
-RESULTS_DIR=/mnt/d/output/vggt_human_ms
+RESULTS_DIR=/mnt/d/output/results/vggt_human_ms
 
 # 检查全部 checkpoint 就绪
 MISSING=0

@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from face_center_3d import parse_colmap_cameras
 from fit_head_3dmm import qvec2rotmat
 
-RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 SOURCE_DIR = os.environ.get("SOURCE_DIR", f"{RESULTS_DIR}/03b_source_ba")
 GAUSSIAN_PLY = os.environ.get(
     "GAUSSIAN_PLY", f"{RESULTS_DIR}/04b_model_3dgs_ba/point_cloud/iteration_30000/point_cloud.ply")

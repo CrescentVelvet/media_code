@@ -11,6 +11,10 @@ face_crop/models/*.tflite
 # temporary WSL diagnostic scripts (vggt_human debug)
 .tmp_diag/
 
+# slidep 工具在仓根误跑时留下的日志/媒体缓存（PPT 工程都在 D:/ppt/decks，不该进仓库）
+/.cache/
+/.slidep/
+
 # 调试图片产物（flame_human 目检用，单目录上百 MB，不入库）
 flame_human/_debug/
 flame_human/_debug_comp/

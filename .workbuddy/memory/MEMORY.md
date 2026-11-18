@@ -61,13 +61,29 @@
 - **入库边界：只入可复用脚本与规格文档**（2026-11-13 峰哥定）：成品图与一次性出图脚本
   **都不进 GitHub**。判断标准「换个内容还能直接用的入库，绑定某一张图的不入库」。
   落点：可复用的放 `figkit/`（SPEC + figlib/chartlib）与 `*/FIGURES.md` 台账；一次性脚本
-  放 `D:/<项目>_figures/_build/`，成品放同目录 `figures/`，旧版 `_legacy_*/`。
+  放 `D:/ppt/figures/<项目>/_build/`，成品放同目录 `figures/`，旧版 `_legacy_*/`。
   规范原文 AGENTS.md §14。`.gitignore` 已排除 `*.png *.jpg *.mp4`。
+
+## D 盘落点规范（2026-11-18 峰哥定，动 D 盘前必读）
+- **规格源 `D:\ppt\README.md`（2026-11-18 建）**：放在盘上不依赖仓库，任何 Agent 动 D 盘前先读。
+  仓内对应 AGENTS.md **§15**。六条硬规则：①根目录禁建 `*_figures`/`*_report_*`/`*_ppt_*`/
+  `*_assets`；②`.slide` 内不写绝对路径，图一律 `assets/xxx.png` 相对引用（这是 deck 可整体
+  搬迁且 workbuddy 预览不断的技术前提，已实测 5 个 deck 共 80 页缺图 0）；③PPT 不放 output、
+  实验产物不放 ppt；④成品进 `ppt/figures/`、原始素材进 `output/results/<项目>_assets/`；
+  ⑤搬进 decks 后不改 slides 相对路径；⑥删除前判 `is_symlink()`。
+- **结构**：`D:\ppt\decks\<YYYYMMDD>-<标题>\`（23 个，原 `D:\工作文档` 22 个已并入）｜
+  `D:\ppt\figures\<项目>\`（6 个）｜`D:\output\results\<algo>_results\`（57 项）｜
+  `D:\output\_backup\`（8 项）。**`/mnt/d/output/` 之后必须先跟 `results/` 或 `_backup/`**。
+- 迁移已完成 297 处代码/文档路径改写（131 文件）。残留的 `flame_human_results`/`osediff_results`/
+  `scene_splatter_results`/`sharp_portrait` 是**改写前就不存在**的目录，非搬迁造成。
+  `.slidep/commands.jsonl` 内旧绝对路径是 append-only 审计日志，故意不改。
+- 教训：批量改写脚本若只扫仓库，会漏掉 D 盘 deck 里的 `_build` 脚本（本次漏 2 处已补）。
+  搬目录报 Permission denied 多为 explorer 持有句柄 → `mkdir` 目标 + 逐项 `mv` 可绕过。
 
 ## 关键文档索引
 - **`figkit/SPEC.md`（2026-11-13 建）**：PPT 配图规格 + 排版库（figlib / chartlib / onepager）。
   画布 1920×1080 满版；§5.6 单方法页模板；§6 口径纪律；§10 入库边界（图与一次性脚本不入库）。
-  方法一页纸成品见 `D:/compare_4methods_figures/`，台账 `compare_4methods/FIGURES.md`。
+  方法一页纸成品见 `D:/ppt/figures/compare_4methods/`，台账 `compare_4methods/FIGURES.md`。
 - **`compare_4methods/IMPROVEMENTS.md` + `ERRATA.md` + `FINDINGS.md`**（2026-11-08 建）：DA3-GS 的
   归位与演进台账。**已定论（2026-11-09）**：
   - **正式口径 = 3DGS EWA 光栅器 + 官方等价导出（不裁剪 + 全 SH）**，全图 **22.11 dB**、

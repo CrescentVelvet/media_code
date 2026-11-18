@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 08_move_output.sh — WSL 专用：把结果从 Linux fs 搬到 Windows 盘（vhdx 空间有限）。
 #
-# 默认把 $RESULTS_DIR（~/output/flashworld_results）整棵搬到 /mnt/d/output/flashworld_results。
+# 默认把 $RESULTS_DIR（~/output/flashworld_results）整棵搬到 /mnt/d/output/results/flashworld_results。
 # 大 PLY（几十 MB~几百 MB 一个）搬完 Linux 侧不留副本；加 KEEP_SRC=1 改成复制。
 #
 # 用法：
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 SRC="${SRC:-$RESULTS_DIR}"
-DST="${DST:-/mnt/d/output/flashworld_results}"
+DST="${DST:-/mnt/d/output/results/flashworld_results}"
 KEEP_SRC="${KEEP_SRC:-0}"
 
 if [ ! -d "$SRC" ]; then

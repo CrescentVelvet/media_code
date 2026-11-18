@@ -4,8 +4,8 @@
 用法（Windows，workbuddy python，自带 pillow）：
     python 29b_make_ppt_images.py
 
-输入：D:\\output\\d1_diag_view\\  （GT_v*.png / FF_*_v*_render.png / FF_*_v*_alpha.png）
-输出：D:\\output\\d1_diag_view\\ppt\\ppt_*.png
+输入：D:\\output\\results\\d1_diag_view\\  （GT_v*.png / FF_*_v*_render.png / FF_*_v*_alpha.png）
+输出：D:\\output\\results\\d1_diag_view\\ppt\\ppt_*.png
 """
 import json
 import os
@@ -17,7 +17,7 @@ sys.path.insert(0, r"C:\Users\wangyufeng\.workbuddy\binaries\python\envs\default
 
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = Path(r"D:\output\d1_diag_view")
+SRC = Path(r"D:\output\results\d1_diag_view")
 OUT = SRC / "ppt"
 OUT.mkdir(parents=True, exist_ok=True)
 

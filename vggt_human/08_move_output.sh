@@ -9,7 +9,7 @@
 #
 # 用法：
 #   bash vggt_human/08_move_output.sh
-#   SRC=~/output/vggt_human_results DST=/mnt/d/output/vggt_human_results bash vggt_human/08_move_output.sh
+#   SRC=~/output/vggt_human_results DST=/mnt/d/output/results/vggt_human_results bash vggt_human/08_move_output.sh
 #   DRY_RUN=1 bash vggt_human/08_move_output.sh   # 预览，不实际移动
 set -o pipefail
 
@@ -19,8 +19,8 @@ source "$SCRIPT_DIR/_env.sh"
 
 # 源目录（默认 RESULTS_DIR，与 01-07 一致）
 SRC="${SRC:-$RESULTS_DIR}"
-# 目标目录（默认 D:\output\vggt_human_results）
-DST="${DST:-/mnt/d/output/vggt_human_results}"
+# 目标目录（默认 D:\output\results\vggt_human_results）
+DST="${DST:-/mnt/d/output/results/vggt_human_results}"
 # 下载临时目录、pipeline 中间产物也一起搬（如果存在）
 MOVE_EXTRA_DIRS="${MOVE_EXTRA_DIRS:-1}"
 

@@ -12,7 +12,7 @@
 ```bash
 # 一键（校验权重 + t2i 冒烟）
 GPU=0 MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-  RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+  RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
   bash qwen_image_2_1/run_all.sh
 
 # 分步
@@ -25,7 +25,7 @@ GPU=0 MODE=t2i \
   PROMPT="A neon shop sign that reads \"QWEN IMAGE 2.1\", rainy night" \
   ASPECT=1:1 STEPS=40 SEED=42 \
   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-  RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+  RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
   bash qwen_image_2_1/02_run_inference.sh
 
 # 3) 图像编辑（IMAGES 逗号分隔，多图=多参考图）
@@ -33,7 +33,7 @@ GPU=0 MODE=edit \
   IMAGES=/mnt/d/dataset/sample/input.png \
   PROMPT="Change the background to a sunset beach" \
   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-  RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+  RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
   bash qwen_image_2_1/02_run_inference.sh
 
 # 4) 透明图（RGBA）生成 —— prompt 需包含官方约定句式
@@ -41,7 +41,7 @@ GPU=0 MODE=rgba \
   PROMPT="This is an RGBA image with transparency. A cute cartoon dragon sticker. The image has alpha channel and the background is transparent." \
   ASPECT=1:1 \
   MODEL_PATH=/mnt/d/wheel/qwen_image21_ms \
-  RESULTS_DIR=/mnt/d/output/qwen_image_2_1_results \
+  RESULTS_DIR=/mnt/d/output/results/qwen_image_2_1_results \
   bash qwen_image_2_1/02_run_inference.sh
 
 # 5) 批量去反光（环绕拍摄数据集预处理，模型只加载一次，断点续跑）
@@ -49,12 +49,12 @@ GPU=0 bash qwen_image_2_1/03_batch_dereflect.sh
 # 抽帧验证：SAMPLE=5（全集均匀抽 5 张含首尾，覆盖各视角）、STRIDE=10（每 10 张取 1）
 # 分批：LIMIT=2（前 2 张）、START=100 LIMIT=50（第 100~149 张）
 # 换数据集：INPUT_DIR=/mnt/d/dataset/物体反光数据/<对象>/image \
-#           OUTPUT_DIR=/mnt/d/output/qwen_image_2_1_dereflect/<对象>/image
+#           OUTPUT_DIR=/mnt/d/output/results/qwen_image_2_1_dereflect/<对象>/image
 ```
 
 ### 03 批量去反光说明
 - 输入默认 `/mnt/d/dataset/物体反光数据/耳机白/image`（574 张 1080×1920），输出同名 jpg 到
-  `/mnt/d/output/qwen_image_2_1_dereflect/耳机白/image`；**输出已存在则跳过**，中断后直接重跑即续。
+  `/mnt/d/output/results/qwen_image_2_1_dereflect/耳机白/image`；**输出已存在则跳过**，中断后直接重跑即续。
 - PROMPT/STEPS/SEED/START/LIMIT/JPG_QUALITY 均可 env 覆盖；每张图种子 = SEED+序号，可复现。
 - 实测（3090，40 步）：**~65s/张，574 张 ≈ 10.5 小时**，建议 nohup/后台跑。
 - ⚠️ edit 模式输出分辨率由 pipeline 自选（1080×1920 → 768×1376），脚本默认 `RESIZE_BACK=1`

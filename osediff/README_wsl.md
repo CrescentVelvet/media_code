@@ -155,5 +155,5 @@ curl -L https://hf-mirror.com/Manojb/stable-diffusion-2-1-base/resolve/main/unet
 │   └── DAPE.pth
 ├── output/osediff_results/          # 推理输出（Linux fs）
 └── output/osediff_experiments/      # 训练产物（Linux fs）
-/mnt/d/output/osediff_results/        # 08 搬运后的最终结果（Windows 盘）
+/mnt/d/output/results/osediff_results/        # 08 搬运后的最终结果（Windows 盘）
 ```

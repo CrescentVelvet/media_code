@@ -15,7 +15,7 @@
 
 ## 全流程命令
 见 [README.md](README.md)「常用命令」。WSL 下唯一注意：`$HOME/output/...` 在
-Linux fs，训练完跑 `08_move_output.sh` 搬到 `/mnt/d/output/som_human_results/`。
+Linux fs，训练完跑 `08_move_output.sh` 搬到 `/mnt/d/output/results/som_human_results/`。
 
 ## 采集包（01_convert_capture.sh）备忘
 格式规范（字段表 / 位姿约定 / 飞点过滤）已作为**标准输入格式**写进

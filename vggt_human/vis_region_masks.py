@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from face_center_3d import parse_colmap_cameras  # noqa: E402
 
-RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 SOURCE_DIR = os.environ.get("SOURCE_DIR", f"{RESULTS_DIR}/03_source")
 MASKS_DIR = os.environ.get("MASKS_DIR", f"{RESULTS_DIR}/03i_region_masks")
 OUT_DIR = os.environ.get("OUT_DIR", f"{MASKS_DIR}/vis")

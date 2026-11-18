@@ -7,7 +7,7 @@
   Q3 重投影误差在「脸部前突点」上是否系统性偏前？
 
 用法（WSL, conda vggt_human）：
-  MODEL_3DMM_DIR=~/model/ICT-FaceKit RESULTS_DIR=/mnt/d/output/vggt_human_ms \
+  MODEL_3DMM_DIR=~/model/ICT-FaceKit RESULTS_DIR=/mnt/d/output/results/vggt_human_ms \
       python diag_head_v2.py
 """
 import json
@@ -52,7 +52,7 @@ def pca_axes(P):
 
 def main():
     model_dir = Path(os.environ.get("MODEL_3DMM_DIR", "~/model/ICT-FaceKit")).expanduser()
-    R = Path(os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms"))
+    R = Path(os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms"))
     tmpl = np.load(str(model_dir / "3dmm_template.npz"), allow_pickle=True)
     mc = tmpl["mp_canonical"]
     lm = json.loads((R / "03e_head_3dmm" / "face_landmarks.json").read_text())

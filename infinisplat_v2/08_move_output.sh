@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 08_move_output.sh — 把 WSL Linux fs 上的结果搬到 Windows 盘（/mnt/d/output）。
+# 08_move_output.sh — 把 WSL Linux fs 上的结果搬到 Windows 盘（/mnt/d/output/results）。
 #
 # 训练/推理输出写在 ~/output 是 Linux fs（快），跨盘拷贝到 /mnt/d 后可在 Windows 侧直接看。
 # 默认不删源目录，确认无误后再手动清理。
 #
 # Env (all optional):
-#   DEST_ROOT=/mnt/d/output            # 目标根
+#   DEST_ROOT=/mnt/d/output/results            # 目标根
 #   ONLY=hypersim_provided             # 只搬某个子目录（默认全部）
 set -o pipefail
 
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/_env.sh"
 
-: "${DEST_ROOT:=/mnt/d/output}"
+: "${DEST_ROOT:=/mnt/d/output/results}"
 DEST="$DEST_ROOT/infinisplat_v2_results_$(date +%Y%m%d)"
 
 if [ ! -d "$RESULTS_DIR" ]; then

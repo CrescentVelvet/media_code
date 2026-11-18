@@ -16,7 +16,7 @@
 | Windows | WSL |
 |---|---|
 | D:\dataset\... | /mnt/d/dataset/... |
-| D:\output\deformable_human_results | /mnt/d/output/deformable_human_results |
+| D:\output\results\deformable_human_results | /mnt/d/output/results/deformable_human_results |
 | D:\wheel | /mnt/d/wheel（pip wheel 缓存） |
 
 ## 前提条件

@@ -24,8 +24,8 @@ VAE 解码前，37 分钟成果全丢。此后 09b 会在每次 vae.decode 前�
 用法（WSL）：
   cd /mnt/c/code/media_code && conda activate minimax_h3
   MODEL_PATH=/mnt/d/wheel/minimaxh3_ms \
-  LATENT=/mnt/d/output/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt \
-  OUTPUT_DIR=/mnt/d/output/minimaxh3_rotate_results/diag_baseline \
+  LATENT=/mnt/d/output/results/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt \
+  OUTPUT_DIR=/mnt/d/output/results/minimaxh3_rotate_results/diag_baseline \
   python minimax_h3/09c_decode_latent.py
 
 Env vars:

@@ -4,7 +4,7 @@ set -o pipefail
 cd /mnt/c/code/media_code/vggt_human
 for PID in 00 01 02; do
     echo ">>> head p$PID 10k iter"
-    RESULTS_DIR=/mnt/d/output/vggt_human_ms MODEL_KIND=head PID=$PID ITERATIONS=10000 \
+    RESULTS_DIR=/mnt/d/output/results/vggt_human_ms MODEL_KIND=head PID=$PID ITERATIONS=10000 \
         LR_SCALE=1.0 DENSIFY_UNTIL=0 bash 03i_train_three_models.sh || echo "❌ head p$PID FAILED"
 done
 echo "heads done"

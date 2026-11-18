@@ -10,7 +10,7 @@ import numpy as np, torch
 from PIL import Image
 from pathlib import Path
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 HEAD_ITERS = os.environ.get("HEAD_ITERS", "4000")
 BODY_ITERS = os.environ.get("BODY_ITERS", "30000")
 SCENE_ITERS = os.environ.get("SCENE_ITERS", "30000")

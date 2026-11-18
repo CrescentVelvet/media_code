@@ -55,7 +55,7 @@ import time
 MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms"))
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 OUTPUT_DIR = os.path.abspath(os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/orbit_datagen"))
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/orbit_datagen"))
 MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(1344 * 768)))  # 768p 预算
 FPS = int(os.environ.get("FPS", "24"))
 NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))            # 5.2s @24fps

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 08_move_output.sh —— 把 Linux fs 上的结果搬到 /mnt/d/output（WSL 专用）
+# 08_move_output.sh —— 把 Linux fs 上的结果搬到 /mnt/d/output/results（WSL 专用）
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
-DEST_ROOT="${DEST_ROOT:-/mnt/d/output}"
+DEST_ROOT="${DEST_ROOT:-/mnt/d/output/results}"
 DEST="${DEST:-$DEST_ROOT/idol_results}"
 
 if [ ! -d "$RESULTS_DIR" ]; then

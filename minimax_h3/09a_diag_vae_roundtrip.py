@@ -18,7 +18,7 @@ Env vars:
   DEVICE      默认 cuda:0
   NUM_FRAMES  默认 124（必须满足 17*n+5；可选 22/39/56/73/90/107/124）
   WIDTH/HEIGHT 默认 960x544
-  OUTPUT_DIR  默认 /mnt/d/output/minimaxh3_rotate_results/diag_vae
+  OUTPUT_DIR  默认 /mnt/d/output/results/minimaxh3_rotate_results/diag_vae
   FIRST_FRAME 可选，用真实图片替代合成图案（会做成静止视频）
 """
 import os
@@ -36,7 +36,7 @@ WIDTH = int(os.environ.get("WIDTH", "960"))
 HEIGHT = int(os.environ.get("HEIGHT", "544"))
 FPS = int(os.environ.get("FPS", "24"))
 OUTPUT_DIR = os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/diag_vae")
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/diag_vae")
 FIRST_FRAME = os.environ.get("FIRST_FRAME", "")
 
 # MiniMax-H3 的像素约定是 ImageNet 归一化，值域基数是 [0,1] 而不是 [-1,1]

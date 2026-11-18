@@ -93,7 +93,7 @@ SRC=/mnt/d/downloads/sharp_2572gikvuh.pt bash sharp/01_download_models.sh
 
 /mnt/d/wheel/sharp_ms/            # 权重：sharp_2572gikvuh.pt（D 盘，读一次即可）
 /mnt/c/code/media_code/sharp/     # 本目录（编排脚本，git 仓）
-/mnt/d/output/sharp_results/      # 最终归档（step 08 搬过来）
+/mnt/d/output/results/sharp_results/      # 最终归档（step 08 搬过来）
 ```
 
 路径通过 `proxy.env` 的 `SHARP_MODEL_DIR` / `SHARP_RESULTS_DIR` 覆盖，脚本不用改。

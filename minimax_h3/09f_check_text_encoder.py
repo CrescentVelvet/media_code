@@ -31,7 +31,7 @@ import torch
 MODEL_PATH = os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh3_ms")
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 OUTPUT_DIR = os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/diag_textenc")
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/diag_textenc")
 
 TE_NOT_CONVERT = [
     "model.visual", "model.language_model.embed_tokens",

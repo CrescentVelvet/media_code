@@ -15,9 +15,9 @@ import sys
 import numpy as np
 from PIL import Image
 
-ROOT = "/mnt/d/output/flashworld_results/07_long_cond"
-JSON_DIR = "/mnt/d/output/flashworld_input/json_lc"
-PNG_DIR = "/mnt/d/output/flashworld_input/jiabao_png"
+ROOT = "/mnt/d/output/results/flashworld_results/07_long_cond"
+JSON_DIR = "/mnt/d/output/results/flashworld_input/json_lc"
+PNG_DIR = "/mnt/d/output/results/flashworld_input/jiabao_png"
 
 F41 = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36,
        38, 40, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63, 65, 67, 69, 71, 73,

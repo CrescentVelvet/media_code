@@ -10,7 +10,7 @@ import numpy as np, torch
 from PIL import Image
 import cv2
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 STEM = os.environ.get("STEM", "681533632532078")
 CLAMP_DILATE = int(os.environ.get("CLAMP_DILATE", "10"))
 

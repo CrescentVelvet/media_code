@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """E4 几何审计的汇报配图生成（Windows，workbuddy python，自带 pillow）。
 
-输入：D:\\output\\e4_geometry_view\\（29p 产物 + base_v*_render.png + e4_report.json）
-输出：D:\\output\\e4_geometry_view\\ppt\\ppt_e4_*.png
+输入：D:\\output\\results\\e4_geometry_view\\（29p 产物 + base_v*_render.png + e4_report.json）
+输出：D:\\output\\results\\e4_geometry_view\\ppt\\ppt_e4_*.png
 """
 import json
 import os
@@ -13,7 +13,7 @@ sys.path.insert(0, r"C:\Users\wangyufeng\.workbuddy\binaries\python\envs\default
 
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = Path(r"D:\output\e4_geometry_view")
+SRC = Path(r"D:\output\results\e4_geometry_view")
 OUT = SRC / "ppt"
 OUT.mkdir(parents=True, exist_ok=True)
 

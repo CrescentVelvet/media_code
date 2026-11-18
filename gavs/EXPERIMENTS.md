@@ -35,7 +35,7 @@
 ### 产物位置
 
 - WSL：`~/output/gavs_results/dynamic_dance/`（checkpoints/model_0000231.pth、visualization/、depth_scale.json、train/evaluate.log）
-- Windows（视频副本）：`D:\output\gavs_results\dynamic_dance\*.mp4`
+- Windows（视频副本）：`D:\output\results\gavs_results\dynamic_dance\*.mp4`
 
 | mp4 | 内容 |
 |---|---|

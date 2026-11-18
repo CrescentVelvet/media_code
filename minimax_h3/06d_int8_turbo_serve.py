@@ -34,7 +34,7 @@ MODEL_PATH = os.path.abspath(os.environ.get("MODEL_PATH", "/mnt/d/wheel/minimaxh
 PORT = int(os.environ.get("PORT", "8000"))
 DEVICE = os.environ.get("DEVICE", "cuda:0")
 OUTPUT_DIR = os.path.abspath(os.environ.get(
-    "OUTPUT_DIR", "/mnt/d/output/minimaxh3_rotate_results/results_int8turbo"))
+    "OUTPUT_DIR", "/mnt/d/output/results/minimaxh3_rotate_results/results_int8turbo"))
 DEFAULT_MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(1344 * 768)))  # 与 06d.sh 默认一致；直跑 .py 时别悄悄变小画布
 DEFAULT_FPS = int(os.environ.get("FPS", "24"))
 DEFAULT_NUM_FRAMES = int(os.environ.get("NUM_FRAMES", "124"))

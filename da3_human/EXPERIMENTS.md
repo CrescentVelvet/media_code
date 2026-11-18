@@ -45,7 +45,7 @@ FG PSNR 11.89；SSIM 0.300；LPIPS 0.545；sharp_ratio 0.221；hole_pct ≈ 0.05
 工具：`30_run_viewcount_bench.sh`（08 前馈导出 + 30 通用多视角评测，断点续跑）、
 `30_ff_multiview_eval.py`（任意视角数：PSNR/SSIM/LPIPS/锐度/前景 PSNR/空洞率 + Phase 0
 方位角登记）、`30b_make_bench_summary.py`（PPT 汇总图，图像不入 git）。
-产物：`~/output/da3_results/_bench_viewcount/`（WSL）/ `D:\output\bench_viewcount_view\`（目检副本，含 ppt\）。
+产物：`~/output/da3_results/_bench_viewcount/`（WSL）/ `D:\output\results\bench_viewcount_view\`（目检副本，含 ppt\）。
 
 ### A. 视角数分桶（同一 32v 采集包「佳佳抱枕」，REF_STRATEGY=first，N_VIEWS=3/8/13/18）
 
@@ -95,7 +95,7 @@ FG PSNR 11.89；SSIM 0.300；LPIPS 0.545；sharp_ratio 0.221；hole_pct ≈ 0.05
 > 触发：EXPERIMENT_PLAN.md E4 行——区分 center 错位 / scale / rotation / 遮挡融合错误。
 > 工具：`29p_e4_geometry_audit.py`（WSL）+ `29q_e4_summary_images.py`（Windows 配图）。
 > 产物：`~/output/da3_results/佳佳抱枕_3v/e4_geometry/`（e4_report.json + PNG），
-> 目检副本 `D:/output/e4_geometry_view/`（含 ppt/ 四张汇报图）。
+> 目检副本 `D:/output/results/e4_geometry_view/`（含 ppt/ 四张汇报图）。
 
 ### 关键手法：PLY 按层切回逐视角
 
@@ -152,7 +152,7 @@ E1~E4 全部完成，停止条件四条满足 → **冻结 DA3-Baseline-V1**（�
 > 工具：`29n_e3_scale_clamp_ablation.py`（WSL querysplat 双臂渲染统计）+
 > `29o_e3_summary_images.py`（Windows 汇报配图）。
 > 产物：`~/output/da3_results/佳佳抱枕_3v/e3_scale_clamp/`（e3_report.json + 逐视角 PNG），
-> 目检副本 `D:/output/e3_scale_view/`（含 ppt/ 四张汇报图）。
+> 目检副本 `D:/output/results/e3_scale_view/`（含 ppt/ 四张汇报图）。
 
 ### 对照设计（预注册，不看结果调参）
 
@@ -195,7 +195,7 @@ E3 已用掉唯一一次 scale 对照额度。**Phase 1 只剩 E4 几何输出�
 > 触发：峰哥观察 3v 对比（five_way_arc 视频 DA3-GS 面板：偏灰、模糊、背景白洞）。
 > 工具：`29_run_d1_diag.sh`（08 四档导出 + `29_d1_diag_3view.py` 双口径渲染统计）。
 > 产物：`~/output/da3_results/佳佳抱枕_3v/d1_diag/`（PNG + diag_report.json），
-> 目检副本 `D:/output/d1_diag_view/`。日志 `~/output/batch_4methods/d1_diag_佳佳抱枕_3v.log`。
+> 目检副本 `D:/output/results/d1_diag_view/`。日志 `~/output/batch_4methods/d1_diag_佳佳抱枕_3v.log`。
 
 ### 链路事实（先纠正认知）
 
@@ -783,7 +783,7 @@ D 配置证明：**anchor + 有界 offset 参数化 + 正则（无 detach）可�
    - **本期选择**：内部验证用 `DA3NESTED-GIANT-LARGE-1.1`（质量最高：README 称 DA3-LARGE 已可比 VGGT，NESTED 为 any-view giant + metric 嵌套），CC BY-NC 仅内部研究可接受。
 
 2. **数据确认**（计划 §2 标注「待确认」已落实）：
-   - vggt_human 棚拍 = **单场景，125 视角，1440×1920 JPG**，COLMAP sparse/0 在位（`~/output/vggt_human_results/source/`）；`/mnt/d/output/vggt_human_results` 为同场景 08 搬运产物。
+   - vggt_human 棚拍 = **单场景，125 视角，1440×1920 JPG**，COLMAP sparse/0 在位（`~/output/vggt_human_results/source/`）；`/mnt/d/output/results/vggt_human_results` 为同场景 08 搬运产物。
    - 满足计划数据要求（≥4 视角、有内参、静态）；主体人物基本静态（vggt_human/04 注释），动态重影风险低。
    - 局限：只有 1 个场景，D 阶段敏感性实验无跨场景重复性检验（记为已知限制）。
 

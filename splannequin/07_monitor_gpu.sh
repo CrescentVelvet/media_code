@@ -4,7 +4,7 @@
 # 用法：OUT=/mnt/d/output/xxx.log INTERVAL=10 bash 07_monitor_gpu.sh
 set -o pipefail
 
-OUT="${OUT:-/mnt/d/output/splannequin_monitor.log}"
+OUT="${OUT:-/mnt/d/output/results/splannequin_monitor.log}"
 INTERVAL="${INTERVAL:-10}"
 
 echo "🚀 [07] GPU/内存监控启动 → $OUT（每 ${INTERVAL}s）"

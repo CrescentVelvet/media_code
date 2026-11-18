@@ -91,7 +91,7 @@ bash sharp/01_download_models.sh
 media_code/sharp/                 # 本目录（编排脚本）
 ~/repos/ml-sharp/                 # 官方代码（00a clone）
 /mnt/d/wheel/sharp_ms/            # 权重
-~/output/sharp_results/           # 输出（08 搬到 /mnt/d/output/sharp_results）
+~/output/sharp_results/           # 输出（08 搬到 /mnt/d/output/results/sharp_results）
 ~/miniconda3/envs/sharp/          # conda env
 ```
 

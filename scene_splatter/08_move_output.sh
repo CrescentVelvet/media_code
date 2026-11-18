@@ -2,7 +2,7 @@
 # 08_move_output.sh — WSL 专用：把结果从 Linux fs 搬到 Windows 盘（vhdx 空间有限）。
 #
 # 默认把 $RESULTS_DIR（~/output/scene_splatter_results）整棵搬到
-# /mnt/d/output/scene_splatter_results。加 KEEP_SRC=1 改成复制。
+# /mnt/d/output/results/scene_splatter_results。加 KEEP_SRC=1 改成复制。
 #
 # 用法：
 #   bash scene_splatter/08_move_output.sh
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
 
 SRC="${SRC:-$RESULTS_DIR}"
-DST="${DST:-/mnt/d/output/scene_splatter_results}"
+DST="${DST:-/mnt/d/output/results/scene_splatter_results}"
 KEEP_SRC="${KEEP_SRC:-0}"
 
 if [ ! -d "$SRC" ]; then

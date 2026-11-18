@@ -19,9 +19,9 @@ import sys
 SRC_DIR = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
     "SRC_DIR", r"/mnt/d/dataset/物体反光数据/耳机白/image")
 DST_DIR = sys.argv[2] if len(sys.argv) > 2 else os.environ.get(
-    "DST_DIR", r"/mnt/d/output/qwen_image_2_1_dereflect/耳机白/image")
+    "DST_DIR", r"/mnt/d/output/results/qwen_image_2_1_dereflect/耳机白/image")
 OUT_DIR = sys.argv[3] if len(sys.argv) > 3 else os.environ.get(
-    "OUT_DIR", r"/mnt/d/output/qwen_image_2_1_dereflect/耳机白/compare")
+    "OUT_DIR", r"/mnt/d/output/results/qwen_image_2_1_dereflect/耳机白/compare")
 NAMES = os.environ.get("NAMES", "")
 MAX_W = int(os.environ.get("MAX_W", "960"))
 GRID_COLS = int(os.environ.get("GRID_COLS", "4"))

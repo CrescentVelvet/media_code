@@ -2,7 +2,7 @@
 """三模型通用区域内 PSNR 评估：body/scene（无 warp）或 head（带 warp）。
 
 用法（WSL）:
-  RESULTS_DIR=/mnt/d/output/vggt_human_ms KIND=body PID=00 ITERS=30000 N_VIS=8 \
+  RESULTS_DIR=/mnt/d/output/results/vggt_human_ms KIND=body PID=00 ITERS=30000 N_VIS=8 \
   python eval_region_psnr.py
   KIND=head PID=00 ITERS=10000  # head 自动按 head_fit.json 逐帧 warp
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
-RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/vggt_human_ms")
+RESULTS = os.environ.get("RESULTS_DIR", "/mnt/d/output/results/vggt_human_ms")
 KIND = os.environ.get("KIND", "body")          # head | body | scene
 PID = os.environ.get("PID", "00")
 ITERS = os.environ.get("ITERS", "30000")

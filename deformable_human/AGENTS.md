@@ -24,7 +24,7 @@
 | 编排脚本（本目录） | `/mnt/c/code/media_code/deformable_human/`（Windows 盘，git 仓内） |
 | 官方仓（不要改） | `~/repos/Deformable-3D-Gaussians`（Linux fs，`$DG_DIR`） |
 | 训练输出（过程产物） | `~/output/deformable_human_results/<scene>/`（Linux fs） |
-| 最终产物（搬盘后） | `/mnt/d/output/deformable_human_results/<scene>/` |
+| 最终产物（搬盘后） | `/mnt/d/output/results/deformable_human_results/<scene>/` |
 | conda env | `deformable_human`（clone 自 vggt_human，torch 2.5.1+cu121） |
 
 **路径纪律**：训练/编译只写 Linux fs；`/mnt/c` 只读代码、`/mnt/d` 只放最终产物。

@@ -20,8 +20,8 @@ raw 版 roundtrip 完美、norm 版低对比度）。所以 09b 里"std≈1"的�
 
 纯 CPU、秒级完成。latent 文件由 09b 的 logged_decode 钩子存盘。
 
-Env: LATENT_PT 默认 D:/output/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt
-     （WSL 路径 /mnt/d/output/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt）
+Env: LATENT_PT 默认 D:/output/results/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt
+     （WSL 路径 /mnt/d/output/results/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt）
 """
 import os
 import sys
@@ -30,7 +30,7 @@ import torch
 
 LATENT_PT = os.environ.get(
     "LATENT_PT",
-    "D:/output/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt")
+    "D:/output/results/minimaxh3_rotate_results/diag_baseline/latent_decode1.pt")
 
 
 def main():

@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 from scipy.spatial.transform import Rotation as _Rot
 
-RESULTS = "/mnt/d/output/vggt_human_ms"
+RESULTS = "/mnt/d/output/results/vggt_human_ms"
 PID = "00"
 HEAD_DIR = f"{RESULTS}/03e_head_3dmm"
 TRAIN_DIR = f"{RESULTS}/03i_head_p00"
