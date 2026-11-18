@@ -26,14 +26,15 @@ export N_VIEWS=32
 export ITERATIONS=30000
 export REF_STRATEGY=first   # 与 90a/90b 三图轮一致，DA3 世界系钉视角 0
 
-STEPS="${STEPS:-da3 da3gs qs is vggt}"
+STEPS="${STEPS:-qs is vggt da3 da3gs}"   # 快的/不确定的先跑；DA3 系最慢压尾
 LOG_DIR="$HOME/output/batch_4methods"
 mkdir -p "$LOG_DIR"
 
 echo "🚀 [90d] 2K 批量: $SCENE_NAME（N_VIEWS=$N_VIEWS, ITERS=$ITERATIONS, 原生 1440×1920）"
 echo "  步骤: $STEPS"
 
-run() {  # $1=step 名, 其余=命令
+FAILED=""
+run() {  # $1=step 名, 其余=命令；失败不中断（"能否支持"里 OOM/超时本身就是结果）
     local STEP="$1"; shift
     local LOG="$LOG_DIR/2k_${STEP}_${SCENE_NAME}.log"
     echo ""
@@ -43,9 +44,9 @@ run() {  # $1=step 名, 其余=命令
     local RC=$?
     local SEC=$((SECONDS - T0))
     if [ $RC -ne 0 ]; then
-        echo "❌ [2k][$STEP] FAILED (exit=$RC, ${SEC}s)，日志: $LOG"
-        echo "ALL_DONE rc=1 failed_step=$STEP"
-        exit 1
+        echo "❌ [2k][$STEP] FAILED (exit=$RC, ${SEC}s)，日志: $LOG —— 继续下一家"
+        FAILED="$FAILED $STEP(rc=$RC)"
+        return
     fi
     echo "✅ [2k][$STEP] 完成  ⏱️  ${SEC}s"
 }
@@ -53,19 +54,20 @@ run() {  # $1=step 名, 其余=命令
 for S in $STEPS; do
     case "$S" in
         da3)
-            # DA3 前馈 1920 + 3DGS 30k 全分辨率回炉（RES=1）
+            # DA3 前馈 1920（timeout 4h：单次前向 >70min 未完已实测，超时就判不实用）
+            # + 3DGS 30k 全分辨率回炉（RES=1，timeout 8h）
             run "$S" bash -c \
-              "PROCESS_RES=1920 bash '$MEDIA_CODE_ROOT/compare_4methods/90b_run_da3_inference.sh' \
-               && RES=1 bash '$MEDIA_CODE_ROOT/compare_4methods/90c_train_da3_3dgs.sh'" ;;
+              "timeout 14400 env PROCESS_RES=1920 bash '$MEDIA_CODE_ROOT/compare_4methods/90b_run_da3_inference.sh' \
+               && timeout 28800 env RES=1 bash '$MEDIA_CODE_ROOT/compare_4methods/90c_train_da3_3dgs.sh'" ;;
         da3gs)
-            # DA3 原生高斯头（DA3-GS）：97 全 SH 导出 + 98 相机，均 PROCESS_RES=1920
+            # DA3 原生高斯头（DA3-GS）：97 全 SH 导出 + 98 相机，均 PROCESS_RES=1920（各 timeout 4h）
             run "$S" bash -c \
-              "IMAGES_DIR='$HOME/output/da3_results/_captures/$SCENE_NAME/images' \
+              "timeout 14400 env IMAGES_DIR='$HOME/output/da3_results/_captures/$SCENE_NAME/images' \
                OUT_DIR='$HOME/output/da3_gs_results/$SCENE_NAME' \
                PROCESS_RES=1920 REF_STRATEGY=first MAX_VIEWS=0 \
                DA3_MODEL_DIR=/mnt/d/wheel/da3_human_ms \
                ~/miniconda3/envs/da3_human/bin/python '$MEDIA_CODE_ROOT/compare_4methods/97_da3_gs_export_full_sh.py' \
-               && IMAGES_DIR='$HOME/output/da3_results/_captures/$SCENE_NAME/images' \
+               && timeout 14400 env IMAGES_DIR='$HOME/output/da3_results/_captures/$SCENE_NAME/images' \
                OUT_DIR='$HOME/output/da3_gs_results/${SCENE_NAME}_ff' \
                PROCESS_RES=1920 REF_STRATEGY=first \
                DA3_MODEL_DIR=/mnt/d/wheel/da3_human_ms \
@@ -81,16 +83,16 @@ for S in $STEPS; do
                        \"\$CKPT_DIR/querysplat_vggto_1B_512_8192.yaml\" > \"\$Y2K\"
                    echo '📝 2K yaml: ' \"\$Y2K\"
                fi
-               QS_CONFIG=\"\$Y2K\" bash '$MEDIA_CODE_ROOT/querysplat/02_run_inference.sh'" ;;
+               QS_CONFIG=\"\$Y2K\" timeout 10800 bash '$MEDIA_CODE_ROOT/querysplat/02_run_inference.sh'" ;;
         is)
-            # InfiniSplat v2：LONG_SIDE 518→1920（含默认 3000 步精调）
+            # InfiniSplat v2：LONG_SIDE 518→1920（含默认 3000 步精调，timeout 4h）
             run "$S" env OUT_NAME="$SCENE_NAME" LONG_SIDE=1920 \
-                 bash "$MEDIA_CODE_ROOT/infinisplat_v2/07_run_capture.sh" ;;
+                 timeout 14400 bash "$MEDIA_CODE_ROOT/infinisplat_v2/07_run_capture.sh" ;;
         vggt)
-            # VGGT-Ω 1920 + 3DGS 30k 全分辨率回炉（RES=1）
+            # VGGT-Ω 1920（timeout 2h）+ 3DGS 30k 全分辨率回炉（RES=1，timeout 8h）
             run "$S" bash -c \
-              "RESOLUTION=1920 bash '$MEDIA_CODE_ROOT/vggt_omega/02_run_inference.sh' \
-               && RES=1 bash '$MEDIA_CODE_ROOT/vggt_omega/03_train_3dgs.sh'" ;;
+              "timeout 7200 env RESOLUTION=1920 bash '$MEDIA_CODE_ROOT/vggt_omega/02_run_inference.sh' \
+               && timeout 28800 env RES=1 bash '$MEDIA_CODE_ROOT/vggt_omega/03_train_3dgs.sh'" ;;
         *)
             echo "⚠️ 未知步骤: $S（可选 da3 da3gs qs is vggt）" >&2
             exit 1 ;;
@@ -98,5 +100,9 @@ for S in $STEPS; do
 done
 
 echo ""
-echo "🎉 [90d] 全部步骤完成: $STEPS"
-echo "ALL_DONE rc=0"
+if [ -n "$FAILED" ]; then
+    echo "⚠️ [90d] 完成但有失败步骤:$FAILED"
+else
+    echo "🎉 [90d] 全部步骤完成: $STEPS"
+fi
+echo "ALL_DONE rc=0 failed='${FAILED# }'"
