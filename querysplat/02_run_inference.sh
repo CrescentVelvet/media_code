@@ -15,8 +15,8 @@ export TTO="${TTO:-0}"                               # 1 = 开 test-time optimiz
 
 CAP_DIR="$RESULTS_DIR/_captures/$SCENE_NAME"
 OUT_DIR="$RESULTS_DIR/$SCENE_NAME"
-CONFIG="$QS_CHECKPOINT_DIR/querysplat_vggto_1B_512_8192.yaml"
-CHECKPOINT="$QS_CHECKPOINT_DIR/querysplat_vggto_1B_512_8192.safetensors"
+CONFIG="${QS_CONFIG:-$QS_CHECKPOINT_DIR/querysplat_vggto_1B_512_8192.yaml}"
+CHECKPOINT="${QS_CHECKPOINT:-$QS_CHECKPOINT_DIR/querysplat_vggto_1B_512_8192.safetensors}"
 
 if [ ! -d "$RAW_DIR" ]; then echo "❌ ERROR: 采集包不存在: $RAW_DIR" >&2; exit 1; fi
 if [ ! -f "$CHECKPOINT" ]; then
