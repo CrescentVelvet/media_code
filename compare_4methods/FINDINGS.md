@@ -625,3 +625,10 @@ GT 侧不变：GT K@1439×1919、32 GT 相机、32 GT 原图）。
 ③§8 同口径 all32 PSNR/SSIM vs 32v 基线（17.30 / 14.90 / 19.81 / 11.29 / 11.71）。
 
 **实测**：（待填）
+
+**§9 实测流水（边跑边填）**：
+- QuerySplat ❌ **官方权重硬锁 512²**：改 yaml 到 1920×1440 被 `options.py:103` 守卫拒
+  （"This checkpoint requires 512x512 QuerySplat and VGGT-Omega inputs"）。
+  非显存问题，是发布权重的分辨率绑定；绕过属 off-label（产出不可信），判**不支持 2K 输入**。
+- DA3 前向 @1920（32 视角）：单次前向 70min+ 未完成（da3_human env 无匹配 xformers，
+  注意力退回慢速路径），VRAM 24.2GB 贴满未 OOM。已重排批量顺序并加 4h timeout，最终结果待填。
