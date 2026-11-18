@@ -11,14 +11,14 @@
 
 ## 人物数据 LoRA 优先汇报（2026-11-17）
 
-- 新稿：`D:/ppt/decks/20261117-实验进展汇报/实验进展汇报_20261117_LoRA优先.pptx`，
-  14页，可编辑文本；原稿 `D:/ppt/decks/20261116-实验进展汇报/实验进展汇报.pptx` 保留。
+- 新稿：`D:/ppt/20261117-实验进展汇报.pptx`，
+  14页，可编辑文本；原稿 `D:/ppt/20261116-实验进展汇报.pptx` 保留。
 - 来源：[主计划 L0～L4](../da3_human/EXPERIMENT_PLAN.md)与本目录EXPERIMENTS中的证据审查。
   **方案尚未执行**；E-21外部深度替换失败不能证伪人物数据适配，E-20局域不一致不证明数据根因。
 - 修改页01/03/05/06/07/11/12/13，新增14；第11页训练读数仅为11月16日历史快照。
   02/04/08/09/10为历史背景，当前决策以07与12～14页为准；不把旧进展当作LoRA实验结果。
-- 一次性内容生成器：`D:/ppt/decks/20261117-实验进展汇报/_build/update_lora_report_20261117.py`。
-  生成器准备新目录内 `slides/*.slide` / `DESIGN.md` / `UPDATE.md`；PPT从原稿复制后更新。
+- 一次性内容生成器：`D:/ppt/_src/20261117-实验进展汇报/_build/update_lora_report_20261117.py`。
+  生成器准备 `_src` 目录内 `slides/*.slide` / `DESIGN.md` / `UPDATE.md`；pptx 平铺在 `D:/ppt/` 根。
 - 再生成：先运行生成器，再用本机 `slidep` 打开副本，按页执行
   `upsert-dsl <新稿> --dsl-file <新目录>/slides/NN.slide --page-index <NN-1>`；
   第14页在13页副本上用 `--page-index -1` 追加。已有14页副本则用索引13替换，勿重复追加。

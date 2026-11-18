@@ -629,11 +629,13 @@ AI 助手（无论哪个工具）完成实质工作后，必须往 `.workbuddy/m
 **动 D 盘任何目录前，先读 `D:\ppt\README.md`**（规格源，放在盘上不依赖仓库）。
 
 历史问题：每次做 PPT 就新建一个目录，D 盘根目录堆积 `*_figures`、`*_report_*`、
-`ppt_sharp_*` 等 7~8 个平铺目录，杂乱且引用路径互相漂移。2026-11-18 已全部收敛：
+`ppt_sharp_*` 等 7~8 个平铺目录，杂乱且引用路径互相漂移。2026-11-18 已全部收敛，
+并**二次调整**：pptx 全部平铺在 `D:\ppt\` 根，找 PPT 不用再逐层点目录。
 
 | 类型 | 落点 | 例子 |
 |---|---|---|
-| PPT 工程 | `D:\ppt\decks\<YYYYMMDD>-<标题>\` | `20261116-三图人像重建技术路线汇报/` |
+| `.pptx` 成品 | **`D:\ppt\<YYYYMMDD>-<标题>.pptx`**（平铺在根） | `20261116-三图人像重建技术路线汇报.pptx` |
+| PPT 源码工程（slides/assets/DESIGN.md） | `D:\ppt\_src\<同名前缀>\` | `20261116-三图人像重建技术路线汇报/` |
 | 配图工程（脚本+成品） | `D:\ppt\figures\<项目>\` | `compare_4methods/`、`da3_human/` |
 | 实验结果 | `D:\output\results\<algo>_results\` | `output/results/som_human_results/` |
 | 备份/废弃 | `D:\output\_backup\<原名>_<日期>\` | `output/_backup/dup_pptx_20261118/` |
@@ -642,15 +644,24 @@ AI 助手（无论哪个工具）完成实质工作后，必须往 `.workbuddy/m
 
 1. **D 盘根目录禁止新建** `*_figures`、`*_report_*`、`*_ppt_*`、`*_assets` 目录。
    要建就建在 `D:\ppt\figures\<项目>\`。
-2. PPT 的 `.slide` 里**不写绝对路径**，图片一律 `<Image src='assets/xxx.png'>` 相对引用
-   —— 这是 deck 目录能整体搬迁而不破坏 workbuddy 预览的技术前提。
-3. **PPT 不放 `D:\output`**，实验产物不放 `D:\ppt`。
-4. **配图成品与素材分离**：成品图/脚本进 `ppt/figures/`，原始素材（pairs/raw/cloud 等）
+2. **`D:\ppt\` 顶层只允许**：`*.pptx` 散文件、`_src\`、`figures\`、`README.md`。
+   禁止再建 `decks\`、`reports\`、`2026\` 之类中间层——平铺是刻意的，
+   中间层会让"找 PPT"重新变成点目录。
+3. pptx 文件名**必须**带 `YYYYMMDD-` 前缀，否则平铺排序会跳到字母区、跳出时间序。
+4. PPT 的 `.slide` 里**不写绝对路径**，图片一律 `<Image src='assets/xxx.png'>` 相对引用
+   —— 这是源码工程能整体搬迁而不断渲染的技术前提。
+5. **PPT 不放 `D:\output`**，实验产物不放 `D:\ppt`。
+6. **配图成品与素材分离**：成品图/脚本进 `ppt/figures/`，原始素材（pairs/raw/cloud 等）
    进 `output/results/<项目>_assets/` —— 素材体积大且是可再生输入。
-5. 搬到 `decks/` 后**不改 `slides/` 里的相对路径**（改了反而断）。
-6. 删除前先判 `is_symlink()`（§11 红线的延伸）。
+7. 搬 pptx 时**同步搬 `_src` 目录并保持同名**，只搬一边会导致 `slides/` 与 pptx 内容不一致。
+8. 删除前先判 `is_symlink()`（§11 红线的延伸）。
 
-**当前已迁移**：22 个历史 deck（原 `D:\工作文档`）、7 个 figures 工程（原 `D:\` 根）、
-63 个 output 平铺目录（→ `results/` 57 项 + `_backup/` 8 项）。迁移时 297 处代码/文档
-路径引用已批量改写，改写脚本为一次性脚本（不入库）。
+**pptx 移出工程目录不影响 slidep**：slidep 各命令都靠显式 `file` 参数定位 pptx
+（`upsert-dsl <file> --dsl-file … --page-index …`），不依赖 cwd，所以
+`D:\ppt\*.pptx` + `D:\ppt\_src\<deck>\slides\` 这种分离布局可以正常改版。
+
+**当前已迁移**：22 个历史 pptx（原 `D:\工作文档`）+ 2 个新 deck，共 24 个 pptx / 1.2 GB
+全部平铺 `D:\ppt\` 根；5 个 slidep 工程进 `_src\`；7 个 figures 工程（原 `D:\` 根）；
+63 个 output 平铺目录（→ `results/` 57 项 + `_backup/` 8 项）。迁移时路径引用已批量改写，
+改写脚本为一次性脚本（不入库）。
 
