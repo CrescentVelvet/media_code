@@ -4,6 +4,15 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-18 · SHARP支线复核，人物LoRA优先级保持
+
+- SHARP修正双重外参后，同一佳佳包16个去重有向pair的S−I中位+3.62dB、S−planeH+2.11dB。
+  这是SHARP内部诊断，**没有SA同target配对结果**；不能与SA自渲26～27dB比较，宣称融合已失败。
+- 主计划更新为SH1b评测修复/配对→条件SH1c细节/SH2融合→条件SH3离线初始化优化；SH2/SH3
+  暂缓待证。人物数据LoRA主线保持，DA3继续基线。本轮没有新增SA推理/训练。
+- 数据、纠正和限制详见[SHARP实验归档11月18日v4](../sharp/EXPERIMENTS.md)，执行只看
+  [主计划当前SHARP节](../da3_human/EXPERIMENT_PLAN.md)，不沿用旧v2/v3“否证”指令。
+
 ## 2026-11-17 · Codex 路线审查：先人物数据 LoRA（方案，未启动）
 
 - 用户提出先保持网络/3DGS表示，用高质量人物模型数据训练LoRA；已在
