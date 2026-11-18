@@ -43,43 +43,51 @@ v2 的判据是**三方同掩码对拍**（identity / 单平面单应 / SHARP �
     planeH    = 单个前向平行平面的 2D 单应 Kb(R + t n^T/d) Ka^-1，d 扫描取最优
     SHARP     = A 的点经 R,t 变换后从 B 渲染
 
-下表是 **06_cross_view_fair_compare.py 的实测输出**（18 对 = 3 组 × 双向，
-`probe06_*/fair_compare.json` 为唯一权威来源；本表的 d 为全局同 `d` 扫描后的每对最优值）：
+下表是 **06_cross_view_fair_compare.py 的实测输出**（v3，2026-11-17 修双重变换后重跑；
+`S1a_crossview_13v_*/fair_compare.json` 为唯一权威来源；`d` 为每对扫描取最优值）：
 
 | 组 | 视角对 | ang | mask | identity | planeH@d | SHARP | S−I | S−P |
 |---|---|---|---|---|---|---|---|---|
-| 13v_small22 | 000→002 | 21.7° | 73% | 11.72 | 13.37@1.4 | 11.83 | +0.11 | −1.54 |
-| 13v_small22 | 000→015 | 11.5° | 79% | 12.18 | 14.49@1.6 | 12.45 | +0.27 | −2.04 |
-| 13v_small22 | 002→000 | 21.7° | 71% | 12.09 | 13.69@1.4 | 11.91 | −0.18 | −1.78 |
-| 13v_small22 | 002→015 | 10.4° | 84% | 12.23 | 15.05@1.4 | 13.10 | +0.87 | −1.95 |
-| 13v_small22 | 015→000 | 11.5° | 92% | 12.60 | 14.37@1.6 | 12.11 | −0.50 | −2.26 |
-| 13v_small22 | 015→002 | 10.4° | 96% | 12.14 | 14.19@1.6 | 12.34 | +0.20 | −1.85 |
-| 13v_small26 | 000→003 | 35.9° | 53% | 11.16 | 12.12@1.6 | 11.60 | +0.44 | −0.52 |
-| 13v_small26 | 002→003 | 14.2° | 85% | 12.57 | 13.98@1.4 | 13.05 | +0.49 | −0.92 |
-| 13v_small26 | 003→000 | 35.9° | 56% | 10.98 | 12.38@1.4 | 11.61 | +0.63 | −0.78 |
-| 13v_small26 | 003→002 | 14.2° | 92% | 12.21 | 13.32@1.6 | 12.67 | +0.46 | −0.65 |
-| 13v_large125 | 000→004 | 47.6° | 45% | 10.89 | 12.04@1.6 | 10.86 | −0.03 | −1.18 |
-| 13v_large125 | 000→022 | 86.1° | 36% | 11.24 | 13.04@3.0 | 8.41 | −2.84 | −4.63 |
-| 13v_large125 | 004→000 | 47.6° | 43% | 10.95 | 11.57@1.6 | 10.68 | −0.27 | −0.88 |
-| 13v_large125 | 004→022 | 124.8° | 50% | 9.82 | 12.41@0.8 | 10.30 | +0.47 | −2.12 |
-| 13v_large125 | 022→000 | 86.1° | 42% | 8.91 | 9.03@4.0 | 9.38 | +0.46 | +0.35 |
-| 13v_large125 | 022→004 | 124.8° | 66% | 9.68 | 11.29@2.0 | 9.03 | −0.65 | −2.26 |
+| 13v_small22 | 000→002 | 21.7° | 91% | 11.64 | 13.21@1.6 | 15.44 | +3.81 | +2.23 |
+| 13v_small22 | 000→015 | 11.5° | 96% | 12.40 | 14.72@1.6 | 16.36 | +3.96 | +1.63 |
+| 13v_small22 | 002→000 | 21.7° | 90% | 11.70 | 13.53@1.4 | 15.37 | +3.67 | +1.83 |
+| 13v_small22 | 002→015 | 10.4° | 97% | 12.11 | 14.78@1.4 | 16.85 | +4.74 | +2.07 |
+| 13v_small22 | 015→000 | 11.5° | 99% | 12.44 | 13.99@1.6 | 16.34 | +3.90 | +2.35 |
+| 13v_small22 | 015→002 | 10.4° | 100% | 12.07 | 14.05@1.6 | 17.08 | +5.01 | +3.02 |
+| 13v_small26 | 000→003 | 35.9° | 80% | 11.20 | 12.42@1.6 | 14.78 | +3.58 | +2.36 |
+| 13v_small26 | 002→003 | 14.2° | 96% | 12.41 | 13.39@1.4 | 15.54 | +3.13 | +2.15 |
+| 13v_small26 | 003→000 | 35.9° | 82% | 11.08 | 12.41@1.4 | 14.88 | +3.79 | +2.47 |
+| 13v_small26 | 003→002 | 14.2° | 99% | 12.08 | 13.25@1.6 | 16.49 | +4.41 | +3.24 |
+| 13v_large125 | 000→004 | 47.6° | 69% | 10.90 | 12.05@1.6 | 14.12 | +3.22 | +2.07 |
+| 13v_large125 | 000→022 | 86.1° | 39% | 10.47 | 12.99@4.0 | 11.98 | +1.51 | **−1.01** |
+| 13v_large125 | 004→000 | 47.6° | 71% | 10.45 | 11.87@1.6 | 13.44 | +3.00 | +1.57 |
+| 13v_large125 | 004→022 | 124.8° | 32% | 10.85 | 12.59@0.8 | 12.01 | +1.16 | **−0.59** |
+| 13v_large125 | 022→000 | 86.1° | 45% | 10.18 | 9.45@2.0 | 13.59 | +3.41 | +4.14 |
+| 13v_large125 | 022→004 | 124.8° | 41% | 9.28 | 11.89@0.6 | 12.49 | +3.21 | +0.60 |
 
 （`13v_small26` 的 000→002 / 002→000 与 `13v_small22` 同名对是同一对视角，数字相同，
-合计 18 对。）
+去重后合计 16 对。）
 
-**汇总：`S−I` 中位 +0.15 dB（11/18 为正，范围 −2.84 ~ +0.87）；
-`S−P` 中位 −1.65 dB（仅 1/18 为正，范围 −4.63 ~ +0.35）。**
+**汇总（16 对）：`S−I` 中位 +3.73 dB（16/16 全为正，范围 +1.16 ~ +5.01）；
+`S−P` 中位 +2.11 dB（14/16 为正，范围 −1.01 ~ +3.24）。**
 
-即 **SHARP 渲染相对"完全不做 warp"的净贡献统计上等于 0，且 17/18 对输给一个只含
-1 个深度自由度的单平面单应。** 354 万点的 3D 高斯打不过一个 2D homography —— 这才是
-"不能当几何源"的准确形式。若只是精度不够，至少应显著优于 identity；实测只差零点几
-dB，说明**跨视角位置/朝向是系统性错的**，而不是"再准一点就能用"。
+## 🔴 v2 的结论整个是错的（2026-11-17 修 bug 后撤回）
 
-小基线假设已实测否证（2026-11-17）：11~22° 组 11.83~13.10 dB、26~36° 组
-11.60~13.05 dB，与大基线同量级，没有"缩小基线就能到 20 dB"这回事。
-尺度也不是主因：`13v_small26` 的 Q1 `z_median_spread` 只有 1.0455（三视角
-1.9973/1.9104/1.9442 m，几乎完全自洽）却照样崩。
+v2 曾报「`S−I` 中位 +0.15、`S−P` 中位 −1.65，17/18 对输给单平面单应」，据此判定
+「354 万点打不过一个 2D homography」。**那个结论建立在双重变换 bug 上，已全部撤回。**
+修正后 SHARP **16/16 对赢 identity、14/16 对赢 planeH**，量级 +2~+4 dB。
+
+正确的读法：
+
+* **净贡献是真实的**：+3.73 dB 说明跨视角几何确实在起作用，不是"再准一点就能用"
+  也不是"系统性错"。v2 那句「跨视角位置/朝向是系统性错的」**是错的**。
+* **小基线更好但不构成平台期**：10~22° 组 S−P 中位 +2.19、25~60° 组 +2.21，
+  到 86°/125° 才转负（−1.01 / −0.59）。两条转负的对都是 `→022`，
+  而 022 是全组最远的视角（基线 2.79 m）且覆盖率只有 32~41%。
+  **这是覆盖率问题不是几何问题**——在只剩三成像素上算 PSNR，本身方差就大。
+* **但 11~17 dB 绝对水平仍远低于"可用"**。赢 identity 不等于能当融合基座：
+  同掩码 17 dB 意味着纳伪融合时是**破坏性**的（对照 SA 自渲 26~27 dB）。
+  结论从「几何信息≈0 甚至为负」改成「**几何方向对、精度不够**」。
 
 所以本脚本报的**相对关系（层间 delta、跨视角放大倍数）比绝对 PSNR 可信**。
 
@@ -202,7 +210,23 @@ def concat_g(parts: list):
 
 
 def render(renderer, g, extrinsics: torch.Tensor, intrinsics: torch.Tensor, h: int, w: int):
-    """渲染一张。extrinsics 是 **w2c**（gsplat 约定，OpenCV）。返回 numpy。"""
+    """渲染一张。extrinsics 是 **w2c**（gsplat 约定，OpenCV）。返回 numpy。
+
+    ⚠️⚠️ **必须与高斯所处的坐标系配对，这是本脚本踩过的最大坑。**
+
+    两种合法用法，二选一，**绝不能叠加**：
+
+      (a) 高斯在**相机系**（已用 `apply_w2c_to_gaussians` 搬过去）
+          → `extrinsics` 必须传 **``torch.eye(4)``**（点已经在目标相机系了）。
+      (b) 高斯在**世界系**（原始前馈输出，未变换）
+          → `extrinsics` 传 **w2c**。
+
+    2026-11-17 实测的 bug：Q4 用了 `apply_transform(g, w2c)` **再**传 `extrinsics=w2c`，
+    等于 `p → R(R p + t) + t`，**变换施加两次**。后果是画面整体错位、alpha 覆盖率虚低
+    （73% vs 正确的 91%）、跨视角 PSNR 被压低 **+3.45~+3.97 dB**（同一批像素，
+    intersection 掩码下比较，见 `isolate_extrinsic.txt`）。这个 bug 让 SHARP 看起来
+    「打不过单平面单应」，而修正后它其实赢——**结论被反转**。
+    """
     with torch.no_grad():
         out = renderer(
             g,
@@ -217,15 +241,141 @@ def render(renderer, g, extrinsics: torch.Tensor, intrinsics: torch.Tensor, h: i
     return color, alpha, depth
 
 
+def check_render_equivalence(
+    renderer,
+    g_world,
+    w2c_np: np.ndarray,
+    Kt4_t: torch.Tensor,
+    rh: int,
+    rw: int,
+    device,
+    tag: str = "",
+):
+    """**回归检查（守门人）**：路径 (a) 与路径 (b) 必须等价。
+
+    render() 的 docstring 写了两种合法用法。它们数学上等价：
+
+        (a) 先把点搬到 T 相机系 `p' = R p + t`，再用 `extrinsics = eye` 渲染
+        (b) 点留在世界系，用 `extrinsics = w2c` 渲染
+
+    两条路径只应差浮点误差。**若不等价，说明 R,t 被施加了两次或零次**——
+    2026-11-17 那个把结论反转的 bug 正是这样漏过两轮评审的。
+
+    ── 阈值怎么定的（v5，2026-11-18）────────────────────────────────
+    首版拍脑袋用「max|Δalpha|<1e-3 且 max|Δcolor|<1e-2」，在正常批次上报 1/6 等价，
+    差点把整批结果白扔。原因是两个：
+
+    1. **用了 max 统计**。gsplat 是 alpha 合成，像素级 max 由单个边界像素主导；
+       两条路径的矩阵乘顺序不同（`inv(ndc@K@E)` vs `inv(E) 后 apply_transform`），
+       边界像素的 alpha 分界必然漂 1~2 个量化阶。几何没错位时 coverage 一位不差。
+    2. **阈值没有对照**。不知道"真故障"长什么样，就无法判断 1e-3 是噪声还是事故。
+
+    所以本版改为：**先注入一次真故障**（把 w2c 施加两遍，正是 11-17 那个 bug 的形态），
+    量出它的量级，再把判据定在"比噪声大、比故障小"的区间上，并检查分离度
+    `fault_median / equiv_median >= 10`。分离度不够（比如 w2c 接近单位阵）时
+    直接报 `inconclusive`，不假装通过。
+
+    返回 dict（可直接进 json 台账）。
+    """
+    g_cam = apply_w2c_to_gaussians(g_world, w2c_np)
+    eye = torch.eye(4, device=device)
+    w2c_t = torch.from_numpy(w2c_np.astype(np.float32)).to(device)
+
+    ca, aa, _ = render(renderer, g_cam, eye, Kt4_t, rh, rw)     # (a) 相机系 + eye
+    cb, ab, _ = render(renderer, g_world, w2c_t, Kt4_t, rh, rw)  # (b) 世界系 + w2c
+
+    # 故障注入：再乘一次 w2c，复现「变换被施加两次」的事故形态。
+    g_fault = apply_w2c_to_gaussians(g_cam, w2c_np)
+    cf, af, _ = render(renderer, g_fault, eye, Kt4_t, rh, rw)   # (c) 双重变换
+
+    def _med(a, b):
+        return float(np.median(np.abs(a - b)))
+
+    d_alpha_max = float(np.max(np.abs(aa - ab)))
+    d_alpha_med = _med(aa, ab)
+    d_color_med = _med(ca, cb)
+    cov_a, cov_b = float((aa > 0.5).mean()), float((ab > 0.5).mean())
+    d_cov = abs(cov_a - cov_b)
+
+    f_alpha_max = float(np.max(np.abs(aa - af)))
+    f_alpha_med = _med(aa, af)
+    f_color_med = _med(ca, cf)
+    cov_f = float((af > 0.5).mean())
+    f_cov = abs(cov_a - cov_f)
+
+    # 判据：等价必须"贴地"（对 coverage 与中位差异都应几乎为零），
+    # 且必须与故障量级拉开 ≥10x，否则这次检查本身无效。
+    sep_alpha = f_alpha_med / max(d_alpha_med, 1e-12)
+    sep_cov = f_cov / max(d_cov, 1e-12)
+    near = (d_alpha_med < 1e-3) and (d_cov < 1e-3)
+    separated = (sep_alpha >= 10.0) or (f_cov >= 1e-2)
+    ok = bool(near and separated)
+    inconclusive = bool(near and not separated)
+
+    r = {
+        "pair": tag,
+        "max_abs_diff_alpha": d_alpha_max,
+        "median_abs_diff_alpha": d_alpha_med,
+        "median_abs_diff_color": d_color_med,
+        "coverage_a_camera_space": cov_a,
+        "coverage_b_world_space": cov_b,
+        "abs_diff_coverage": d_cov,
+        "fault_injection": {
+            "max_abs_diff_alpha": f_alpha_max,
+            "median_abs_diff_alpha": f_alpha_med,
+            "median_abs_diff_color": f_color_med,
+            "coverage_double_transform": cov_f,
+            "abs_diff_coverage": f_cov,
+            "separation_alpha": sep_alpha,
+            "separation_coverage": sep_cov,
+        },
+        "equivalent": ok,
+        "inconclusive": inconclusive,
+        "note": (
+            "判据：(a)(b) 中位 alpha 差 <1e-3 且 coverage 差 <1e-3（贴地）；"
+            "且与双重变换故障的分离度 ≥10x（否则 inconclusive）。"
+        ),
+    }
+    if inconclusive:
+        flag, verdict = "⚠️", "检查无效（与故障未拉开），不作废也不声称通过"
+    elif ok:
+        flag, verdict = "✅", "等价"
+    else:
+        flag, verdict = "❌", "不等价，整批作废"
+    print(
+        f"   {flag} 回归检查 {tag}: Δalpha(med/max)={d_alpha_med:.2e}/{d_alpha_max:.2e} "
+        f"Δcov={d_cov:.2e} | 故障注入 med={f_alpha_med:.2e} Δcov={f_cov:.2e} "
+        f"分离={sep_alpha:.0f}x → {verdict}"
+    )
+    return r
+
+
 # ------------------------------------------------------------------ 推理
 
 
-def predict(predictor, image_u8: np.ndarray, f_px: float, cx: float, cy: float, device):
+def predict(
+    predictor,
+    image_u8: np.ndarray,
+    fx: float,
+    fy: float,
+    cx: float,
+    cy: float,
+    device,
+):
     """单图前馈 -> 相机坐标高斯。
 
-    与 03/04 的唯一差别：主点用真实 cx/cy，不用 w/2、h/2。
-    官方 cli/predict.py:166-203 用的正是 w/2、h/2（因为它拿不到标定），
-    这里有 prior_camera.json，应当用真实值。
+    与 03/04 的差别：主点用真实 cx/cy（不用 w/2、h/2），且 **fx / fy 分开传**。
+    官方 `cli/predict.py:166-203` 只接受一个 `f_px`（因为它拿不到标定），
+    这里 `prior_camera.json` 给了 fx=1380.82 / fy=1384.18，丢掉其中一个没有道理。
+    v4 复核（2026-11-18）把「05 把 fy 当成 fx」列为评测协议缺陷，此处修正。
+
+    ⚠️ 但 `disparity_factor` **仍用 fx**：网络只有一档焦距输入槽
+    （`disparity_factor = f_px / width`），训练分布就是单焦距，
+    喂 fy 会改变网络行为而不只是几何。所以：
+      * 网络输入口径 = fx（与官方一致，保证可比）
+      * 反投影 K 的口径 = (fx, fy)（几何正确）
+    两者的差只有 0.24%，实测影响记在 `_q0_protocol_audit["fy_vs_fx"]`
+    （同一份 NDC 高斯只换反投影 K 的 fy 再反投影一次，量出点位差）。
     """
     import torch.nn.functional as F
 
@@ -242,7 +392,7 @@ def predict(predictor, image_u8: np.ndarray, f_px: float, cx: float, cy: float, 
         )
     image_pt = torch.from_numpy(image_u8.copy()).float().to(device).permute(2, 0, 1) / 255.0
     _, height, width = image_pt.shape
-    disparity_factor = torch.tensor([f_px / width]).float().to(device)
+    disparity_factor = torch.tensor([fx / width]).float().to(device)
 
     image_resized_pt = F.interpolate(
         image_pt[None],
@@ -254,8 +404,8 @@ def predict(predictor, image_u8: np.ndarray, f_px: float, cx: float, cy: float, 
     # 4x4：unproject_gaussians 内部做 ndc @ K @ E 的 4x4 连乘
     intrinsics = torch.tensor(
         [
-            [f_px, 0, cx, 0],
-            [0, f_px, cy, 0],
+            [fx, 0, cx, 0],
+            [0, fy, cy, 0],
             [0, 0, 1, 0],
             [0, 0, 0, 1],
         ],
@@ -271,10 +421,38 @@ def predict(predictor, image_u8: np.ndarray, f_px: float, cx: float, cy: float, 
         gaussians = unproject_gaussians(
             gaussians_ndc, torch.eye(4, device=device), intrinsics_resized, internal_shape
         )
+        # fy 分离的实测影响：同一份 NDC 高斯，只把反投影 K 的 fy 换成旧口径值，看点位差多少。
+        # 纯审计用途（v4 §4 要求量化「05 把 fy 当 fx」的代价），不参与任何结论。
+        #
+        # ⚠️ 必须按 resize 后的同尺度替换。`intrinsics_resized` 的 [0,0] 与 [1,1] 已分别乘过
+        # 1536/w 与 1536/h（本例 1.067 vs 0.800，相差 33%），直接写 [1,1]=[0,0] 等于把焦距
+        # 放大 33%，量出 0.153 m —— 比真实影响大两个数量级，首版就是这么错的。
+        # 旧口径是 `f_px = fx` 走完 resize，即 K[1,1] = fx * 1536/h。
+        K_fy_eq_fx = intrinsics_resized.clone()
+        K_fy_eq_fx[1, 1] = fx * (internal_shape[1] / height)
+        g_old = unproject_gaussians(
+            gaussians_ndc, torch.eye(4, device=device), K_fy_eq_fx, internal_shape
+        )
+    mu_c = gaussians.mean_vectors[0]
+    mu_o = g_old.mean_vectors[0]
+    d_xyz = (mu_c - mu_o).abs()
+    d_norm = torch.linalg.norm(mu_c - mu_o, dim=-1)
+    rel = d_norm / torch.linalg.norm(mu_c, dim=-1).clamp_min(1e-9)
+    fy_audit = {
+        "fy_over_fx": float(fy / max(fx, 1e-9)),
+        "median_abs_dz_m": float(d_xyz[:, 2].median()),
+        "median_abs_dx_m": float(d_xyz[:, 0].median()),
+        "median_abs_dy_m": float(d_xyz[:, 1].median()),
+        "median_abs_dxyz_norm_m": float(d_norm.median()),
+        "p90_abs_dxyz_norm_m": float(d_norm.quantile(0.90)),
+        "median_rel_change": float(rel.median()),
+        "note": "正数=用真 fy 相对旧口径（fy=fx）的位移；两者 dz 恒为 0（K 的 fy 只影响 y 与 z 的耦合）",
+    }
     return {
         "gaussians": gaussians,
         "intrinsics": intrinsics,
         "size": (height, width),
+        "fy_audit": fy_audit,
     }
 
 
@@ -415,7 +593,13 @@ def main() -> int:
         h, w = img.shape[:2]
         Kh = k_all[s]
         t0 = time.time()
-        pred = predict(predictor, img, float(Kh[0, 0]), float(Kh[0, 2]), float(Kh[1, 2]), device)
+        pred = predict(
+            predictor,
+            img,
+            float(Kh[0, 0]), float(Kh[1, 1]),
+            float(Kh[0, 2]), float(Kh[1, 2]),
+            device,
+        )
         g = pred["gaussians"]
         if s == stems[0]:
             print(f"🔮 尺寸 {w}x{h}  前向 {time.time() - t0:.1f}s  点数 {g.mean_vectors.shape[1]:,}")
@@ -431,6 +615,7 @@ def main() -> int:
             "size": (h, w),
             "c2w": c2w_all[s],
             "K": Kh,
+            "fy_audit": pred["fy_audit"],
         }
 
     # 渲染尺寸（半分辨率，与 04 同口径）
@@ -442,6 +627,49 @@ def main() -> int:
 
     renderer = GSplatRenderer(color_space="linearRGB", background_color=args.bg)
     results: dict = {"scene": str(scene), "views": stems, "render_size": [rw, rh], "bg": args.bg}
+    audit: dict = {}
+
+    # ---------------- Q0：评测协议审计（v4 复核要求，先自证口径再谈结论） ----------------
+    # 这一段不产出新结论，只把「这次评测的内参/掩码/变换链到底用了什么」落成台账，
+    # 免得下次又出现「旧表不能沿用，但没人知道为什么」。
+    print("\n=== Q0 评测协议审计 ===")
+    ks = []
+    for s in stems:
+        Kh = preds[s]["K"]
+        ks.append(
+            {
+                "view": s,
+                "fx": float(Kh[0, 0]), "fy": float(Kh[1, 1]),
+                "cx": float(Kh[0, 2]), "cy": float(Kh[1, 2]),
+                "aspect_fy_over_fx": float(Kh[1, 1] / max(Kh[0, 0], 1e-9)),
+            }
+        )
+    fy_over_fx = [k["aspect_fy_over_fx"] for k in ks]
+    audit["intrinsics"] = {
+        "per_view": ks,
+        "fy_over_fx_min": float(min(fy_over_fx)),
+        "fy_over_fx_max": float(max(fy_over_fx)),
+        "source": "prior_camera.json（SplatAnything 从这三图估计，不是标定 GT）",
+        "disparity_factor_uses": "fx（网络只有单焦距输入槽，与官方一致；反投影 K 用 fx,fy）",
+    }
+    print(
+        f"   内参 fx={ks[0]['fx']:.2f} fy={ks[0]['fy']:.2f} cx={ks[0]['cx']:.2f} cy={ks[0]['cy']:.2f}"
+        f"  fy/fx={ks[0]['aspect_fy_over_fx']:.5f}"
+    )
+    print(f"   来源：prior_camera.json（估计值，非标定 GT）")
+
+    # fy 分离的实测代价：反面投影一次，量点位差。0.24% 的焦距差到底等不等于"可忽略"，
+    # 用数字说话，不靠感觉。
+    fy_audit = {s: preds[s]["fy_audit"] for s in stems}
+    audit["fy_vs_fx"] = fy_audit
+    s0 = stems[0]
+    a0 = fy_audit[s0]
+    print(
+        f"   fy/fx 分离代价（{s0}）：|Δy|中位={a0['median_abs_dy_m']:.5f} m  "
+        f"|Δxyz|中位={a0['median_abs_dxyz_norm_m']:.5f} m "
+        f"p90={a0['p90_abs_dxyz_norm_m']:.5f} m  相对={a0['median_rel_change'] * 100:.4f}%"
+    )
+    results["_q0_protocol_audit"] = audit
 
     # ---------------- Q1：尺度自洽 ----------------
     # 三张单图各自独立前馈，米制量级是否一致？不一致则任何跨视角残差都无意义。
@@ -536,9 +764,11 @@ def main() -> int:
                 Kt4[1] *= ratio
             Kt4_t = torch.from_numpy(Kt4.astype(np.float32)).to(device)
 
-            # A 的点从 T 视角渲染
+            # A 的点从 T 视角渲染。点已被 apply_w2c_to_gaussians 搬到 T 相机系，
+            # 所以这里必须用单位外参；T 自己那份本来就在 T 相机系，同样用单位外参
+            # ——两边口径一致，dz 才有可比性（2026-11-17 修正）。
             gA = apply_w2c_to_gaussians(d["g"], w2c_np)
-            _, aA, dpA = render(renderer, gA, w2c, Kt4_t, rh, rw)
+            _, aA, dpA = render(renderer, gA, torch.eye(4, device=device), Kt4_t, rh, rw)
             # T 自己的点从 T 视角渲染（恒等外参）
             _, aT, dpT = render(
                 renderer, preds[t]["g"],
@@ -608,8 +838,10 @@ def main() -> int:
 
             row = {}
             for nm, gg in (("full", g_full), ("layer0", l0), ("layer1", l1)):
+                # 点已由 apply_w2c_to_gaussians 搬进 T 相机系 → 渲染必须用单位外参。
+                # 传 w2c 会二次施加 R,t（2026-11-17 修正，压低 3.45~3.97 dB）。
                 gg_t = apply_w2c_to_gaussians(gg, (np.linalg.inv(preds[t]["c2w"]) @ d["c2w"]))
-                c, a, dp = render(renderer, gg_t, w2c, Kt4_t, rh, rw)
+                c, a, dp = render(renderer, gg_t, torch.eye(4, device=device), Kt4_t, rh, rw)
                 pv = psnr(c, gt_t)
                 # 只看 alpha 覆盖到的区域，避免背景拉高 PSNR
                 m = a > 0.5
@@ -618,11 +850,16 @@ def main() -> int:
                     "psnr": pv,
                     "psnr_covered": pv_cov,
                     "alpha_mean": float(a.mean()),
+                    "coverage_frac": float(m.mean()),
                     "depth_median": float(np.median(dp[m])) if m.any() else None,
                 }
                 if nm == "full":
                     save_png(c, args.out / f"q4_{s}_to_{t}_full.png")
                     save_gray(a, args.out / f"q4_{s}_to_{t}_alpha.png", 0.0, 1.0)
+                    # 存无损 float32：06 要在"公共掩码"上重算三方的 PSNR，
+                    # 若只能读 8bit PNG，重算值会与这里差零点几 dB（量化 + 反量化）。
+                    np.save(args.out / f"q4_{s}_to_{t}_alpha.npy", a.astype(np.float32))
+                    np.save(args.out / f"q4_{s}_to_{t}_full.npy", c.astype(np.float32))
             row["gain_layer1_over_layer0_db"] = row["full"]["psnr"] - row["layer0"]["psnr"]
             q4[f"{s}->{t}"] = row
             print(
@@ -631,7 +868,35 @@ def main() -> int:
                 f"full-l0={row['gain_layer1_over_layer0_db']:+5.2f} dB  "
                 f"alpha={row['full']['alpha_mean']:.3f}"
             )
+
+            # 守门人：每对都验一次 (a) 相机系+eye 与 (b) 世界系+w2c 是否等价。
+            # 不等价就别往下看了，说明变换又被重复施加了。
+            w2c_np = np.linalg.inv(preds[t]["c2w"]) @ d["c2w"]
+            chk = check_render_equivalence(
+                renderer, g_full, w2c_np, Kt4_t, rh, rw, device, tag=f"{s}->{t}"
+            )
+            audit.setdefault("render_equivalence", []).append(chk)
     results["_q4_cross_view_render"] = q4
+
+    # 回归检查汇总：任何一对不等价 ⇒ 整批作废，不许往下写结论。
+    # `inconclusive`（与故障未拉开）单独计，不算通过也不算失败——但要在汇总里点名，
+    # 免得把「检查本身无效」静默当成绿。
+    eqs = audit.get("render_equivalence", [])
+    if eqs:
+        bad = [e for e in eqs if not e["equivalent"] and not e.get("inconclusive")]
+        unc = [e for e in eqs if e.get("inconclusive")]
+        audit["render_equivalence_all_pass"] = not bad
+        audit["render_equivalence_inconclusive"] = [e["pair"] for e in unc]
+        results["_q0_protocol_audit"] = audit
+        print(
+            f"\n=== 回归检查（渲染等价性）===\n   "
+            f"{len(eqs) - len(bad) - len(unc)}/{len(eqs)} 对等价"
+            + (f"  ⚠️ {len(unc)} 对检查无效：{[e['pair'] for e in unc]}" if unc else "")
+            + ("" if not bad else f"  ❌ 不等价：{[e['pair'] for e in bad]}")
+        )
+        if bad:
+            print("   ❌ 变换链又被重复施加了，本批 PSNR 全部不可用。")
+            return 2
 
     print(f"\n✅ 主分析完成，产物目录 {args.out}")
     (args.out / "cross_view.json").write_text(
