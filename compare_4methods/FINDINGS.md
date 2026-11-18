@@ -635,3 +635,7 @@ GT 侧不变：GT K@1439×1919、32 GT 相机、32 GT 原图）。
 - InfiniSplat v2 @LONG_SIDE=1920（32 视角）❌ **CUDA OOM**：PyTorch 已分配 58.62 GiB
   （24GB 卡的 2.4 倍），前向 18.8min 后 OOM。官方训练长边上限本来就是 1022（N≤8 视角），
   32 视角 @1920 远超设计区间，判 **3090 24GB 不支持 2K**。
+- VGGT-Ω @RESOLUTION=1920（32 视角）❌ **2h timeout（exit 124）**：register 注意力没 OOM
+  （VRAM 稳定 24.2GB），但单次前向 2 小时未完成，判「能装下但不实用」。
+- 中途干预记录：首版 90d 顺序 da3 打头且无超时保护，DA3 前向 70min+ 未完阻塞全批；
+  已重排 qs→is→vggt→da3→da3gs、失败续跑、各步 timeout（推理 4h / 3DGS 8h）。
