@@ -26,6 +26,6 @@ infinisplat_v2/_check/
 *.jpg
 *.mp4
 
-./renderbus_project-master
-./renderbus-project-anomaly-detection
-./renderbus-project-refactor-v2-data-plane
+renderbus_project-master
+renderbus-project-anomaly-detection
+renderbus-project-refactor-v2-data-plane
