@@ -30,6 +30,8 @@ annotation 格式（`{path, src[], tar[]}`），且需要 `data/` 下整套预�
 | `00e_probe_vram.py` | 逐帧数扫描显存，找 3090 上的安全上限 |
 | `00f_test_image_transpose.py` | 图片预处理 + 转置语义 + GT 相机的**回归判据**（不需权重/GPU） |
 | `00g_test_selfcheck.py` | `evaluate_src_views` 自检函数本身的判据（能抓错位/空画面，不过度敏感） |
+| `00h_test_vggt_weight_format.py` | VGGT 必须 `model.safetensors` 的离线判据（源码分支 + 正反用例） |
+| `00i_test_undistort.py` | OPENCV 去畸变链路判据（识别/不误触发/自洽性/误差量级/实图，15 项） |
 | `01_download_models.sh` | 拉三份权重：VGGT-1B / DINOv3-ConvNeXt-L / StructSplat 主 ckpt |
 | `02_run_inference.sh` | **主入口**：任意图片目录 → 前馈高斯 → 渲染 + 导出 |
 | `infer.py` | 通用推理实现（官方仓缺这一环，见 §3） |
@@ -139,6 +141,37 @@ load 13.5s + save 34.8s。
 ⚠️ **必须右乘**。M 作用在**相机系**，不是世界系。误写成 c2w 左乘 M 会把相机整体转错方向，
 实测投影误差 8805 px（比不修的 265 px 还差 33 倍）。判据见 `00d_test_gt_camera.py`：
 右乘误差 0.000 px。
+
+### 4.2b OPENCV 畸变必须处理（2026-11-19 新增，`--camera gt` 默认开启）
+华为 Remy 包的 `transforms.json` 是 `camera_model: OPENCV`，带
+`k1=+0.0909 k2=-0.2374 p1=-0.00021 p2=+0.00088 k3=+0.1914`。
+早期 `load_gt_cameras` 只读 `fx/fy/cx/cy`，等于把畸变当 0。实测误差：
+
+| 尺度 | 中位 | P95 | 最大 |
+|---|---|---|---|
+| 原图 1440×1920 | 7.06 px | 10.68 px | 18.29 px |
+| 缩到 518 宽 | 2.54 px | 3.84 px | 6.58 px |
+
+这个量级会让「渲染输入视角」的 PSNR 自检把**畸变残差**误读成**相机估计不准**，必须先消除。
+
+做法：`probe_distortion()` 读畸变 → `cv2.undistort` 重采样图像（`alpha=0`，本例
+`roi=(0,0,1439,1919)` 几乎无损，边框仅 16 个黑像素）→ **内参换成 `newK`**
+（`cv2.getOptimalNewCameraMatrix`，本例 `fx ×1.0157`、`cx +1.58px`）。
+去畸变是重采样，有效焦距与主点都会变，**图像与内参必须同时换**，只换图会用旧 K 整体错位。
+
+两个易错点：
+1. `dist` 是 OpenCV 顺序 `(k1,k2,p1,p2,k3)`，而 JSON 是命名字段 `k1/k2/k3/p1/p2`，
+   **直接拼会错位**（k3 会当 p1 用）。
+2. 必须用 uint8 走 cv2（像素单位重采样），先归一到 `[0,1]` 再 `undistort` 要来回转两次，
+   且后续 `interpolate` 的边缘外推行为会变。
+
+判据：`python 00i_test_undistort.py`（15 项，含「全零/无字段必须不触发」的反向用例）。
+自洽性判据是 `newK·Xc_norm == undistortPoints(K0·Xc_norm, P=newK)`，实测残差 4e-05 px。
+关掉用 `--no-undistort`（对照实验用）。
+
+`pose-free` 分支拿不到变换文件，无从得知畸变 → **只在 `--camera gt` 且给了
+`--transforms` 时生效**。这也意味着 pose-free 分支对这组数据天然带 ~2.5px 中位残差，
+是它的固有下限，不是实现 bug。
 
 ### 4.3 渲染分辨率
 `--render-size` 指**宽**（长边）。高度按 `new_h/new_w` 比例推，K 同步按 `render_size/new_w` 缩放。
