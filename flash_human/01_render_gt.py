@@ -437,8 +437,11 @@ for i, (loc, azim, elev) in enumerate(poses):
     rgb_path = os.path.join(OUT_DIR, "rgb", f"{i + 1:06d}.png")
     bpy.data.images["Render Result"].save_render(rgb_path, scene=scene)
 
-    R_b = cam.matrix_world.to_3x3()           # world→blender-cam 的逆,即 cam2world
-    R_cv = C_CONV @ R_b                       # 转 OpenCV 相机系
+    R_b = cam.matrix_world.to_3x3()           # Blender cam2world（x右 y上 -z前）
+    # 转 OpenCV 相机系：p_cv = C_CONV @ p_blender 作用于**相机系向量**，
+    # 必须右乘（R_b @ C_CONV）；旧版误写 C_CONV @ R_b（左乘=世界系翻转），
+    # 导致跨视角几何漂移（鼻尖世界点逐视角横移，2026-11-19 实测定案）。
+    R_cv = R_b @ C_CONV
     t = cam.matrix_world.to_translation()
     c2w = [list(R_cv.row[0]) + [t.x],
            list(R_cv.row[1]) + [t.y],
