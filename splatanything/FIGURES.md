@@ -9,6 +9,14 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## 盲测页：真实静态人物段（jiajia_hold）（2026-11-19，晚）
+
+- **PPT 已扩为 11 页**：`slides/11.slide`（盲测）+ assets（blind_t017/blind_t018 ROI 对照）。
+- 数据源：[EXPERIMENTS.md](EXPERIMENTS.md) 2026-11-19「真实静态人物段盲测」节；
+  产物 `pose_blind/jiajia_hold_blind3v/`（source=[0,4,22]、target=[17,18]）。
+- **口径提醒**：target 008（后脑勺）/009（detection 误检货架玩偶）是协议级无效视角，
+  换 target 属于预筛修正不是按指标挑选；同人不同段，不是全新身份盲测。
+
 ## F1 保守自由度对照页（2026-11-19，晚）
 
 - **PPT 已扩为 10 页**：`slides/10.slide`（F1 保守对照）+ assets
