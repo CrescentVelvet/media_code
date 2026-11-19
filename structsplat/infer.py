@@ -96,13 +96,73 @@ def collect_images(images_arg, max_images=None, stride=None):
     return paths
 
 
-def load_image_tensor(path, new_h, new_w, crop=False):
+def probe_distortion(transforms_path, tol=1e-6):
+    """
+    从 transforms.json 读 OPENCV 畸变，返回去畸变三件套 (K0, dist, newK)；
+    无畸变（或字段缺失）时返回 None。
+
+    为什么需要（2026-11-19 实测）：华为 Remy 包 camera_model=OPENCV，
+    k1=+0.0909 / k2=-0.2374 / p1=-0.00021 / p2=+0.00088 / k3=+0.1914。
+    load_gt_cameras 只读 fx/fy/cx/cy，等于把畸变当 0，实测角点偏差
+    16.7~20.1 px（1440 宽原图），缩到 518 宽后仍有 6.0 px —— 足以让
+    几何自检把「畸变残差」误读成「相机估计不准」。
+
+    为什么返回 newK：去畸变是重采样，画面的有效焦距会变。cv2 的
+    getOptimalNewCameraMatrix 给出「去畸变后画面里真实存在的那一块」对应的
+    新内参；用旧 K 配新图会整体错位。alpha=0 保留全部无黑边的源像素
+    （本数据 roi=(0,0,1439,1919)，几乎无损），比 alpha=1（裁掉边缘）更适合重建。
+
+    注意：dist 必须是 OpenCV 顺序 (k1,k2,p1,p2,k3)，而 transforms.json 里
+    是命名字段 k1/k2/k3/p1/p2，顺序不同，直接拼会错位。
+    """
+    with open(transforms_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    frames = meta.get("frames", [])
+    if not frames:
+        return None
+
+    def _dist_of(fr):
+        need = ("k1", "k2", "p1", "p2")
+        if not all(k in fr for k in need):
+            return None
+        d = [float(fr["k1"]), float(fr["k2"]),
+             float(fr["p1"]), float(fr["p2"]),
+             float(fr.get("k3", 0.0))]
+        return d
+
+    fr0 = frames[0]
+    d0 = _dist_of(fr0)
+    if d0 is None or max(abs(x) for x in d0) <= tol:
+        return None
+
+    # 所有帧的畸变与内参是否一致：不一致则逐帧算，这里只支持共享一套
+    for fr in frames[1:]:
+        d = _dist_of(fr)
+        if d is None or any(abs(a - b) > tol for a, b in zip(d, d0)):
+            print("   ⚠️  各帧畸变系数不一致，跳过去畸变（如需支持请改为逐帧解）")
+            return None
+
+    import cv2
+    W0, H0 = int(fr0["w"]), int(fr0["h"])
+    K0 = np.array([[fr0["fl_x"], 0.0, fr0["cx"]],
+                   [0.0, fr0["fl_y"], fr0["cy"]],
+                   [0.0, 0.0, 1.0]], dtype=np.float64)
+    dist = np.array(d0, dtype=np.float64)
+    newK, roi = cv2.getOptimalNewCameraMatrix(K0, dist, (W0, H0), 0.0, (W0, H0))
+    print(f"🔧 检测到 OPENCV 畸变 k1={d0[0]:+.4f} k2={d0[1]:+.4f} "
+          f"k3={d0[4]:+.4f} → 去畸变 "
+          f"(fx {newK[0,0]/K0[0,0]:.4f}x, cx {newK[0,2]-K0[0,2]:+.2f}px, roi={roi})")
+    return K0, dist, newK
+
+
+def load_image_tensor(path, new_h, new_w, crop=False, undist=None):
     """
     复刻 load_and_preprocess_images 单图逻辑：
       - to_tensor 归一到 [0,1]
       - 竖图且目标是横图时转置（rearrange c h w -> c w h）
       - crop=False 走 bilinear interpolate（不是 crop，别混）
     heic 走 pillow-heif 兜底。
+    undist=(K0, dist, newK) 时先按 OPENCV 模型去畸变再走上面流程。
     """
     from PIL import Image
 
@@ -118,7 +178,16 @@ def load_image_tensor(path, new_h, new_w, crop=False):
 
     img = Image.open(path).convert("RGB")
     w, h = img.size
-    arr = torch.from_numpy(np.asarray(img, dtype=np.float32) / 255.0)  # H W C
+    if undist is not None:
+        # 必须用 uint8 走 cv2：它以像素为单位做重采样，先归一到 [0,1] 再 undistort
+        # 数值上等价但要来回转两次，且 interpolate 的边缘外推行为会变。
+        import cv2
+        K0, dist, newK = undist
+        u8 = np.asarray(img, dtype=np.uint8)
+        u8 = cv2.undistort(u8, K0, dist, None, newK)
+        arr = torch.from_numpy(u8.astype(np.float32) / 255.0)
+    else:
+        arr = torch.from_numpy(np.asarray(img, dtype=np.float32) / 255.0)  # H W C
     t = arr.permute(2, 0, 1).contiguous()  # C H W
 
     if new_h < new_w and h > w:
@@ -146,9 +215,13 @@ def load_image_tensor(path, new_h, new_w, crop=False):
 # ============================================================
 # GT 相机（transforms.json）→ StructSplat 需要的 w2c + K
 # ============================================================
-def load_gt_cameras(transforms_path, image_paths, new_h, new_w):
+def load_gt_cameras(transforms_path, image_paths, new_h, new_w, undist=None):
     """
     从 Remy/Huawei 风格 transforms.json 读 c2w 与内参。
+
+    undist=(K0, dist, newK)：去畸变后内参要用 newK 而不是原 fl_x/fl_y/cx/cy，
+    因为 cv2.undistort 是重采样，有效焦距与主点都会变（本数据 fx ×1.0157、
+    cx +1.58px）。若这里仍用原 K，去畸变后的图与相机就会整体错位。
 
     ⚠️ 竖图转置的完整处理（易错，错在左乘/右乘就完全失效）：
       load_image_tensor 对竖图做的是 rearrange("c h w -> c w h")，即
@@ -179,6 +252,12 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w):
         if fp:
             by_base[os.path.basename(fp)] = fr
 
+    # 去畸变时用 newK 的内参，否则用 JSON 里的原始内参
+    if undist is not None:
+        _Kuse = undist[2]          # (3,3) np.float64
+    else:
+        _Kuse = None
+
     # 转置坐标系下的轴交换矩阵：X<->Y
     M = torch.tensor([[0.0, 1.0, 0.0],
                       [1.0, 0.0, 0.0],
@@ -190,8 +269,12 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w):
         if fr is None:
             continue
         W0, H0 = fr["w"], fr["h"]
-        fx, fy = fr["fl_x"], fr["fl_y"]
-        cx, cy = fr["cx"], fr["cy"]
+        if _Kuse is not None:
+            fx, fy = float(_Kuse[0, 0]), float(_Kuse[1, 1])
+            cx, cy = float(_Kuse[0, 2]), float(_Kuse[1, 2])
+        else:
+            fx, fy = fr["fl_x"], fr["fl_y"]
+            cx, cy = fr["cx"], fr["cy"]
         # 是否会被 load_image_tensor 转置：目标 H<=W，而原图是竖的
         transposed = (new_h < new_w) and (H0 > W0)
         if transposed:
@@ -372,6 +455,9 @@ def main():
                     help="渲染分辨率（正方形边长，0=保持网络输入尺寸）")
     ap.add_argument("--camera", choices=["pose-free", "gt"], default="pose-free")
     ap.add_argument("--transforms", default=None, help="--camera gt 时需要的 transforms.json")
+    ap.add_argument("--no-undistort", action="store_true",
+                    help="--camera gt 时不做去畸变（默认按 transforms.json 的 "
+                         "k1/k2/p1/p2/k3 去畸变，仅当模型为 OPENCV 且有非零系数时生效）")
     ap.add_argument("--max-images", type=int, default=None, help="最多用几张（均匀抽样）")
     ap.add_argument("--stride", type=int, default=None, help="按步长抽帧")
     ap.add_argument("--export-splat", action="store_true")
@@ -399,10 +485,16 @@ def main():
     print(f"📷 输入 {len(paths)} 张图")
     print(f"   首张: {paths[0]}")
 
+    # 畸变：只有 GT 分支能拿到变换文件，pose-free 分支无从得知 → 只在 gt 且
+    # 给了 --transforms 时探。--no-undistort 可强制关掉（用于对照实验）。
+    undist = None
+    if args.camera == "gt" and args.transforms and not args.no_undistort:
+        undist = probe_distortion(args.transforms)
+
     t0 = time.time()
     imgs, orig_sizes = [], []
     for p in paths:
-        t, sz = load_image_tensor(p, new_h, new_w)
+        t, sz = load_image_tensor(p, new_h, new_w, undist=undist)
         imgs.append(t)
         orig_sizes.append(sz)
     src = torch.stack(imgs).unsqueeze(0).to(device)          # (1, S, 3, H, W)
@@ -501,7 +593,8 @@ def main():
     if args.camera == "gt":
         if not args.transforms:
             raise SystemExit("❌ --camera gt 需要 --transforms <transforms.json>")
-        w2cs, Ks, matched = load_gt_cameras(args.transforms, paths, new_h, new_w)
+        w2cs, Ks, matched = load_gt_cameras(args.transforms, paths, new_h, new_w,
+                                            undist=undist)
         print(f"📐 GT 相机: 匹配 {len(matched)}/{len(paths)} 张")
         if len(matched) != len(paths):
             print("   ⚠️  有图没匹配上 GT 相机，请检查 transforms.json 的 file_path")
@@ -653,6 +746,11 @@ def main():
         "resize": [new_h, new_w],
         "render": [render_h, render_w],
         "camera": args.camera,
+        "undistort": (None if undist is None else {
+            "dist_cv_order": [float(x) for x in undist[1]],
+            "K_src": undist[0].tolist(),
+            "K_new": undist[2].tolist(),
+        }),
         "inference_ms": round(inf_ms, 1),
         "self_check": {
             "note": "渲染输入视角 vs 输入图，仅为本脚本的自检哨兵，非论文评测口径",
