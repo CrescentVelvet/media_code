@@ -1,0 +1,34 @@
+# StructSplat 运行时依赖（WSL / 单卡 3090 推理+评测口径）
+#
+# 与官方 requirements.txt 的差异（每条都有理由，勿随手改）：
+#   torch / torchvision / gsplat  ← 不在此处：沿用 BASE_ENV（querysplat）的
+#       torch 2.8.0+cu128 / torchvision 0.23.0 / gsplat 1.5.3，其 CUDA 扩展
+#       已编译（缓存键 py311_cu128），重装会丢缓存并需重新编译。
+#       官方 pin torch 2.4.0+cu118，仅训练路径有区别；推理只用 rasterization。
+#   transformers==5.0.0  ← 保留官方 pin：DINOv3 语义编码器靠它识别 backbone。
+#       代价是 huggingface_hub 必须 >=1.3（官方 pin 的 1.4.1 一致）。
+#   deepspeed==0.17.1    ← evaluation.py / texture_encoder.py 顶层 import 它。
+#       设 DS_BUILD_OPS=0 走纯 python（推理不需要其 CUDA op，省 30min 编译）。
+#   numpy                ← 锁 1.26.x：torch 2.8 与 lpips/scikit-image 组合已验证。
+#   third_party/vggt     ← 源码子模块，需 `pip install -e . --no-deps`（vggt 包名），
+#       VGGT.from_pretrained 依赖它可 import；--no-deps 防止把 numpy/Pillow 降级。
+#   pillow-heif          ← 输入是华为 Remy 包的 .heic，Pillow 本体不支持，必须此插件。
+#       import 后需 pillow_heif.register_heif_opener() 才生效（infer.py 已做）。
+
+einops==0.8.2
+pytorch-lightning==2.6.1
+lpips==0.1.4
+ml_collections==1.1.0
+scikit-image==0.25.2
+matplotlib==3.10.8
+torchmetrics==1.8.2
+transformers==5.0.0
+deepspeed==0.17.1
+prefetch_generator==1.0.3
+pillow==12.0.0
+pillow-heif==1.8.1
+huggingface_hub==1.4.1
+safetensors==0.7.0
+opencv-python==4.11.0.86
+numpy==1.26.4
+tqdm
