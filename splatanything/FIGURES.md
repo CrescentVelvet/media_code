@@ -9,6 +9,16 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## F1 保守自由度对照页（2026-11-19，晚）
+
+- **PPT 已扩为 10 页**：`slides/10.slide`（F1 保守对照）+ assets
+  （target_000/001_000034_roi_GT_p0_f1a_f1b、f1b_face_crops）。
+- 数据源：[EXPERIMENTS.md](EXPERIMENTS.md) 2026-11-19「F1 保守自由度对照」节
+  （f1a/f1b metrics.json + target_eval/target_metrics.json）。
+- **口径提醒**：F1-A 改善与 P3 同量级但冻结了中心/颜色/透明度；F1-B 98.7% 触顶是
+  「上限过紧」的诊断读数，不是「位移没用」；两臂均未过 5% 门，F1 本轮已按计划停止。
+- 新脚本（入库）：`19_f1_conservative_opt.py` + `19_run_f1.sh`。
+
 ## F0/F2 补充页：约束审计 + 相机 bug 排雷 + FLAME 审计（2026-11-19，晚）
 
 - **PPT 已扩为 9 页**：`D:/ppt/20261119-SA脸部局部优化.pptx`，源工程新增
