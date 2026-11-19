@@ -229,6 +229,42 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w):
 
 
 # ============================================================
+# 链路自检：用预测相机重渲染输入视角，与输入图算 PSNR/SSIM
+# ============================================================
+def evaluate_src_views(rendered, src, render_h, render_w):
+    """
+    为什么要这一步：
+      高斯是从 (depth, 预测外参, 预测内参) 反投影出来的，渲染再用同一组相机，
+      所以「渲染输入视角」在自洽链路上应当高度接近输入图。这条判据能一次性
+      抓住五类翻车：画面全黑/全白、相机整体错位、竖图转置方向错、
+      内外参缩放不一致、K 的行列写反。
+
+      经验量级（DL3DV 这种宽基线）：PSNR 20~30dB 属正常；
+      掉到 10dB 以下基本等于「画面对不上」，优先查相机而不是查权重。
+
+    注意：这不是论文的评测指标（论文报的是 held-out target 视角），
+    只是本脚本的自检哨兵，不要拿去和论文数字比。
+    """
+    n = min(rendered.shape[0], src.shape[0])
+    psnrs, ssims = [], []
+    for i in range(n):
+        gt = F.interpolate(src[i].unsqueeze(0), (render_h, render_w),
+                           mode="bilinear", align_corners=False, antialias=True)[0]
+        gt = gt.clamp(0, 1)
+        pr = rendered[i].permute(2, 0, 1).clamp(0, 1)
+        mse = float(((gt - pr) ** 2).mean())
+        psnrs.append(float("inf") if mse <= 1e-12 else 10 * math.log10(1.0 / mse))
+        try:
+            from skimage.metrics import structural_similarity as _ssim
+            a = gt.permute(1, 2, 0).cpu().numpy()
+            b = pr.permute(1, 2, 0).cpu().numpy()
+            ssims.append(float(_ssim(a, b, channel_axis=2, data_range=1.0)))
+        except Exception:
+            pass  # 没装 scikit-image 就只报 PSNR
+    return psnrs, ssims
+
+
+# ============================================================
 # 导出
 # ============================================================
 def export_ply(path, xyz, scale, quat, opacity, rgb):
@@ -516,6 +552,25 @@ def main():
     depths = torch.cat(depths, 0)         # (S,H,W,1)
     print(f"🎨 渲染 {S} 视角 耗时 {time.time()-t0:.1f}s")
 
+    # ---------- 5b. 链路自检 ----------
+    psnrs, ssims = evaluate_src_views(rendered, src[0], render_h, render_w)
+    if psnrs:
+        p_mean = float(np.mean(psnrs))
+        p_min, p_max = float(np.min(psnrs)), float(np.max(psnrs))
+        msg = f"🔎 自检（渲染输入视角 vs 输入图）PSNR 均值 {p_mean:.2f} dB  [{p_min:.2f}, {p_max:.2f}]"
+        if ssims:
+            msg += f"  SSIM 均值 {float(np.mean(ssims)):.4f}"
+        print(msg)
+        # 分层提示：别让「跑通了」被误读成「结果对」
+        if p_mean < 10.0:
+            print("   ⚠️  PSNR < 10dB，画面对不上。优先查：相机内外参缩放是否同源、"
+                  "竖图转置方向、render_h/render_w 与 K 的缩放比")
+        elif p_mean < 18.0:
+            print("   ⚠️  PSNR 偏低。可能是输入视角过于离散（pose-free 对宽基线更敏感），"
+                  "或该场景本身难；结合 renders/ 里逐张图判断")
+        else:
+            print("   ✅ 链路自洽（相机/反投影/渲染三者一致）")
+
     # ---------- 6. 落盘 ----------
     from torchvision.utils import save_image
     import matplotlib
@@ -576,6 +631,14 @@ def main():
         "render": [render_h, render_w],
         "camera": args.camera,
         "inference_ms": round(inf_ms, 1),
+        "self_check": {
+            "note": "渲染输入视角 vs 输入图，仅为本脚本的自检哨兵，非论文评测口径",
+            "psnr_mean": round(float(np.mean(psnrs)), 3) if psnrs else None,
+            "psnr_min": round(float(np.min(psnrs)), 3) if psnrs else None,
+            "psnr_max": round(float(np.max(psnrs)), 3) if psnrs else None,
+            "psnr_per_view": [round(p, 3) for p in psnrs],
+            "ssim_mean": round(float(np.mean(ssims)), 5) if ssims else None,
+        },
         "images": [os.path.basename(p) for p in paths],
         "orig_sizes": orig_sizes,
         "note": "pose-free 前向：model(src) 直接预测相机+高斯，未用 get_tar_camera（无需 src/tar 划分）",

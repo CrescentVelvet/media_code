@@ -28,6 +28,8 @@ annotation 格式（`{path, src[], tar[]}`），且需要 `data/` 下整套预�
 | `00c_par_download.py` | 并行分块下载器（HF 单流 90KB/s → 16 并发 1MB/s 以上），断点续传 |
 | `00d_test_gt_camera.py` | GT 相机转置变换的**纯几何单测**（不需权重/GPU） |
 | `00e_probe_vram.py` | 逐帧数扫描显存，找 3090 上的安全上限 |
+| `00f_test_image_transpose.py` | 图片预处理 + 转置语义 + GT 相机的**回归判据**（不需权重/GPU） |
+| `00g_test_selfcheck.py` | `evaluate_src_views` 自检函数本身的判据（能抓错位/空画面，不过度敏感） |
 | `01_download_models.sh` | 拉三份权重：VGGT-1B / DINOv3-ConvNeXt-L / StructSplat 主 ckpt |
 | `02_run_inference.sh` | **主入口**：任意图片目录 → 前馈高斯 → 渲染 + 导出 |
 | `infer.py` | 通用推理实现（官方仓缺这一环，见 §3） |
@@ -103,9 +105,43 @@ GT 相机重投影误差为 0。**动 `load_image_tensor` 或 `load_gt_cameras` 
 
 ### 4.4 不用的东西
 - `model.splat()`：依赖 `get_tar_camera()`，单目录无意义（§3）
-- deepspeed：只为了 `texture_encoder.py` 的顶层 import 能过；`DS_BUILD_OPS=0` 走纯 Python
+- `deepspeed`：只为了 `texture_encoder.py` 的顶层 import 能过；`DS_BUILD_OPS=0` 走纯 Python
 - torch 重装：沿用 `querysplat` 的 torch 2.8.0+cu128 + gsplat 1.5.3，其 CUDA 扩展
   已编译（缓存键 `py311_cu128`），重装会丢缓存
+
+### 4.5 导出格式的两个易错点（已核）
+
+**scale 是线性的，不是 log。** `activations` 第四项 `softplus_beta-log2` 只是把 softplus 的
+`beta` 设成 `log(2)`（`model/utils.py` 的 `ACTIVATION_DICT`），输出仍是**正值线性尺度**；
+`scale_modifier: 0.005` 已经在 `output2gaussian` 内部乘上去了（见 `gaussian_wrapper.py` 里
+`scale = rearrange(...) * scale_modifier`）。所以导 PLY 时取一次 `log` 是对的，
+**不要再额外乘 `scale_modifier`，也不要对 `preds["scale"]` 再取一次 log。**
+
+**color 是原始 RGB。** 第三项激活 `mul_0p25` 即 `color = raw * 0.25`，**无界、无 sigmoid**；
+官方 `_render` 把 `colors` 原样喂 `rasterization` 且**不传 `sh_degree`**。
+`infer.py` 一致。若给 `rasterization` 传 `sh_degree=0`，会触发
+`assert (sh_degree+1)**2 <= colors.shape[-2]` 并要求 `(N,1,3)` 布局——别传。
+
+### 4.6 自检哨兵：跑通 ≠ 跑对
+
+`splat()` 那套会打印 PSNR，但我们没走它。所以 `infer.py` 在渲染后加了一道自检：
+**用预测相机重渲染输入视角，与输入图算 PSNR/SSIM**。
+
+这能一次性抓住五类翻车：全黑/全白、相机整体错位、竖图转置方向错、内外参缩放不同源、
+K 行列写反。判读：
+
+| PSNR 均值 | 含义 |
+|---|---|
+| ≥ 18 dB | ✅ 链路自洽（相机/反投影/渲染三者一致） |
+| 10~18 dB | ⚠️ 偏低，可能输入视角太离散，或场景本身难 |
+| < 10 dB | ⚠️ 画面对不上，优先查相机而不是查权重 |
+
+⚠️ 这不是论文评测口径（论文报 held-out target 视角），只是哨兵，**不要拿去和论文数字比**。
+结果同时写进 `meta.json` 的 `self_check` 字段。
+
+自检函数本身由 `00g_test_selfcheck.py` 把关（无需 GPU/权重）：完全相同→inf、
+平移/反色/全黑/转 90°→均 <15dB、0.02 噪声→PSNR 34dB 且 SSIM 0.95。
+
 
 ---
 
