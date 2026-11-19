@@ -4,6 +4,52 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-19 · 独立 target 验收（held-out 2 视角）：source 拟合收益不迁移，视角过拟合
+
+承接上方 P0~P3：把各臂回退 PLY 在 **source（idx 3/15/62）之外**的 held-out 帧上渲染评分
+（15_face_target_eval.py）。**target 只评分，未参与任何优化/选参。**
+
+### 两个前置坑（已修，均固化进脚本）
+
+1. **SA 对世界做了 Sim(3) 归一化**：结果 `cameras.json` ≠ 输入 `prior_camera.json`
+   （首相机置原点 + 尺度 s=0.5019）。直接用 transforms.json 位姿渲 target 得到全灰墙。
+   修复：用 3 对 source 相机估 Sim(3)（残差 Δt=1.3e-07、ortho=4.9e-07，远超门限），
+   只转换 target 相机，K 不动（世界缩放不改像素内参）。
+2. **mediapipe 短距检测窄带**：FaceMesh 只在脸 ≈90px 的尺度带内检出——1439×1919
+   原生分辨率下 82 帧只检出 3 帧，0.5× 降采样即可检出。12_face_masks.py 改为
+   多尺度阶梯（1.0/0.75/0.5/0.35/0.25，landmark 归一化坐标映射回原生分辨率），
+   重扫后脸可见帧 6 个：idx 3/5/6/7/8/49。
+
+### target 选择与结果
+
+选 idx=8 与 idx=49（FaceMesh 检出、非 source、到 source 最小夹角 15.7°/18.3°，
+分属正面弧两侧；逐视角 ROI 由该帧 face mask 定框，原生 1439×1919 渲染）：
+
+| target | 指标 | P0 | P1 | P2 | P3 |
+|---|---|---|---|---|---|
+| idx8 | face PSNR | 16.83 | 16.81 | 16.87 | 16.82 |
+| idx8 | face LPIPS(alex) | 0.3002 | 0.3010 | 0.3076 | 0.3123 |
+| idx49 | face PSNR | 17.37 | 17.36 | 17.37 | 17.34 |
+| idx49 | face LPIPS(alex) | 0.2815 | 0.2817 | 0.2854 | 0.2892 |
+
+full / person PSNR 四臂全部 ≤±0.01dB（ROI 外无损伤，与 source 轨道一致）。
+
+### 判定与含义
+
+- **推进门未过**：计划要求 target 脸 LPIPS 相对 P0 ↓≥5%；实测两 target 上反而 ↑1~4%，
+  且随臂的激进程度单调变糟（P1≈持平 < P2 < P3），方向一致 → 非噪声。
+- **解读**：source-only 局部优化的收益是**视角过拟合**——三图欠约束下，优化找到的
+  脸部中心位移/覆盖修正只"解释"了 source 视角，不是真实几何修正。上方 P0~P3 的
+  「P3 最有效」因此**不能**升级为「几何可调整是有用证据」的训练依据。
+- 混杂说明：target 帧人物姿态/表情与 source 有微动（同一环绕视频），P0 基线
+  face PSNR 16.8~17.4dB 已含该惩罚；但 Δ 是同帧四臂对比，微动不解释臂间差异。
+- 下一步按计划备选：**轻量参数化人脸先验（FLAME/MHR 多视图拟合）作低权重几何约束**，
+  而不是加大 source-only 优化预算。
+- 副产物：`face_opt/face_visibility_map.json`（82 帧脸可见性地图）。
+
+产物：`face_opt/target_eval/`（target_metrics.json 含 Sim(3) 全参数与残差 +
+逐视角 ROI 对比条 `target_*_roi_GT_p0_p1_p2_p3.png`）。
+
 ## 2026-11-19 · P0~P3 脸部局部优化诊断（已执行，source 拟合轨道）
 
 三图包 `jiajia_face3v`（佳佳抱枕 frames 3/15/62，环绕三机位 42.6°/48.4°/90.9°，相机半径

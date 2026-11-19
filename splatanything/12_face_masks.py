@@ -14,6 +14,10 @@
 
 运行环境：sam3 env（mediapipe 0.10.14 + sam3）。用法：
   python 12_face_masks.py --result <02输出目录> [--out <目录>] [--no-sam3]
+  python 12_face_masks.py --images <PNG目录> --out <目录>   # 任意图集（如 held-out target）
+
+--images 与 --result 二选一；--images 时 mask 分辨率 = 输入图分辨率（target 评估在
+原图分辨率渲染，mask 必须同分辨率才能对像素）。
 
 --no-sam3 只用 mediapipe（face/band 仍有，person 退化为 dilate(face) 的椭圆外接，
 仅用于应急；正式实验必须有 SAM3 person mask）。
@@ -37,42 +41,67 @@ MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.5"))
 
 # ---------------------------------------------------------------- mediapipe
 def detect_face_mesh(arr):
-    """返回 (face_mask[H,W] bool, bbox(x0,y0,x1,y1), score, source)。"""
+    """返回 (face_mask[H,W] bool, bbox(x0,y0,x1,y1), score, source)。
+
+    多尺度阶梯：mediapipe 内置短距检测器只在脸 ≈90px 的窄带内有效——
+    1439×1919 原生分辨率下整张图漏检（2026-11-19 实测 82 帧只检出 3 帧，
+    但 0.5× 降采样到 719×959 就能检出）。逐档降采样试，把 landmark 映射回原图
+    坐标再栅格化，取原生分辨率下脸框最大的一次检出。
+    """
     import mediapipe as mp
     h, w = arr.shape[:2]
-    # 首选 FaceMesh：468 点的脸轮廓比检测框更贴合发际/下颌
-    fm = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True, max_num_faces=1, refine_landmarks=False,
-        min_detection_confidence=0.3)
-    out = fm.process(arr)
-    fm.close()
-    if out.multi_face_landmarks:
+    best = None  # (native_side, hull_native_pts)
+    for scale in (1.0, 0.75, 0.5, 0.35, 0.25):
+        if scale == 1.0:
+            small = arr
+        else:
+            small = cv2.resize(arr, (int(w * scale), int(h * scale)),
+                               interpolation=cv2.INTER_AREA)
+        fm = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True, max_num_faces=1, refine_landmarks=False,
+            min_detection_confidence=0.3)
+        out = fm.process(small)
+        fm.close()
+        if not out.multi_face_landmarks:
+            continue
         lm = out.multi_face_landmarks[0].landmark
         # FACEMESH_FACE_OVAL 的索引（mediapipe 常量，36 点轮廓环）
         oval = sorted({i for conn in mp.solutions.face_mesh.FACEMESH_FACE_OVAL
                        for i in conn})
+        # landmark 是归一化坐标，与原图比例无关，直接映射回原生分辨率
         pts = np.array([[lm[i].x * w, lm[i].y * h] for i in oval], np.int32)
         hull = cv2.convexHull(pts)
+        _, _, bw, bh = cv2.boundingRect(hull)
+        side = max(bw, bh)
+        if best is None or side > best[0]:
+            best = (side, hull, scale)
+    if best is not None:
+        side, hull, scale = best
         mask = np.zeros((h, w), np.uint8)
         cv2.fillConvexPoly(mask, hull, 1)
         x, y, bw, bh = cv2.boundingRect(hull)
-        return mask.astype(bool), (x, y, x + bw, y + bh), 1.0, "face_mesh"
-    # 退化：检测框内接椭圆
-    det = mp.solutions.face_detection.FaceDetection(
-        model_selection=1, min_detection_confidence=0.3)
-    res = det.process(arr)
-    det.close()
-    if not res.detections:
-        return None, None, 0.0, "none"
-    d = max(res.detections, key=lambda x: float(x.score[0]))
-    b = d.location_data.relative_bounding_box
-    x0, y0 = int(b.xmin * w), int(b.ymin * h)
-    x1, y1 = int((b.xmin + b.width) * w), int((b.ymin + b.height) * h)
-    mask = np.zeros((h, w), np.uint8)
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    ax, ay = max(1, (x1 - x0) // 2), max(1, (y1 - y0) // 2)
-    cv2.ellipse(mask, (cx, cy), (ax, ay), 0, 0, 360, 1, -1)
-    return mask.astype(bool), (x0, y0, x1, y1), float(d.score[0]), "detection_box"
+        return mask.astype(bool), (x, y, x + bw, y + bh), 1.0, f"face_mesh@{scale}"
+    # 退化：检测框内接椭圆（同样走多尺度阶梯）
+    for scale in (1.0, 0.5, 0.35, 0.25):
+        small = arr if scale == 1.0 else cv2.resize(
+            arr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        det = mp.solutions.face_detection.FaceDetection(
+            model_selection=1, min_detection_confidence=0.3)
+        res = det.process(small)
+        det.close()
+        if not res.detections:
+            continue
+        d = max(res.detections, key=lambda x: float(x.score[0]))
+        b = d.location_data.relative_bounding_box
+        x0, y0 = int(b.xmin * w), int(b.ymin * h)
+        x1, y1 = int((b.xmin + b.width) * w), int((b.ymin + b.height) * h)
+        mask = np.zeros((h, w), np.uint8)
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        ax, ay = max(1, (x1 - x0) // 2), max(1, (y1 - y0) // 2)
+        cv2.ellipse(mask, (cx, cy), (ax, ay), 0, 0, 360, 1, -1)
+        return mask.astype(bool), (x0, y0, x1, y1), float(d.score[0]), \
+            f"detection_box@{scale}"
+    return None, None, 0.0, "none"
 
 
 # ------------------------------------------------------------------- SAM3
@@ -131,15 +160,20 @@ def overlay(arr, face, band, person):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--result", required=True, help="02 的输出目录（含 rgb/）")
+    ap.add_argument("--result", default=None, help="02 的输出目录（含 rgb/）")
+    ap.add_argument("--images", default=None, help="PNG 目录（与 --result 二选一）")
     ap.add_argument("--out", default=None, help="默认 <result>/face_opt/masks")
     ap.add_argument("--no-sam3", action="store_true")
     ap.add_argument("--band-inner", type=int, default=6, help="band 内缩 px")
     ap.add_argument("--band-outer", type=int, default=10, help="band 外扩 px")
     args = ap.parse_args()
 
-    res = Path(args.result)
-    rgb_dir = res / "rgb"
+    if bool(args.result) == bool(args.images):
+        sys.exit("❌ --result 与 --images 必须恰好给一个")
+    if args.images and not args.out:
+        sys.exit("❌ --images 模式必须显式 --out")
+    res = Path(args.result) if args.result else None
+    rgb_dir = res / "rgb" if res else Path(args.images)
     out = Path(args.out) if args.out else res / "face_opt" / "masks"
     out.mkdir(parents=True, exist_ok=True)
     names = sorted(p.name for p in rgb_dir.glob("*.png"))

@@ -9,6 +9,20 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## P0~P3 图文 PPT 与 target 验收页（2026-11-19，晚）
+
+- **图文 PPT 成品**：`D:/ppt/20261119-SA脸部局部优化.pptx`（6 页，可编辑文本+真实实验图），
+  源工程 `D:/ppt/_src/20261119-SA脸部局部优化/`（DESIGN.md + slides/01~06.slide + assets/）。
+  页面：封面 / 输入数据（3 source + 2 held-out target 实拍）/ 方法链路 / P0~P3 拟合表 /
+  target 验收表 / 结论与下一步。重建：`slidep upsert-dsl <pptx> --dsl-file <NN.slide>
+  --project-dir <工程目录>`（assets/ 相对工程目录解析，必须显式传 --project-dir）。
+- **target 验收单图**：`D:/ppt/figures/splatanything_faceopt/figures/fig_faceopt_target_20261119.png`
+  （1920×1080），脚本 `D:/ppt/figures/splatanything_faceopt/_build/make_faceopt_target_page.py`；
+  素材 `D:/output/results/splatanything_results/face_opt_assets/target_*_roi_*.png`。
+- 数据源：[EXPERIMENTS.md](EXPERIMENTS.md) 2026-11-19「独立 target 验收」节。
+- **口径提醒**：target 验收页是红结论条（推进门未过），与 fig_faceopt_p0p3 的绿结论条
+  （仅拟合轨道）不矛盾——前者才是验收口径，讲的时候按 target 页为准。
+
 ## P0~P3 脸部局部优化诊断页（2026-11-19）
 
 - 成品：`D:/ppt/figures/splatanything_faceopt/figures/fig_faceopt_p0p3_20261119.png`（1920×1080）。
