@@ -9,6 +9,19 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## P0~P3 脸部局部优化诊断页（2026-11-19）
+
+- 成品：`D:/ppt/figures/splatanything_faceopt/figures/fig_faceopt_p0p3_20261119.png`（1920×1080）。
+- 内容：GT|P0|P1|P2|P3 五列脸部裁图（view0 正视）+ 三臂关系表（PSNR Δ / 锐度比 / 解读）
+  + 保护项核验（固定块 hash / ROI 外保真 / person PSNR）+ 结论条。
+- 数据源：[EXPERIMENTS.md](EXPERIMENTS.md) 2026-11-19「P0~P3 脸部局部优化诊断」节；
+  裁图素材 `D:/output/results/splatanything_results/face_opt_assets/`（face mask 逐视角定框）。
+- 出图脚本：`D:/ppt/figures/splatanything_faceopt/_build/make_faceopt_page.py`（一次性，不入库）；
+  本机 python 直接跑（`~/.workbuddy/binaries/python/envs/default/Scripts/python.exe`，依赖 figkit）。
+- **口径提醒**：三图全进优化、无 held-out target → 拟合/定性轨道，不是新视角验收；
+  图上已标注，讲的时候不要说成"几何修复已验证"。
+
+
 ## 人物数据 LoRA 优先汇报（2026-11-17）
 
 - 新稿：`D:/ppt/20261117-实验进展汇报.pptx`，
