@@ -25,6 +25,14 @@ import time
 
 import torch
 
+# 输出重定向到文件时 Python 默认块缓冲（4~8KB），探测这种「几分钟才出一行」的
+# 长任务会看起来像卡死（2026-11-19 实测：日志停在 DINOv3 LOAD REPORT，其实前向
+# 正在跑）。强制行缓冲，配合 flush=True 让每档结果立刻可见。
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.environ.get("STRUCTSPLAT_REPO") or os.path.expanduser("~/repos/StructSplat")
 sys.path.insert(0, REPO)
@@ -114,7 +122,7 @@ def main():
     wrapper = build_gaussian_wrapper(module_dict, cfg).to(dev).eval()
     for p in wrapper.parameters():
         p.requires_grad = False
-    print(f"模型已就位（{sum(p.numel() for p in wrapper.parameters())/1e6:.1f} M 参数）\n")
+    print(f"模型已就位（{sum(p.numel() for p in wrapper.parameters())/1e6:.1f} M 参数）\n", flush=True)
 
     results = []
     for S in frames_list:
@@ -132,6 +140,7 @@ def main():
             src = torch.stack(imgs).unsqueeze(0).to(dev)
 
             torch.cuda.reset_peak_memory_stats()
+            print(f"\r{S:>7} 前向中 ...", end="", flush=True)
 
             t0 = time.time()
             with torch.no_grad():
@@ -142,12 +151,12 @@ def main():
             peak = torch.cuda.max_memory_allocated() / 1024**3
             n_gauss = preds["coordinate"].shape[1]
             free = total_vram - peak
-            print(f"{S:>7} {peak:>9.2f}G {free:>7.2f}G {dt:>7.2f}s  ✅ {n_gauss} 高斯")
+            print(f"\r{S:>7} {peak:>9.2f}G {free:>7.2f}G {dt:>7.2f}s  ✅ {n_gauss} 高斯", flush=True)
             results.append((S, peak, dt, n_gauss))
 
             del preds, src, imgs
         except torch.cuda.OutOfMemoryError as e:
-            print(f"{S:>7} {'OOM':>10} {'--':>8} {'--':>8}  ❌ 显存不足")
+            print(f"{S:>7} {'OOM':>10} {'--':>8} {'--':>8}  ❌ 显存不足", flush=True)
             print(f"        {str(e)[:100]}")
             torch.cuda.empty_cache()
             gc.collect()
@@ -155,7 +164,7 @@ def main():
             print("\n（已 OOM，停止向上扫描）")
             break
         except Exception as e:
-            print(f"{S:>7} {'ERR':>10} {'--':>8} {'--':>8}  ❌ {type(e).__name__}")
+            print(f"{S:>7} {'ERR':>10} {'--':>8} {'--':>8}  ❌ {type(e).__name__}", flush=True)
             print(f"        {str(e)[:200]}")
             break
         finally:

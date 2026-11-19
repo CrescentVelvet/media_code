@@ -45,6 +45,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+# 输出重定向到文件/管道时 Python 默认块缓冲（4~8KB），长任务会看起来像卡死。
+# 2026-11-19 实测：02_run_inference.sh 输出到日志时，前向 3 分钟没有任何新行。
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 # ---------- 让 `import vggt` / `import src.*` 生效（仓根 + third_party/vggt）----------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.environ.get("STRUCTSPLAT_REPO") or os.path.join(
