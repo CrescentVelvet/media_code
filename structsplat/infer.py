@@ -269,6 +269,18 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w, undist=None):
     M = torch.tensor([[0.0, 1.0, 0.0],
                       [1.0, 0.0, 0.0],
                       [0.0, 0.0, 1.0]], dtype=torch.float32)
+    # Remy/华为包的 transform_matrix 是 **OpenGL 相机系** c2w（y 上、z 朝后）。
+    # 转成 OpenCV（y 下、z 朝前）要在**相机系**右乘 diag(1,-1,-1)：
+    #     c2w_cv = c2w_gl @ diag(1,-1,-1,1)
+    # 2026-11-20 用 pcd.ply 实测判定（8000 点投影，见 _tmp_view/chk_conv.py）：
+    #     a) 原样当 CV           正深度   0%  画面内  0%   ✗
+    #     b) Rc @ diag(1,-1,-1)  正深度 100%  画面内 86%   ✅  ← 唯一正确
+    #     c) diag(1,-1,-1) @ Rc  正深度  20%  画面内  0%   ✗（左乘是错的）
+    #     d) Rc^T 再取负 z        正深度  13%  画面内  0%   ✗
+    # 与 som_human/01_convert_capture.py 的结论一致："M_cv = M @ FLIP"。
+    # ⚠️ 之前这里只做了 @ M（x/y 交换），漏了 GL→CV，导致 GT 相机整体朝向错，
+    #    view1/view3 的高斯全部落到相机背后（正深度 0% / 2.9%）。
+    FLIP = torch.diag(torch.tensor([1.0, -1.0, -1.0, 1.0], dtype=torch.float32))
 
     c2ws, Ks, matched = [], [], []
     for p in image_paths:
@@ -299,9 +311,15 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w, undist=None):
                           [0.0, fy2, cy2],
                           [0.0, 0.0, 1.0]], dtype=torch.float32)
         c2w = torch.tensor(fr["transform_matrix"], dtype=torch.float32)
+        # ① GL(相机 y 上/z 朝后) → CV(相机 y 下/z 朝前)：**相机系**右乘 FLIP。
+        #    这一步与是否转置无关，必须先做（见上面 FLIP 的实测判定表）。
+        c2w = c2w.clone()
+        c2w[:3, :3] = c2w[:3, :3] @ FLIP[:3, :3]
         if transposed:
-            # 轴交换发生在相机系 → 对 c2w 的旋转右乘 M（见上面推导）
-            c2w = c2w.clone()
+            # ② 竖图转置的轴交换同样发生在相机系 → 再右乘 M。
+            #    GL→CV 与转置都是「相机系坐标变换」，可以连乘：
+            #    顺序是先 FLIP（纠正约定）再 M（纠正转置），因为 M 描述的是
+            #    转置后像素的 (u',v') 与相机 (x,y) 的对应关系。
             c2w[:3, :3] = c2w[:3, :3] @ M
         c2ws.append(c2w)
         Ks.append(K)
@@ -316,6 +334,184 @@ def load_gt_cameras(transforms_path, image_paths, new_h, new_w, undist=None):
     Ks = torch.stack(Ks)              # (N,3,3)
     w2cs = torch.linalg.inv(c2ws)     # (N,4,4) OpenCV world->camera
     return w2cs, Ks, matched
+
+
+# ============================================================
+# GT 相机 → 模型坐标系（Sim(3) 对齐）
+# ============================================================
+def _cam_centers(w2c):
+    """相机中心 c = -R_w2cᵀ · t_w2c，形状 (S,3)"""
+    Rw = w2c[:, :3, :3]
+    tw = w2c[:, :3, 3]
+    return -torch.einsum("sji,sj->si", Rw, tw)
+
+
+def _cam_axes(w2c):
+    """
+    相机在世界系下的三个基向量（单位化），形状 (S,3,3)。
+
+    w2c 的行向量就是相机基在世界系里的表示：Rw[0]=右、Rw[1]=下、Rw[2]=前(光轴)。
+    这些是**纯方向量**，不含平移，也不像相机中心那样在窄基线轨迹上退化。
+
+    ⚠️ 为什么要归一化：预测外参可能带轻微非正交/非单位（VGGT 头输出没严格约束），
+       不归一化会把「长度偏差」混进旋转拟合。
+    """
+    Rw = w2c[:, :3, :3]
+    return Rw / Rw.norm(dim=2, keepdim=True).clamp_min(1e-9)
+
+
+def align_gt_to_model(pred_w2c, gt_w2c, gt_K=None, pred_K=None, iters=1,
+                      mode="axes", reflect="auto"):
+    """
+    把 GT 相机从「采集包坐标系」搬到「模型坐标系」（估计一个 Sim(3)，允许反射）。
+
+    ── 为什么必须做（2026-11-19 实测，GT 分支 PSNR 只有 6.41dB 的根因）──
+    output2gaussian 里：
+        coordinate = depth_to_world_coords_points(depth, extrinsic, intrinsic)
+    这里 extrinsic 是**模型自己预测的**，所以高斯的绝对位置只跟预测相机自洽；
+    换成 GT 相机去渲染，等于拿两套不相干的世界坐标系硬拼 → 整体错位。
+    实测：pose-free 20.53dB，直接塞 GT 相机 6.41dB。
+
+    ── 解什么 ──
+    官方 get_tar_camera 用的是同一套数学（四元数均值定旋转 + 平移最小二乘定 s,t）：
+        X_model = s·R·X_gt + t
+    这里求出 (s,R,t) 后作用到 GT 的 w2c 上，让 GT 视角落进模型坐标系。
+
+    ── ★ 旋转必须用「朝向」而不是「中心」（2026-11-20 实测）──
+    旧实现用相机中心做 Kabsch。但本数据 4 帧是同一段轨迹上均匀抽的，4 个中心
+    近乎共线 → 绕「连线轴」的旋转自由度完全不可观测，SVD 解是任意的。
+    改用朝向（每台相机 3 轴 × N 台 = 3N 样本，比中心法多 3 倍，且朝向变化大）。
+
+    ── ★★ 必须允许反射（det=-1），这是 90.001° 残差的真因（2026-11-20）──
+    逐层判据（00t / 00u / 00v）：
+        rel 旋转差（gauge 无关）  = 2.88 / 0.35 / 1.37°   ← 相对几何很好
+        abs 旋转差                = 90.001 / 90.033 / 90.003 / 90.015°
+        pred_w2c det = +1.000×4 ，gt_raw det = **-1.000×4**   ← 手性不一致
+        D4 八变换 + 平移搜索全救不回（00s，最佳仍 k=0）
+    根因链：
+      1. 输入是竖拍 1440×1920，模型只吃 H<=W 的横图 → 图像被 transpose。
+      2. 图像 transpose 在几何上就是**关于对角线的镜像**，把右手像素系变左手；
+         要让 u'=fx'·x'/z+cx' 成立必须 x'=y、y'=x ⇒ 基变换 det=-1。
+      3. 所以配对上转置图的 GT 相机必然是 det=-1 的**非正常正交阵**，
+         `gt_raw det = -1.000` 是**正确的**，代码里乘 M 正是这个事实的体现。
+      4. 而 pred 相机 det=+1（模型只输出正常旋转）→ 两者之间差一个**整体反射**。
+         反射无法表示为任何旋转：Kabsch 只能在 det=+1 的流形边界停住，
+         残差恰好 90°（trace=1 的旋转恰为 90°），且两种 mode 都停在同一个 90°。
+    修法：不强制 det=+1，让 SVD 自选。数据真是反射关系时 R 自然 det=-1，
+    此时 Rm = R_g·Rᵀ（(-1)×(-1)=+1）→ **对齐后 GT 相机变回正常旋转**，正合所需。
+    实测（00v，本数据 4 帧）：
+        proper  强制+1 : fit_resid 1.0476, abs 残差 90.000°
+        reflect 自选   : fit_resid 0.0179, abs 残差 **1.308°**  ← 降 58 倍
+
+    mode:
+      "axes"   —— 朝向 Kabsch 定 R + 中心定 s,t   ★ 默认
+      "center" —— 中心 Kabsch（旧实现，保留对照）
+    reflect:
+      "auto"  —— 检测到 gt/pred 手性不一致时自动允许反射  ★ 默认
+      "on"    —— 总是允许
+      "off"   —— 强制 det=+1（仅用于复现历史 90° 现象）
+
+    返回 (aligned_w2c, info)
+    """
+    P = _cam_centers(pred_w2c).double()      # (S,3) 模型坐标系
+    G = _cam_centers(gt_w2c).double()        # (S,3) 采集包坐标系
+    Pc, Gc = P.mean(0, keepdim=True), G.mean(0, keepdim=True)
+
+    # 1) 尺度：两组中心到各自质心的平均距离之比（X_model = s·R·X_gt + t 里的 s）
+    dP = (P - Pc).norm(dim=1).mean()
+    dG = (G - Gc).norm(dim=1).mean()
+    # 中心几乎重合（相机没基线）→ 尺度退化，退化为 1
+    s = float(dP / dG) if float(dG) > 1e-9 else 1.0
+
+    # 2) 旋转
+    if mode == "center":
+        # 2a) 中心 Kabsch：用中心化后的点，SVD 求最优正交阵
+        fit_src, fit_dst = (G - Gc) * s, P - Pc
+    elif mode == "axes":
+        # 2b) 朝向 Kabsch：A = GT 系方向，B = 模型系方向，求 R 使 R·a ≈ b。
+        #     方向量对尺度不敏感，所以这里不乘 s。
+        fit_src = _cam_axes(gt_w2c).reshape(-1, 3).double()
+        fit_dst = _cam_axes(pred_w2c).reshape(-1, 3).double()
+    else:
+        raise ValueError(f"未知 mode: {mode}（可选 axes / center）")
+    H = fit_src.transpose(0, 1) @ fit_dst
+
+    U, _, Vt = torch.linalg.svd(H)
+    # 手性判决：GT 相机 det 与 pred 相机 det 是否一致
+    det_g = float(torch.linalg.det(gt_w2c[:, :3, :3].double()).mean())
+    det_p = float(torch.linalg.det(pred_w2c[:, :3, :3].double()).mean())
+    mismatched = (det_g < 0) != (det_p < 0)
+    allow_reflect = (reflect == "on") or (reflect == "auto" and mismatched)
+
+    R_raw = Vt.transpose(0, 1) @ U.transpose(0, 1)
+    if allow_reflect:
+        # 让 SVD 自选：数据是反射关系时 R 自然 det=-1
+        R = R_raw
+    else:
+        # 防反射：det 必须 +1，否则是镜像（渲染出来左右颠倒且深度全负）
+        d = torch.sign(torch.linalg.det(R_raw))
+        # ⚠️ device 必须跟 H 一致：`torch.tensor([...])` 默认建在 CPU 上，
+        #    而 P/G 来自 cuda 上的 w2c（double 只是 dtype，不改 device）→ 下一步 matmul 报
+        #    "Expected all tensors to be on the same device, but got mat2 is on cpu"。
+        D = torch.diag(torch.tensor([1.0, 1.0, float(d)],
+                                    dtype=torch.float64, device=H.device))
+        R = R_raw @ D
+    fit_resid = float((fit_src @ R.transpose(0, 1) - fit_dst).norm(dim=1).mean())
+
+    # ⚠️ t 必须用**原始**质心 Gc，不能用 (G-Gc).mean(0)（后者恒等于 0）。
+    #    2026-11-19 踩过：写成 Pc - R@0 后 t 恒等于 Pc，identity 用例
+    #    对齐后中心整体平移了 Pc，残差 0.4 而不是 0。
+    t = Pc.squeeze(0) - s * (R @ Gc.squeeze(0))
+
+    R = R.to(pred_w2c.dtype)
+    t = t.to(pred_w2c.dtype)
+    s = float(s)
+
+    # 3) 作用到 w2c
+    #
+    # ⚠️ 这里不能用 `gt_w2c @ inv(Sim)`（2026-11-19 踩坑）：那个写法把尺度也乘进
+    #    旋转块，得到 R_g·Rᵀ/s —— **非正交矩阵**，gsplat 会渲出错乱画面。
+    #
+    # 正确推导（关键：把相机空间整体乘 s 不改变投影，因为 u=fx·x/z）：
+    #   世界点映射   X_m = s·R·X_g + t
+    #   GT 相机      X_cam = R_g·X_g + t_g
+    #   代入并整理   X_cam = (1/s)·R'(X_m − t) + t_g ,  R' = R_g·Rᵀ（正交✓）
+    #   两边乘 s     s·X_cam = R'(X_m − t) + s·t_g
+    #   ⇒ X_cam' ≡ R'·X_m + (s·t_g − R'·t) = s·X_cam
+    #   s·X_cam 与 X_cam 的 x/z、y/z 完全相同 → 投影一致，且 R' 正交。
+    Rm = gt_w2c[:, :3, :3] @ R.transpose(0, 1)              # (S,3,3) 正交
+    tm = s * gt_w2c[:, :3, 3] - torch.einsum("sij,j->si", Rm, t)
+    aligned = gt_w2c.clone()
+    aligned[:, :3, :3] = Rm
+    aligned[:, :3, 3] = tm
+
+    # 4) 残差自检：对齐后 GT 中心与 pred 中心的 RMS 偏差（应为 0，除非 S<3 有歧义）
+    resid = (_cam_centers(aligned) - _cam_centers(pred_w2c)).norm(dim=1)
+    # 朝向残差：对齐后两套 w2c 的相对旋转角（度）。纯净判据 —— 与高斯、K 都无关。
+    # 实测（本轮）：axes 法约 3°，center 法恒 90°。
+    _Ra = aligned[:, :3, :3] @ pred_w2c[:, :3, :3].transpose(-1, -2)   # (S,3,3)
+    _cos = ((_Ra.diagonal(dim1=1, dim2=2).sum(-1) - 1.0) / 2.0).clamp(-1.0, 1.0)
+    rot_deg = torch.rad2deg(torch.acos(_cos))
+    info = {
+        "mode": mode,
+        "reflect": "on" if allow_reflect else "off",
+        "det_gt": det_g,
+        "det_pred": det_p,
+        "det_R": float(torch.linalg.det(R.double())),
+        "scale_gt_to_model": float(s),
+        "fit_resid": fit_resid,
+        "center_rms": float(resid.mean()),
+        "center_max": float(resid.max()),
+        "rot_deg_mean": float(rot_deg.mean()),
+        "rot_deg_max": float(rot_deg.max()),
+        "rot_deg_each": [round(float(x), 3) for x in rot_deg],
+        # ★ 把 (R,t) 一并交出去：target 视角必须复用**仅在 src 上估计**的同一个变换，
+        #   若拿 target 参与重估 = GT 泄漏，指标会虚高（DA3 项目踩过这个坑）。
+        #   s 已在 scale_gt_to_model 里，这里是剩下两件。
+        "_R": R.detach().clone(),
+        "_t": t.detach().clone(),
+    }
+    return aligned, info
 
 
 # ============================================================
@@ -457,11 +653,22 @@ def main():
     ap.add_argument("--config", default=os.path.join(REPO, "config", "dl3dv.yaml"))
     ap.add_argument("--ckpt", default=None, help="默认读 config 里的 gaussian_evaluation_stage.ckpt")
     ap.add_argument("--resize", nargs=2, type=int, default=[294, 518],
-                    help="网络输入尺寸 H W，必须能被 14 整除（默认 294 518）")
+                    help="网络输入尺寸 H W，必须能被 14 整除（默认 294 518 = DL3DV 口径）")
+    ap.add_argument("--no-auto-aspect", dest="auto_aspect", action="store_false",
+                    help="关掉按原图宽高比重算 H（默认开启）。"
+                         "关闭后严格用 --resize 的 H，竖拍图会被拉伸 —— 只在复现"
+                         "官方 DL3DV 口径的对照实验里才关")
     ap.add_argument("--render-size", type=int, default=512,
                     help="渲染分辨率（正方形边长，0=保持网络输入尺寸）")
     ap.add_argument("--camera", choices=["pose-free", "gt"], default="pose-free")
     ap.add_argument("--transforms", default=None, help="--camera gt 时需要的 transforms.json")
+    ap.add_argument("--align-mode", choices=["axes", "center"], default="axes",
+                    help="GT→模型系 Sim(3) 的旋转估计方式。axes=用相机朝向做 Kabsch（默认）；"
+                         "center=用相机中心做 Kabsch（旧实现，窄基线轨迹上欠定）")
+    ap.add_argument("--align-reflect", choices=["auto", "on", "off"], default="auto",
+                    help="对齐时是否允许反射(det=-1)。图像转置本身是镜像，竖图输入下 GT 相机"
+                         "det=-1 而 pred det=+1，强制 det=+1 会让残差卡在 90°。"
+                         "auto=手性不一致时自动允许（默认）；off=复现历史 90° 现象")
     ap.add_argument("--no-undistort", action="store_true",
                     help="--camera gt 时不做去畸变（默认按 transforms.json 的 "
                          "k1/k2/p1/p2/k3 去畸变，仅当模型为 OPENCV 且有非零系数时生效）")
@@ -472,6 +679,10 @@ def main():
     ap.add_argument("--render-src", action="store_true",
                     help="同时渲染输入视角（默认只渲染，不区分 src/tar）")
     ap.add_argument("--white-bg", action="store_true", help="白底（默认黑底，与官方一致）")
+    ap.add_argument("--dump-forward", default=None,
+                    help="把前向产出的高斯/相机/输入缓存成 .pt（调试对齐时省掉重跑前馈）")
+    ap.add_argument("--from-forward", default=None,
+                    help="从 --dump-forward 存下的 .pt 直接装载高斯/相机，跳过前馈与模型构建")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -496,6 +707,45 @@ def main():
         raise SystemExit(f"❌ 至少需要 2 张图，实际 {len(paths)} 张")
     print(f"📷 输入 {len(paths)} 张图")
     print(f"   首张: {paths[0]}")
+
+    # ---------- 1b. 按真实宽高比重算 H（关键，别跳过）----------
+    #
+    # 为什么必须做（2026-11-20 实测，GT 分支只有 7.26dB 的第二个根因）：
+    #   官方 config 写的是 new_size: [294, 518]，那是 **DL3DV 的宽高比**
+    #   （294/518 = 0.568，接近 16:9 横图）。直接拿来套竖拍手机图会出事：
+    #       原图 1440×1920 → 转置后 1920×1440，真实宽高比 0.75
+    #       硬 resize 到 294×518（0.568）  ⇒ 水平方向被**拉伸 32%**
+    #   而网络的几何头假设方形像素（预测内参 fx/fy = 0.9992），
+    #   拉伸后真实内参变成 fx/fy = 1.3246 —— **各向异性畸变**。
+    #   相似变换是各向同性的，吸收不了这个差异，所以 Sim(3) 对齐再怎么修，
+    #   GT 分支都只能到 7.4dB，而 pose-free 自洽链路有 17.9dB。
+    #
+    #   修法：宽度取目标值，高度按「转置后」的真实宽高比推，再对齐到 14 的倍数。
+    #   1440×1920 → 392×518（392/518 = 0.757，误差 0.9%），各向异性基本消失。
+    if args.auto_aspect:
+        from PIL import Image as _Image
+        _p = paths[0]
+        _ext = os.path.splitext(_p)[1].lower()
+        if _ext in (".heic", ".heif"):
+            try:
+                import pillow_heif
+                pillow_heif.register_heif_opener()
+            except Exception:
+                pass
+        _w0, _h0 = _Image.open(_p).size
+        # load_image_tensor 会在「竖图 + 目标横图」时转置，转置后 H/W = _w0/_h0
+        _transposed = (_h0 > _w0)
+        _asp = (_w0 / _h0) if _transposed else (_h0 / _w0)
+        _h = int(round(args.resize[1] * _asp / 14.0) * 14)
+        if _h < 14:
+            _h = 14
+        if _h > args.resize[1]:
+            _h = args.resize[1]        # 不越界：官方要求 H <= W
+        print(f"   📐 自动宽高比: 原图 {_w0}×{_h0}"
+              f"{' (转置)' if _transposed else ''}  aspect(H/W)={_asp:.4f}"
+              f"  → resize {_h}×{args.resize[1]}"
+              f"   各向异性误差 {abs(_h/(args.resize[1]*_asp) - 1)*100:.2f}%")
+        new_h, new_w = _h, args.resize[1]
 
     # 畸变：只有 GT 分支能拿到变换文件，pose-free 分支无从得知 → 只在 gt 且
     # 给了 --transforms 时探。--no-undistort 可强制关掉（用于对照实验）。
@@ -524,17 +774,56 @@ def main():
     os.chdir(REPO)
 
     from src.config import load_configs
-    from src.model.gaussian_wrapper import build_gaussian_wrapper
 
     cfg = load_configs(args.config, [])
-    # config 里 ckpt 是**相对仓根**的 "ckpts/structsplat/pytorch_model.bin"，
-    # 不是相对 cwd（2026-11-19 实测：在 structsplat/ 下跑会误报 ckpt 不存在）。
-    ckpt_path = args.ckpt or cfg.gaussian_evaluation_stage.ckpt
-    if not os.path.isabs(ckpt_path):
-        ckpt_path = os.path.join(REPO, ckpt_path)
-    if not os.path.exists(ckpt_path):
-        raise SystemExit(f"❌ ckpt 不存在: {ckpt_path}\n"
-                         f"   先跑 bash structsplat/01_download_models.sh ss")
+
+    # ---------- 2. 高斯来源：前向缓存 or 现场前馈 ----------
+    # ⚠️ inf_ms 只在现场前馈分支里赋值；--from-forward 时没有前馈，
+    #    旧代码在写 meta 时直接 round(inf_ms, 1) → UnboundLocalError。
+    #    先置 None，meta 里判空。
+    inf_ms = None
+    if args.from_forward:
+        # 为什么有这条路（2026-11-20）：一次前向在 3090 上 3~4 分钟，
+        # 而调相机对齐/评测口径时高斯本身完全不变。缓存装载后可秒级迭代。
+        print(f"📥 装载前向缓存: {args.from_forward}")
+        _d = torch.load(args.from_forward, map_location="cpu", weights_only=False)
+        _cached_paths = _d.get("paths", [])
+        if _cached_paths and [os.path.basename(p) for p in _cached_paths] != \
+                [os.path.basename(p) for p in paths]:
+            raise SystemExit(
+                "❌ 缓存里的图与 --images 选出的图不一致：\n"
+                f"   缓存: {[os.path.basename(p) for p in _cached_paths]}\n"
+                f"   当前: {[os.path.basename(p) for p in paths]}\n"
+                "   缓存的相机与高斯绑定同一批图，换图必须重跑前馈。"
+            )
+        new_h, new_w = int(_d["new_h"]), int(_d["new_w"])
+        means = _d["means"].to(device)
+        quats = _d["quats"].to(device)
+        scales = _d["scales"].to(device)
+        opac = _d["opac"].to(device)
+        colors = _d["colors"].to(device)
+        src = _d["src"].to(device)
+        _pred_w2c = _d.get("pred_w2c")
+        _pred_K = _d.get("pred_K")
+        if _pred_w2c is None:
+            raise SystemExit("❌ 缓存缺 pred_w2c：该缓存是旧版 dump，请重跑一次 --dump-forward")
+        # 缓存是按 .cpu() 存的，装回来必须搬回 device，否则 align_gt_to_model 里
+        # Gs.transpose @ (P - Pc) 会报 device 不一致（2026-11-20 实测）。
+        _pred_w2c = _pred_w2c.to(device)
+        _pred_K = _pred_K.to(device)
+        N = means.shape[0]
+        print(f"   {N} 个高斯 / {len(paths)} 视角；输入 {new_h}×{new_w}（来自缓存）")
+    else:
+        from src.model.gaussian_wrapper import build_gaussian_wrapper
+
+        # config 里 ckpt 是**相对仓根**的 "ckpts/structsplat/pytorch_model.bin"，
+        # 不是相对 cwd（2026-11-19 实测：在 structsplat/ 下跑会误报 ckpt 不存在）。
+        ckpt_path = args.ckpt or cfg.gaussian_evaluation_stage.ckpt
+        if not os.path.isabs(ckpt_path):
+            ckpt_path = os.path.join(REPO, ckpt_path)
+        if not os.path.exists(ckpt_path):
+            raise SystemExit(f"❌ ckpt 不存在: {ckpt_path}\n"
+                             f"   先跑 bash structsplat/01_download_models.sh ss")
 
     # config 里 geo_encoder.path / sem_encoder.path 都是**相对仓根**的 ckpts/xxx。
     # build_gaussian_wrapper 内部会 VGGT.from_pretrained(那个路径)，缺了会抛
@@ -549,83 +838,125 @@ def main():
     #    只提供 model.pt，于是目录存在也照样报：
     #        FileNotFoundError: ... ckpts/vggt/model.safetensors
     #    这个报错看起来像「路径写错了」，实际是格式不匹配，极易误判。
-    _missing = []
-    _enc = (("geo_encoder.path", cfg.module.geo_encoder.path, "model.safetensors"),
-            ("sem_encoder.path", getattr(cfg.module.sem_encoder, "path", None),
-             "model.safetensors"))
-    for _key, _p, _need in _enc:
-        if not _p:
-            continue
-        _abs = _p if os.path.isabs(_p) else os.path.join(REPO, _p)
-        if not os.path.isdir(_abs):
-            _missing.append(f"{_key} = {_p}  (→ {_abs})  目录不存在")
-        elif not os.path.exists(os.path.join(_abs, _need)):
-            _has_pt = os.path.exists(os.path.join(_abs, "model.pt"))
-            _hint = ("  目录里只有 model.pt → 需要转成 safetensors" if _has_pt
-                     else "")
-            _missing.append(f"{_key} = {_p}  (→ {_abs})  缺 {_need}{_hint}")
-    if _missing:
-        raise SystemExit(
-            "❌ 编码器权重缺失（config 里是相对仓根的路径）：\n  "
-            + "\n  ".join(_missing)
-            + "\n\n   VGGT 必须提供 model.safetensors（不是 model.pt），原因是\n"
-              "   huggingface_hub 对本地目录分支硬编码只认 safetensors。\n"
-              "   两个修法任选其一：\n"
-              "     1) bash structsplat/01_download_models.sh vggt   ← 已内置自动转换\n"
-              "     2) 手动转：python -c \"import torch;from safetensors.torch import save_file;"
-              "save_file(torch.load('<dir>/model.pt',map_location='cpu',weights_only=True),"
-              "'<dir>/model.safetensors')\"\n"
-              "   或建软链（若权重池已备好）：\n"
-              "     ln -sfn /mnt/d/wheel/structsplat_ms/VGGT-1B "
-              f"{REPO}/ckpts/vggt"
-        )
+        _missing = []
+        _enc = (("geo_encoder.path", cfg.module.geo_encoder.path, "model.safetensors"),
+                ("sem_encoder.path", getattr(cfg.module.sem_encoder, "path", None),
+                 "model.safetensors"))
+        for _key, _p, _need in _enc:
+            if not _p:
+                continue
+            _abs = _p if os.path.isabs(_p) else os.path.join(REPO, _p)
+            if not os.path.isdir(_abs):
+                _missing.append(f"{_key} = {_p}  (→ {_abs})  目录不存在")
+            elif not os.path.exists(os.path.join(_abs, _need)):
+                _has_pt = os.path.exists(os.path.join(_abs, "model.pt"))
+                _hint = ("  目录里只有 model.pt → 需要转成 safetensors" if _has_pt
+                         else "")
+                _missing.append(f"{_key} = {_p}  (→ {_abs})  缺 {_need}{_hint}")
+        if _missing:
+            raise SystemExit(
+                "❌ 编码器权重缺失（config 里是相对仓根的路径）：\n  "
+                + "\n  ".join(_missing)
+                + "\n\n   VGGT 必须提供 model.safetensors（不是 model.pt），原因是\n"
+                  "   huggingface_hub 对本地目录分支硬编码只认 safetensors。\n"
+                  "   两个修法任选其一：\n"
+                  "     1) bash structsplat/01_download_models.sh vggt   ← 已内置自动转换\n"
+                  "     2) 手动转：python -c \"import torch;from safetensors.torch import save_file;"
+                  "save_file(torch.load('<dir>/model.pt',map_location='cpu',weights_only=True),"
+                  "'<dir>/model.safetensors')\"\n"
+                  "   或建软链（若权重池已备好）：\n"
+                  "     ln -sfn /mnt/d/wheel/structsplat_ms/VGGT-1B "
+                  f"{REPO}/ckpts/vggt"
+            )
 
-    print(f"📦 加载 ckpt: {ckpt_path}")
-    param_dict = torch.load(ckpt_path, map_location="cpu")
-    module_dict = {"gaussian_predictor": {}}
-    for k, v in param_dict.items():
-        if k.startswith("gaussian_predictor."):
-            module_dict["gaussian_predictor"][k[len("gaussian_predictor."):]] = v
+        print(f"📦 加载 ckpt: {ckpt_path}")
+        param_dict = torch.load(ckpt_path, map_location="cpu")
+        module_dict = {"gaussian_predictor": {}}
+        for k, v in param_dict.items():
+            if k.startswith("gaussian_predictor."):
+                module_dict["gaussian_predictor"][k[len("gaussian_predictor."):]] = v
 
-    t0 = time.time()
-    wrapper = build_gaussian_wrapper(module_dict, cfg)
-    wrapper = wrapper.to(device).eval()
-    for p in wrapper.parameters():
-        p.requires_grad = False
-    print(f"   构建完成 {time.time()-t0:.1f}s")
+        _t = time.time()
+        wrapper = build_gaussian_wrapper(module_dict, cfg)
+        wrapper = wrapper.to(device).eval()
+        for p in wrapper.parameters():
+            p.requires_grad = False
+        print(f"   构建完成 {time.time()-_t:.1f}s")
 
-    # ---------- 3. 前向：预测高斯 + 相机 ----------
-    t0 = time.time()
-    with torch.no_grad():
-        preds = wrapper(src)          # ★ 直接走 forward，不走 splat()
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-    inf_ms = (time.time() - t0) * 1000
-    print(f"🧠 前向完成 {inf_ms:.0f} ms")
+        # ---------- 3. 前向：预测高斯 + 相机 ----------
+        _t = time.time()
+        with torch.no_grad():
+            preds = wrapper(src)          # ★ 直接走 forward，不走 splat()
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        inf_ms = (time.time() - _t) * 1000
+        print(f"🧠 前向完成 {inf_ms:.0f} ms")
 
-    means = preds["coordinate"][0].float()     # (N,3)
-    quats = preds["rotation"][0].float()       # (N,4) wxyz
-    scales = preds["scale"][0].float()         # (N,3)
-    opac = preds["opacity"][0].float()         # (N,)
-    colors = preds["color"][0].float()         # (N,3)
-    N = means.shape[0]
-    print(f"   {N} 个高斯 / {len(paths)} 视角 = {N//len(paths)} per image "
-          f"(期望 {cfg.module.gaussian_decoder.gaussians_per_pixel} × "
-          f"{(new_h//14)*(new_w//14)} patches)")
+        means = preds["coordinate"][0].float()     # (N,3)
+        quats = preds["rotation"][0].float()       # (N,4) wxyz
+        scales = preds["scale"][0].float()         # (N,3)
+        opac = preds["opacity"][0].float()         # (N,)
+        colors = preds["color"][0].float()         # (N,3)
+        N = means.shape[0]
+        print(f"   {N} 个高斯 / {len(paths)} 视角 = {N//len(paths)} per image "
+              f"(期望 {cfg.module.gaussian_decoder.gaussians_per_pixel} × "
+              f"{(new_h//14)*(new_w//14)} patches)")
+
+        from src.utils.utils_3d import pose_encoding_to_extri, pose_encoding_to_intri
+        _pred_w2c = pose_encoding_to_extri(preds["camera"])[0].to(device)
+        _pred_K = pose_encoding_to_intri(preds["camera"], (new_h, new_w))[0].to(device)
+
+        # ---------- 3b. 缓存前向结果（调试对齐用）----------
+        # 为什么需要：一次前向在 3090 上要 3~4 分钟，而调对齐/评测参数常常只需要
+        # 「同一批高斯 + 同一组相机」反复渲。把 tensors 落盘后，离线脚本可秒级重试，
+        # 不必每次重跑 1.5B 参数的前馈。
+        if args.dump_forward:
+            torch.save({
+                "means": means.cpu(), "quats": quats.cpu(), "scales": scales.cpu(),
+                "opac": opac.cpu(), "colors": colors.cpu(),
+                "src": src.cpu(),
+                "new_h": new_h, "new_w": new_w,
+                "paths": paths,
+                "pred_w2c": _pred_w2c.cpu(), "pred_K": _pred_K.cpu(),
+            }, args.dump_forward)
+            print(f"💾 前向缓存 → {args.dump_forward}")
 
     # ---------- 4. 相机 ----------
-    from src.utils.utils_3d import pose_encoding_to_extri, pose_encoding_to_intri
+    # 预测相机无论如何都要拿到：GT 分支要靠它把 GT 搬进模型坐标系（见 align_gt_to_model）。
+    pred_ext = _pred_w2c
+    pred_int = _pred_K
 
     if args.camera == "gt":
         if not args.transforms:
             raise SystemExit("❌ --camera gt 需要 --transforms <transforms.json>")
-        w2cs, Ks, matched = load_gt_cameras(args.transforms, paths, new_h, new_w,
-                                            undist=undist)
+        w2cs_raw, Ks, matched = load_gt_cameras(args.transforms, paths, new_h, new_w,
+                                                undist=undist)
         print(f"📐 GT 相机: 匹配 {len(matched)}/{len(paths)} 张")
         if len(matched) != len(paths):
             print("   ⚠️  有图没匹配上 GT 相机，请检查 transforms.json 的 file_path")
-        w2cs = w2cs.to(device)
+        w2cs_raw = w2cs_raw.to(device)
         Ks = Ks.to(device)
+
+        # ★ GT 相机必须搬进模型坐标系，否则整体错位（2026-11-19 实测 6.41dB 的根因）。
+        #   output2gaussian 用**预测**外参反投影出高斯，高斯只跟预测的世界系自洽；
+        #   transforms.json 的 c2w 在采集包自己的世界系里，两套坐标系差一个 Sim(3)。
+        w2cs, align_info = align_gt_to_model(pred_ext, w2cs_raw, Ks, pred_int,
+                                             mode=args.align_mode,
+                                             reflect=args.align_reflect)
+        print(f"🔗 GT→模型系 Sim(3) [{align_info['mode']}/reflect={align_info['reflect']}]: "
+              f"尺度 {align_info['scale_gt_to_model']:.4f}  "
+              f"拟合残差 {align_info['fit_resid']:.4f}  "
+              f"det(gt)={align_info['det_gt']:+.2f} det(pred)={align_info['det_pred']:+.2f} "
+              f"det(R)={align_info['det_R']:+.2f}")
+        print(f"   朝向残差 {align_info['rot_deg_mean']:.2f}° (max {align_info['rot_deg_max']:.2f}°) "
+              f"逐视角 {align_info['rot_deg_each']}")
+        print(f"   中心残差 RMS {align_info['center_rms']:.4f} / max {align_info['center_max']:.4f}")
+        if align_info["rot_deg_max"] > 5.0:
+            print("   ⚠️  朝向残差 >5°：Sim(3) 没真正闭合。先看 det(gt)/det(pred) 是否异号"
+                  "（竖图转置会引入镜像，需 --align-reflect auto/on），再查 FLIP 约定")
+        if align_info["center_max"] > 0.05:
+            print("   ⚠️  相机中心对齐残差偏大：输入视角太少或近乎共视，"
+                  "Sim(3) 欠定（S<3 时旋转/尺度没有冗余可摊）")
         # 渲染分辨率下的 K
         # render_size 指「宽」还是「高」？统一口径：按宽 = render_size 缩，高度按宽高比推。
         # 输入恒为 H<=W（294×518），宽是长边，这样不会把两侧裁掉。
@@ -640,11 +971,8 @@ def main():
             Ks_r = Ks
             render_h, render_w = new_h, new_w
     else:
-        cam = preds["camera"]                       # (1,S,9)
-        extrinsic = pose_encoding_to_extri(cam)     # (1,S,4,4)
-        intrinsic = pose_encoding_to_intri(cam, (new_h, new_w))   # (1,S,3,3)
-        w2cs = extrinsic[0].to(device)
-        Ks = intrinsic[0].to(device)
+        w2cs = pred_ext
+        Ks = pred_int
         # 与 gt 分支同一口径：K 与画布同步按 render_size/new_w 缩放。
         # 旧写法是 render_h = render_w = render_size（正方形），输入 294×518 时
         # 宽被压成 512 而 K 仍按 512/294 放大 → 右侧约 43% 的画面被裁掉。
@@ -659,6 +987,18 @@ def main():
             Ks_r = Ks
             render_h, render_w = new_h, new_w
     print(f"   相机来源: {args.camera}  渲染 {render_h}×{render_w}")
+
+    # 相机一并缓存：离线对齐实验要同时拿到「预测相机」和「GT 相机原始值」。
+    if args.dump_forward:
+        _d = torch.load(args.dump_forward, map_location="cpu")
+        _d.update({
+            "w2cs": w2cs.cpu(), "Ks": Ks.cpu(),
+            "render_h": render_h, "render_w": render_w,
+        })
+        if args.camera == "gt":
+            _d["gt_w2c_raw"] = w2cs_raw.cpu()
+        torch.save(_d, args.dump_forward)
+        print(f"💾 相机已并入缓存 → {args.dump_forward}")
 
     # ---------- 5. 渲染 ----------
     from gsplat import rasterization
@@ -766,7 +1106,8 @@ def main():
     meta = {
         "repo": REPO,
         "config": args.config,
-        "ckpt": ckpt_path,
+        "ckpt": (args.from_forward if args.from_forward else ckpt_path),
+        "from_forward": args.from_forward,
         "n_images": S,
         "n_gaussians": int(N),
         "resize": [new_h, new_w],
@@ -777,7 +1118,7 @@ def main():
             "K_src": undist[0].tolist(),
             "K_new": undist[2].tolist(),
         }),
-        "inference_ms": round(inf_ms, 1),
+            "inference_ms": round(inf_ms, 1) if inf_ms is not None else None,
         "self_check": {
             "note": "渲染输入视角 vs 输入图，仅为本脚本的自检哨兵，非论文评测口径",
             "psnr_mean": round(float(np.mean(psnrs)), 3) if psnrs else None,

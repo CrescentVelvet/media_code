@@ -32,6 +32,15 @@ annotation 格式（`{path, src[], tar[]}`），且需要 `data/` 下整套预�
 | `00g_test_selfcheck.py` | `evaluate_src_views` 自检函数本身的判据（能抓错位/空画面，不过度敏感） |
 | `00h_test_vggt_weight_format.py` | VGGT 必须 `model.safetensors` 的离线判据（源码分支 + 正反用例） |
 | `00i_test_undistort.py` | OPENCV 去畸变链路判据（识别/不误触发/自洽性/误差量级/实图，15 项） |
+| `00j_test_sim3_align.py` | Sim(3) 对齐单测（不需权重） |
+| `00k_offline_align.py` | 离线对齐（用缓存相机复算，不重跑前馈） |
+| `00t_axes_check.py` | 对齐残差解构：`abs`（含 gauge）/ `rel`（两两相对，gauge 无关）/ 逐轴夹角 |
+| `00u_handedness.py` | 三种转置约定 × det 对比，证明问题不在约定而在「强制 proper」 |
+| `00v_reflect_align.py` | **2×2 mode × reflect 扫描（决定性实验）**，见 §4.2c |
+| `00w_target_eval.py` | 官方口径 target 评测（src-only Sim(3)，防泄漏），见 §4.7 |
+| `00x_cam_geometry.py` | 输入包相机几何体检：基线 / 方位仰角跨度 / 共线度，判断 Sim(3) 是否可观测 |
+| `00y_target_sweep.py` | 多组 target 扫描 + **覆盖率诊断**（全图 PSNR vs 覆盖区 PSNR） |
+| `00z_oracle_align.py` | **oracle 上界**：对刚体修正量 `C` 随机搜索，判定低分是不是对齐误差 |
 | `01_download_models.sh` | 拉三份权重：VGGT-1B / DINOv3-ConvNeXt-L / StructSplat 主 ckpt |
 | `02_run_inference.sh` | **主入口**：任意图片目录 → 前馈高斯 → 渲染 + 导出 |
 | `infer.py` | 通用推理实现（官方仓缺这一环，见 §3） |
@@ -173,6 +182,88 @@ load 13.5s + save 34.8s。
 `--transforms` 时生效**。这也意味着 pose-free 分支对这组数据天然带 ~2.5px 中位残差，
 是它的固有下限，不是实现 bug。
 
+### 4.2c GT→模型系对齐：手性破缺与反射（2026-11-20，最反直觉的一条）
+
+`--camera gt` 分支要把 GT 相机搬进**模型坐标系**（高斯的坐标系由前馈预测的外参定义，
+见 `utils_3d.py:34` 的 `depth_to_world_coords_points`，被 `gaussian_wrapper.py:586` 调用）。
+搬法是一个相似变换 `Sim(3) = (s, R, t)`，用 `align_gt_to_model()` 拟合。
+
+**症状**：拟合完朝向残差恒为 `90.000°`，PSNR 只有 6~7 dB，怎么调都下不来。
+
+**根因**：`pred_w2c` 的 `det = +1`（正常旋转），`gt_w2c` 的 `det = −1`（反射）。
+两者**手性不一致**。而 Kabsch 若强制 `det(R) = +1`（`R = V·diag(1,1,det(VUᵀ))·Uᵀ`），
+反射无法被任何 proper rotation 抵消——最优解永远在可行域的边界上，残差恰好卡在 90°
+（`trace(M) = 1` 的旋转正好是 90°），而且残差是**常数**、与数据无关，这正是它可疑的地方。
+
+手性为什么会破？**竖图转置本身就是一次 2D 镜像**（`u' = v, v' = u`）。
+它在相机系上诱导的基变换
+
+```
+M = [[0,1,0],
+     [1,0,0],
+     [0,0,1]]        det(M) = −1
+```
+
+`det = −1` 是**数学必然，不是 bug**。模型吃的是镜像图，它重建出的场景相对真实场景
+就是镜像的；模型系与 GT 系之间的真实变换是「相似变换 + 一次反射」，不是纯 `Sim(3)`。
+
+**修法**：不要强制 `det = +1`，让 SVD 自己选。
+
+```python
+R_raw = Vt.T @ U.T
+if allow_reflect:          # 手性不一致时（reflect="auto" 会自动判定）
+    R = R_raw              # 反射关系 → det(R) = −1
+else:
+    R = R_raw @ diag(1, 1, sign(det(R_raw)))
+```
+
+关键一步在**应用**时：`R_model = R_gt · Rᵀ`，`(−1)×(−1) = +1` →
+**对齐后 GT 相机变回 proper rotation**，正是 gsplat 需要的。反射被"用掉"在相似变换里，
+不残留到相机上。
+
+实测（4 视角 GT 分支）：
+
+| mode | reflect | fit_resid | 朝向残差 | 中心 RMS | PSNR |
+|---|---|---|---|---|---|
+| center | 强制 +1 | 1.0056 | 90.00° | 0.858 | 10.67 |
+| axes | 强制 +1 | 1.0476 | 90.00° | 0.858 | 10.65 |
+| center | **自选** | 0.0130 | 1.51° | 0.013 | 16.06 |
+| **axes** | **自选** | **0.0179** | **1.31°** | **0.014** | **16.47** |
+
+`fit_resid` 降 **58 倍**，端到端 **10.65 → 16.47 dB（+5.8 dB）**。
+`reflect` 是决定因素；`axes` 比 `center` 再高 0.4 dB。
+
+**为什么 `axes` 优于 `center`**：`center` 只拟合相机中心，在 4 台近共线相机上
+「绕连线的旋转」欠定（中心不变但朝向可任意）；`axes` 把相机三根基向量一起拟合，
+朝向被钉住。用 `--align-mode {axes,center}` 切换，默认 `axes`。
+
+**为什么不该换约定来"消除"手性**：`00u_handedness.py` 试了三种（现状 transpose /
+rot90 误乘 A / rot90 正确乘 Aᵀ），都闭合不干净（90.0° / 38.1° / 88.1°）。
+问题不在「用哪个约定」，而在「强制 proper」这个约束本身。
+
+判据脚本：`00t_axes_check.py`（残差解构：abs / rel / 逐轴）、`00u_handedness.py`（三约定）、
+`00v_reflect_align.py`（2×2 mode × reflect，**决定性**）。
+CLI：`--align-mode axes --align-reflect auto`（默认；`off` 可复现历史 90° 现象）。
+
+⚠️ **target 视角必须复用「仅在 src 上估计」的同一个 `(s,R,t)`**。若把 target 也放进拟合，
+就是 GT 泄漏（`align_gt_to_model` 的返回值带了 `_R` / `_t` 供此用途，`00w`/`00y`/`00z` 都遵守）。
+
+### 4.2d 官方设计输入是 2 张图（不是 24 张）
+
+容易误读：`config/dl3dv.yaml` 有 `max_images` 之类，但评测 annotation 是 `src=2, tar=2`，
+训练 `min_src_number=2`。StructSplat 是**少量视角**前馈模型，喂 24 张不是它的设计工况。
+
+实测（本机 3090）：
+
+| src 数 | 前馈耗时 | 高斯数 | 自洽 PSNR |
+|---|---|---|---|
+| 2 | 2.7 s | 2,842,784 | **22.46 dB** |
+| 4 | 93.7 s | 5,685,568 | 20.47 dB |
+
+2 图既快又准，与官方设计一致。**多喂图反而变差**（跨视角几何冲突被平均进来）。
+显存上 4 图已接近红线（WSL2 统一内存会让分配器峰值超物理显存，只有 4 帧真正落在 24GiB 内，
+`--max-images` 在 3090 上的实测安全上限就是 4）。
+
 ### 4.3 渲染分辨率
 `--render-size` 指**宽**（长边）。高度按 `new_h/new_w` 比例推，K 同步按 `render_size/new_w` 缩放。
 早期实现把画布设成正方形，输入 294×518 时右侧约 43% 画面被裁掉——已修。
@@ -215,6 +306,69 @@ K 行列写反。判读：
 
 自检函数本身由 `00g_test_selfcheck.py` 把关（无需 GPU/权重）：完全相同→inf、
 平移/反色/全黑/转 90°→均 <15dB、0.02 噪声→PSNR 34dB 且 SSIM 0.95。
+
+### 4.7 官方口径的 target 评测（以及为什么数字不能直接对外比）
+
+自检只能证明**链路自洽**：输入视角本来就是高斯反投影的来源，重渲自己天然高分。
+官方评测（annotation `src=2 / tar=2`）是**喂 2 张重建，另取数据集里别的帧渲染**。
+只有这个数字能对外报。脚本：`00w_target_eval.py`（单组）、`00y_target_sweep.py`（多组 + 覆盖诊断）。
+
+**硬纪律两条**（本项目都踩过）：
+1. **`Sim(3)` 只用 src 的 ≥2 台相机估计，绝不碰 target**。单台 src 会退化
+   （无基线 → 尺度不可观测、旋转只剩朝向），实测 gt 分支塌到 8.92 dB。
+   代码里 `if len(src_paths) < 2: raise SystemExit`。
+2. **target 图不能来自高斯缓存**，否则高斯已含该视角信息 = 泄漏。
+   target 路径单独给（`--tar-images`），代码里 `if _s & _t: raise SystemExit`。
+
+**实测（佳佳抱枕，82 帧，2 图 src = 首尾两张）**：
+
+先体检 src 是否真的可观测（`00x_cam_geometry.py`）：基线 2.19 = 相机半径的 **140%**、
+方位角差 39.5°、俯仰差 82.4°、共线度 0.000 → **不退化**，`Sim(3)` 可解。
+
+| target 组 | 帧号 | 覆盖率 | PSNR 全图 | PSNR 覆盖区 | SSIM |
+|---|---|---|---|---|---|
+| 紧邻 src0 | 1,2 | 100% | **17.38** | 17.38 | 0.393 |
+| 紧邻 src81 | 79,80 | 95.0% | 16.12 | 16.40 | 0.339 |
+| 中段 | 10,30 | 64.1% | 12.52 | 15.35 | 0.276 |
+| 大角度 | 21,42 | 63.3% | **11.07** | 14.22 | 0.269 |
+| 大角度 2 | 41,61 | 75.9% | 11.93 | 14.94 | 0.302 |
+
+**必须先看覆盖率，再看 PSNR**。2 视角重建出的高斯只覆盖两锥相交处，大角度新视角
+大片空白；空白区的 PSNR 就是「黑图 vs 真值」，会把均值拖到 11 dB，与几何准不准无关。
+`00y` 把 `coverage = mean(alpha > 0.5)` 与「只在被覆盖像素上算的 PSNR」分开报。
+
+**归因已经查到底（`00z_oracle_align.py`，oracle 上界搜索）**：
+在 src-only `Sim(3)` 结果上左乘世界系刚体修正 `C`，对 `C` 做粗→细随机搜索（600 次，5 档），
+最大化 target PSNR —— 这正好覆盖 `Sim(3)` 的平移/旋转误差。结果：
+
+```
+正式口径 (C=I)     11.07 dB
+oracle 上界        11.26 dB     差 +0.19 dB   → 对齐已到底
+最优修正量          旋转 3.58° / 平移 3.6% 半径
+```
+
+`+0.19 dB` 说明**对齐/位姿不是瓶颈**，`src-only Sim(3)` 已接近该数据下的最优。
+
+**瓶颈是覆盖 + 前馈几何外推**。同批 target 用 4 图 src 对照（`far` 组 21,42）：
+
+| src | 覆盖率 | PSNR 全图 | PSNR 覆盖区 |
+|---|---|---|---|
+| 2 图 | 63.3% | 11.07 | **14.22** |
+| 4 图 | **94.0%** | 13.33 | 13.80 |
+
+覆盖率 `+30.7 pt`（63→94），PSNR 只 `+2.26 dB`，且**覆盖区内反而略降**（14.22→13.80）。
+即：覆盖不足解释了约 2.3 dB，**剩下的瓶颈是前馈几何在大角度新视角上的精度**，
+不是视角数量。多喂图能补覆盖，补不了精度。
+
+⚠️ **口径边界（对外必须说清）**：`StructSplat` 前馈**只预测输入视角的相机**，不预测未见视角。
+所以 target 相机只能来自 `transforms.json`（GT），再用 src-only `Sim(3)` 搬进模型系。
+→ 这不是「纯 pose-free 新视角」，而是「**模型几何 + GT target 相机**」，
+衡量的是**重建几何精度**，不是位姿估计能力。位姿估计能力由 `infer.py` 的自洽
+PSNR（输入视角重渲，2 图 22.46 dB）体现。两者不可混谈。
+
+**去畸变在 target 侧几乎无影响**（11.07 vs 关掉 11.06），但会略微压低 src 自洽
+（21.64 vs 关掉 23.64）——`cv2.undistort` 的重采样本身有损。几何结论不受影响，
+但它解释了「为什么关掉畸变自洽分数更高」这个反直觉现象，别误判成「畸变处理是错的」。
 
 
 ---
@@ -302,6 +456,33 @@ bash structsplat/02_run_inference.sh \
 
 # 4. 显存探测（先定 max-images 再跑全量）
 python structsplat/00e_probe_vram.py --images <目录> --frames 4,8,16,24,32
+
+# 5. 官方口径：2 图重建 → held-out target（§4.7）
+#    5a 先 dump 前馈缓存（--max-images 2 = 官方设计输入）
+python structsplat/infer.py --images "<包>/image" --out "$RESULTS_DIR/hand01_src21" \
+  --config "$STRUCTSPLAT_REPO/config/dl3dv.yaml" --render-size 512 --max-images 2 \
+  --dump-forward "$RESULTS_DIR/_cache/hand01_src21.pt"
+
+#    5b 相机几何体检（确认 src 基线可观测，否则 Sim(3) 退化）
+python structsplat/00x_cam_geometry.py --transforms "<包>/transforms.json"
+
+#    5c target 评测（--tar-images 必须与 src 不重叠，代码里会拦）
+python structsplat/00w_target_eval.py \
+  --cache "$RESULTS_DIR/_cache/hand01_src21.pt" \
+  --transforms "<包>/transforms.json" \
+  --tar-images "<包>/image/5093313540985078.heic,<包>/image/5093317807498922.heic"
+
+#    5d 覆盖诊断（全图 PSNR vs 覆盖区 PSNR，务必分开看）
+python structsplat/00y_target_sweep.py \
+  --cache "$RESULTS_DIR/_cache/hand01_src21.pt" \
+  --transforms "<包>/transforms.json" --images "<包>/image" \
+  --groups "adj:1,2" "mid:10,30" "far:21,42"
+
+#    5e oracle 上界（判定低分是不是对齐误差；差 <0.8dB 即对齐已到底）
+python structsplat/00z_oracle_align.py \
+  --cache "$RESULTS_DIR/_cache/hand01_src21.pt" \
+  --transforms "<包>/transforms.json" --images "<包>/image" \
+  --tar-idx 21,42 --iters 600
 ```
 
 产物（`$RESULTS_DIR/<name>/`）：`renders/`、`depths/`、`compare.png`、
