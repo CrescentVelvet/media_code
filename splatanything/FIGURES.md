@@ -9,6 +9,14 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## F3 网络侧审计页（2026-11-19，晚）
+
+PPT 第 12 页 `12.slide`。素材（`D:\ppt\_src\20261119-SA脸部局部优化\assets\`）：
+- `f3_teacher_err.png` / `f3_fused_err.png`（视角 020 误差热力，±20mm 满幅，person mask 内）
+- `f3_layers.png`（视角 020 脸 ROI 高斯点按偏差着色）· `f3_layers_t34.png`（target 034，备用）
+数据源 `pose_rosemary/rosemary33v/face_opt/depth_audit/`（20_f3_depth_audit.py，
+渲染相机=S@pkg c2w；GT=EXR depth.V 1024²→756²）。读数见 EXPERIMENTS.md 2026-11-19 F3 条。
+
 ## 盲测页：真实静态人物段（jiajia_hold）（2026-11-19，晚）
 
 - **PPT 已扩为 11 页**：`slides/11.slide`（盲测）+ assets（blind_t017/blind_t018 ROI 对照）。
