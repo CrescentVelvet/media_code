@@ -4,6 +4,14 @@
 
 ## da3_human / splatanything 专属（只在该项目跑推理/训练时适用）
 
+- **2026-11-19 F0/F2 执行结论 + human_fbx_gt 相机 bug（重大）**：①target 退化由**中心位移**
+  驱动（rb_mean 回 P0 水平）；②F2（rosemary_face_v3 静态+GT 相机）P3 source +0.81dB、target 脸
+  LPIPS −1.6~−2.3% 仍不过门 → **微动/动态是 target 失败主要混杂**（对比 jiajia 动态 +1~4% 恶化）；
+  ③FLAME 共享表面审计三门全未过（G1 8.78px / G2 18.6mm 顺序错 / G3 IoU 0.30）→ 停住不绑高斯。
+  ④**human_fbx_gt 生成器相机外参 bug**：`flash_human/01_render_gt.py` 把 Blender→OpenCV 转换
+  左乘/右乘写反，正确 R'=C·R·C（C=diag(1,−1,−1)）、t 不变、det=+1；影响**全部 fbx_gt 包**，
+  修正后自洽 PSNR 19.33→22.99、跨视角选中 0→15458 → **历史 fbx_gt 实验结论须重核**。
+  下一步 F1（保守自由度对照）前置已具备（rosemary 静态包）。
 - **2026-11-19 P0～P3二次复审覆盖下条因果推断**：已看3 source/2 target全部对照，P2已
   碎裂，P3 source侧脸也斑驳；+1dB不能称“中心几何最大瓶颈”。P3 target LPIPS恶化4.04%/
   2.75%；PLY审计20.78%点碰5%位移上限，透明度变化大。原正则用模型坐标平方、选点非真实

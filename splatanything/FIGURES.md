@@ -9,6 +9,18 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## F0/F2 补充页：约束审计 + 相机 bug 排雷 + FLAME 审计（2026-11-19，晚）
+
+- **PPT 已扩为 9 页**：`D:/ppt/20261119-SA脸部局部优化.pptx`，源工程新增
+  `slides/07.slide`（F0 约束审计）/ `08.slide`（human_fbx_gt 相机 bug 排雷）/
+  `09.slide`（F2 静态包对照 + FLAME 审计未过）+ 5 张 assets。
+- 数据源：[EXPERIMENTS.md](EXPERIMENTS.md) 2026-11-19「F0 约束审计 + F2 静态包对照」节
+  （audit/audit_metrics.json、flame_fit.json、rosemary 对照表）。
+- **口径提醒**：FLAME 三门（G1 8.78px / G2 18.6mm 且鼻深顺序错 / G3 IoU 0.30）**全未过**，
+  按主计划停在审计处、不把错误模板绑高斯；rosemary 仅 −1.6~−2.3% 未过 5% 推进门。
+- 新脚本（入库）：`16_face_constraint_audit.py`（F0 主脚本）、`17_fbxgt_to_scene.py`
+  （fbx_gt 包→场景+相机修正）、`18_flame_fit.py`（FLAME 三视角拟合+审计门）。
+
 ## P0~P3 图文 PPT 与 target 验收页（2026-11-19，晚）
 
 > **复审标记（本轮未重制PPT/PNG）**：旧source页若写“中心几何最大瓶颈”“外观不是瓶颈”
