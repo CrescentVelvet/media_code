@@ -471,6 +471,11 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 先把用户给的路径绝对化，再 chdir（否则 chdir 后相对路径全废）
+    args.out = os.path.abspath(args.out)
+    if args.transforms:
+        args.transforms = os.path.abspath(args.transforms)
     os.makedirs(args.out, exist_ok=True)
 
     new_h, new_w = args.resize
@@ -501,11 +506,25 @@ def main():
     print(f"   resize → ({new_h}, {new_w})  耗时 {time.time()-t0:.1f}s")
 
     # ---------- 2. 建模型 ----------
+    # ⚠️ 建模型前必须切到仓根（2026-11-19 实测）：config 里 geo_encoder.path /
+    #    sem_encoder.path / ckpt 都是**相对仓根**的字面量，但下游是
+    #    AutoBackbone.from_pretrained / VGGT.from_pretrained / os.path.exists
+    #    按 **cwd** 解析的。在 structsplat/ 下直接跑 infer.py 会分别报
+    #    「is not a local folder and is not a valid model identifier」和
+    #    「ckpt 不存在」，看着像权重坏了，其实只是 cwd 不对。
+    #    02_run_inference.sh 里有 cd，直接调用本脚本时没有 → 这里兜住。
+    #    用户路径（--out/--images/--transforms）在上面已经绝对化，chdir 安全。
+    os.chdir(REPO)
+
     from src.config import load_configs
     from src.model.gaussian_wrapper import build_gaussian_wrapper
 
     cfg = load_configs(args.config, [])
+    # config 里 ckpt 是**相对仓根**的 "ckpts/structsplat/pytorch_model.bin"，
+    # 不是相对 cwd（2026-11-19 实测：在 structsplat/ 下跑会误报 ckpt 不存在）。
     ckpt_path = args.ckpt or cfg.gaussian_evaluation_stage.ckpt
+    if not os.path.isabs(ckpt_path):
+        ckpt_path = os.path.join(REPO, ckpt_path)
     if not os.path.exists(ckpt_path):
         raise SystemExit(f"❌ ckpt 不存在: {ckpt_path}\n"
                          f"   先跑 bash structsplat/01_download_models.sh ss")

@@ -47,6 +47,14 @@ def main():
     ap.add_argument("--config", default=os.path.join(REPO, "config", "dl3dv.yaml"))
     args = ap.parse_args()
 
+    # ⚠️ 必须切到仓根（2026-11-19 实测）：config 里 sem_encoder.path =
+    #    "ckpts/dinov3_convnext_large" 会被 AutoBackbone.from_pretrained 按
+    #    **cwd** 解析（不是相对仓根），在 structsplat/ 下跑就变成
+    #    "ckpts/dinov3_convnext_large is not a local folder and is not a valid
+    #    model identifier" —— 报错看着像权重坏了，其实只是 cwd 不对。
+    #    VGGT 的 from_pretrained 同样按 cwd 走，所以两条都要靠 chdir 兜。
+    os.chdir(REPO)
+
     inf = load_mod("inf_probe", os.path.join(HERE, "infer.py"))
     new_h, new_w = args.resize
     frames_list = [int(x) for x in args.frames.split(",") if x.strip()]
@@ -66,9 +74,15 @@ def main():
     from src.model.gaussian_wrapper import build_gaussian_wrapper
 
     cfg = load_configs(args.config, [])
+    # config 里 ckpt 是**相对仓根**的 "ckpts/structsplat/pytorch_model.bin"，
+    # 不是相对 cwd。直接 os.path.exists 会因 cwd 不同而误报「不存在」
+    # （2026-11-19 实测：在 structsplat/ 下跑就报 ckpt 不存在，其实文件在）。
     ckpt_path = cfg.gaussian_evaluation_stage.ckpt
+    if not os.path.isabs(ckpt_path):
+        ckpt_path = os.path.join(REPO, ckpt_path)
     if not os.path.exists(ckpt_path):
         print(f"❌ ckpt 不存在: {ckpt_path}")
+        print("   先跑 bash structsplat/01_download_models.sh ss")
         return 2
 
     # VGGT 必须给 model.safetensors（不是 model.pt）：huggingface_hub 的本地目录
