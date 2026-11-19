@@ -164,6 +164,14 @@ conda-forge 的 `gcc_linux-64 12.4.0` 存在，但可执行文件叫 `x86_64-con
 
 修完：`gsplat: CUDA extension has been set up successfully in 197.56 seconds`。
 
+**验证扩展真的加载了**（别查 `gsplat.cuda._C`，那个属性不存在，会误判成走了 Python 回退）：
+```python
+from gsplat.cuda._backend import _C
+# → <module 'gsplat_cuda' from '~/.cache/torch_extensions/py311_cu128/gsplat_cuda/gsplat_cuda.so'>
+```
+`.so` 落在 torch 的 JIT 缓存里（`py311_cu128`），**不在 site-packages**。
+所以别用 `glob site-packages/**/*gsplat*.so` 找，找不到很正常。
+
 ### 5.2 vggt 要 pip install
 `third_party/vggt` 只是源码子模块，不装则 `VGGT.from_pretrained` 报
 `ModuleNotFoundError: No module named 'vggt'`。必须：
