@@ -421,20 +421,43 @@ def main():
     # config 里 geo_encoder.path / sem_encoder.path 都是**相对仓根**的 ckpts/xxx。
     # build_gaussian_wrapper 内部会 VGGT.from_pretrained(那个路径)，缺了会抛
     # 一堆 huggingface 的 FileNotFoundError，看不出真正原因，所以先自查。
+    #
+    # ⚠️ 光查目录存在还不够（2026-11-19 实测踩坑）：huggingface_hub 的
+    #    PyTorchModelHubMixin._from_pretrained 在 model_id 是**本地目录**时硬编码
+    #    只读 model.safetensors：
+    #        if os.path.isdir(model_id):
+    #            model_file = os.path.join(model_id, constants.SAFETENSORS_SINGLE_FILE)
+    #    只有从 hub 下载才 fallback 到 pytorch_model.bin。而 HF 上 facebook/VGGT-1B
+    #    只提供 model.pt，于是目录存在也照样报：
+    #        FileNotFoundError: ... ckpts/vggt/model.safetensors
+    #    这个报错看起来像「路径写错了」，实际是格式不匹配，极易误判。
     _missing = []
-    for _key, _p in (("geo_encoder.path", cfg.module.geo_encoder.path),
-                     ("sem_encoder.path", getattr(cfg.module.sem_encoder, "path", None))):
+    _enc = (("geo_encoder.path", cfg.module.geo_encoder.path, "model.safetensors"),
+            ("sem_encoder.path", getattr(cfg.module.sem_encoder, "path", None),
+             "model.safetensors"))
+    for _key, _p, _need in _enc:
         if not _p:
             continue
         _abs = _p if os.path.isabs(_p) else os.path.join(REPO, _p)
-        if not os.path.exists(_abs):
-            _missing.append(f"{_key} = {_p}  (→ {_abs})")
+        if not os.path.isdir(_abs):
+            _missing.append(f"{_key} = {_p}  (→ {_abs})  目录不存在")
+        elif not os.path.exists(os.path.join(_abs, _need)):
+            _has_pt = os.path.exists(os.path.join(_abs, "model.pt"))
+            _hint = ("  目录里只有 model.pt → 需要转成 safetensors" if _has_pt
+                     else "")
+            _missing.append(f"{_key} = {_p}  (→ {_abs})  缺 {_need}{_hint}")
     if _missing:
         raise SystemExit(
-            "❌ 编码器权重目录缺失（config 里是相对仓根的路径）：\n  "
+            "❌ 编码器权重缺失（config 里是相对仓根的路径）：\n  "
             + "\n  ".join(_missing)
-            + "\n   先跑 bash structsplat/01_download_models.sh all，"
-              "或手动建软链：\n"
+            + "\n\n   VGGT 必须提供 model.safetensors（不是 model.pt），原因是\n"
+              "   huggingface_hub 对本地目录分支硬编码只认 safetensors。\n"
+              "   两个修法任选其一：\n"
+              "     1) bash structsplat/01_download_models.sh vggt   ← 已内置自动转换\n"
+              "     2) 手动转：python -c \"import torch;from safetensors.torch import save_file;"
+              "save_file(torch.load('<dir>/model.pt',map_location='cpu',weights_only=True),"
+              "'<dir>/model.safetensors')\"\n"
+              "   或建软链（若权重池已备好）：\n"
               "     ln -sfn /mnt/d/wheel/structsplat_ms/VGGT-1B "
               f"{REPO}/ckpts/vggt"
         )

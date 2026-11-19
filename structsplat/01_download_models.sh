@@ -92,6 +92,38 @@ link_to() {
 # ============================================================
 # 1. VGGT-1B —— geo_encoder
 # ============================================================
+# model.pt → model.safetensors（幂等：已存在就跳过）
+# 见调用处的长注释，这是 VGGT.from_pretrained 在本地目录下能跑通的必要条件。
+he_vggt_safetensors() {
+    local src="$WHEEL_VGGT1B_DIR/model.pt"
+    local dst="$WHEEL_VGGT1B_DIR/model.safetensors"
+    if [ ! -f "$src" ]; then
+        echo "   ⚠️  跳过转换：$src 不存在"
+        return 0
+    fi
+    if [ -f "$dst" ]; then
+        local ds; ds=$(stat -c%s "$dst")
+        if [ "$ds" -gt 1000000000 ]; then
+            echo "   ⏭️  model.safetensors 已存在 ($(numfmt --to=iec "$ds"))"
+            return 0
+        fi
+    fi
+    echo "   🔄 model.pt → model.safetensors（huggingface_hub 本地分支只认 safetensors）"
+    python - "$src" "$dst" <<'PY'
+import sys, os, torch
+from safetensors.torch import save_file
+src, dst = sys.argv[1], sys.argv[2]
+sd = torch.load(src, map_location="cpu", weights_only=True)
+if not isinstance(sd, dict):
+    raise SystemExit(f"❌ {type(sd).__name__} 不是 state_dict，无法直接转 safetensors")
+# safetensors 要求连续内存且不共享存储
+sd = {k: (v.contiguous().clone() if isinstance(v, torch.Tensor) else v)
+      for k, v in sd.items()}
+save_file(sd, dst)
+print(f"   ✅ {os.path.getsize(dst):,} B  ({len(sd)} tensors)")
+PY
+}
+
 if has vggt; then
     echo ""
     echo "📦 [1/3] VGGT-1B (geo_encoder) → $WHEEL_VGGT1B_DIR"
@@ -101,6 +133,16 @@ if has vggt; then
               "$WHEEL_VGGT1B_DIR/config.json" 20
     dl_weight "facebook/VGGT-1B" "facebook/VGGT-1B" "model.pt" \
               "$WHEEL_VGGT1B_DIR/model.pt" 4900000000
+    # ⚠️ 必须转成 model.safetensors（2026-11-19 实测踩坑）：
+    #    VGGT 继承 huggingface_hub.PyTorchModelHubMixin，而本机 huggingface_hub 的
+    #    _from_pretrained 在 model_id 是**本地目录**时硬编码只读 model.safetensors：
+    #        if os.path.isdir(model_id):
+    #            model_file = os.path.join(model_id, constants.SAFETENSORS_SINGLE_FILE)
+    #    只有从 hub 下载才 fallback 到 pytorch_model.bin。HF 上 VGGT-1B 只给 model.pt，
+    #    于是 VGGT.from_pretrained("ckpts/vggt") 直接：
+    #        FileNotFoundError: No such file or directory: ckpts/vggt/model.safetensors
+    #    报错里看不出真因（像是路径写错，其实是格式不匹配），故在下载侧就地转掉。
+    he_vggt_safetensors
     link_to "$SS_CKPT_DIR/vggt" "$WHEEL_VGGT1B_DIR"
 fi
 

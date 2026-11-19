@@ -89,6 +89,47 @@ GT 重投影均为 **0.000 px**。
 判据：`_tmp_view/transpose_bug.sh` 里两条断言——图像与官方等价实现逐像素相同、
 GT 相机重投影误差为 0。**动 `load_image_tensor` 或 `load_gt_cameras` 后必须重跑。**
 
+### 4.1c VGGT 权重格式的坑（model.pt ≠ model.safetensors）
+
+现场报错长这样，看着像路径写错，其实**路径没错**：
+
+```
+FileNotFoundError: No such file or directory: ckpts/vggt/model.safetensors
+```
+
+真因在 `huggingface_hub`：`VGGT(nn.Module, PyTorchModelHubMixin)` 的
+`_from_pretrained` 有两条分支，**本地目录分支硬编码只读 safetensors**，没有 `.pt` 兜底：
+
+```python
+if os.path.isdir(model_id):                                    # 本地目录
+    model_file = os.path.join(model_id, "model.safetensors")   # ← 写死，无 fallback
+    return cls._load_as_safetensor(...)
+else:                                                          # hub 下载
+    try:    hf_hub_download(..., "model.safetensors")
+    except EntryNotFoundError:
+            hf_hub_download(..., "pytorch_model.bin")          # 只有这里才 fallback
+```
+
+而 HF 上 `facebook/VGGT-1B` **只发布 `model.pt`**（pickle），没有 safetensors。
+所以「下载对了、软链也对了、`ls` 也能看到 `model.pt`」，`VGGT.from_pretrained("ckpts/vggt")`
+依然报文件不存在。
+
+修法：把 `model.pt` 就地转成 `model.safetensors`（`01_download_models.sh` 已内置
+`he_vggt_safetensors`，幂等自动转）。实测 5,026,874,952 B → 5,026,367,224 B，
+load 13.5s + save 34.8s。
+
+转换后验证（`chk_vggt_load.sh`）：
+
+| 项 | 结果 |
+|---|---|
+| `VGGT.from_pretrained` | ✅ 12.6s |
+| aggregator 参数 | 909,112,320（std 0.27093，非随机） |
+| camera_head 参数 | 216,174,610（std 0.02229，含 `pose_branch` → 9 维） |
+| wrapper 总参数 | 1,535,006,438 |
+
+判据：`00h_test_vggt_weight_format.py`（纯静态 + 极小模型行为验证，不需 GPU/大权重）。
+**动 VGGT 加载或 01 脚本后必须重跑。**
+
 ### 4.2 竖图转置对 GT 相机的影响（踩过坑，已修）
 转置 `t[c,i,j] = img[c,j,i]` 意味着 `u' = v, v' = u`。要在转置后的坐标系里正确投影：
 
