@@ -30,6 +30,9 @@ infinisplat_v2/_check/
 *.jpg
 *.mp4
 
+# 一次性探针/诊断脚本（约定不入库，结论一律回填 README_wsl.md / EXPERIMENTS.md）
+_tmp_view/
+
 renderbus_project-master
 renderbus-project-anomaly-detection
 renderbus-project-refactor-v2-data-plane
