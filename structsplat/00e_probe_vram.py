@@ -71,6 +71,19 @@ def main():
         print(f"❌ ckpt 不存在: {ckpt_path}")
         return 2
 
+    # VGGT 必须给 model.safetensors（不是 model.pt）：huggingface_hub 的本地目录
+    # 分支硬编码只读 safetensors，HF 上 VGGT-1B 却只发 model.pt → 目录存在也报
+    # FileNotFoundError: ckpts/vggt/model.safetensors（详见 README §4.1c）
+    for _key, _p in (("geo_encoder", cfg.module.geo_encoder.path),
+                     ("sem_encoder", getattr(cfg.module.sem_encoder, "path", None))):
+        if not _p:
+            continue
+        _abs = _p if os.path.isabs(_p) else os.path.join(inf.REPO, _p)
+        if not os.path.exists(os.path.join(_abs, "model.safetensors")):
+            print(f"❌ {_key} 缺 model.safetensors: {_abs}")
+            print("   先跑 bash structsplat/01_download_models.sh all")
+            return 2
+
     print(f"\n{'frames':>7} {'峰值显存':>10} {'剩余':>8} {'前向':>8}  状态")
     print("-" * 62)
 
