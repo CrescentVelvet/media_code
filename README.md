@@ -16,6 +16,7 @@ Code used for work in the blue zone.
 - [`canada_h100/`](canada_h100/) — **H100 集群（ca-uae 迪拜，`ssh h100`）专用脚本**：建个人 conda 环境、环境体检、8 卡保活占卡 + 链式续期、显卡实时监控、存储三层策略。只放「这台机器本身」的知识（分区/隐藏队列/登录节点无 GPU），**具体算法复现脚本放各自算法目录**。See its [README](canada_h100/README.md).
 
 ## Algorithms
+- [`zipsplat/`](zipsplat/) — ZipSplat 无位姿多图前馈 3DGS + TokenBA：504px 真实图像权重、PLY/预测相机导出、佳佳抱枕输入与独立留出评测。⚠️ 权重 CC BY-NC 4.0 非商用。See its [README](zipsplat/README.md).
 - [`triposplat/`](triposplat/) — one-click TripoSplat image→3D-Gaussian inference. See its [README](triposplat/README.md).
 - [`trellis-2/`](trellis-2/) — one-click TRELLIS.2 image→3D (4B) inference: GLB + PBR turntable video. See its [README](trellis-2/README.md).
 - [`hunyuan3d_2_1/`](hunyuan3d_2_1/) — one-click Hunyuan3D-2.1 图生 3D：单图（shape-v2-1 3.3B）或**多视图**（2mv，front/back/left/right 任意子集）→ PBR 纹理 GLB。shape/paint 两段顺序加载，峰值 ~21 GB，单卡 24 GB 可跑。⚠️ 腾讯混元**非商用**协议。See its [README](hunyuan3d_2_1/README.md).
