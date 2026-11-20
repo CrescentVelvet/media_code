@@ -58,7 +58,7 @@ def _qmul(a, b):
                         aw * bz + ax * by - ay * bx + az * bw], dim=1)
 
 
-def refine_sim3(g, w2c_in, K, refs_rgb, init, res=512, iters=200, log=print):
+def refine_sim3(g, w2c_in, K, refs_rgb, init, res=512, iters=200, log=print, bg_value=1.0):
     """在输入视角上光度精化 Sim(3)。
 
     参数
@@ -71,6 +71,8 @@ def refine_sim3(g, w2c_in, K, refs_rgb, init, res=512, iters=200, log=print):
     init        : (s, R, t) Umeyama 粗解
     res         : 优化分辨率（渲染低分辨率能显著提速，且对齐量级远大于像素级差别）
     iters       : Adam 步数（实测 200 足够，通常 ~75 步就停住）
+    bg_value    : 光度精化的合成底色，须与最终评分一致；默认 1.0 兼容旧调用，
+                  黑底评分应显式传 0.0，避免白底优化/黑底评测的口径错配
 
     返回 dict(s, R, t, delta_w_deg, delta_tau, delta_s, psnr_pre, psnr_post, iters)
     """
@@ -81,7 +83,8 @@ def refine_sim3(g, w2c_in, K, refs_rgb, init, res=512, iters=200, log=print):
     Kt = torch.tensor([[[K[0, 0] * sc, 0.0, K[0, 2] * sc],
                         [0.0, K[1, 1] * sc, K[1, 2] * sc],
                         [0.0, 0.0, 1.0]]], dtype=torch.float32, device=dev)
-    bg = torch.ones(3, device=dev)
+    # 与最终评分合成底色一致；历史默认白底仍由默认值保留。
+    bg = torch.full((3,), float(bg_value), device=dev)
 
     # 先把高斯搬到 GT 系（numpy，一次），精化只学小修正
     from audit_24_five_way_video import warp

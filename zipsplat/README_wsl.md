@@ -47,7 +47,38 @@ RESULT=~/output/zipsplat_results/jiajia_16v \
   SOURCE_CAMERAS=~/output/zipsplat_results/_captures/jiajia_baozhen/cameras.npz \
   TARGET_CAMERAS=~/output/zipsplat_results/_captures/jiajia_holdout/cameras.npz \
   bash zipsplat/03_evaluate_jiajia.sh
-# ── 7) 归档到 D 盘（逐文件长度校验）──
+# 输出：~/output/zipsplat_results/<dir>/
+#   file_a      # 说明
+
+# ── 7) 可选：与 DA3-GS / SplatAnything 的同三输入对照 ──
+# 从原始包显式选 0/40/81；准备脚本会校验它与历史三输入逐字节一致。
+FRAMES=0,40,81 CAP_DIR=~/output/zipsplat_results/_captures/jiajia_3v_compare \
+  bash zipsplat/01b_prepare_jiajia.sh \
+  /mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕
+IMAGES_DIR=~/output/zipsplat_results/_captures/jiajia_3v_compare/images \
+  WEIGHT_PATH=~/model/zipsplat/zipsplat-da3g-504.tar \
+  ZIPSPLAT_RESULTS_DIR=~/output/zipsplat_results \
+  SCENE_NAME=jiajia_3v_compare MAX_VIEWS=3 BA=1 RENDER_VIDEO=1 \
+  bash zipsplat/02_run_inference.sh
+IMAGES_DIR=~/output/zipsplat_results/_captures/jiajia_3v_compare/images \
+  WEIGHT_PATH=~/model/zipsplat/zipsplat-da3g-504.tar \
+  ZIPSPLAT_RESULTS_DIR=~/output/zipsplat_results \
+  SCENE_NAME=jiajia_3v_compare_feedforward MAX_VIEWS=3 BA=0 RENDER_VIDEO=0 \
+  bash zipsplat/02_run_inference.sh
+# 三输入共同画布 512²、29 留出；分别指定 CASE_FILTER 运行，结果分开保存。
+OUT_DIR=/home/velvet/output/zipsplat_results \
+  CASE_FILTER=ZipSplat RESULT_NAME=ZipSplat_metrics.json \
+  bash zipsplat/03b_eval_3view_compare.sh
+OUT_DIR=/home/velvet/output/zipsplat_results \
+  CASE_FILTER=DA3-GS RESULT_NAME=DA3-GS_metrics.json \
+  bash zipsplat/03b_eval_3view_compare.sh
+OUT_DIR=/home/velvet/output/zipsplat_results \
+  CASE_FILTER=SplatAnything RESULT_NAME=SplatAnything_metrics.json \
+  bash zipsplat/03b_eval_3view_compare.sh
+# 注意：SA 为 pose 模式，ZipSplat / DA3-GS 无位姿；这不是完全等条件竞赛。
+# 光度精化与最终评分均为黑底；不与旧 E13/E14 混报。
+
+# ── 8) 归档到 D 盘（逐文件长度校验）──
 RESULTS_DIR=~/output/zipsplat_results bash zipsplat/08_move_output.sh
 ```
 

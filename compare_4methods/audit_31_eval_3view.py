@@ -62,6 +62,7 @@ GT_IMAGES = os.environ.get("GT_IMAGES") or O + "/da3_results/_captures/佳佳抱
 BASE3 = os.environ.get("BASE3") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/cameras.npz"
 INPUT_IMAGES = os.environ.get("INPUT_IMAGES") or O + "/infinisplat_v2_results/_captures/佳佳抱枕_3v/images"
 OUT = os.environ.get("OUT") or O + "/batch_4methods/eval_3view_jiajia.json"
+EXTRA_JSON = os.environ.get("EXTRA_JSON", "").strip()
 ONLY = os.environ.get("ONLY", "").strip()
 
 # REFINE=1：Umeyama 之后再用「3 个输入视角的光度误差」精化 Sim(3)（默认关，不影响历史结果）。
@@ -188,6 +189,12 @@ else:
     CASES = CASES_2K if V2K else (CASES_32V if V32 else CASES_3V)
 if ONLY:
     CASES = [c for c in CASES if ONLY.lower() in c["name"].lower()]
+if EXTRA_JSON:
+    # 外接方法保持本脚本 GT 裁切、29 留出、对齐、渲染与指标完全同源。
+    # 每项 {name, ply, cams:[kind,path], optional_bg}；无输入位姿的 ZipSplat 只给预测 c2w。
+    extra = json.load(open(EXTRA_JSON, encoding="utf-8"))
+    assert isinstance(extra, list) and all({"name", "ply", "cams"} <= set(c) for c in extra)
+    CASES.extend(extra)
 
 
 def log(*a):
@@ -257,6 +264,12 @@ def resolve_bg(ply_path):
         return 1.0, "white(强制)"
     if BG in ("black", "b", "0"):
         return 0.0, "black(强制)"
+    if BG not in ("", "auto"):
+        raise SystemExit("未知 BG=" + BG)
+    if isinstance(ply_path, dict) and "optional_bg" in ply_path:
+        v = float(ply_path["optional_bg"])
+        assert v in (0.0, 1.0)
+        return v, f"extra({v:.0f})"
     p = Path(ply_path).resolve()
     for up in list(p.parents)[:6]:
         cfg = up / "cfg_args"
@@ -502,7 +515,7 @@ def main():
         if REFINE and not V32:
             from sim3_refine import refine_sim3
             rinfo = refine_sim3(g, w2c_in, K, in_rgb, (s, R, t),
-                                res=REFINE_RES, iters=REFINE_ITERS, log=log)
+                                res=REFINE_RES, iters=REFINE_ITERS, log=log, bg_value=bgv)
             s, R, t = rinfo["s"], rinfo["R"], rinfo["t"]
             # 精化后重算同一套残差，证明它真的对齐了（而不是把误差藏进变换里）
             C2 = (s * (R @ Cx.T)).T + t
