@@ -30,7 +30,7 @@ RESULTS = os.environ.get("RESULTS_DIR", os.path.expanduser("~/output/pi3x_result
 CONF = float(os.environ.get("CONF", "0.5"))
 ORBIT_N = int(os.environ.get("ORBIT_N", "180"))
 OW, OH = int(os.environ.get("ORBIT_W", "768")), int(os.environ.get("ORBIT_H", "1024"))
-ELEV = float(os.environ.get("ELEV", "12"))
+ELEV = float(os.environ.get("ELEV", "5"))
 MAXPTS = int(os.environ.get("MAXPTS", "4000000"))
 FFMPEG = os.environ.get("FFMPEG", os.path.expanduser("~/miniconda3/envs/colmap/bin/ffmpeg"))
 
@@ -57,21 +57,39 @@ def umeyama(src, dst):
     return s, R, mu_d - s * R @ mu_s
 
 
-# Sim(3) 对齐 pred→GT（用相机中心，与 eval_gt.py 同口径）
+# Sim(3) 对齐 pred→GT：旋转必须用 Wahba（直接对齐相机旋转矩阵），尺度取
+# 中心 Umeyama 的 s，平移在固定 R/s 后由相机中心均值求出。
+# 不可直接用中心 Umeyama 的 R/t：本包轨迹近平面，中心拟合把 27.81° 的
+# 面外旋转残差塞进 R，旧版因此把人物投到左下、帧0相机中心偏 0.372m。
+# 2026-11-20 实测：Wahba 口径 ATE 0.379m → 0.0107m。
+def wahba(Rp, Rg):
+    M = np.einsum("nij,nkj->ik", Rp, Rg)  # sum_i Rp_i @ Rg_i^T
+    U, _, Vt = np.linalg.svd(M)
+    corr = np.diag([1.0, 1.0, np.sign(np.linalg.det(Vt.T @ U.T))])
+    return Vt.T @ corr @ U.T
+
+
 P = pred["camera_poses"][:, :3, 3].astype(np.float64)
 G = gt["poses"][:, :3, 3].astype(np.float64)
-s, R, t = umeyama(P, G)
+Rp = pred["camera_poses"][:, :3, :3].astype(np.float64)
+Rg = gt["poses"][:, :3, :3].astype(np.float64)
+s, _, _ = umeyama(P, G)
+R = wahba(Rp, Rg)
+t = (G - s * (P @ R.T)).mean(0)
 pts_m = (s * (pts.astype(np.float64) @ R.T) + t).astype(np.float32)
+ate = np.linalg.norm(s * (P @ R.T) + t - G, axis=1)
 del pts, P
-print(f"📐 Sim(3) scale={s:.4f}")
+print(f"📐 Sim(3) scale={s:.4f}; Wahba+meanT ATE RMSE={np.sqrt(np.mean(ate**2)):.4f} m")
 
+# 注视点：主体附近点云的稳健质心。不要直接用轨道弧心（主体可能偏出画面），
+# 也不要让轨道半径决定取景距离（本包 median radius=1.13m，会把首帧头部裁掉）。
+# 轨道仍绕主体旋转；取景距离独立设置（本包 median radius=1.13m，会裁首帧头部），
 center = G.mean(0)
 radius = float(np.median(np.linalg.norm(G - center, axis=1)))
-# 注视点修正：相机弧中心 ≠ 主体（实测主体偏出画面左缘）。用弧心附近的点云
-# 稳健质心当注视点（地板/墙是远端，主体密集簇在近侧，中位数抗噪）。
 _near = np.linalg.norm(pts_m - center, axis=1) < 1.2 * radius
 if _near.sum() > 10000:
     center = np.median(pts_m[_near], axis=0)
+orbit_dist = float(os.environ.get("ORBIT_DIST", "2.2"))  # m；GT0 距主体 1.61m 会裁头，2.2m 留全身余量
 # 世界朝向不假设 Y-up：从 GT 相机取「图像向下」轴的均值当世界重力方向
 # （c2w 第 2 列 = 相机 +y 在世界系的指向，正常拍摄 ≈ 世界 down）。
 # 2026-11-20 教训：先按 ARKit Y-up 假设（up=(0,1,0)）环绕画面侧翻 90°。
@@ -88,7 +106,7 @@ v0 = np.cross(up_vec, u0)
 d0 = G[0] - center
 d0_h = d0 - up_vec * np.dot(d0, up_vec)
 th0 = float(np.arctan2(np.dot(d0_h, v0), np.dot(d0_h, u0)))
-print(f"🎯 orbit center={center.round(2)}, radius={radius:.2f} m, world_up={up_vec.round(2)}, th0={np.degrees(th0):.1f}°")
+print(f"🎯 orbit center={center.round(2)}, radius={radius:.2f} m, dist={orbit_dist:.2f} m, world_up={up_vec.round(2)}, th0={np.degrees(th0):.1f}°")
 
 # 内参：GT 第 0 帧，按渲染分辨率缩放
 K0 = gt["intrinsics"][0].astype(np.float64)
@@ -153,7 +171,7 @@ frames = []
 for i in range(ORBIT_N if DO_ORBIT else 0):
     th = th0 + 2 * np.pi * i / ORBIT_N
     el = np.radians(ELEV)
-    eye = center + radius * (np.cos(th) * np.cos(el) * u0 + np.sin(th) * np.cos(el) * v0 + np.sin(el) * up_vec)
+    eye = center + orbit_dist * (np.cos(th) * np.cos(el) * u0 + np.sin(th) * np.cos(el) * v0 + np.sin(el) * up_vec)
     # look-at（OpenCV 系：+z 看向目标，+y=图像向下，须对齐世界重力方向）：
     # right=cross(down,fwd)、down=cross(fwd,right)；顺序写反画面会颠倒/侧翻
     fwd = center - eye; fwd /= np.linalg.norm(fwd)
