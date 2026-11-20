@@ -6,7 +6,31 @@
 
 ---
 
-## 2026-11-20　GT 对齐手性破缺 + 官方 target 口径归因（本轮收口）
+## 2026-11-20　PPT 素材链：orbit 视频渲染 + 分阶段耗时显存实测（00ab/00ac 入库）
+
+两个新脚本：`00ab_render_video.py`（从前馈缓存直接装高斯渲环绕轨迹，秒级出片）、
+`00ac_bench.py`（分阶段耗时 + 双口径峰值显存）。产出 `bench_video/{bench.json, orbit640/}`。
+
+**bench.json 关键数**（RTX 3090 / WSL2）：1.535B 参数、读盘 10.44s、构建 24.57s、
+权重常驻 5.74GiB；2 图前馈 2756ms / 峰值 alloc 17.47GiB / smi 23.15GiB；
+4 图前馈 134259ms / alloc **29.19GiB**（超 24 物理，靠统一内存兜底）/ smi 23.63GiB；
+光栅化 52.5ms 与帧数无关。orbit640：96 帧 24fps 4.0s、9.5ms/帧、渲染峰值 0.82GiB。
+
+**00ab 三个坑（已固化进脚本注释，别再踩）**：
+1. **变量遮蔽**：方位角短弧偏角若起名 `dev` 会撞掉 torch device → `.to(ndarray)` TypeError。
+2. **h264/yuv420p 高度对齐 16**：imageio-ffmpeg 默认 `macro_block_size=16`，奇/非 16 倍高度
+   会被补边拉伸（484→496，纵向 +2.5%）。渲染高度直接取 16 的倍数，K 两轴各按各比例缩。
+3. **世界 up 不能假设 +Y**：VGGT 系朝向任意；且本数据竖图转置后「图像右 = 原图下」，
+   须用 w2c **第 1 行**（相机 x 轴）均值取反估 world_up——用 y 轴会差 90°（人物横躺）。
+   方位角按单位圆向量平均 + 短弧跨度；扫幅 clamp：`half = min(sweep, span/2 + 8°)`，
+   扫出输入覆盖区就是无几何支撑的空白。
+
+PPT 交付：`D:\ppt\20261120-StructSplat复现汇报.pptx`（11 页，源码 `_src/同名/`），
+视频成品 `D:\ppt\figures\structsplat\orbit640.mp4`。
+
+---
+
+
 
 ### E-01　手性破缺是 GT 分支 6~7dB 的第二根因（第一根因见 E-02 的 src 数）
 
