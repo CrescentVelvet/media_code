@@ -154,13 +154,38 @@ CASES_2K = [
          ply=O + "/da3_results/佳佳抱枕_2k/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
          cams=("json", O + "/da3_results/佳佳抱枕_2k/04_model_3dgs/cameras.json")),
 ]
+# 中间档对照组（90e 批量产物，2026-11-20）：输入 1008（= 2K 的 52.5%），
+# GT 侧与 32v/2K 完全相同；QuerySplat 权重锁 512² 不测（无产物）。
+CASES_MID = [
+    dict(name="DA3-GS",
+         ply=O + "/da3_gs_results/佳佳抱枕_mid/gs_ply_full/0000.ply",
+         cams=("w2c34", O + "/da3_gs_results/佳佳抱枕_mid_ff/cameras.npz")),
+    dict(name="InfiniSplat v2",
+         ply=O + "/infinisplat_v2_results/佳佳抱枕_mid/scene.ply",
+         cams=("c2w", O + "/infinisplat_v2_results/佳佳抱枕_mid/cameras.npz")),
+    dict(name="VGGT-Ω+3DGS",
+         ply=O + "/vggt_omega_results/佳佳抱枕_mid/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+         cams=("json", O + "/vggt_omega_results/佳佳抱枕_mid/04_model_3dgs/cameras.json")),
+    dict(name="DA3+3DGS",
+         ply=O + "/da3_results/佳佳抱枕_mid/04_model_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+         cams=("json", O + "/da3_results/佳佳抱枕_mid/04_model_3dgs/cameras.json")),
+]
+VMID = bool(os.environ.get("VMID", "").strip())
+if VMID:
+    V32 = True
+    if not (os.environ.get("OUT") or "").strip():
+        OUT = O + "/batch_4methods/eval_mid_jiajia.json"
+
 V2K = bool(os.environ.get("V2K", "").strip())
 if V2K:
     V32 = True  # 2K 与 32v 同语义：32 个输入帧 = GT 32 帧，对齐基准 = 全部 32 GT 相机
     if not (os.environ.get("OUT") or "").strip():
         OUT = O + "/batch_4methods/eval_2k_jiajia.json"
 
-CASES = CASES_2K if V2K else (CASES_32V if V32 else CASES_3V)
+if VMID:
+    CASES = CASES_MID
+else:
+    CASES = CASES_2K if V2K else (CASES_32V if V32 else CASES_3V)
 if ONLY:
     CASES = [c for c in CASES if ONLY.lower() in c["name"].lower()]
 
