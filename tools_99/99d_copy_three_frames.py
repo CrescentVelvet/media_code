@@ -221,10 +221,13 @@ def main():
     #     与 99b_pack_ply_to_mp4.py 的 IMAGE_DIR 同一份数据
     SRC_ROOT = Path(os.environ.get(
         "SRC_ROOT",
-        "../../code/Reconstruction/dataset/B003_Human_Data_w_pose"))
+        # "../../code/Reconstruction/dataset/B003_Human_Data_w_pose"
+        "../../code/Reconstruction/dataset/54例人像数据-增加佳佳版+多人版"
+    ))
     # 统一结果根：与 99a/99b 一致，便于几种产物一起找
     RESULTS_ROOT = Path(os.environ.get(
-        "RESULTS_ROOT", "../../output/recon_human_results"))
+        "RESULTS_ROOT", "../../output/recon_human_results"
+    ))
     # 输出目录：<RESULTS_ROOT>/<批次名>/img_three，批次名与源目录同名
     # （99a 的 ply 落同批次 ply/、99b 的 mp4 落 mp4/，同批次下按产物类型分目录）
     DST_ROOT = Path(os.environ.get(
