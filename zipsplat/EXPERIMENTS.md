@@ -33,9 +33,11 @@
 
 ### 汇报与归档
 
-- 新版 PPT：`D:\ppt\20261121-ZipSplat复现与对比.pptx`（11 页，三图主线）；
+- 新版 PPT：`D:\ppt\20261121-ZipSplat复现与对比.pptx`（12 页，三图主线，含 TokenBA 原理详解）；
   源码 `D:\ppt\_src\20261121-ZipSplat复现与对比\`。已逐页截图检查，布局 lint 无错误。
-  第 6 页内嵌三联 360° MP4（2,904,249 字节）；PPT 包内媒体与源 MP4 大小一致。
+  第 4 页为 TokenBA 原理详解：L1 输入光度目标、冻结 GaussianHead、patch–Gaussian / robust PnP
+  → token 更新 → tokens + se(3) 联合优化，以及默认迭代 / 停止条件与输入过拟合边界。
+  第 7 页内嵌三联 360° MP4（2,904,249 字节）；PPT 包内媒体与源 MP4 大小一致。
 - 视频与协议：`D:\output\results\zipsplat_results\jiajia_3v_orbit_360\`；
   独立三联成品：`D:\ppt\figures\zipsplat\three_view_orbit_360.mp4`，与归档逐字节一致。
 - 16 图仅保留 TokenBA 补充证据：输入 +2.507dB、8 留出 +0.238dB；不与三图协议混报。
