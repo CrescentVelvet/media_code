@@ -40,7 +40,7 @@ import shutil
 import sys
 from pathlib import Path
 
-IMAGE_EXTS = ("jpg", "jpeg", "png")
+IMAGE_EXTS = ("jpg", "jpeg", "png", "heic")
 # 帧文件名形如 01000000.jpg；用数值排序避免位宽不一致时字符串序出错
 NUM_FRAME_RE = re.compile(r"^(\d+)\.([A-Za-z]+)$")
 
