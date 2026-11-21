@@ -4,6 +4,15 @@
 
 ## da3_human / splatanything 专属（只在该项目跑推理/训练时适用）
 
+- **2026-11-21最新复审优先于下方11月19日推断**：20号F3错配GT深度（id20应取manifest
+  depth/000021.exr，却读000020；其余四帧同类）；旧2～4mm/5～8mm和“几何无错”暂失效。
+  CPU对账cameras.json与刚体Sim(3)相机一致≤1.03e-7；旧S@pkg把s=1.4888乘入旋转，
+  det≈3.30、深度除以s，不能据此说相机不匹配PLY。GT Z/ray-distance另需验证。
+  静态真人target17/18 P3图仍明显碎裂，撤回“静态无害/微动是主因”；F1收益小且触顶不证刚性平移。
+  FLAME当前拟合停住，G2/G3近似检查不能否定模型。入口更新为主计划N0～N2：测量修复→
+  SA P0/Zip FF头部几何同协议对照→只选一个基座做人物域适配小试。用户观察Zip更模糊但头
+  更像，提升其几何候选优先级；现有29留出是全图，regions_holdout=null，不作脸几何真值。
+  不再追加P3/F1或SHARP；不拼两模型PLY、不用P3伪GT；DA3历史基线，2DGS纹理改造后置。
 - **2026-11-19 F0/F2 执行结论 + human_fbx_gt 相机 bug（重大）**：①target 退化由**中心位移**
   驱动（rb_mean 回 P0 水平）；②F2（rosemary_face_v3 静态+GT 相机）P3 source +0.81dB、target 脸
   LPIPS −1.6~−2.3% 仍不过门 → **微动/动态是 target 失败主要混杂**（对比 jiajia 动态 +1~4% 恶化）；

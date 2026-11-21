@@ -11,6 +11,11 @@
 
 ## F3 网络侧审计页（2026-11-19，晚）
 
+> **2026-11-21失效标记（未重制PPT）**：第12页深度数字用错前一帧GT，且“cameras.json
+> 错误”来自深度尺度混比；暂不得引用“几何已正确/只训属性”。第11页“静态无碎裂”的文案
+> 也与保存的P3裁图不符。第9页FLAME G2/G3只是当前近似审计，不能用于否定FLAME。
+> 最新证据和下一步以EXPERIMENTS顶部复审与主计划N0～N2为准。
+
 PPT 第 12 页 `12.slide`。素材（`D:\ppt\_src\20261119-SA脸部局部优化\assets\`）：
 - `f3_teacher_err.png` / `f3_fused_err.png`（视角 020 误差热力，±20mm 满幅，person mask 内）
 - `f3_layers.png`（视角 020 脸 ROI 高斯点按偏差着色）· `f3_layers_t34.png`（target 034，备用）
