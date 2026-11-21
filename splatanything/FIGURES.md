@@ -9,6 +9,15 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## N0 测量修复页（2026-11-22）
+
+- 正式数据：`D:/output/results/splatanything_results/geometry_audit_v2_20261122/five_view_rigid_v28/`，
+  `geometry_audit_v2.json` 含五视角、输入 hash、门禁和局部 ROI；`audit_command.json` 保存参数。
+- PPT 第13页为“N0：尺子修好了，局部几何仍要查”，旧第12页保留并加失效提示。素材只使用
+  `*_fused_error.png`、`*_premerge_lifting_error.png` 与人工 ROI 审核图；不把误差热力当 RGB 渲染。
+- 读数边界：target 不参与尺度拟合；ED 不是单一表面；原 FBX 缺失；旧 218.72mm 鼻翼值因 ROI
+  跨嘴角/面颊而失效，source38 保留鼻尖尾部继续查。不得恢复“几何无错/只训属性”。
+
 ## F3 网络侧审计页（2026-11-19，晚）
 
 > **2026-11-21失效标记（未重制PPT）**：第12页深度数字用错前一帧GT，且“cameras.json

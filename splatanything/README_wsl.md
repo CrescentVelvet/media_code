@@ -25,6 +25,34 @@
 | 训练（stage-1/2） | ❌ 不可得 | 无训练代码 |
 | 论文表里的精确数值 | ⚠️ 不可直接对标 | 官方划分未公开；本仓只做自洽 + 自建 holdout |
 
+## N0 几何测量审计（2026-11-22 已执行）
+
+不训练、不拟合 target；先阅读 NOTES 顶部坐标契约。输入为本机 rosemary33v 三源与两个留出视角，
+GT 为 `human_fbx_gt/rosemary_face_v3`。输出必须为新目录，失败目录不覆盖。
+
+```bash
+cd /mnt/c/code/media_code
+CONDA_ENV=splatanything
+source splatanything/_env.sh
+source splatanything/_gsplat_env.sh
+"$CONDA_PREFIX/bin/python" splatanything/21_geometry_audit_v2.py \
+  --result ~/output/splatanything_results/pose_rosemary/rosemary33v \
+  --official-repo ~/repos/SplatAnything \
+  --gt-pkg /mnt/d/dataset/human_fbx_gt/rosemary_face_v3 \
+  --source-scene ~/output/splatanything_results/_scenes/rosemary33v \
+  --target-scene ~/output/splatanything_results/_scenes/rosemary3_t2 \
+  --landmarks /mnt/d/output/results/splatanything_results/geometry_audit_v2_20261122/landmarks_native/landmarks_native.json \
+  --depth-validation /mnt/d/output/results/splatanything_results/geometry_audit_v2_20261122/depth_pass_oblique_shift_v5/depth_pass_validation.json \
+  --gsn-probe /mnt/d/output/results/splatanything_results/geometry_audit_v2_20261122/gsn_forward_probe.json \
+  --roi-qa /mnt/d/output/results/splatanything_results/geometry_audit_v2_20261122/roi_visual_qa.json \
+  --gt-camera-fixed \
+  --out /mnt/d/output/results/splatanything_results/geometry_audit_v2_20261122/five_view_rigid_v28
+```
+
+门禁产物为 `geometry_audit_v2.json`（本包测量契约通过、分支未裁决）及 `audit_command.json`。
+原生地标可用 `21b_geometry_landmarks.py` 在 sam3 env 重跑；GSN/Depth 前置探针不可跳过或伪造。
+ED 是轴向 Z 的 alpha 混合；原始/遮挡筛选紧脸并列，表面最近距离不是 FBX 网格误差。
+
 ## 实测结果（本机 3090 24 GB）
 
 | 场景 | 视角 | 分辨率 | 模式 | 推理 | 总耗时 | 峰值显存 | 高斯 | 自洽 PSNR |

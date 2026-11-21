@@ -8,6 +8,21 @@
 
 ---
 
+## N0 坐标/测量契约已实测（2026-11-22）
+
+- 官方 `GaussianSplatRenderer.forward()` 浅拷贝 geometry：`depth/*.npy` 是 GSN 前教师；PLY、未融合
+  点云和导出相机是 GSN 后量。本包教师深度总倍率 1.4036118984=pose-align 0.9428013563×spacing
+  1.4887673855。原始 lifting 米制=`teacher*total/spacing`；PLY/ED 米制=`model_depth/s`。
+- 行向量 model→pkg 是 `(points-T)@R/s`，不是 `@R.T`；后者曾让旧 selected IDs 的紧脸表面样本全为 0。
+  主脚本有相机中心逆变换硬门。点云经过过滤/merge，不能按像素网格顺序切片。
+- 本包 prior=C@R_manifest@C；五帧 recorded look-at 目标投影距主点≤0.0004055px，raw manifest 不通过。
+  不要把“自洽法线中位数接近”误写成相机未定，也不要把 look-at 目标当鼻尖真值。
+- GT Depth 为轴向 Z；Depth 反投影得到的点云/法线不是独立扫描网格。最近点距离不证明高斯在该视角
+  可见，也不证明材质归属。原 FBX 路径缺失时必须显式保留这项限制。
+- FaceMesh 紧脸可包含头发；小 ROI 必须目检。source38 排除误检鼻翼/眼眉，target34 排除左侧眼眉。
+  遮挡筛选紧脸是法线朝向+深度连续性代理，不是皮肤分割。source38 鼻尖融合后尾部仍存在，N0 只证明
+  测量契约可用，不裁决几何/属性分支。结果见 EXPERIMENTS 顶部及 `five_view_rigid_v28/`。
+
 ## 最新机制勘误：深度文件与相机尺度（2026-11-21）
 
 20号F3的毫米精度/“相机错误”结论暂停使用，当前路线见[主计划N0～N2](../da3_human/EXPERIMENT_PLAN.md)。

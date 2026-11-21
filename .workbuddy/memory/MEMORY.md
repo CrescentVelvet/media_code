@@ -1,184 +1,40 @@
 # media_code 项目长期约定
 
-> 详细历史已按日期沉在 `.workbuddy/memory/YYYY-MM-DD.md`，本文件只留跨会话必须遵守的结论与索引。
+> 日期明细见 `.workbuddy/memory/YYYY-MM-DD.md`。本文件只留跨会话仍需遵守的结论，后续复审覆盖旧推断。
 
-## da3_human / splatanything 专属（只在该项目跑推理/训练时适用）
+## da3_human / splatanything 当前路线（2026-11-22）
 
-- **2026-11-21最新复审优先于下方11月19日推断**：20号F3错配GT深度（id20应取manifest
-  depth/000021.exr，却读000020；其余四帧同类）；旧2～4mm/5～8mm和“几何无错”暂失效。
-  CPU对账cameras.json与刚体Sim(3)相机一致≤1.03e-7；旧S@pkg把s=1.4888乘入旋转，
-  det≈3.30、深度除以s，不能据此说相机不匹配PLY。GT Z/ray-distance另需验证。
-  静态真人target17/18 P3图仍明显碎裂，撤回“静态无害/微动是主因”；F1收益小且触顶不证刚性平移。
-  FLAME当前拟合停住，G2/G3近似检查不能否定模型。入口更新为主计划N0～N2：测量修复→
-  SA P0/Zip FF头部几何同协议对照→只选一个基座做人物域适配小试。用户观察Zip更模糊但头
-  更像，提升其几何候选优先级；现有29留出是全图，regions_holdout=null，不作脸几何真值。
-  不再追加P3/F1或SHARP；不拼两模型PLY、不用P3伪GT；DA3历史基线，2DGS纹理改造后置。
-- **2026-11-19 F0/F2 执行结论 + human_fbx_gt 相机 bug（重大）**：①target 退化由**中心位移**
-  驱动（rb_mean 回 P0 水平）；②F2（rosemary_face_v3 静态+GT 相机）P3 source +0.81dB、target 脸
-  LPIPS −1.6~−2.3% 仍不过门 → **微动/动态是 target 失败主要混杂**（对比 jiajia 动态 +1~4% 恶化）；
-  ③FLAME 共享表面审计三门全未过（G1 8.78px / G2 18.6mm 顺序错 / G3 IoU 0.30）→ 停住不绑高斯。
-  ④**human_fbx_gt 生成器相机外参 bug**：`flash_human/01_render_gt.py` 把 Blender→OpenCV 转换
-  左乘/右乘写反，正确 R'=C·R·C（C=diag(1,−1,−1)）、t 不变、det=+1；影响**全部 fbx_gt 包**，
-  修正后自洽 PSNR 19.33→22.99、跨视角选中 0→15458 → **历史 fbx_gt 实验结论须重核**。
-  下一步 F1（保守自由度对照）前置已具备（rosemary 静态包）。
-- **2026-11-19 F1 已执行（覆盖「下一步F1」）**：F1-A（只动 scale/quat）target LPIPS −2.3%/−1.6%
-  ≈ P3 同量级 → 可迁移收益来自覆盖/朝向微调**非中心位移**；F1-B（1024 控制点、1% 头宽上限）
-  98.7% 触顶即 loss 平台 → 脸簇有刚性平移需求但给足位移只会复演过拟合。两臂未过 5% 门，
-  F1 停止；下一步=真实静态人物包盲测 / F3 网络侧。
-- **2026-11-19 F3 网络侧审计已执行（覆盖「F3 网络侧」）**：rosemary33v 教师深度脸区
-  无中心深度错误（raw ≈6.3% 恒定尺度偏移 s=0.9367 视角间散差 0.0009 + 校正后 2~4mm）；
-  融合后脸区渲染深度 5~8mm MAE（source 与 held-out target 一致）→ **主计划分支判为
-  属性/merge：学生 LoRA 不背几何修复，人物数据对照预算放属性/merge 与训练口径**。
-  基建实锤：**cameras.json 的 c2w 不对应 PLY（bias +441mm），唯一正确渲染链是
-  S@pkg Sim(3)（+6.3mm）**——相机对精确 ≠ 相机对 PLY 正确，必须用场景内容对账。
-  新入库 20_f3_depth_audit.py；PPT 扩为 12 页。
-- **2026-11-19 盲测已执行（覆盖「真实静态人物包盲测」）**：jiajia_hold 静态真人段
-  source=0/4/22 target=17/18，P3 target +1.8%/+1.9% 微劣（动态段为 +1~4% 恶化）→ 微动混杂
-  真实数据复现；四臂均未过 5% 门，P0 基座 face ~15dB 是上限。**局部优化路线（P0~P3/F1）
-  两包两口径均未构成升级依据，焦点转 F3 网络侧与人物数据**。协议教训：target 必须人工目检
-  真脸（008 后脑勺、009 误检货架 Patrick 玩偶——四臂指标逐位相同暴露 ROI 无效）。
-- **2026-11-19 P0～P3二次复审覆盖下条因果推断**：已看3 source/2 target全部对照，P2已
-  碎裂，P3 source侧脸也斑驳；+1dB不能称“中心几何最大瓶颈”。P3 target LPIPS恶化4.04%/
-  2.75%；PLY审计20.78%点碰5%位移上限，透明度变化大。原正则用模型坐标平方、选点非真实
-  可见性；实际source监督756²，face指标为2.3倍框，毫米解释撤回。最新入口主计划F0～F3：
-  审计评测/约束→一次保守自由度对照→共享FLAME表面约束，LoRA保留且按深度证据决定分支。
-  P0作基线，P3不作伪GT；idx8/49以后作开发验证，另留静态包盲测；微动混杂未排除。
-- **2026-11-19 P0~P3 已执行完毕（覆盖「当时未执行」）**：链路 12_mask→13_select→14_opt→15_target_eval
-  已入库。source扩展脸框拟合：P1 +0.05 / P2 +0.61 / P3 +1.00dB（不能据此确定瓶颈）；但 **held-out target
-  （idx 8/49）收益不迁移**：脸 LPIPS 反升 1~4%、推进门未过 → source-only 局部优化 = 视角过拟合，
-  不能升级为训练依据。下一步：参数化人脸先验（FLAME/MHR）作低权重几何约束 + 第二个静态包复跑。
-  两个基建坑（已固化进脚本）：①**SA 输出在模型系≠AR 系**（Sim(3) s=0.5019，target 相机须经 source
-  相机对转换，否则渲全灰墙）；②**mediapipe FaceMesh 窄带**（脸≈90px 才检出，原生 1439×1919 下
-  82 帧只检出 3 帧 → 12 已改多尺度阶梯）。PPT：`D:/ppt/20261119-SA脸部局部优化.pptx`（6 页图文）。
-  纪律（仍有效）：mask 不是深度；target 不进优化/选参；32 视角 2K 失败不可外推 SA 三图。
-- **2026-11-18 SHARP 复核**：SH1a 双重外参修正后三份 JSON 去重 16 对（同一人/6 图），S−identity 中位
-  +3.62dB、S−planeH +2.11dB（14/16 正）；旧 +3.73 汇总与 v2 否证**均不沿用**。不能用跨视角 PSNR
-  对比 SA 自渲来否证融合，单尺度扫描不是 Sim(3) 收益上限。SH1b 先修评测+同 target 配对。
-- **2026-11-17 LoRA**：入口 `EXPERIMENT_PLAN.md` 顶部 L0～L4，冻结几何教师、学生 attention LoRA，
-  人物数据与同预算通用数据配对；2DGS/纹理化暂缓；E-21 外部深度替换失败不证伪人物数据适配。
-- **2026-11-12 三图路线**：三图 = 不同机位三张人像图（不是广角/主摄/长焦）。研发首选 SplatAnything，
-  DA3 保留配对基线、暂停几何重训。SA 现有 FG 是预测 alpha mask，held-out 底色取自 target ——
-  正式排名前需独立 mask/底色。用户报"人物鼻子变宽疑似重影"未证实，R2-N 须在域训练前区分
-  相机/运动、中心深度、merge/footprint 与域/像素预算。分工：**Codex 做设计/证据审查，WorkBuddy 复现执行**，
-  回填 `splatanything/ROUTE_VALIDATION_REPORT.md`。
-- **DA3 复现错误 + 防再犯清单 + 训练事实**全在 `da3_human/ERRATA.md`，跑 DA3 前必读（其它项目不用看）。
+- 唯一入口 `da3_human/EXPERIMENT_PLAN.md` 顶部 **N0～N2**：修复几何测量 → SA 原生 P0 / ZipSplat FF 同协议头部对照 → 只选一个基座做人物域适配小试。三图指不同机位三张人像；DA3 是历史基线。
+- **N0 测量契约已完成，N1 可执行、N2 冻结**。正式 `five_view_rigid_v28/geometry_audit_v2.json`：官方 GSN pose-align=0.9428013563、spacing=1.4887673855、总教师倍率=1.4036118984；五视角 hash、Depth 类型、K、刚体相机与坐标往返通过。测量通过≠几何/属性分支裁决。
+- GT 按 manifest 文件路径/hash 对齐：id20→000021，id24→000025，id30→000031，id34→000035，id38→000039。旧 F3 错帧与强结论停用。
+- **Blender Depth pass 是轴向 Z**，已用斜视/主点偏移探针验证，不做射线距离除法。ED 是 alpha 归一化的轴向 Z 期望，须配 alpha 与局部 p90。
+- 官方 `forward()` 浅拷贝 geometry：PLY、未融合点云、导出相机使用 GSN 后量；`depth/*.npy` 是 GSN 前教师深度，不能共用尺度。过滤/voxel merge 后 PLY 不能按 3×756² 固定点序切片。
+- source-only 相机对定义 `X_model=s R X_pkg+T`；正确相机 `R_model=R R_pkg`、`C_model=s R C_pkg+T`；PLY/ED 回米制为 `X_pkg=R.T@(X_model-T)/s`、深度 `/s`。融合前 lifting 的米制深度=`raw_teacher*total_depth_factor/spacing_factor`。`[sR|T]` 不是合法刚体相机。
+- 导出相机与刚体 Sim(3) 最大差约 1.02e-7；源视角 RGB 对拍 21.3～24.4dB。五帧 look-at 目标在 prior=C@R_manifest@C 下距主点≤0.0004055px，raw manifest 不通过；官方 K=fx/fy 1050、cx/cy 377.5。target34 左 eye/brow 排除；source38 鼻翼/眼眉按遮挡/误检 QA 排除。
+- 五视角诊断：原始紧脸 ED MAE target24/34=6.62/8.07mm；source38 鼻尖融合前/后 MAE=9.96/30.41mm、p90=13.52/66.45mm，平滑子集融合后=16.99/26.35mm。旧鼻翼 218.72mm 为 ROI 污染，不引用。source-only 教师尺度=0.9338547（可见性筛选紧脸）。行向量 model→pkg 必须 `(points-T)@R/s`；旧 `@R.T` 导致表面样本为 0，修复后恢复约 1.0～1.4 万点/视角。无 FBX 时表面最近距离不是独立网格或可见性真值。
+- N0 要分 raw/source-only 单一尺度/每视角 oracle，报鼻尖、鼻翼、眼周 p90 和 alpha/轮廓；target 不拟合、不选参。无原始 FBX 时，深度反投影只能称“深度图派生表面”。
+- **P0～P3/F1 已结束**：source 增益不迁移到独立 target；静态真人 target 仍碎裂，撤回“静态无害/微动主因”。F1-B 触顶只证明约束活跃。FLAME 本轮拟合不过门，不绑定高斯；不追加 P3/F1/SHARP，不用 P3 作伪 GT，不拼两模型 PLY。
+- ZipSplat 只有“更模糊但头部更像”的观察及 29 留出整体值：Zip FF 17.64dB/100% 覆盖、TokenBA 17.27dB、SA pose 13.42dB/82.62%；`regions_holdout=null`，不是脸部几何真值。TokenBA 属测试时优化，不与 FF 混报。
+- 人脸 ROI 必须逐视角目检（008 后脑勺、009 玩偶误检）；FaceMesh 原生窄带，必要时多尺度。human_fbx_gt 正确转换 `R'=C R C`、t 不变；旧生成器乘反，历史包须验证，不能凭当前生成器代码定版本。
+- 原理/排错 `splatanything/NOTES.md`；结论 `EXPERIMENTS.md`；命令 `README_wsl.md`；图 `FIGURES.md`。DA3 必读 `da3_human/ERRATA.md`。
 
-## 工程纪律
+## 工程纪律与 D 盘落点
 
-- **commit**：中文 `<项目名>: <简短描述>`（英文冒号+空格），默认只写标题行，正文≤1-2 行。
-  **改完当轮立即提交**，只 `git add <具体路径>`，**不 `git add -A`**。规范 AGENTS.md §8/§11。
-- **AI 不 push**（含 --force）、不删远端分支/tag；push 由峰哥手动。
-- **先读规范再动手**：git 前读 AGENTS.md；WSL 训练前读 README_wsl.md（输出写 `~/output/` Linux fs）。
-- **多落点**：`C:\code\media_code`（主）｜`h100:00950754@69.48.159.15:/data/00950754/code/media_code`。
-  同一改动只在一处提交，另一侧 `git pull --rebase`。**`.workbuddy/memory/` 只在本机写**。两边设
-  `core.fileMode=false`。
-- **删除红线**：删前判 `is_symlink()`（曾穿透软链删掉 82 张 HEIC）；临时文件走"备份+搬移"到
-  `/mnt/d/output/_backup/`。
-- **入库边界**：只入可复用脚本与规格文档；成品图与一次性出图脚本不进 GitHub（否则放
-  `D:/ppt/figures/<项目>/_build/`）。`.gitignore` 已排除 `*.png *.jpg *.mp4`。
-- commit 后按需更新 `EXPERIMENTS.md`（结论）与 README（命令）分离。
+- 中文 `<项目名>: <简短描述>`，默认一行，完成即提交；只 add 具体文件并核对 staged diff。AI 不 push、不改远端；动手前读 AGENTS.md，WSL 训练前读 README_wsl.md。
+- 主落点 `C:\code\media_code`；服务器 `h100:00950754@69.48.159.15:/data/00950754/code/media_code`。同一改动只在一侧提交，另一侧 `git pull --rebase`；memory 只在本机写；两边 `core.fileMode=false`。
+- 删除先判 `is_symlink()`，临时文件备份搬移。只入可复用脚本/规格文档，产物与一次性脚本不入库；JSON 显式 UTF-8/LF。
+- 动 D 盘前读 `D:\ppt\README.md` 和 AGENTS.md §15。成品 `D:\ppt\YYYYMMDD-标题.pptx`，源码 `_src\同名前缀\`，配图 `figures\<项目>\`，实验产物 `D:\output\results\<algo>_results\`；slide 只用相对 `assets/`。
 
-## D 盘落点规范（2026-11-18，动 D 盘前必读 `D:\ppt\README.md`；仓内 AGENTS.md §15）
+## 其它项目已定论
 
-- 硬规则：①根目录禁建 `*_figures`/`*_report_*`/`*_ppt_*`/`*_assets`；②`.slide` 内不写绝对路径，
-  图一律 `assets/xxx.png` 相对引用；③PPT 不放 output、实验产物不放 ppt；④成品进 `ppt/figures/`、
-  原始素材进 `output/results/<项目>_assets/`；⑤搬进 decks 后不改相对路径；⑥删除前判 `is_symlink()`。
-- 结构：`D:\ppt\decks\<YYYYMMDD>-<标题>\`｜`D:\ppt\figures\<项目>\`｜`D:\output\results\<algo>_results\`｜
-  `D:\output\_backup\`。**`/mnt/d/output/` 之后必须先跟 `results/` 或 `_backup/`**。
-- 搬目录 Permission denied 多为 explorer 持句柄 → `mkdir` 目标 + 逐项 `mv`。
+- **structsplat**：GT 手性破缺是 90° 残差真因，允许反射 10.65→16.47dB；官方 2 图最佳。target 先报 alpha>0.5 覆盖率；瓶颈为覆盖、低 alpha 晕圈、几何外推与分辨率上限，核心 alpha>0.95 下曝光正常。排查顺序见 `structsplat/EXPERIMENTS.md`。
+- **da3_human**：正式口径 3DGS EWA + 官方完整导出；2DGS 终止，法向 oracle 更差。前馈高斯宜作稀疏点云 init + densify，不宜整套灌入。
+- **som_human 手部**：重建过平滑与两态几何冲突分开；SOM 和可微位姿精炼已证伪；按姿态分段并换运动信息来源（MANO/MHR/关键点/光流）。HiMoR 未实测，不能外推“学习方法都无效”。
+- `deformable_human/BACKLOG.md` 管 A～J；`vggt_human` 三文档及 `DESIGN_face_pipeline.md` 先读；`figkit/SPEC.md` 管 PPT 规格；`tools_99/` 路径按 media_code cwd 解析，主体居中先跑 99k。
+- Remy 标准包=`transforms.json + image/*.heic + pcd.ply`，`w2c=inv(M@diag(1,-1,-1,1))`，入口 `som_human/01_convert_capture.sh`。
 
-## structsplat 专属（只在该项目跑推理时适用；入口 `structsplat/EXPERIMENTS.md`）
+## 环境与服务
 
-- **2026-11-20 收口结论**：①**GT 对齐手性破缺是 90° 残差真因**——竖图转置本身是 2D 镜像，
-  相机基变换 det=+1→−1，Kabsch 强制 `det(R)=+1` 时残差恒 90°（`trace=1` 的旋转恰 90°）；
-  允许反射后 fit_resid 降 58 倍、端到端 **10.65→16.47dB**。②**官方设计是 2 图**
-  （自洽 22.46dB/2.7s），多喂图**更差**（4 图 20.47dB/93.7s），3090 上 4 图是显存红线。
-  ③target 低分**不是对齐误差**（oracle 上界仅 +0.19dB），是**覆盖 63%→94% 只换 2.26dB
-  且覆盖区内反降** → 瓶颈是前馈几何外推；**报 target 必须先报覆盖率**。
-  ④去畸变会压低 src 自洽（21.64→23.64 关掉更高），是重采样有损，别误判成畸变处理错了。
-- 排查顺序固定：`00x`(几何可观测性)→`00t`(abs/rel 解构)→`00u`(三约定)→`00v`(2×2 决定性)
-  →`00z`(oracle 上界)→`00aa`(分层 α)。**跳步会猜错**（前两次猜"换约定""加迭代"都错）。
-- **2026-11-20 追加：target "偏暗/过平滑"是测量假象，不是渲染缺陷**。①空白区**不是黑的**——
-  far 直方图 `[0.02,0.05)` 占 25.1%、纯黑 0.00%，是**低 alpha 淡晕** → `coverage` 口径是
-  `alpha>0.5`，与"非黑像素比"不是一回事。②**饱和区无预乘稀释**（核心 α>0.95 实测 0.992）。
-  ③**掩码口径必须审计**：`α>0.5` 掩码算出 `a=0.93~0.97`（含 21% 黑晕，会误判"曝光低"），
-  换**核心掩码 `α>0.95` → a=1.00**，色调正常只剩 `b≈+0.08` 轻微压暗（我曾据此误下"曝光错误"
-  结论，已撤回）。④反预乘 ΔPSNR 与晕圈占比强相关：far(20~21%) **+2.18/+2.40**，
-  adj(2~4%) −0.03/−0.05；核心区仅 +0.10 → 收益全来自边缘修补。⑤**另有一层分辨率上限**：
-  adj 组 100% 覆盖无晕圈，梯度仍只 63.4%、17.3dB，src 自洽 21.6dB 即天花板 → 调对齐拿不到。
-  完整归因 = 覆盖(−2.3) × 晕圈(−2.2) × 几何外推(oracle +0.19) × 分辨率上限，**无一是 Sim(3) 没调好**。
-- 硬纪律：Sim(3) **只用 src 的 ≥2 台相机**估计（单台退化到 8.92dB）；target 图**不得**来自
-  高斯缓存（泄漏）；**报数先报 `alpha>0.5` 覆盖率，报"偏暗"前先看核心掩码下的 a**。
-  口径边界：前馈只预测输入视角相机 → target 数字衡量**重建几何**，
-  位姿估计能力看自洽 PSNR，两者不可混谈。
-
-## 关键文档索引（含已定论结论）
-
-- **`splatanything/EXPERIMENTS.md`**（日期倒序）+ `README_wsl.md`（命令）+ `NOTES.md`（原理排错）+
-  `FIGURES.md`（图台账）。入口脚本 `01～11_*`，共享 `_env.sh` / `_gsplat_env.sh`。
-- **`da3_human/EXPERIMENT_PLAN.md`**：唯一执行入口。**`compare_4methods/`**：IMPROVEMENTS + ERRATA +
-  FINDINGS + P0/P1_EXPERIMENTS。已定论：
-  - 正式口径 = 3DGS EWA 光栅器 + 官方等价导出（不裁剪+全 SH）：全图 22.11dB、人脸 20.00dB/锐度 347。
-  - **2DGS 路线终止**：只换光栅器 −0.29dB；盘法向换 GT 真相（oracle，覆盖 65.1%）反而 −0.71dB、
-    人脸 −1.16 → "法向没学对"不是根因，I-04 撤销。2DGS 仅保留 `median_depth` 用途。
-  - **区域指标必须逐视角定框**（固定框曾落书架上，人脸锐度虚高 +180）。报数前目视核对裁切图。
-  - DA3 瓶颈是跨视角几何不一致；**前馈高斯正确用法 = 稀疏点云 init + 3DGS 自己 densify**
-    （整套灌入更差更慢，opacity 卡在 prune 阈值上方）。甜点：点云+5k 步 ≈2.6min/22.2dB（30k 24.3dB）。
-- **`deformable_human/BACKLOG.md`**：流水线 A~J 案状态总览（做优化前先查）。截至 10-17：A 无收益｜
-  B 双度证伪｜C 否决｜D 已落地(默认关)｜E 首轮负｜F/G/H 零实现｜I 未立案｜J 已实测。
-- **`som_human/EXPERIMENTS.md`** 与 **`vggt_human/`** 三文档（README=命令｜NOTES=原理｜EXPERIMENTS=结论）+
-  `DESIGN_face_pipeline.md`（人脸链路 v2 八阶段，讨论前先读）。MHR 身份 45 维 + 72 FACS + 657 点。
-- **`figkit/SPEC.md`**：PPT 配图规格 + 排版库（1920×1080 满版、§5.6 单方法页、§10 入库边界）。
-- **som_human 标准输入**＝华为「Remy」包：`transforms.json` + `image/*.heic` + `pcd.ply`；
-  `w2c = inv(M @ diag(1,-1,-1,1))`（实测判定，勿凭直觉改）；入口 `som_human/01_convert_capture.sh`。
-
-## som_human 手部：根因分层与已证伪路线（2026-10-17，勿重复踩）
-
-- 三种"糊"分开：①输入运动模糊本数据不存在（GT 手部锐度 4.28~4.33 > 静止区 2.75~2.81）；
-  ②重建过平滑（渲染高频只剩 GT 9~12%，**头也糊**；提容量已证伪：更多高斯更易摊平）；
-  ③**两态几何冲突**（垂手 vs 抬手占同空间）→ 静态 3DGS 本质限制，唯一有效解=按姿态分段只用主段。
-- 两条路线都证伪：SOM（平移 0.0020~0.0238，仍小 2 个数量级，且手部锐度 38%→9%）｜可微位姿精炼
-  （好初值上 −8.29dB）。共同根因：**弱纹理小手区域亮度梯度不足以驱动运动参数**。
-- 论断边界（E-07）：已实测=SoM+本仓 deform 场；HiMoR 未跑过【待核实】；"所有学习方法都不行"不成立。
-  → 换的是**运动信息来源**：从"梯度学"改"先验给"（MANO/MHR 参数化、2D 关键点/光流对齐）。
-- **删帧判据是"姿态段"不是"偏离大"**；删前查相机方位角覆盖。**评估口径坑**：mask 内 FG PSNR
-  抓不到幽灵/透明（幽灵在 GT mask 外），要配 mask 外泄漏指标或 alpha 渲染。
-- 可复用资产：方案 J per-person 拆分、01c COLMAP 精化（+7.29dB）、SAM3 手部 mask 管线。
-- `02_train.sh` 默认全分辨率（历史口径靠 `EXTRA_TRAIN_ARGS="-r 2"`）。`pkill -f train_som.py` 会
-  匹配包装 shell 自身，杀完要单独验证目录清理。
-
-## tools_99/（重建产物工具集；路径全部相对 cwd=media_code 解析，与脚本目录无关）
-
-- 打包链：99a 收集 ply｜99b PLY→UWA MP4（`mp4_work/` 是 99c/99e 复用前提）｜99c 收窄视角重封装｜
-  99d 复制三帧｜99e MP4→PLY｜99f 收集 ply+相机+front_image。体检：99g 轨迹/视角可视化｜
-  99h Python 3.10 语法自查｜99k 采集包预处理（**主体居中必需**，出 `gs_camera_params.json`）。
-- **居中为何必需**：下游把 az/el 当"绕世界原点"用，而 Remy 包原点是 AR 会话起点（实测 10 包
-  |target|=半径 86%~198%，不居中 Δyaw 最大 174°）。
-- ⚠️ 99b/99f 的 `gs_camera_params_final.json` 是**外部产物同名约定**，别跟着改名。
-- 写 JSON 一律 `open("w", encoding="utf-8", newline="\n")`；gs json/center_report 用 `indent=4`。
-- 本机跑 99g 贴实拍首帧需 pillow：用 `~/.workbuddy/binaries/python/envs/default` 的 python。
-
-## 本机 WSL 环境（2026-09 实测，网络会漂移，动手前先 curl 复测）
-
-- 网络：不走代理。`github.com` ✅ 直连｜HF ❌ 走迅雷｜hf-mirror/ghfast ❌｜`raw.githubusercontent` ❌；
-  pytorch.org / anaconda / tuna pypi 可用。
-- 硬件：WSL2，54GiB RAM / 128GiB swap；`/` 1007G｜`/mnt/d` 9.1T；i9-12900K 8 核；RTX 3090 24GB。
-- conda `~/miniconda3`：4danyone / colmap / flame_human / minimax_h3 / osediff / sam3 / sharp /
-  vggt_human / splatanything / infinisplat_v2。新任务优先新建独立 env。
-- `colmap` env：conda-forge colmap 4.2.1；必须补钉 `openimageio=3.1`；别用 tuna conda 通道；
-  4.x mapper 要求 `--output_path` 已存在；直调二进制需 `LD_LIBRARY_PATH=~/miniconda3/envs/colmap/lib`。
-
-## 服务器侧「3DGS 相机位姿调整工具」（2026-09-28 峰哥提供；本机无）
-
-- `crop_camera_by_angle.py`（视线交汇最小二乘求目标点 + 方位角循环补偿）｜`visualize_cameras.py`｜
-  `generate_camera_files.py`｜`main.py`（Tkinter GUI 闭环）+ MP4 解封装页。同族能力：≈99b/99e/99g/99c。
-
-## 加研 H100（蓝区，`69.48.159.15`）连不上的标准处置（2026-11-21 峰哥实踩）
-
-- **判据**：ping 通 + TCP 22 **timeout**（不是 refused）+ 换过 WiFi → 优先怀疑**出口 IP 不在
-  白名单**，不是服务器挂了。该台有 IP 白名单。
-- **代理陷阱**：v2rayN 开着时公司 WiFi 的 captive portal 认证页打不开，没认证就出口受限，
-  看起来像"ping 通但 ssh 连不上"。
-- **标准顺序**：①关 v2rayN → ②连公司 WiFi 完成认证页 → ③重开 v2rayN → ④ssh h100。
-- 分流对照：TCP 22 refused → sshd 没起走 IPMI；全站点不通 → 没完成 WiFi 认证；
-  换 WiFi 才出现 → 优先白名单。详见 `2026-11-21.md`。
+- WSL2：RTX 3090 24GB，54GiB RAM/128GiB swap；conda 独立 env。网络会漂移先 curl 复测；国内源优先，境外必要时经 10808，国内源 no_proxy。
+- colmap env 须 `openimageio=3.1`，4.x mapper 输出目录先建；直调二进制需 env lib 的 LD_LIBRARY_PATH。
+- H100 ping 通而 22 timeout 优先查出口 IP 白名单及 WiFi 认证，详见 2026-11-21 日志。

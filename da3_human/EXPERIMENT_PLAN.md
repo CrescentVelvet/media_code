@@ -29,10 +29,10 @@
    `000021.png/000021.exr`，旧20号读了`000020.exr`。3 source与2 target全部逐项校验。
    human_fbx_gt旧相机旋转修正与本错帧问题分开；新包用版本字段/显式开关防止再次C@R@C。
 2. **刚体相机与尺度分开**：世界映射`X_model=s R X_pkg+t`，使用
-   `R_cam_model=R R_cam_pkg`、`C_model=s R C_pkg+t`；渲染得到模型系轴向深度后除以s
-   再比米制GT，或把高斯中心/尺度整体变回pkg系。旋转应det≈1、正交。
-   CPU已验证本包cameras.json与此刚体链误差≤1.03e-7；旧`S@pkg`把尺度乘进旋转，det≈3.30，
-   深度变成另一单位，不能据+441mm vs +6mm宣称cameras.json错误。渲染等价性另做对拍。
+   `R_cam_model=R R_cam_pkg`、`C_model=s R C_pkg+t`；渲染得到模型系轴向深度后除以 s
+   再比米制 GT，或把高斯中心/尺度整体变回 pkg 系。旋转应 det≈1、正交。
+   这是 `X_model=s R X_pkg+t` 的逆方向：`X_pkg=R.T@(X_model-t)/s`，深度同样除以 s；
+   官方 `depth/*.npy` 是 GSN 前的原始教师深度，不适用这个 model→pkg 倍率，须另栏诊断。
 3. **GT深度类型单独验证**：生成器直接输出Blender Depth pass，不能仅凭注释称轴向Z。
    用已知平面/网格射线校验距离与轴向Z；若为射线距离D，按原始K使用
    `Z=D/||K^-1[u,v,1]||`，再按真实裁剪/缩放重采样。边界不把无效深度填0后双线性混入前景。
@@ -43,6 +43,14 @@
    F1-B仍用未归一化位移正则，触顶只能说明约束活跃，不能证明刚性平移需求/放开必过拟合。
 
 N0不重跑整套算法，只完成必要的坐标、文件与评分修复；数据整理与N1视觉登记可同步推进。
+
+**N0执行更新（2026-11-22）**：五视角测量契约已通过，正式JSON为
+`D:/output/results/splatanything_results/geometry_audit_v2_20261122/five_view_rigid_v28/geometry_audit_v2.json`。
+manifest/hash、轴向Z、官方GSN、刚体Sim(3)、K、look-at相机版本及坐标往返门均通过；物理相机采用
+`C@R_manifest@C`，五帧瞄准点距主点≤0.0004055px。原FBX登记目录不存在，表面距离仍是深度图派生
+最近距离，不冒充独立网格真值。source38误检鼻翼/眼眉已按人工QA排除；保留鼻尖融合后局部尾部。
+target24/34紧脸ED MAE=6.62/8.07mm，只能作为该包该口径的诊断，不证明几何无错或merge单独背锅。
+**N0测量修复收口，N1可按下列既定协议执行；N2仍不启动。** 数值与限制详见SA EXPERIMENTS顶部。
 
 ### N1：把ZipSplat观察变成头部几何对照（先于更换基座/融合）
 
