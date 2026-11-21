@@ -163,3 +163,13 @@
 
 - `crop_camera_by_angle.py`（视线交汇最小二乘求目标点 + 方位角循环补偿）｜`visualize_cameras.py`｜
   `generate_camera_files.py`｜`main.py`（Tkinter GUI 闭环）+ MP4 解封装页。同族能力：≈99b/99e/99g/99c。
+
+## 加研 H100（蓝区，`69.48.159.15`）连不上的标准处置（2026-11-21 峰哥实踩）
+
+- **判据**：ping 通 + TCP 22 **timeout**（不是 refused）+ 换过 WiFi → 优先怀疑**出口 IP 不在
+  白名单**，不是服务器挂了。该台有 IP 白名单。
+- **代理陷阱**：v2rayN 开着时公司 WiFi 的 captive portal 认证页打不开，没认证就出口受限，
+  看起来像"ping 通但 ssh 连不上"。
+- **标准顺序**：①关 v2rayN → ②连公司 WiFi 完成认证页 → ③重开 v2rayN → ④ssh h100。
+- 分流对照：TCP 22 refused → sshd 没起走 IPMI；全站点不通 → 没完成 WiFi 认证；
+  换 WiFi 才出现 → 优先白名单。详见 `2026-11-21.md`。
