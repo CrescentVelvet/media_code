@@ -1,5 +1,45 @@
 # ZipSplat 实验记录
 
+## 2026-11-21 — 三图主线、单向 360° 环绕与新版汇报
+
+### 三图横评结论（沿用 11-20 已复跑的共同协议）
+
+- 同一原始帧 0/40/81、29 留出、512² 黑底、source-only Sim(3)：ZipSplat 前馈
+  **17.6399 dB / SSIM 0.4558 / 锐度比 0.1149 / 覆盖 100%**；TokenBA
+  **17.2682 / 0.4729 / 0.2953 / 99.99%**；SA v3（pose 模式）
+  **13.4221 / 0.3805 / 0.3078 / 82.62%**。
+- 本组要留出 PSNR 与完整覆盖选 ZipSplat 前馈；要 SSIM / 锐度折中选 TokenBA。
+  SA 输入自洽 PSNR 21.8432 高于 ZipSplat FF 18.7353、TokenBA 19.6733，但未转化为留出优势。
+  锐度必须与覆盖共同解释；SA 约 17% 未覆盖，不能据锐度比单独宣称整体更清晰。
+- SA 为已知位姿，ZipSplat 为无位姿输入；单场景结果不构成普适排名。
+  算法差别：SA 中心由深度 / 相机反投影，GSN 归一化间距后固定体素合并；
+  ZipSplat 从 scene token 双头直接解码高斯与输入相机。TokenBA 冻结高斯解码器，
+  优化 tokens 和输入 se(3)，不是重训网络。
+
+### 单向 360° 视频与对齐修复
+
+- 新增 `render_3view_orbit.py` / `03c_render_3view_orbit.sh`。固定半径 1.743m、
+  仰角 23.845°，方位单调递增并闭合；144 帧 / 24fps / 6s，单格 368²，三联 1144×488。
+  真实输出包括 SA、ZipSplat FF、ZipSplat+TokenBA 独立 MP4 与三联 MP4，另存首/中/末 PNG、
+  相机、轨迹协议和逐帧 alpha 覆盖率。四个 MP4 均完整解码通过。
+- 旧官方调用 `viz.turntable(..., sweep_deg=None)` 是正弦 wiggle；新视频不再称它为 360° 环绕。
+  新轨迹不是独立留出 GT 相机集，首帧与 cam0 的 look-at/roll 差 20.93°；完整环含无观测背面，
+  只能目检，不替代 29 留出评分。
+- 对齐修复：视频入口预降采样后 `refine_sim3()` 又 resize，改变 CUDA 插值 / 梯度路径，
+  SA 精化前仅 8.738dB。现保留原图方形裁切，只对齐函数内部一次降采样；同一 PLY / K /
+  三输入 / 初值下，SA 恢复 12.9358 → 22.1382dB、旋转修正 3.0879°，三分支对齐断言均通过。
+- 目检：近观测侧 SA 右侧大片缺失；背面 SA 黑区 / 抱枕破碎更明显，ZipSplat 覆盖更完整
+  但人物、抱枕或椅子出现拉伸。覆盖完整不等于无观测几何正确。
+
+### 汇报与归档
+
+- 新版 PPT：`D:\ppt\20261121-ZipSplat复现与对比.pptx`（11 页，三图主线）；
+  源码 `D:\ppt\_src\20261121-ZipSplat复现与对比\`。已逐页截图检查，布局 lint 无错误。
+  第 6 页内嵌三联 360° MP4（2,904,249 字节）；PPT 包内媒体与源 MP4 大小一致。
+- 视频与协议：`D:\output\results\zipsplat_results\jiajia_3v_orbit_360\`；
+  独立三联成品：`D:\ppt\figures\zipsplat\three_view_orbit_360.mp4`，与归档逐字节一致。
+- 16 图仅保留 TokenBA 补充证据：输入 +2.507dB、8 留出 +0.238dB；不与三图协议混报。
+
 ## 2026-11-20 — 三输入同协议横评与复现汇报（补充）
 
 ### 共同协议与实现修正
@@ -36,7 +76,7 @@
 
 - PPT：`D:\ppt\20261120-ZipSplat复现与对比.pptx`（11 页）；源码在
   `D:\ppt\_src\20261120-ZipSplat复现与对比\`，页面均使用 `assets/...` 相对引用。
-  第 6 页内嵌 16v TokenBA 环绕 MP4（504×504、96 帧、24fps、4s）；视频仅供目检。
+  第 6 页内嵌 16v TokenBA 往复摆动 MP4（504×504、96 帧、24fps、4s）；视频仅供目检。
 - 新增产物：`jiajia_3v_compare/`、`jiajia_3v_compare_feedforward/`、
   `eval_3view_r512_black/`，均归档在 `D:\output\results\zipsplat_results\`。
   同帧证据在 `eval_3view_r512_black/renders/`；DA3-GS 读数在 `DA3-GS_metrics.json`，

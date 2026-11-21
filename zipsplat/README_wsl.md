@@ -78,7 +78,17 @@ OUT_DIR=/home/velvet/output/zipsplat_results \
 # 注意：SA 为 pose 模式，ZipSplat / DA3-GS 无位姿；这不是完全等条件竞赛。
 # 光度精化与最终评分均为黑底；不与旧 E13/E14 混报。
 
-# ── 8) 归档到 D 盘（逐文件长度校验）──
+# ── 8) 三图三方法同轨迹单向 360° 环绕（不是往复摆动）──
+# 复用正式三图评分链的 PLY、裁切、K、黑底及 source-only Sim(3) 精化。
+# 先校验三方法的对齐数值，再渲染 144 帧；留出图不参与对齐。
+OUT=~/output/zipsplat_results/jiajia_3v_orbit_360 \
+  NFRAMES=144 FPS=24 CELLW=368 bash zipsplat/03c_render_3view_orbit.sh
+# SMOKE=1 NFRAMES=3 OUT=~/output/zipsplat_results/jiajia_3v_orbit_smoke \
+#   bash zipsplat/03c_render_3view_orbit.sh  # 仅首/中/末帧，不覆盖正式 MP4
+# 输出：3 个单方法 MP4 + three_view_orbit_360.mp4、首/中/末 PNG、
+# orbit_cameras.npz、protocol.json、render_metrics.json。
+
+# ── 9) 归档到 D 盘（逐文件长度校验）──
 RESULTS_DIR=~/output/zipsplat_results bash zipsplat/08_move_output.sh
 ```
 
