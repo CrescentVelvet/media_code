@@ -8,6 +8,24 @@
 
 ---
 
+## N1 对齐与评测契约（2026-11-22 已实测）
+
+- `22_n1_head_compare.py` 正式输出为 `rosemary_v27`。原生 PLY 保持不变，将 GT 相机逆回模型系；
+  `X_gt=s R X_model+T` 的逆相机使用 `1/s,R.T,-(R.T@T)/s`，ED 乘 `s` 回米制。SA 复用 M03/M13/N0
+  `model_camera`，通用 PLY 读取器只作交叉诊断，避免 exp/sigmoid 重舍入污染正式结果。
+- Zip degree-1 SH 的系数旋转为 `D=A R A.T`，CUDA 等变最大差 1.19e-7；原生 PLY、正向 Sim(3) 与共同 GT
+  模型质量是三个独立门。SA 正向少量 RGB 极值仍是未通过诊断，不得改写成全部通过。
+- `zipsplat/evaluate_jiajia.py` 旧 Wahba 函数 `Vt.T@D@U.T` 在其行向量 M 定义下方向不符；N1 使用
+  `U@D@Vt`，最终 model→GT 为 `Rw.T`。精确随机相机直接对拍 `R_pred=A R_gt→R_model_to_gt=A.T`，
+  往返误差 4.44e-16。旧历史 JSON 不重写；后续复跑旧脚本前必须迁移此修复。
+- 本包 Zip 焦距 fx/fy 相对 GT 仅差 0.38%～1.70%；此前 36.5% 属错误比较，已撤回。原生 source RGB
+  可达 20.27～24.77dB，共同相机只有 15.61～17.52dB，说明 pose/尺度和场景几何存在耦合，不能拿 source 自洽
+  分数证明 target 结构。source 相机中心严格共面，Wahba 仅作预声明敏感性，不按 target 分数换对齐。
+- source 紧脸 `median(GT/ED)` 的尺度诊断独立于相机中心；冻结到 target 后 Zip 的局部均值明显下降，
+  但尾部和眼嘴错位仍在。尺度补偿不是默认主口径，更不是 target oracle。`eps2d=.3` 不是差距主因。
+- ED 只在 `valid GT & ED>1e-5` 的规定 ROI 内评分；无深度背景不得进 full ED。整图 GT 覆盖与每 ROI
+  alpha 覆盖分列。结论与命令见 EXPERIMENTS/README_wsl；单包不足以选择 N2 基座。
+
 ## N0 坐标/测量契约已实测（2026-11-22）
 
 - 官方 `GaussianSplatRenderer.forward()` 浅拷贝 geometry：`depth/*.npy` 是 GSN 前教师；PLY、未融合

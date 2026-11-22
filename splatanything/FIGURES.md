@@ -9,6 +9,17 @@
 > **2026-11-13 成品清理**：fig00~fig09、fig12/13 的成品已删（峰哥本人清理，明说不用重跑）。
 > 它们的口径、红线与已知问题**仍保留在本文与 EXPERIMENTS.md 里**，需要时按文末命令重新生成即可。
 
+## N1 单包头脸对照页（2026-11-22）
+
+- 正式数据：`D:/output/results/splatanything_results/n1_head_compare_20261122/rosemary_v27/n1_head_compare.json`。
+  命令 `22_run_n1.sh`；中间 v18～v26 不用于汇报，错误黑图/695mm/36.5%焦距均作废。
+- PPT `D:/ppt/20261122-SA脸部局部优化.pptx` 新增14～17页：N1协议/主口径数值/头脸与低通/敏感性和下一步。
+  沿用第2页输入数据和第13页N0证据；不把旧真人微动包与 Rosemary 静态合成身份混称。
+- 图像只用 v27 原生 `*_head_face_lowpass.png` 的真实实验裁图，不整页图片化；所有结论文字、表格和结论条
+  仍为可编辑 PPT 元素。页脚注明 ED 为 alpha 混合轴向 Z、无独立 FBX、Zip RGB-only vs SA known-pose。
+- 主口径与 Wahba+source 深度尺度敏感性分开呈现；不能按 target 选最好对齐。鼻部均值接近不等于全脸/头部
+  结构更好；N2 仍冻结，下一步两个不同身份真实静态包和同输入条件受控轨。
+
 ## N0 测量修复页（2026-11-22）
 
 - 正式数据：`D:/output/results/splatanything_results/geometry_audit_v2_20261122/five_view_rigid_v28/`，

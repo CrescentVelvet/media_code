@@ -53,6 +53,26 @@ source splatanything/_gsplat_env.sh
 原生地标可用 `21b_geometry_landmarks.py` 在 sam3 env 重跑；GSN/Depth 前置探针不可跳过或伪造。
 ED 是轴向 Z 的 alpha 混合；原始/遮挡筛选紧脸并列，表面最近距离不是 FBX 网格误差。
 
+## N1 SA / ZipSplat 五视角对照（2026-11-22 已执行）
+
+输入沿用 N0 三 source + 两 target，Zip 为固定权重的 `ba=False` 原生 PLY。默认输出新版本目录，
+不覆盖失败或候选目录。脚本不训练、不拼 PLY、不用 target 拟合/挑选对齐；主口径是 source 中心 Umeyama，
+Wahba 与 source 深度尺度只作敏感性。结果与失效中间版见 EXPERIMENTS 顶部。
+
+```bash
+cd /mnt/c/code/media_code
+GPU=0 \
+OUT=/mnt/d/output/results/splatanything_results/n1_head_compare_20261122/rosemary_v27 \
+VALIDATION_OUT=/mnt/d/output/results/splatanything_results/n1_head_compare_20261122/rosemary_v27_render_validation \
+  bash splatanything/22_run_n1.sh
+# 输出：n1_head_compare.json（输入 hash、对齐、ROI、敏感性、限制）
+#       per_view_metrics.csv、五视角 RGB/ED/头脸低通 PNG、*_render_validation/
+# 已有目录会主动报错；再次运行须换 OUT/VALIDATION_OUT，不得用 --skip-render-validation 绕过新评测门。
+```
+
+**单包结论不选择 N2 基座**：主口径 SA 较好；Zip 尺度补偿后有鼻部信号，但全脸尾部与外观未过。
+下一步补齐两个不同身份真实静态包和同输入条件受控轨。命令和公式见 `22_n1_head_compare.py` 与 NOTES。
+
 ## 实测结果（本机 3090 24 GB）
 
 | 场景 | 视角 | 分辨率 | 模式 | 推理 | 总耗时 | 峰值显存 | 高斯 | 自洽 PSNR |
