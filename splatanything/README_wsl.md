@@ -73,6 +73,49 @@ VALIDATION_OUT=/mnt/d/output/results/splatanything_results/n1_head_compare_20261
 **单包结论不选择 N2 基座**：主口径 SA 较好；Zip 尺度补偿后有鼻部信号，但全脸尾部与外观未过。
 下一步补齐两个不同身份真实静态包和同输入条件受控轨。命令和公式见 `22_n1_head_compare.py` 与 NOTES。
 
+## N1 两个真实近静态包：预注册、前馈与外观验收（2026-11-22）
+
+以 `23_run_real.sh` 为入口。主轨为 SA RGB-only 与 Zip `ba=False`，两者读取完全相同的
+三 source 原始 PNG；SA known-pose 单独为辅助轨。每包两个 target 均在模型输出前冻结，
+没有独立深度/FBX，因此只报 RGB、固定低通、FaceMesh 紧脸、alpha 与 source 对齐残差，
+不生成毫米几何误差。真实包是近静态而非严格静止，raw147 主轨脸部 ROI 不可用，保留整图。
+
+```bash
+cd /mnt/c/code/media_code
+# 预注册只能在新 ROOT 执行，先逐视角目检 roi_review.json 对应 PNG 后才跑模型。
+ROOT=/mnt/d/output/results/splatanything_results/n1_real_20261122/protocol_v1 \
+PREPARE=1 RUN_RGB=0 RUN_POSE=0 RUN_ZIP=0 GPU=0 \
+  bash splatanything/23_run_real.sh
+# 已有冻结 ROOT 时只运行模型；已有模型目录会拒绝覆盖。
+ROOT=/mnt/d/output/results/splatanything_results/n1_real_20261122/protocol_v1 \
+PREPARE=0 RUN_RGB=1 RUN_POSE=1 RUN_ZIP=1 GPU=0 \
+  bash splatanything/23_run_real.sh
+# Zip 原生官方重跑核验在 zipsplat env；输出目录也必须全新。
+CONDA_ENV=zipsplat source zipsplat/_env.sh
+"$CONDA_PREFIX/bin/python" splatanything/24_zip_real_audit.py \
+  --protocol /mnt/d/output/results/splatanything_results/n1_real_20261122/protocol_v1/protocol.json \
+  --scene real_gray_0221a3dd real_black_3a8b3cc7 \
+  --out /mnt/d/output/results/splatanything_results/n1_real_20261122/protocol_v1/audits \
+  --version v6
+# SA/共同 target 渲染；显式解释器避免非交互 conda 的 CONDA_PREFIX 漂移。
+CONDA_ENV=splatanything source splatanything/_env.sh
+source splatanything/_gsplat_env.sh
+"$HOME/miniconda3/envs/splatanything/bin/python" splatanything/25_n1_real_eval.py \
+  --protocol-root /mnt/d/output/results/splatanything_results/n1_real_20261122/protocol_v1 \
+  --out /mnt/d/output/results/splatanything_results/n1_real_20261122/real_eval_v18 \
+  --official-repo ~/repos/SplatAnything --device cuda
+# 当前正式外观诊断：real_eval_v18。v11/v16 的 target K 失效，不得复用；
+# 已有输出目录会拒绝覆盖，复跑必须换新目录并重新逐图审核。
+# 输出：各身份 *_native/sa_native_replay.json、每轨 target 原图/RGB/低通/紧脸/alpha、
+#       per_view_metrics.csv 与 n1_real_eval.json；最终数值必须逐图复核后才回填结论。
+```
+
+注意官方 `preprocess_view()` 第 45 行的 K2 赋值问题：主轨虚拟 K 只决定官方居中 crop，target 投影
+用真实采集 K 经同样的 crop/resize/integer-crop；known-pose 辅助轨有自己的采集 K crop/ROI。投影 K
+必须在图像 resize 前传入官方 resize 算子。共同 target 用真实整数裁剪后的 K，SA 原生回放用实际导出 K；
+source RGB 不是精确原生渲染参考。详见 NOTES 顶部，不能将“读取器一致性”和“source 重建质量”混为一个
+3/255 门。正式 `real_eval_v18` 与 v17 的 target 像素一致，并增加 known-pose 同源 K/渲染回归。
+
 ## 实测结果（本机 3090 24 GB）
 
 | 场景 | 视角 | 分辨率 | 模式 | 推理 | 总耗时 | 峰值显存 | 高斯 | 自洽 PSNR |

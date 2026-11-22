@@ -8,6 +8,31 @@
 
 ---
 
+## 真实包评测：官方预处理 K 与原生回放（2026-11-22）
+
+- 官方 `scene_io.preprocess_view()` 在第 43 行计算裁剪目标 K，却在第 45 行把旧 `K`
+  交给返回变量 `K2`；于是返回内参的焦距已缩放、主点却少减整数 crop offset。
+  本真实包的纵向偏移达 123.5～126px。这里是预处理链的实现问题，不是可用旧
+  `official_preprocess_geometry()["K_reference"]` 反证全部原生相机错误的理由。
+- **共同 target GT** 的 RGB 与实际投影 K 必须对应同一像素映射。RGB-only 的虚拟 K 只确定
+  主轨官方居中 crop；target 投影使用真实采集 K，并施加完全相同的 crop/resize/integer-crop。
+  SA RGB 与 Zip 共用 `group[0]=SA_RGB` 的主轨 RGB、投影 K 和主轨 ROI。known-pose 的采集 K
+  同时决定它自己的 crop 和投影，因此辅助轨另有 RGB 画布与 ROI，不能与主轨混成同一逐像素表。
+- `evaluation_geometry()` 的投影 K 在**图像 resize 之前**调用 `rescale_image_depthmap`，第三参为
+  投影 K、返回值赋给 K；v16 曾误读已经 resize 的图，倍率被算成 1，真实 fx=1380.817 未缩放，
+  而 known-pose 正确输出 fx=726.948。v11/v16 的 target 数值全部作废，不因脚本退出 0 而采用。
+  旧 `official_preprocess_geometry()` 在 target K 已减 crop offset 后又减 bbox，属于第二次偏移。
+  **SA 原生 PLY** 必须用 `cameras.json` 的实际导出 K；RGB-only 是几何网络逐视角预测
+  fx/fy/cx=cy=378，不是虚拟预处理 K；known-pose 导出 K 则等于官方前馈实际接收的
+  预处理返回 K。原生回放与共同 GT 评测不得共享一套错误的“统一原生 K”。
+- Zip 原生长边 504、宽 378；`metrics.json` 的 `model_input_size=[378,504]` 为 `[H,W]`。
+  其原图相机 `[W,H,fx,fy,cx,cy]` 按长边 504 等比，得到原生 `K=[fx*.26275,cx*.26275]`；
+  与审计保存的 model camera 一致。主轨共同评测仍统一 756²/eps2d=.01，原生核验另用 eps=.3。
+- 原生 PLY 回放门只比较同一原生相机/K 下的两个 PLY 读取器及 alpha；输入 RGB 对拍只是
+  前馈 source 重建质量诊断，**不是**官方原生渲染参考，不能拿 3/255 判读取器失败。
+- 此项影响历史 `21_geometry_audit_v2.py` 的 K 对账解释。Rosemary 单包正式数值本轮不回改；
+  若复审历史几何数字，应先重跑受影响的预处理 K 契约，不沿用“K_reference 必为官方正确 K”。
+
 ## N1 对齐与评测契约（2026-11-22 已实测）
 
 - `22_n1_head_compare.py` 正式输出为 `rosemary_v27`。原生 PLY 保持不变，将 GT 相机逆回模型系；

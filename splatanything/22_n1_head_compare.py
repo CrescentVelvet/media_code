@@ -282,8 +282,9 @@ def to_gpu(g, device):
     return out
 
 
-def render(g, degree, c2w, K, size, device, eps2d):
+def render(g, degree, c2w, K, size, device, eps2d, height=None):
     from gsplat import rasterization
+    height = size if height is None else height
     native_background = inspect.signature(rasterization).parameters["backgrounds"].default
     if native_background is not None:
         raise SystemExit("Common evaluation requires an explicit zero background")
@@ -292,7 +293,7 @@ def render(g, degree, c2w, K, size, device, eps2d):
     rgb, alpha, _ = rasterization(
         means=g["means"], quats=g["quats"],
         scales=g["scales"], opacities=g["opacities"], colors=g["sh"],
-        viewmats=view, Ks=intr, width=size, height=size, sh_degree=degree,
+        viewmats=view, Ks=intr, width=size, height=height, sh_degree=degree,
         eps2d=eps2d, near_plane=.01, far_plane=400., packed=False,
         backgrounds=torch.zeros((1, 3), device=device), render_mode="RGB+ED")
     return tuple(x[0].cpu().numpy() for x in (rgb[..., :3].clamp(0, 1), alpha[..., 0], rgb[..., 3]))

@@ -77,6 +77,16 @@ Umeyama：SA/Zip 两 target 紧脸 ED 均值 7.34/27.29mm，PSNR 16.90/11.68dB�
 **不选择 N2 基座、不训练**。下一步补齐至少两个不同身份真实静态包并做同输入条件受控轨；主计划数据门不变。
 数值、失败中间版和限制详见 SA EXPERIMENTS 顶部。
 
+**N1真实身份执行更新（2026-11-23）**：两个不同身份的近静态包、四个预注册target已完成；正式外观诊断
+`D:/output/results/splatanything_results/n1_real_20261122/real_eval_v18/n1_real_eval.json`。SA RGB与Zip
+`ba=False`共用原始三source PNG、主轨GT/K/ROI；SA known-pose另轨，target未参与对齐或选参。灰衣两target
+SA RGB/Zip整图PSNR均值6.66/15.48dB、alpha>.5覆盖24.8%/100%；黑衣为10.15/16.99dB、0%/100%。
+SA RGB四个target中三个全黑、一个严重错层；Zip都保留人物但脸部软且仍有重影。known-pose也仍有双重头脸。
+因此**当前只支持Zip在两真实身份上的外观/覆盖更稳定，不支持其头/鼻几何已被独立证明更好；与Rosemary
+单包主口径的方向不同，仍不选N2基座、不训练、不拼PLY。** v11/v16因预处理K失效而作废，v18通过known-pose
+同源K/渲染回归且与v17 target像素逐项一致；raw147紧脸保持N/A。下一步复核可信静态几何门和相机/深度/融合
+及近静态运动混杂，不回扫P3/F1。
+
 ### N2：根据N1选择一条主训练线，不同时铺开两套大训练
 
 | N1结果 | 下一步 |

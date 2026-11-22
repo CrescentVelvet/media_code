@@ -4,6 +4,49 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-23 · N1 两个真实身份：Zip 外观/覆盖更稳，几何推进门仍未通过
+
+正式报告 `D:/output/results/splatanything_results/n1_real_20261122/real_eval_v18/n1_real_eval.json`；
+六组模型前馈产物保持不覆盖，输入/PLY/权重/代码hash写入报告。SA RGB与Zip `ba=False`使用完全相同的
+三张原始source PNG；SA known-pose是独立辅助轨。每包两个held-out target在输出前冻结，target不参与
+Sim(3)拟合或选择；近静态采集没有独立深度/FBX，只评外观、alpha与受限诊断，不报毫米几何。
+
+### 测量链修复与同门复核
+
+官方`scene_io.preprocess_view()`最后crop把旧K作为返回K，少减整数offset；21号旧CPU参考又重复减bbox。
+v16另把投影K缩放调用放在图像resize之后，导致倍率=1，真实fx未缩放（1380.817错用，正确known-pose
+fx=726.948）。**v11/v16所有target数值、图像排名和覆盖解释均作废**；失效报告留在protocol日志。
+v18在resize前对投影K调用官方算子，主轨用虚拟K决定官方居中crop、真实采集K经相同变换投影；辅助轨
+用采集K同时决定crop/投影，各自ROI不混用。known-pose的共同K=官方前馈K=原生K，六组source共同相机
+回放与原生PNG最大差≤1/255。v18与v17全部target像素逐项一致；v17没有同源回归JSON，正式引用v18。
+SA四组双读取器原生回放、Zip两包v6原生回放均通过，但回放通过不是target质量通过。
+
+### 主轨：相同RGB-only source下的四个target
+
+| 身份（画面描述） | 方法 | 两target整图PSNR均值dB | 固定σ=2低通PSNR均值dB | 整图alpha>.5覆盖 | 全黑target |
+|---|---|---:|---:|---:|---:|
+| 灰衣 0221a3dd | SA RGB | 6.66 | 6.82 | 24.8% | 1/2 |
+| 灰衣 0221a3dd | Zip FF | **15.48** | **16.96** | **100%** | 0/2 |
+| 黑衣 3a8b3cc7 | SA RGB | 10.15 | 10.33 | 0% | 2/2 |
+| 黑衣 3a8b3cc7 | Zip FF | **16.99** | **18.02** | **100%** | 0/2 |
+
+逐图审核完成：灰衣target10的SA为严重错层、target32全黑；黑衣两target的SA均全黑。Zip四帧都保留人物
+和大致位置，整图/低通数值与alpha明显较稳；但脸部、衣服和轮廓偏软，灰衣target32与黑衣target49紧脸仍有
+明显重影/漂移。灰衣target10的SA紧脸PSNR 10.64高于Zip 9.03，也不能洗脱整幅错层；alpha满覆盖不是几何正确。
+raw147主轨裁去头顶、额头及部分眼脸，FaceMesh不可用，保留整图，脸部指标N/A，不手补地标、不换帧。
+三个有效主轨紧脸ROI均逐图查看，低通只作视觉辅助，不能掩盖错位。
+
+### known-pose 与基座选择边界
+
+辅助轨整图PSNR：灰衣target10/32为11.99/15.05dB，黑衣target49/147为14.02/13.88dB；对应alpha>.5
+覆盖82.99%/94.80%与85.77%/79.10%。它比SA RGB全黑更可控，但两身份仍出现双重头脸、错层和纹理孔洞。
+这不是“已知pose已修好几何”的证据，也不与RGB-only主轨混排。
+
+**阶段结论：两个真实身份支持Zip当前协议下外观/覆盖更稳定，但没有独立头/鼻几何GT证明Zip结构更好；
+Rosemary单包主口径SA更好，两批证据方向不同。N1的“多个身份头/鼻形状一致改善、无新增错层或覆盖损失”
+推进门未过，N2继续冻结；不启动两套LoRA、不拼PLY、不回扫P3/F1。** 后续先复核可信静态几何门，区分
+预测相机、深度、融合/多层及近静态运动的影响；不能只按PSNR选基座。
+
 ## 2026-11-22 · N1 单包对照：Zip 有结构信号，但未取得基座选择资格
 
 正式采用 `D:/output/results/splatanything_results/n1_head_compare_20261122/rosemary_v27/n1_head_compare.json`。
