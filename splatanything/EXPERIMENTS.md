@@ -4,6 +4,50 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-23 · 固定相机查鼻形（两组合成及两组真人）
+
+**SA 原教师仍是本轮鼻部几何首选。** 在相同参考相机上将各方法的三张源深度投到独立机位。DP2 的跨视角鼻部绝对误差对整组尺度十分敏感，校准后局部起伏有恢复，四个合成 target 的鼻区 p90 仍均高于同口径 SA。暂不换几何教师、不做联合训练。
+
+| 固定 target | 原尺度鼻区绝对误差 p90，mm（SA / DP2 / Pi3X） | 按 source 校准后 p90，mm（相同顺序） | 原生 SA 高斯融合后 ED p90，mm |
+|---|---|---|---:|
+| Rosemary 24 | 9.4 / 216.8 / 69.3 | 2.4 / 5.2 / 7.8 | 11.0 |
+| Rosemary 34 | 10.5 / 265.6 / 91.2 | 3.8 / 19.7 / 9.4 | 10.8 |
+| Daven 24 | 4.0 / 34.8 / 34.8 | 2.7 / 10.3 / 11.5 | 4.2 |
+| Daven 34 | 5.1 / 56.1 / 38.2 | 2.7 / 21.8 / 8.3 | 4.7 |
+
+- 输入沿用下节四包三锚点。DP2 H+ 每包一次三图联合推理，使用源图真实 fx。Pi3X 从世界点转回各自相机得到 Z，用三源基线统一尺度；SA 从已知位姿分支读 raw teacher，用过滤后的 `points.ply` 投回导出相机校对 lifting 倍率，每源至少 5000 个整像素对应，99 分位倍率偏差 <0.01%。原始教师到米制倍率 Rosemary 0.9428、Daven 0.8768。融合后的 ED 单独除以相机 GSN 倍率。原始深度、PLY 均保留。
+- 所有点方法固定源/目标物理相机、同像素内参、轴向 Z；合成统一用源 GT 前景 mask 限定人物，用最近像素 z-buffer 合成目标。冻结鼻区含鼻梁及鼻尖，表中 p90 是该区域 90% 像素不超过的绝对误差。原尺度与校准臂各自只在方法共同有效像素比较，原尺度四目标鼻区有效率 91.7%～99.7%，不同尺度间支持区略变。融合后为 alpha>.01 的高斯期望深度，点投影为最近表面；两者差值混合了融合与渲染定义的影响。
+- **鼻尖相对起伏**另用原图 6px 小圆围住地标 1，与同侧可见脸颊小圆比较中位 Z。Daven target24 的真值突出 42.7 mm，SA 39.1、DP2 8.8；仅由输入脸部真值估一个统一尺度后，DP2 为 43.3 mm。Rosemary target24 真值 20.7、SA 19.3、DP2 −4.7 mm（负号表示投到该位置的表面前后关系颠倒）。起伏是沿相机光轴的差，同一身份不同侧面不混算。逐图查看 `nose_roi_v2.jpg` 后排除 Daven 34 发际处脸颊，保留其有效鼻区；Daven 38 无有效地标，Rosemary 38 的鼻翼与相对起伏均 N/A。v1 的大椭圆差值只作预检。
+- **尺度敏感性**对三个方法对称处理。仅取固定 source 20/30 的非鼻非颊脸部 GT，有效像素合并后每身份、每方法一个倍率，冻结到 target。DP2 为 0.8147/0.9628（Rosemary/Daven），不可用于没有深度真值的产品推理；该结果提示尺度是重要误差来源。
+- **真人独立检验**只用参考机位和三张预测深度投影源 RGB，在冻结紧脸区域内比较。灰衣 10/32、黑衣 49 的共同可见像素 RGB MAE（SA/DP2）分别为 0.295/0.315、0.176/0.144、0.169/0.172；三者共同覆盖 99.1%～99.7%。灰衣 10 重投脸部横向错位，黑衣 49 存在采样孔洞及面部错位。raw147 紧脸 N/A。近静态运动、遮挡、像素投影均混在此诊断中，真人无毫米真值。
+- 输出同下节根目录：两组合成各有 `nose_v2.json`、`nose_roi_v2.jpg`，两组真人各有 `real_face.json`、`real_face_GT_SA_DP2_Pi3X.png`。代码 [30_nose_probe.py](30_nose_probe.py)。先 prepare → 官方 DP2 `run_inference.py` → score（合成）和 real（真人）。最终八页机位 PPT 的第 7～8 页补入鼻形与 ROI。下一步优先在出现双像的 target 做按来源上色的深度分层检查，对比融合前后；仅凭四个 target 的 ED 不能判定 merge 是唯一原因。
+
+## 2026-11-23 · 三图查机位（四组，八个留出视角）
+
+**保留 SA 机位路径，Pi3X 作独立排查。** 两个真实身份的 Pi3X 相对旋转均值较小，两个合成人物上换入 Pi3X 后脸部画质均下降。本轮严格只用三图估计，佳佳 82 帧历史指标不参与比较。
+
+| 身份 | 相对旋转均值（Pi3X / SA / Zip，°） | 移动方向均值（相同顺序，°） | 整图 PSNR（参考 / SA 自估 / Pi3X 位姿，dB） | 紧脸 PSNR（相同顺序，dB） |
+|---|---|---|---|---|
+| Rosemary | 4.29 / 1.23 / 1.18 | 2.19 / 0.99 / 0.88 | 20.92 / 18.30 / 14.07 | 16.90 / 13.92 / 10.72 |
+| Daven | 39.67 / 1.68 / 86.34 | 58.48 / 0.97 / 40.31 | 22.36 / 19.63 / 15.39 | 16.42 / 14.81 / 11.46 |
+| 灰衣 | 1.50 / 1.68 / 0.96 | 0.66 / 0.88 / 0.69 | 13.52 / 13.28 / 13.30 | 11.80 / 11.32 / 11.33 |
+| 黑衣 | 0.29 / 0.41 / 0.65 | 0.83 / 1.16 / 0.52 | 13.95 / 13.91 / 13.71 | 15.12 / 18.10 / 13.75（仅一帧有效） |
+
+- 复用 `densitok_portrait_probe/protocol_v5` 的三锚点顺序与 source PNG；Rosemary、Daven 的目标均为 24/34，灰衣 10/32，黑衣 49/147。只取 source 距离比中位数统一尺度、首相机统一朝向与原点。真实组参考为采集位姿。每个机位误差是三个相机对等权平均。
+- Pi3X 四次纯图像前向；SA/Zip 原生 RGB-only 相机读取冻结产物。渲染对照新做八次 SA 前向，全部用 pose 入口、同一物理 K、同一预处理。参考分支复用既有 SA pose 输出。表中 SA 自估列使用 SA 自估的**外参**再进 pose 入口。其与原生 RGB-only N1 属不同运行条件。两帧均值使用固定 ROI；黑衣 raw147 无有效脸部评分。已知位姿也会有双脸，不能以姿态均值替代最终验收。
+- 原始 `camera.json` 另有三基线长度、逐轴焦距比和重投影。Rosemary 三对有 20/2/62 个参考一致特征，Daven 合计 1 个；真人两侧边带仅得到灰衣 1、黑衣 10 个，分布不均，不据此排列背景精度。查看 `heldout.json`、两行四列对照 JPG 及图片哈希。命令与数据分别位于 [29_camera_probe.py](29_camera_probe.py) 和 `D:/output/results/splatanything_results/pose_nose_20261123/<身份>/`。运行顺序：原 `pi3x_recon.py` → 29 prepare → 两组 `02_run_inference.sh` pose → 29 heldout。PPT 为 `D:/ppt/20261123-三图人像机位验证.pptx`。
+
+复跑入口 `29_run_pose_nose.sh`。WSL 中从仓根执行以下两步，使用独立输出目录。统计脚本使用 SA 环境的 Python，避免 gsplat 编译器 PATH 将解释器切到其它环境。
+
+```bash
+export ROOT=/mnt/d/output/results/splatanything_results/densitok_portrait_probe/protocol_v5
+export OUT=/mnt/d/output/results/splatanything_results/pose_nose_replay
+STAGE=camera PI3X_CKPT=/mnt/d/wheel/pi3x_ms/model.safetensors \
+  SPLATANYTHING_MODEL_DIR=/mnt/d/wheel/splatanything_ms bash splatanything/29_run_pose_nose.sh
+STAGE=nose CKPT_PATH=/mnt/d/wheel/depth_pro_2_ms/depthpro2-h-eivtm5w7m5.pt \
+  FOV_CKPT_PATH=/mnt/d/wheel/depth_pro_2_ms/depthpro2-fov-ew55zg4kq7.pt bash splatanything/29_run_pose_nose.sh
+```
+
 ## 2026-11-23 · N1 两个真实身份：Zip 外观/覆盖更稳，几何推进门仍未通过
 
 正式报告 `D:/output/results/splatanything_results/n1_real_20261122/real_eval_v18/n1_real_eval.json`；

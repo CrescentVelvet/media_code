@@ -1,5 +1,11 @@
 # 出图台账（PPT / 汇报用）
 
+## 2026-11-23 三图机位与鼻形实测
+
+交付 `D:/ppt/20261123-三图人像机位验证.pptx`（8 页）。P2/P3 为四组相机与同条件换位姿，P4/P5 是 Daven 与灰衣的两行四列实图（目标、参考机位、SA 估计、Pi3X 估计）；P7/P8 为合成鼻区 p90 及 Daven 24 鼻尖/脸颊局部读数。P7 的校准列需要 source 真值，P8 的前后距离与视角有关。
+
+数据根 `D:/output/results/splatanything_results/pose_nose_20261123`；原图、JSON、八张 PowerPoint 只读渲染预览在此目录及其子目录。构建脚本用 `ARTIFACT_TOOL_MODULE` 指向桌面运行时的 `@oai/artifact-tool/dist/artifact_tool.mjs`。重建命令：`node D:/ppt/figures/da3_human/_build/build_three_pose_check.mjs D:/output/results/splatanything_results/pose_nose_20261123 D:/ppt/20261123-三图人像机位验证.pptx`。
+
 > 图不纳入仓库。成品在 **`D:\ppt\figures\splatanything\`**：
 > `figures/` **6 张**成品（fig10/11/14/15/16/17）· `raw/` 12 张原始 contact sheet ·
 > `pairs/` 14 组 439 张按视角配对的单图 · `metrics.json` 读数汇总 ·

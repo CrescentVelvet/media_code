@@ -15,6 +15,7 @@
 - N0 要分 raw/source-only 单一尺度/每视角 oracle，报鼻尖、鼻翼、眼周 p90 和 alpha/轮廓；target 不拟合、不选参。无原始 FBX 时，深度反投影只能称“深度图派生表面”。
 - **P0～P3/F1 已结束**：source 增益不迁移到独立 target；静态真人 target 仍碎裂，撤回“静态无害/微动主因”。F1-B 触顶只证明约束活跃。FLAME 本轮拟合不过门，不绑定高斯；不追加 P3/F1/SHARP，不用 P3 作伪 GT，不拼两模型 PLY。
 - Zip FF 是真人 RGB-only 覆盖基线（v18 两身份四 target）；Rosemary v27 主口径 SA pose 紧脸 ED 更低，真实身份均无独立深度。TokenBA 单列测试时优化。下一轮按总计划用固定 target 做真实三图/五图对照，检验额外视角能否改善鼻部，再决定 DensiTok 式补全投入。五图仅供离线诊断，产品仍为三图。
+- 四包三图机位与鼻形对照已完成（`pose_nose_20261123`）：Pi3X 保留为独立机位检查，DP2 保留为深度诊断；合成 source 真值校准与原尺度分栏，真人仅报外观/覆盖。SA 教师继续使用，优先按来源追踪双影。29/30 号脚本与 SA EXPERIMENTS 记录输入、指标和口径。
 - 人脸 ROI 必须逐视角目检（008 后脑勺、009 玩偶误检）；FaceMesh 原生窄带，必要时多尺度。human_fbx_gt 正确转换 `R'=C R C`、t 不变；旧生成器乘反，历史包须验证，不能凭当前生成器代码定版本。
 - 原理/排错 `splatanything/NOTES.md`；结论 `EXPERIMENTS.md`；命令 `README_wsl.md`；图 `FIGURES.md`。DA3 必读 `da3_human/ERRATA.md`。
 
