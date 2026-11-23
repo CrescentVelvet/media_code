@@ -2,7 +2,24 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
 
-## 2026-11-23 — 十万点三视角页面与 24 页 PPT
+## 2026-11-23 — 全点九视角与 42 页 PPT
+
+- `render_full_view_splat_depth.py`：两组各九视角、每视角 splat/depth，全部有效点不抽样；输出在两组 `view_splat_depth_full_9views/`。PPT 素材为 `assets/{scene}_full_{view}_{kind}.png`，共 36 张，与实际渲染 SHA-256 一致。
+- `build_full_view_splat_depth_ppt.py`：从 24 页输入生成 42 页，每组九页分别插到该组 10 万点页面后。每添加一页立即移动 XML 页序元素；不重命名 slide part、不做末次文件名重排。`verify_full_view_splat_depth_ppt.py` 验证 76 个图片源、2 视频、8 PLY、相机、点数与源哈希。
+- 完整构建顺序：先从 18 页备份运行 `build_view_splat_depth_ppt.py` 得 24 页，再以该文件作为 `PPTX_INPUT` 运行全点构建；不要在 42 页结果上重复插入。P9/P24 视频和 P10/P25 PLY 在最终页序确定后重嵌。`_build/render_delivery.py` 只读导出 42 页，不再经编辑器保存。
+- 最终新增 P15–23 佳佳、P30–38 路由器；P39–42 保留 SA 与结论。覆盖率、抽样与虚拟相机均逐页标注，外插不作为采集真值。
+
+WSL 渲染：
+
+```bash
+cd /mnt/c/code/media_code
+for SCENE in human router; do
+  env SCENE_DIR=/mnt/d/output/results/depth_pro_2_results/$SCENE \
+    ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_full_view_splat_depth.py
+done
+```
+
+
 
 - 两组 `view_splat_depth_100k/` 各有固定 10 万点的输入/内插/外插 splat 与 PCD depth 原图、NPY、相机 JSON、抽样 PLY 与审计。三视角共用同一随机子集；内插 `t=0.5`、外插 `t=-0.5`，旋转为 SLERP 等价 rotvec，中心线性变化。PPT 原图副本 `_src/20261123-DepthPro2算法实验与SA管线分析/assets/{scene}_{view}_{kind}.png`，共 12 张。
 - `depth_pro_2/render_view_splat_depth.py` 生成图像与相机；`build_view_splat_depth_ppt.py` 在 18 页输入上插入 P12–14、P18–20，统一页脚并在最后重嵌 P9/P15 视频及 P10/P16 PLY 链接。每次运行必须从已验收的 18 页备份开始，不能在 24 页结果上重复插入。

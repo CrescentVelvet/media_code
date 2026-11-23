@@ -58,6 +58,7 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
     rgb_depth_pcd_comparison.mp4
     crossview_pcd_comparison.mp4
     view_splat_depth_100k/ # 输入/内插/外插三视角，固定 10 万点 splat/depth
+    view_splat_depth_full_9views/ # 三输入+三内插+三外插，全部有效点不抽样
     consistency.json consistency/
   router/
     ...同上...
@@ -69,6 +70,8 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
 视频把每个输入帧重复三次慢放，不是生成或插值的新帧。`splat` 为远到近点圆盘渲染，**不是训练得到的 3D Gaussian Splatting**；`pcd_depth` 来自点云投影，数值自检使用未膨胀单点。每帧百万级点投回自身相机、圆盘半径触及 2.5px 上限时几乎完全覆盖，缩图后与 RGB/原始深度相似是预期现象；跨相机投影才更容易看到空洞和错位。深度 RGB 与 PCD depth 统一采用官方近红远蓝的 TURBO 配色，同场景共用 2%～98% 显示范围；颜色不改变 NPZ/NPY 数值。
 
 `render_view_splat_depth.py` 另从三帧有效融合点集中以固定种子 `20261123` 无放回抽 **100,000** 点，三视角共享同一子集：真实 Frame 01 输入相机、`t=0.5` 内插、`t=-0.5` 外插。虚拟相机沿 00→01 做相对旋转 SLERP（rotvec 等价实现）与中心线性插值，外插为反方向半个基线；K 使用共同输入内参。输出 RGB 点圆盘、投影轴向 Z、原始 NPY、相机 JSON、`sampled_100k.ply` 与 `view_render_audit.json`。不做 ICP、逐帧调尺度或新模型推理；空洞混合抽样、遮挡、几何/位姿与运动误差，覆盖率不是精度。运行与 PPT 再生成见 [FIGURES.md](FIGURES.md)。
+
+`render_full_view_splat_depth.py` 为全点九视角版本：每组使用三帧融合 PCD 的全部有效点，不抽样；佳佳 5,289,530 点，路由器 3,981,312 点。输入为真实 Frame 00/01/02；内插为 00→01、01→02、00→02 的 `t=0.5`；外插为 00→01 `t=-0.5`、01→02 `t=1.5`、00→02 `t=-0.25`。虚拟相机使用第二端点 K；没有新几何或采集图像。输出 `view_splat_depth_full_9views/` 的 18 张 PNG、相机 JSON、点数/源 PLY/源深度哈希与审计，不重复写大 PLY。
 
 ## Config
 

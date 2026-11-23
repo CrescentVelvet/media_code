@@ -89,6 +89,15 @@ done
 # 输出：各场景 view_splat_depth_100k/{input,interpolated,extrapolated}_*
 #       sampled_100k.ply、相机 JSON 与 view_render_audit.json
 # Git Bash 调 wsl 时：用 env VAR=/mnt/... 传路径，避免路径被宿主转换。
+
+# ── 4c) 全点九视角：每组三输入、三内插、三外插，不抽样 ──
+for SCENE in human router; do
+  env SCENE_DIR=/home/velvet/output/depth_pro_2_results/$SCENE \
+    VIEW_POINT_RADIUS=0.8 \
+    ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_full_view_splat_depth.py
+done
+# 输出 view_splat_depth_full_9views/：18 PNG + 9 相机 JSON + 审计/来源哈希。
+# 点数：human 5,289,530；router 3,981,312。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。
