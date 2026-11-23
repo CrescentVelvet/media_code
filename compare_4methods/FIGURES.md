@@ -52,6 +52,14 @@ AnySplat 式体素合并）+ 没改的部分（仍是前馈、GSNorm 依赖几�
 4. **VGGT-Ω 的 Sintel 40.0 是 10B**：开源权重只有 1B；它不出高斯，本仓「VGGT-Ω+3DGS」
    含 30k 步 3DGS 精化，与纯前馈方法比耗时/质量都不可比。
 
+## LGTM 四方法调研独立 PPT（2026-11-24）
+
+- 成品：`D:/ppt/20261124-四方法LGTM高分辨率纹理改造调研.pptx`（16 页）。
+- 可增量修改工程：`D:/ppt/_src/20261124-四方法LGTM高分辨率纹理改造调研/`，含 `DESIGN.md`、`slides/01–16.slide` 与论文图 assets；slide 均使用 `assets/...` 相对路径。
+- 论文原图：`media_paper/images/2603.25745/architecture.png`、`lgtm_teaser.jpg`；只归属 LGTM 的静态场景与硬件口径。
+- 其他视觉均为页内结构化 SVG，标明候选机制、非实验结果；不生成虚构的四方法纹理重建效果。
+- 统一结论与源码行号见 `FINDINGS.md` §10；N2 训练继续冻结，本 PPT 不表示新训练已批准。
+
 ## 重新出图
 
 ```bash
