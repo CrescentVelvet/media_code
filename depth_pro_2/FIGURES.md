@@ -18,6 +18,13 @@
 wsl -d Ubuntu2404 -- bash -lc '~/miniconda3/envs/da3_human/bin/python "/mnt/d/ppt/figures/depth_pro_2/_build/make_delivery_assets.py"'
 ```
 
+## 2026-11-23 — 图片映射修正
+
+- 旧“图片数量齐全”不足以保证内容正确。源哈希实测发现 P1 错用 SA 图、P3/P6 架构与 RGB 对调、P15 第三张错用 target；现已按 PPT 页源码恢复六处映射，P15 恢复为 target/SA/Zip。
+- `_build/repair_images_links_and_media.py`：关闭旧预览写实例后，一次写入正确图片关系、清除无效 `0000df`～`0000e2` PLY 关系、绑定 8 个实际路径，并嵌入两个视频。之后不得再让旧编辑器保存。
+- `_build/verify_delivery.py`：新增 **27 个图片源 SHA-256** 检查（P1/3/5–10/12/13/15 源素材，P11/14 的 12 张逐帧原图），同时验证两个 MP4、8 个 PLY 链接、页码和 timing。
+- 只读渲染复核 P1/P3/P6/P15：封面恢复真实 RGB/深度，P3 为官方架构，P6 为路由器 RGB/深度，P15 三图不再重复 target。
+
 ## 2026-11-23 — 最终 PPT 页面验收
 
 - `_build/render_delivery.py` 位于 `D:/ppt/_src/20261123-DepthPro2算法实验与SA管线分析/_build/`。

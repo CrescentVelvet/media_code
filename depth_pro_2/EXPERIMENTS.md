@@ -2,6 +2,13 @@
 
 按日期倒序。实验数据与渲染在仓外，不将诊断性或失败结果包装为精度真值。
 
+## 2026-11-23 — 图片映射修正与 PCD 渲染口径
+
+- 用户指出 PPT 首页黑色失真、P3 架构图变 RGB、P6 RGB 变架构图。按 PPTX 图片关系与源文件 SHA-256 逐图核对，确认 P1 两图被换成 SA 图、P3/P6 对调；另发现 P15 第三张误用 target。六处已恢复为 P1 `human_rgb/depth`、P3 `architecture`、P6 `router_rgb/depth`、P15 `sa_zip`，不重跑模型、不改变实验数值。
+- 旧预览实例可在外部文件修复后重写图片关系，且本地链接退化为 `0000df`～`0000e2`。已释放该实例，在同一最终文件写入中绑定正确图片、清除失效关系、恢复 8 个 PLY 路径并重嵌两个视频；`_build/repair_images_links_and_media.py` 记录修复顺序，`_build/verify_delivery.py` 新增图片源哈希检查。
+- 最终 18 页、两个 MP4、8 个有效 PLY、**27 个图片源哈希**全部通过，warnings 为空。PowerPoint 只读渲染目检 P1/P3/P6/P15 正常；首页为原始竖幅 RGB 居中裁切，不使用失真点云图。报告 `D:/output/results/depth_pro_2_results/ppt_delivery_validation.json`。
+- PCD splat / PCD depth 均为位姿对齐点云投回原相机的图像：前者按远到近画有限世界半径 RGB 点圆盘，后者把圆盘覆盖处的轴向 Z 着色。它们不是训练的 3DGS、不是 mesh 渲染，也不是原始终端 `depth_rgb`；代码 `render_geometry.py:30-63,127-146`。
+
 ## 2026-11-23 — 18 页成果交付：视频、PLY 与逐帧渲染
 
 - `D:/ppt/20261123-DepthPro2算法实验与SA管线分析.pptx` 由 12 页扩为 **18 页**。P9/P12 分别内嵌人像、路由器 `rgb_depth_pcd_comparison.mp4`；P10/P13 展示真实 PLY 抽样的三帧与融合点云预览，并各提供三个逐帧和一个融合原始 PLY 链接；P11/P14 直接展示两组各三帧 splat 与 PCD depth 原图及文件名。原 SA 页移到 P15，三张真实图片仍保留。
