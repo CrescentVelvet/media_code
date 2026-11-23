@@ -2,6 +2,36 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
 
+## 2026-11-23 — 十万点三视角页面与 24 页 PPT
+
+- 两组 `view_splat_depth_100k/` 各有固定 10 万点的输入/内插/外插 splat 与 PCD depth 原图、NPY、相机 JSON、抽样 PLY 与审计。三视角共用同一随机子集；内插 `t=0.5`、外插 `t=-0.5`，旋转为 SLERP 等价 rotvec，中心线性变化。PPT 原图副本 `_src/20261123-DepthPro2算法实验与SA管线分析/assets/{scene}_{view}_{kind}.png`，共 12 张。
+- `depth_pro_2/render_view_splat_depth.py` 生成图像与相机；`build_view_splat_depth_ppt.py` 在 18 页输入上插入 P12–14、P18–20，统一页脚并在最后重嵌 P9/P15 视频及 P10/P16 PLY 链接。每次运行必须从已验收的 18 页备份开始，不能在 24 页结果上重复插入。
+- `verify_view_splat_depth_ppt.py` 按 `presentation.xml` 的显示页序读取 slide part 与各自 rels，防止插页后把显示页号误当 `slideN.xml` 编号。最终 24 页、40 个图片源哈希、2 段视频、8 个 PLY、全部页脚、相机和抽样检查通过。
+- `_build/render_delivery.py` 只读 PowerPoint 导出 24 页；P9/P15 均检测到一个媒体元素。新增六页和 P21 SA 三图已目检；覆盖不是精度，外插不对应采集图像。
+
+WSL 中复现两组渲染（`sharp` 环境）：
+
+```bash
+cd /mnt/c/code/media_code
+for SCENE in human router; do
+  env SCENE_DIR=/mnt/d/output/results/depth_pro_2_results/$SCENE \
+    VIEW_POINT_COUNT=100000 VIEW_SEED=20261123 VIEW_EXTRAPOLATION=-0.5 \
+    ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_view_splat_depth.py
+done
+```
+
+Windows 下将 12 张实际 PNG 复制到上述 `assets/`（与输出逐文件 SHA-256 一致），然后：
+
+```powershell
+$env:PPTX_PATH = "D:\ppt\20261123-DepthPro2算法实验与SA管线分析.pptx"
+$env:ASSET_DIR = "D:\ppt\_src\20261123-DepthPro2算法实验与SA管线分析\assets"
+$env:RESULTS_DIR = "D:\output\results\depth_pro_2_results"
+$env:PPTX_BACKUP = "D:\output\_backup\depth_pro_2_before_view_pages_20261123.pptx"
+python C:\code\media_code\depth_pro_2\build_view_splat_depth_ppt.py
+python C:\code\media_code\depth_pro_2\verify_view_splat_depth_ppt.py
+python D:\ppt\_src\20261123-DepthPro2算法实验与SA管线分析\_build\render_delivery.py
+```
+
 ## 2026-11-23 — 点云近景与圆盘诊断
 
 - `_build/refine_pcd_and_splat_assets.py`：从真实 PLY 生成 P10 人物中心近景；相机投影小角度视差、有限点绘制，只改变预览，不裁切 PLY。`_build/make_delivery_assets.py` 后续全房间预览改名为 `{scene}_pcd_world_full_views.png`，不覆盖人物近景 `human_pcd_world_views.png`。

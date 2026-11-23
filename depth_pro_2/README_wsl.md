@@ -78,6 +78,17 @@ POSE_DIR=/mnt/d/dataset/物体反光数据/路由器 \
 bash depth_pro_2/03a_audit_colmap.sh
 SCENE_DIR=/home/velvet/output/depth_pro_2_results/router \
 bash depth_pro_2/03_render_geometry.sh
+
+# ── 4b) 两组各抽同一 10 万点子集，投至输入/内插/外插相机 ──
+# 输入：已有 depth/*.npz、manifest.json、geometry.json；不重跑模型
+for SCENE in human router; do
+  env SCENE_DIR=/home/velvet/output/depth_pro_2_results/$SCENE \
+    VIEW_POINT_COUNT=100000 VIEW_SEED=20261123 VIEW_EXTRAPOLATION=-0.5 \
+    python depth_pro_2/render_view_splat_depth.py
+done
+# 输出：各场景 view_splat_depth_100k/{input,interpolated,extrapolated}_*
+#       sampled_100k.ply、相机 JSON 与 view_render_audit.json
+# Git Bash 调 wsl 时：用 env VAR=/mnt/... 传路径，避免路径被宿主转换。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。
