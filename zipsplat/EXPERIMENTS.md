@@ -1,5 +1,11 @@
 # ZipSplat 实验记录
 
+## 2026-11-23 · N1 已完成，Zip FF 保留为真人覆盖基线
+
+正式记录见 [SA 实验归档](../splatanything/EXPERIMENTS.md) 的 Rosemary v27 和真人 v18。Rosemary 两个固定 target 的紧脸 ED MAE 均值为 Zip 27.29 mm、SA 7.34 mm（Zip RGB-only、SA known-pose）；仅 source 估尺度会显著改变 Zip 局部误差。两个近静态真人身份的 RGB-only 公平轨中，Zip 四帧均保住人物，灰衣/黑衣整图 PSNR 均值 15.48/16.99 dB，SA 为 6.66/10.15 dB。Zip 脸部仍软且有重影，真人缺少独立深度。当前证据支持覆盖更稳定，几何教师和 N2 基座仍待选。
+
+后续直接复用上述基线，按[总计划](../da3_human/EXPERIMENT_PLAN.md)增加两个真实中间机位检验鼻部收益。此项属于 DensiTok 思路的免训练诊断，尚无补全模型结果。
+
 ## 2026-11-21 — 用户头部形状观察与下一步（方案，未新增实验）
 
 用户观察ZipSplat更模糊但头部形状更接近输入；此信息支持将Zip FF作为人脸几何候选，与SA

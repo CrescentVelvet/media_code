@@ -2,10 +2,10 @@
 
 > 日期明细见 `.workbuddy/memory/YYYY-MM-DD.md`。本文件只留跨会话仍需遵守的结论，后续复审覆盖旧推断。
 
-## da3_human / splatanything 当前路线（2026-11-22）
+## da3_human / splatanything 当前路线（2026-11-23）
 
 - 唯一入口 `da3_human/EXPERIMENT_PLAN.md` 顶部 **N0～N2**：修复几何测量 → SA 原生 P0 / ZipSplat FF 同协议头部对照 → 只选一个基座做人物域适配小试。三图指不同机位三张人像；DA3 是历史基线。
-- **N0 测量契约已完成，N1 可执行、N2 冻结**。正式 `five_view_rigid_v28/geometry_audit_v2.json`：官方 GSN pose-align=0.9428013563、spacing=1.4887673855、总教师倍率=1.4036118984；五视角 hash、Depth 类型、K、刚体相机与坐标往返通过。测量通过≠几何/属性分支裁决。
+- **N0 测量契约与本轮 N1 已完成，N2 冻结**。正式 `five_view_rigid_v28/geometry_audit_v2.json`：官方 GSN pose-align=0.9428013563、spacing=1.4887673855、总教师倍率=1.4036118984；五视角 hash、Depth 类型、K、刚体相机与坐标往返通过。测量通过≠几何/属性分支裁决。
 - GT 按 manifest 文件路径/hash 对齐：id20→000021，id24→000025，id30→000031，id34→000035，id38→000039。旧 F3 错帧与强结论停用。
 - **Blender Depth pass 是轴向 Z**，已用斜视/主点偏移探针验证，不做射线距离除法。ED 是 alpha 归一化的轴向 Z 期望，须配 alpha 与局部 p90。
 - 官方 `forward()` 浅拷贝 geometry：PLY、未融合点云、导出相机使用 GSN 后量；`depth/*.npy` 是 GSN 前教师深度，不能共用尺度。过滤/voxel merge 后 PLY 不能按 3×756² 固定点序切片。
@@ -14,7 +14,7 @@
 - 五视角诊断：原始紧脸 ED MAE target24/34=6.62/8.07mm；source38 鼻尖融合前/后 MAE=9.96/30.41mm、p90=13.52/66.45mm，平滑子集融合后=16.99/26.35mm。旧鼻翼 218.72mm 为 ROI 污染，不引用。source-only 教师尺度=0.9338547（可见性筛选紧脸）。行向量 model→pkg 必须 `(points-T)@R/s`；旧 `@R.T` 导致表面样本为 0，修复后恢复约 1.0～1.4 万点/视角。无 FBX 时表面最近距离不是独立网格或可见性真值。
 - N0 要分 raw/source-only 单一尺度/每视角 oracle，报鼻尖、鼻翼、眼周 p90 和 alpha/轮廓；target 不拟合、不选参。无原始 FBX 时，深度反投影只能称“深度图派生表面”。
 - **P0～P3/F1 已结束**：source 增益不迁移到独立 target；静态真人 target 仍碎裂，撤回“静态无害/微动主因”。F1-B 触顶只证明约束活跃。FLAME 本轮拟合不过门，不绑定高斯；不追加 P3/F1/SHARP，不用 P3 作伪 GT，不拼两模型 PLY。
-- ZipSplat 只有“更模糊但头部更像”的观察及 29 留出整体值：Zip FF 17.64dB/100% 覆盖、TokenBA 17.27dB、SA pose 13.42dB/82.62%；`regions_holdout=null`，不是脸部几何真值。TokenBA 属测试时优化，不与 FF 混报。
+- Zip FF 是真人 RGB-only 覆盖基线（v18 两身份四 target）；Rosemary v27 主口径 SA pose 紧脸 ED 更低，真实身份均无独立深度。TokenBA 单列测试时优化。下一轮按总计划用固定 target 做真实三图/五图对照，检验额外视角能否改善鼻部，再决定 DensiTok 式补全投入。五图仅供离线诊断，产品仍为三图。
 - 人脸 ROI 必须逐视角目检（008 后脑勺、009 玩偶误检）；FaceMesh 原生窄带，必要时多尺度。human_fbx_gt 正确转换 `R'=C R C`、t 不变；旧生成器乘反，历史包须验证，不能凭当前生成器代码定版本。
 - 原理/排错 `splatanything/NOTES.md`；结论 `EXPERIMENTS.md`；命令 `README_wsl.md`；图 `FIGURES.md`。DA3 必读 `da3_human/ERRATA.md`。
 
