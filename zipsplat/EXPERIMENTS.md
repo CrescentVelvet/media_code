@@ -30,7 +30,7 @@ Zip的PLY，两模型没有逐高斯对应；真实source才是外观监督，SA
   锐度必须与覆盖共同解释；SA 约 17% 未覆盖，不能据锐度比单独宣称整体更清晰。
 - SA 为已知位姿，ZipSplat 为无位姿输入；单场景结果不构成普适排名。
   算法差别：SA 中心由深度 / 相机反投影，GSN 归一化间距后固定体素合并；
-  ZipSplat 从 scene token 双头直接解码高斯与输入相机。TokenBA 冻结高斯解码器，
+  ZipSplat 从 scene tokens 解码高斯、从独立 camera token 解码输入相机。TokenBA 冻结高斯解码器，
   优化 tokens 和输入 se(3)，不是重训网络。
 
 ### 单向 360° 视频与对齐修复
@@ -50,11 +50,13 @@ Zip的PLY，两模型没有逐高斯对应；真实source才是外观监督，SA
 
 ### 汇报与归档
 
-- 新版 PPT：`D:\ppt\20261121-ZipSplat复现与对比.pptx`（12 页，三图主线，含 TokenBA 原理详解）；
+- 新版 PPT：`D:\ppt\20261121-ZipSplat复现与对比.pptx`（13 页，三图主线，含 Query Token 与 TokenBA 原理详解）；
   源码 `D:\ppt\_src\20261121-ZipSplat复现与对比\`。已逐页截图检查，布局 lint 无错误。
-  第 4 页为 TokenBA 原理详解：L1 输入光度目标、冻结 GaussianHead、patch–Gaussian / robust PnP
+  第 3 页为 Query Token：scene token 在交叉注意力中作为 Q、完整几何 token 为 K、骨干 / 颜色
+  payload 为 V；动态生成而非固定场景无关查询，区分 TokenBA 优化的 Z 与 camera token。
+  第 4 页为 TokenBA 流程，第 5 页为原理详解：L1 输入光度目标、冻结 GaussianHead、patch–Gaussian / robust PnP
   → token 更新 → tokens + se(3) 联合优化，以及默认迭代 / 停止条件与输入过拟合边界。
-  第 7 页内嵌三联 360° MP4（2,904,249 字节）；PPT 包内媒体与源 MP4 大小一致。
+  第 8 页内嵌三联 360° MP4（2,904,249 字节）；PPT 包内媒体与源 MP4 逐字节一致。
 - 视频与协议：`D:\output\results\zipsplat_results\jiajia_3v_orbit_360\`；
   独立三联成品：`D:\ppt\figures\zipsplat\three_view_orbit_360.mp4`，与归档逐字节一致。
 - 16 图仅保留 TokenBA 补充证据：输入 +2.507dB、8 留出 +0.238dB；不与三图协议混报。
