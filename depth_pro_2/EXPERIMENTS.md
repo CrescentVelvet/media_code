@@ -2,6 +2,14 @@
 
 按日期倒序。实验数据与渲染在仓外，不将诊断性或失败结果包装为精度真值。
 
+## 2026-11-23 — PCD 圆盘可见性、输入检查与近景预览
+
+- 人像三帧约 177 万点/帧；`radius=clip(0.8*f/Z,0.6,2.5)` 实测全部触及 2.5px，自视角非白覆盖率 99.997%～99.999%，故缩图后 splat 近似 RGB。PCD depth 与原深度着色图完全相同像素比例 69.7%～80.7%，这是同一相机、同一深度的预期结果，不是独立几何真值。跨视角 `pcd_reprojection/` 用于观察孔洞与错位。
+- P11 左侧仍展示六个正式原图，右侧增加固定 ROI、每 8 像素取 1 点的诊断放大，直接显示离散 RGB 圆盘和 PCD depth 空洞；诊断图不是新实验结果，不替换原始 `splat/` / `pcd_depth/`。
+- P10 改为以人物为中心的相机投影近景，保留点纹、空洞与原始跨帧差异；只裁切/缩放预览，PLY 仍保留完整房间、位姿与尺度。P11 页脚移至图像下方，移除重复诊断元素。
+- **撤回本轮误报的 Z 排序 bug**：复核原 `z=z[order]` 后确认原代码一直按轴向 Z 排序，非像素 v。新旧两组 splat 与 PCD depth PNG 逐字节相同；两组 `consistency.json` 逐字段一致，模型深度、PLY 和几何结论均未改变。仅保留 `render_splat()` 显式 `(N,3)` 输入检查，防止采样维度错位。
+- 预览素材脚本 `D:/ppt/figures/depth_pro_2/_build/refine_pcd_and_splat_assets.py`，PPT 文件层更新 `_build/refine_pcd_and_splat_slides.py`。最终 18 页、27 个图片源哈希、两个原始 MP4、8 个 PLY 链接、页码、timing 全部通过，warnings 为空；PowerPoint 只读渲染目检 P10/P11。
+
 ## 2026-11-23 — 图片映射修正与 PCD 渲染口径
 
 - 用户指出 PPT 首页黑色失真、P3 架构图变 RGB、P6 RGB 变架构图。按 PPTX 图片关系与源文件 SHA-256 逐图核对，确认 P1 两图被换成 SA 图、P3/P6 对调；另发现 P15 第三张误用 target。六处已恢复为 P1 `human_rgb/depth`、P3 `architecture`、P6 `router_rgb/depth`、P15 `sa_zip`，不重跑模型、不改变实验数值。

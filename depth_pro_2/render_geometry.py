@@ -28,6 +28,9 @@ def depth_to_world(depth, K, c2w):
 
 
 def render_splat(world, colors, fr, shape, point_radius=0.8):
+    world, colors = np.asarray(world), np.asarray(colors)
+    assert world.ndim == 2 and world.shape[1] == 3, world.shape
+    assert colors.shape == world.shape, (world.shape, colors.shape)
     h, w = shape
     K, w2c = np.asarray(fr["K"]), np.asarray(fr["w2c"])
     camera = world @ w2c[:3, :3].T + w2c[:3, 3]
@@ -41,6 +44,7 @@ def render_splat(world, colors, fr, shape, point_radius=0.8):
     depth_img = np.full((h, w), np.nan, np.float32)
     color_img = np.full((h, w, 3), 244, np.uint8)
     ix, iy = np.round(u).astype(np.int32), np.round(v).astype(np.int32)
+    # Keep projected axial Z sorted far-to-near alongside the disc attributes.
     camera, colors, ix, iy, radius, z = camera[order], colors[order], ix[order], iy[order], radius[order], z[order]
     # Vectorized discs avoid millions of Python draw calls at native resolution.
     for dy in range(-2, 3):

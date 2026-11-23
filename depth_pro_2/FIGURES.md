@@ -2,6 +2,13 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
 
+## 2026-11-23 — 点云近景与圆盘诊断
+
+- `_build/refine_pcd_and_splat_assets.py`：从真实 PLY 生成 P10 人物中心近景；相机投影小角度视差、有限点绘制，只改变预览，不裁切 PLY。`_build/make_delivery_assets.py` 后续全房间预览改名为 `{scene}_pcd_world_full_views.png`，不覆盖人物近景 `human_pcd_world_views.png`。
+- `figures/splat_projection_audit.json`：记录三帧圆盘半径、覆盖、PCD depth/原始深度着色相同像素比例。P11 `human_splat_disc_diagnostic.png` 使用每 8 像素 1 点的诊断，不是新实验输出。
+- `_build/refine_pcd_and_splat_slides.py`：一次绑定近景与诊断、恢复正确图片源、8 个 PLY 链接和两个 MP4，固定 P10/P11 不重叠布局；去重后 P11 恰为六个原始图+一个诊断图。
+- 原 Z 排序 bug 归因已撤回；原始 splat/PCD depth 与备份逐字节一致，统计逐字段一致。只加 `(N,3)` 输入断言，不改变实验几何。
+
 ## 2026-11-23 — PPT 视频封面、点云预览与三帧总览
 
 - 一次性生成脚本：`_build/make_delivery_assets.py`，不入 git。
