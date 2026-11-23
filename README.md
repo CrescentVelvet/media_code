@@ -16,6 +16,7 @@ Code used for work in the blue zone.
 - [`canada_h100/`](canada_h100/) — **H100 集群（ca-uae 迪拜，`ssh h100`）专用脚本**：建个人 conda 环境、环境体检、8 卡保活占卡 + 链式续期、显卡实时监控、存储三层策略。只放「这台机器本身」的知识（分区/隐藏队列/登录节点无 GPU），**具体算法复现脚本放各自算法目录**。See its [README](canada_h100/README.md).
 
 ## Algorithms
+- [`depth_pro_2/`](depth_pro_2/) — Apple Depth Pro 2 H+ 三帧联合深度、已知相机 PCD/splat/PCD depth 视频、SfM 单位标定及未截断跨帧一致性评估。⚠️ 权重限非商业科研。See its [README](depth_pro_2/README.md).
 - [`zipsplat/`](zipsplat/) — ZipSplat 无位姿多图前馈 3DGS + TokenBA：504px 真实图像权重、PLY/预测相机导出、佳佳抱枕输入与独立留出评测。⚠️ 权重 CC BY-NC 4.0 非商用。See its [README](zipsplat/README.md).
 - [`triposplat/`](triposplat/) — one-click TripoSplat image→3D-Gaussian inference. See its [README](triposplat/README.md).
 - [`trellis-2/`](trellis-2/) — one-click TRELLIS.2 image→3D (4B) inference: GLB + PBR turntable video. See its [README](trellis-2/README.md).
