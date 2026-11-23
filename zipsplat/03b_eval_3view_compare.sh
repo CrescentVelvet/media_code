@@ -13,10 +13,12 @@ python "$SCRIPT_DIR/prepare_3view_compare.py" || exit 1
 mkdir -p "$OUT_DIR"
 echo "🚀 [03b] 3 输入 / 32 GT 相机 / 29 留出 / 中心方形 512² / 黑底"
 echo "  🎯 $CASE_FILTER（相机仅 source-only 对齐，不进入模型）"
+SAVE_VIEWS="${SAVE_VIEWS:-0,2,4,7,8,11,21,24,27,31}"
+SAVE_SELF="${SAVE_SELF:-1}"
 CUDA_HOME="$EVAL_ENV" CPATH="$EVAL_ENV/targets/x86_64-linux/include" \
   LIBRARY_PATH="$EVAL_ENV/targets/x86_64-linux/lib" \
   EXTRA_JSON="$OUT_DIR/extra_methods.json" ONLY="$CASE_FILTER" \
   OUT="$OUT_DIR/$RESULT_NAME" CROP_SQ=1 REFINE=1 EVAL_RES=512 BG=auto \
-  SAVE_DIR="$OUT_DIR/renders" SAVE_VIEWS=2,21 \
+  SAVE_DIR="$OUT_DIR/renders" SAVE_VIEWS="$SAVE_VIEWS" SAVE_SELF="$SAVE_SELF" \
   "$EVAL_PYTHON" "$MEDIA_CODE_ROOT/compare_4methods/audit_31_eval_3view.py" || exit 1
 echo "🎉 Done: $OUT_DIR/$RESULT_NAME"

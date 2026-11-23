@@ -82,9 +82,12 @@ MASK_REGIONS = [s.strip() for s in
                 (os.environ.get("MASK_REGIONS") or "person,face,hand").split(",") if s.strip()]
 
 # SAVE_VIEWS=2,21 → 把这两个 GT 视角的渲染图存成 PNG（出图/目视复核用，不影响指标）
+# SAVE_SELF=1 → 另存精确三输入的原图与各方法自身相机渲染，文件名 self_000.png；
+#               与 GT 最近邻 input3 不同，后者帧 40 存在 10 cm 位姿近似。
 SAVE_DIR = os.environ.get("SAVE_DIR", "").strip()
 SAVE_VIEWS = {int(x) for x in
               (os.environ.get("SAVE_VIEWS") or "").replace(",", " ").split()}
+SAVE_SELF = bool(os.environ.get("SAVE_SELF", "").strip())
 
 # V32=1：同口径对照跑 32 视角版（GT 侧不变；self3 层变成「渲自己相机 vs 自己 32 张输入图」，
 # 即不 warp 的 all32——32v 方法输入图就是 GT 32 帧，顺序与各家预测相机一致）
@@ -194,7 +197,9 @@ if EXTRA_JSON:
     # 每项 {name, ply, cams:[kind,path], optional_bg}；无输入位姿的 ZipSplat 只给预测 c2w。
     extra = json.load(open(EXTRA_JSON, encoding="utf-8"))
     assert isinstance(extra, list) and all({"name", "ply", "cams"} <= set(c) for c in extra)
-    CASES.extend(extra)
+    # ONLY 同样约束外接方法：避免 ONLY=SplatAnything 时又重复渲染 ZipSplat，
+    # 与其他并行任务写同一 SAVE_DIR。默认无 ONLY 时仍保留外接分支。
+    CASES.extend(c for c in extra if not ONLY or ONLY.lower() in c["name"].lower())
 
 
 def log(*a):
@@ -453,14 +458,20 @@ def main():
     in_sharp = [sharpness(cv2.cvtColor(im, cv2.COLOR_RGB2BGR)) for im in in_rgb]
     log(f"🖼️ self3 自洽口径对照: {len(in_rgb)} 张输入图 {W}×{H}")
 
-    if SAVE_DIR and SAVE_VIEWS:
+    if SAVE_DIR and (SAVE_VIEWS or SAVE_SELF):
         d = Path(SAVE_DIR) / "GT"
         d.mkdir(parents=True, exist_ok=True)
         for i in SAVE_VIEWS:
             if i < len(refs_rgb):
                 cv2.imwrite(str(d / ("v%03d.png" % i)),
                             cv2.cvtColor(refs_rgb[i], cv2.COLOR_RGB2BGR))
-        log(f"💾 已存 GT 视角 {sorted(SAVE_VIEWS)} → {d}")
+        if SAVE_SELF and not V32:
+            d = Path(SAVE_DIR) / "input_images"
+            d.mkdir(parents=True, exist_ok=True)
+            for i, im in enumerate(in_rgb):
+                cv2.imwrite(str(d / ("self_%03d.png" % i)),
+                            cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
+        log(f"💾 已存 GT 视角 {sorted(SAVE_VIEWS)} / 三输入 {SAVE_SELF} → {d}")
 
     result = {"gt": {"cams": str(GT_CAMS), "images": str(GT_IMAGES), "size": [W, H],
                      "crop": CROP,
@@ -546,6 +557,10 @@ def main():
                     W, H, sh_degree=g["deg"], packed=False,
                     backgrounds=bg[None], render_mode="RGB")
             srgb = simg[0].clamp(0, 1).mul(255).byte().cpu().numpy()
+            if SAVE_DIR and SAVE_SELF and not V32:
+                d = Path(SAVE_DIR) / (c["name"].replace(" ", "_").replace("+", "_") + "_self")
+                d.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(d / ("self_%03d.png" % iv)), cv2.cvtColor(srgb, cv2.COLOR_RGB2BGR))
             row = dict(view=iv, psnr=psnr(srgb, in_rgb[iv]),
                        ssim=float(ssim(in_rgb[iv], srgb, channel_axis=2, data_range=255)),
                        sharp=sharpness(cv2.cvtColor(srgb, cv2.COLOR_RGB2BGR)))
@@ -598,10 +613,16 @@ def main():
             row = dict(view=i, psnr=psnr(rgb, refs_rgb[i]),
                        ssim=float(ssim(refs_rgb[i], rgb, channel_axis=2, data_range=255)),
                        sharp=sharpness(bgr), coverage=cov)
-            if SAVE_DIR and i in SAVE_VIEWS:
-                d = Path(SAVE_DIR) / c["name"].replace(" ", "_").replace("+", "_")
-                d.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(d / ("v%03d.png" % i)), bgr)
+            if SAVE_DIR:
+                safe = c["name"].replace(" ", "_").replace("+", "_")
+                if i in SAVE_VIEWS:
+                    d = Path(SAVE_DIR) / safe
+                    d.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(d / ("v%03d.png" % i)), bgr)
+                if SAVE_SELF and i in idx3:
+                    d = Path(SAVE_DIR) / (safe + "_self")
+                    d.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(d / ("gt_near_v%03d.png" % i)), bgr)
             if view_masks and view_masks.get(i):
                 regs = {}
                 for rname, mk in view_masks[i].items():
