@@ -14,14 +14,15 @@
 | 人像 | `/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕` |
 | 路由器三图 | `/mnt/d/dataset/物体三图数据/路由器` |
 | 路由器长序列位姿 | `/mnt/d/dataset/物体反光数据/路由器` |
-| 用户 H+ 权重 | `/mnt/d/迅雷下载/depthpro2-h-eivtm5w7m5.pt` |
+| 归档 H+ 与 FOV 权重 | `/mnt/d/wheel/depth_pro_2_ms/` |
+| 用户原始 H+ 下载（已保留） | `/mnt/d/迅雷下载/depthpro2-h-eivtm5w7m5.pt` |
 
 ## 首次准备
 
 ```bash
 cd /mnt/c/code/media_code
 
-# ── 0) 官方代码、依赖、H+ 软链接及 FOV 权重 ──
+# ── 0) 官方代码、依赖、D:\wheel 两份权重的软链接 ──
 # 输出：~/repos/ml-depth-pro-2、~/model/depth_pro_2、~/output/depth_pro_2_results
 CONDA_ENV=sharp \
 DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
@@ -30,7 +31,7 @@ RESULTS_DIR=/home/velvet/output/depth_pro_2_results \
 bash depth_pro_2/00a_setup_env.sh
 ```
 
-若 H+ 已手动下载到其他位置，设 `CKPT_PATH=/实际路径/depthpro2-h-eivtm5w7m5.pt`。环境安装会读取 `proxy.env`；境外 GitHub/CDN 与境内 pip 镜像的代理规则不要混用。
+若 H+ 已手动下载到其他位置，设 `CKPT_PATH=/实际路径/depthpro2-h-eivtm5w7m5.pt`。默认归档为 `D:\wheel\depth_pro_2_ms\`，H+ SHA-256 为 `ae39cfb7...a818340a2a`，FOV 为 `37fd480f...fa659a0a817c4`；也可设 `WEIGHTS_DIR` 覆盖。环境安装会读取 `proxy.env`；境外 GitHub/CDN 与境内 pip 镜像的代理规则不要混用。
 
 ## 全流程命令
 
@@ -79,7 +80,7 @@ SCENE_DIR=/home/velvet/output/depth_pro_2_results/router \
 bash depth_pro_2/03_render_geometry.sh
 ```
 
-输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。
+输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。
 
 已有缓存的一键复跑：
 

@@ -51,7 +51,7 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
 ```text
 <SCENE_DIR>/
   human/
-    rgb/ depth/ normalized_inverse_depth/
+    rgb/ depth/ normalized_inverse_depth/ depth_rgb/
     pcd/00.ply ... 02.ply
     fused_no_registration.ply
     splat/ pcd_depth/ pcd_reprojection/
@@ -65,7 +65,7 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
   router_sfm/            # 三图独立 SfM 失败日志，未提供替代相机
 ```
 
-视频把每个输入帧重复三次慢放，不是生成或插值的新帧。`splat` 为远到近点圆盘渲染，**不是训练得到的 3D Gaussian Splatting**；`pcd_depth` 来自点云投影，数值自检使用未膨胀单点。
+视频把每个输入帧重复三次慢放，不是生成或插值的新帧。`splat` 为远到近点圆盘渲染，**不是训练得到的 3D Gaussian Splatting**；`pcd_depth` 来自点云投影，数值自检使用未膨胀单点。深度 RGB 与 PCD depth 统一采用官方近红远蓝的 TURBO 配色，同场景共用 2%～98% 显示范围；颜色不改变 NPZ/NPY 数值。
 
 ## Config
 

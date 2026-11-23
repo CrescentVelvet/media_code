@@ -53,11 +53,12 @@ def render_splat(world, colors, fr, shape, point_radius=0.8):
 
 
 def depth_color(depth, near, far, valid=None):
+    """Official red-near / blue-far display; depth data itself is unchanged."""
     if valid is None:
         valid = np.isfinite(depth) & (depth > 0)
     x = np.clip((depth - near) / max(far - near, 1e-8), 0, 1)
     x[~valid] = 0.5
-    color = cv2.applyColorMap(np.uint8(x * 255), cv2.COLORMAP_TURBO)[:, :, ::-1]
+    color = cv2.applyColorMap(np.uint8(x * 255), cv2.COLORMAP_TURBO)
     color[~valid] = 244
     return color
 
@@ -93,6 +94,7 @@ def main():
     (out / "pcd").mkdir(exist_ok=True)
     (out / "splat").mkdir(exist_ok=True)
     (out / "pcd_depth").mkdir(exist_ok=True)
+    (out / "depth_rgb").mkdir(exist_ok=True)
     (out / "pcd_reprojection").mkdir(exist_ok=True)
     (out / "video_frames").mkdir(exist_ok=True)
     frames = manifest["frames"]
@@ -124,6 +126,7 @@ def main():
         h, w = depth.shape
         splat, pcd_depth, coverage = render_splat(world, color, fr, (h, w))
         Image.fromarray(splat).save(out / "splat" / f"{i:02d}.png")
+        Image.fromarray(depth_color(depth, near, far)).save(out / "depth_rgb" / f"{i:02d}.png")
         Image.fromarray(depth_color(pcd_depth, near, far)).save(out / "pcd_depth" / f"{i:02d}.png")
         rendered, check_depth, reproj_cov = render_splat(world, color, fr, (h, w), 0)
         own_valid = np.isfinite(check_depth)
@@ -138,9 +141,9 @@ def main():
         Image.fromarray(rendered).save(out / "pcd_reprojection" / f"{i:02d}.png")
         combined = np.concatenate([
             label(rgb, f"{manifest['scene']} frame {i} | RGB"),
-            label(depth_color(depth, near, far), "Depth Pro 2 H+ | axial Z", f"shared range {near:.3f}..{far:.3f}"),
+            label(depth_color(depth, near, far), "Depth Pro 2 H+ | axial Z", f"near red / far blue; {near:.3f}..{far:.3f}"),
             label(splat, "PCD splat | original camera", f"point coverage {coverage:.1%}"),
-            label(depth_color(pcd_depth, near, far), "PCD depth | original camera", "same pose, no per-frame alignment"),
+            label(depth_color(pcd_depth, near, far), "PCD depth | original camera", "near red / far blue; same pose"),
         ], axis=1)
         Image.fromarray(combined).save(out / "video_frames" / f"{i:02d}.jpg", quality=93)
         print(f"✅ frame {i}: {len(pts):,} PCD points, splat coverage={coverage:.1%}")
@@ -155,6 +158,7 @@ def main():
         "registration": "none; no ICP, no per-frame scale fitting",
         "scale_source": "one pooled sparse-SfM depth scale" if scale_path.is_file() else "original camera units",
         "depth_display_range": [float(near), float(far)],
+        "depth_colormap": "OpenCV TURBO RGB; red near, blue far; shared 2%-98% scene range",
         "splat": "finite world-radius point splats with far-to-near ordering; not 3D Gaussian Splatting",
         "point_count": [len(p) for p in full_world],
         "pcd_reprojection": "other two frames rendered into each original camera; not novel-view ground truth",
