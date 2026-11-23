@@ -2,6 +2,15 @@
 
 按日期倒序。实验数据与渲染在仓外，不将诊断性或失败结果包装为精度真值。
 
+## 2026-11-23 — 18 页成果交付：视频、PLY 与逐帧渲染
+
+- `D:/ppt/20261123-DepthPro2算法实验与SA管线分析.pptx` 由 12 页扩为 **18 页**。P9/P12 分别内嵌人像、路由器 `rgb_depth_pcd_comparison.mp4`；P10/P13 展示真实 PLY 抽样的三帧与融合点云预览，并各提供三个逐帧和一个融合原始 PLY 链接；P11/P14 直接展示两组各三帧 splat 与 PCD depth 原图及文件名。原 SA 页移到 P15，三张真实图片仍保留。
+- 两段 MP4 均为 9 帧 / 1 fps / 9 秒，嵌入后字节与原始视频逐字节相同：人像 5,305,546 bytes，SHA-256 `a9572357e61d6a8e747fe4dbdebd48a4098f18d5c880278d4ca76d8aee1d36ef`；路由器 2,068,728 bytes，SHA-256 `cdb31771a7fd2d08bca8d7b4e24d1fffc4a0374429caaf967b3f56b0cad4d609`。video/media relationships 与播放 timing 齐全。
+- 8 个 PLY 链接均存在，无重复文本框或 `0000e*` 错链；链接是本机 `D:/output/results/depth_pro_2_results/` 文件入口，原始 PLY 不嵌入 PPTX。跨机使用时保留正式结果目录，不能用二维预览替代三维文件。
+- 编辑器兼容性：重开可能丢本地链接、保存可能剥掉 MP4 字节并重分配形状 ID。最终顺序固定为页面编辑/链接修复 → 保存并为媒体处理释放实例 → `_build/embed_delivery_videos.py` 最后嵌入 → 只读 ZIP 校验和 PowerPoint 渲染。此后不再调用编辑器保存。
+- 验收：18 页 ZIP 完整；P9–15 由本机 PowerPoint 只读导出并目检，视频封面保持原四联画幅，六张逐帧图无旧拼图遮挡，P15 三图非空。报告 `D:/output/results/depth_pro_2_results/ppt_delivery_validation.json`；版式/再生成约束见 `D:/ppt/_src/20261123-DepthPro2算法实验与SA管线分析/DESIGN.md`；素材台账见 `FIGURES.md`。
+- 此轮只修改展示与交付，不重跑模型，不改变深度、PLY、尺度或“两组均局部一致”的结论。
+
 ## 2026-11-23 — 权重归档、近红远蓝与 SA 接入判断
 
 ### 交付修订
