@@ -1,6 +1,6 @@
 # SplatAnything（InfiniSplat v3）原理与排错
 
-本文件记录源码机制、排错及明确标注的候选架构；运行命令见 [README_wsl.md](README_wsl.md)，
+本文件记录源码机制、排错及明确标注的候选架构；服务器运行见 [README.md](README.md)，本机 WSL 运行见 [README_wsl.md](README_wsl.md)，
 实测数字见 EXPERIMENTS.md。候选设计不是已实现功能或实验结论。
 
 官方仓：<https://github.com/zju3dv/SplatAnything>（commit `b518996`，2026-11-12 clone）
