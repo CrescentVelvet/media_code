@@ -28,7 +28,7 @@ SCENE_DIR=../depth_pro_2_results \
 GPU=0 bash depth_pro_2/04_run_all.sh
 ```
 
-单场景已有缓存时，仅重跑几何与一致性，不重复 H+ 推理：
+单场景已有缓存时，仅重跑几何与一致性，不重复 H+ 推理。`02b_run_single_frame_inference.sh` 是独立单帧对照：每组三帧分别调用 `model.infer(T=1)`，不共享跨帧特征；`render_single_frame_splat_depth.py` 用原始相机生成全部有效点的自身视角 PCD splat / PCD depth。路由器仍继承联合实验的整组 SfM 尺度，禁止逐帧尺度配准。具体命令见 [README_wsl.md](README_wsl.md)。
 
 ```bash
 SCENE_DIR=../depth_pro_2_results/human bash depth_pro_2/03_render_geometry.sh

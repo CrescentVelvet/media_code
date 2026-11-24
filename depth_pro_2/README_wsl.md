@@ -97,7 +97,20 @@ for SCENE in human router; do
     ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_full_view_splat_depth.py
 done
 # 输出 view_splat_depth_full_9views/：18 PNG + 9 相机 JSON + 审计/来源哈希。
-# 点数：human 5,289,530；router 3,981,312。
+# ── 4d) 独立单帧对照：三次 T=1 推理 + 各帧原相机全点投影 ──
+# 不覆盖三帧联合结果；原始输入、K、fx 和 H+ 权重相同。
+env DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
+  CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-h-eivtm5w7m5.pt \
+  FOV_CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-fov-ew55zg4kq7.pt \
+  RESULTS_DIR=/home/velvet/output/depth_pro_2_results \
+  GPU=0 OFFICIAL_REVISION=aa389cbb0b74341664ed663a0966c859905cd6c0 \
+  bash depth_pro_2/02b_run_single_frame_inference.sh
+for SCENE in human router; do
+  env SCENE_DIR=/home/velvet/output/depth_pro_2_results/$SCENE \
+    ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_single_frame_splat_depth.py
+done
+# 输出 single_frame/{depth,normalized_inverse_depth,own_camera_splat_depth}。
+# 无跨帧注意力/融合/ICP/逐帧尺度；路由器复用联合实验整组尺度。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。

@@ -2,7 +2,12 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
 
-## 2026-11-23 — 全点九视角与 42 页 PPT
+## 2026-11-24 — 独立单帧 PCD 对照与 44 页 PPT
+
+- 两组 `single_frame/own_camera_splat_depth/` 各有三帧 splat/PCD depth、相机 JSON 与全点审计；正式素材为 `assets/{scene}_single_{00..02}_{splat,pcd_depth}.png`，与实际渲染 SHA-256 一致。单帧推理与相机口径见 `README_wsl.md`、`EXPERIMENTS.md`。
+- `build_single_frame_splat_depth_ppt.py` 必须从已验收 42 页备份生成，不能在 44 页上重复插入。新页为 **P14 佳佳抱枕、P31 路由器**，各位于该组三视角 10 万点投影之后；每页六张原比例图与可编辑说明，保留全部既有媒体/链接。
+- `verify_single_frame_splat_depth_ppt.py` 还原临时 42 页顺序并复用原 42 页验收，再核对新增 12 图、独立 T=1 审计、源深度与页脚。最终 **44 页 / 88 图片源 / 2 视频 / 8 PLY / 零警告**。它复用 `verify_full_view_splat_depth_ppt.py` 的 SciPy 相机检查，在 Windows 下把 `PYTHONPATH` 指向同时含 PPT 依赖与 SciPy 的环境运行，不改变 PPT 内 `D:/` PLY 链接。
+- 只读 PowerPoint 导出 `_build/final_render_single_frame/Slide1.PNG～Slide44.PNG`；P14/P31 实际目检通过，P9/P24 视频未重嵌或重编码。完成编辑与保存后不再由旧预览实例回写。
 
 - `render_full_view_splat_depth.py`：两组各九视角、每视角 splat/depth，全部有效点不抽样；输出在两组 `view_splat_depth_full_9views/`。PPT 素材为 `assets/{scene}_full_{view}_{kind}.png`，共 36 张，与实际渲染 SHA-256 一致。
 - `build_full_view_splat_depth_ppt.py`：从 24 页输入生成 42 页，每组九页分别插到该组 10 万点页面后。每添加一页立即移动 XML 页序元素；不重命名 slide part、不做末次文件名重排。`verify_full_view_splat_depth_ppt.py` 验证 76 个图片源、2 视频、8 PLY、相机、点数与源哈希。
