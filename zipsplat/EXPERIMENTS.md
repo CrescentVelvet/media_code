@@ -1,5 +1,87 @@
 # ZipSplat 实验记录
 
+## 2026-11-24 · ZipSplat × LGTM 接入调研（候选设计，未训练）
+
+### 问题边界
+
+本地已复现的是官方 `zipsplat-da3g-504` 权重推理，而非从零训练。当前目标是判断能否借用
+LGTM 的**低分辨率几何 + 原始高分辨率图片取纹理 + 每基元局部纹理 + 可导 2DGS 渲染**，
+改善 ZipSplat 纯前馈偏软的问题；不假定三图人像、2K 或 4K 已可实用。主计划 N2 仍冻结，
+本轮只读核对官方仓 commit `73ab63f048fcc15ee54ada4ef9cdd79b925611a8`，未修改源码或启动 GPU。
+
+### 本地实测给出的动机，不是提升承诺
+
+- 佳佳三图 29 留出：Zip FF `17.6399 dB / SSIM .4558 / 锐度比 .1149 / alpha>.5 覆盖 100%`；
+  TokenBA `17.2682 / .4729 / .2953 / 99.99%`。TokenBA 提升锐度与 SSIM，PSNR 反降 `.3717 dB`，
+  不能当全面提升，更不能把测试时优化算作纯前馈成绩。
+- 两个近静态真人身份 RGB-only：Zip FF 灰衣/黑衣两 target 整图 PSNR 均值 `15.48/16.99 dB`、
+  四帧均保住人物、覆盖 `100%`，但脸软且有重影。Rosemary 主口径紧脸 ED 均值 `27.29 mm`，
+  SA known-pose 为 `7.34 mm`；不支持“Zip 几何已独立证明更好”。
+- 因而 LGTM 最可能先改善**有正确几何支撑区域的高频外观与 LPIPS**；对鼻部错层、眼嘴错位、
+  遮挡错误和无观测区域不作几何改善承诺。投影纹理在错误盘面上会更锐地贴错位置。
+
+### 源码接口与 LGTM 的天然接点
+
+- `models/decoders/gaussian_head.py:64-84,197-231`：每 scene token 展开 G 个自由高斯；
+  每高斯 23 维 = position3 / scale3 / quat4 / opacity1 / SH1 12；无局部 UV、纹理或 ray 交点。
+  504 发布配置 `configs/zipsplat_ft504.yaml:8-19` 为 G=16、SH dropout .5。
+- `models/networks/zipsplat.py:229-292,302-380`：逐 patch geometry token → 可微簇均值 scene token
+  → 多层视觉/颜色 CA → GaussianHead；`assignments` 保存每个源 patch 属于哪个簇。
+  `models/losses.py:221-263` 的 ConeLoss 已把高斯投回全部成员 patch，说明“高斯—源 patch—相机”
+  所需归属和投影链可复用，比无观测来源的 learned query 更适合接 LGTM。
+- **但每个 scene token 有多个源 patch、多个高斯**。LGTM 的像素网格一对一局部纹理不能直接照搬：
+  须给每个自由高斯建立稳定局部切平面/UV、尺度与朝向，并按成员源视角选主源或做多源置信融合；
+  视线角、投影 footprint、前表面可见性/遮挡、跨源接缝须纳入。Cone 只约束中心横向落点且允许
+  2 patch 自由区，不保证平面贴合、完整像素对应或遮挡正确。
+- `zipsplat/gaussians.py:175-190,213-272` 使用上游 gsplat 3DGS rasterization 与普通 3DGS PLY。
+  必须换成支持 ray–surfel UV 与 texture_colors（以及可选 texture_alphas）的 LGTM 补丁版 gsplat，
+  并新增图元、纹理图集、源视角/UV 元数据导出；原 PLY 无法保存这些属性。
+- TokenBA 冻结 GaussianHead 并优化 scene tokens + 相机；新增纹理后，相机或 token 更新会改变投影取纹理。
+  可选择重新取纹理/联合优化纹理 latent，但必须保留微分链和源成员关系，不能把旧纹理当静态贴片。
+
+### 必改模块
+
+1. **几何表示**：保留 DA3 backbone、geometry/scene token、k-means、GeoCE 与相机头；
+   把 GaussianHead 拆成几何 readout 与外观 readout。普通 3DGS 尺度/旋转需适配成 2D surfel，
+   规定稳定法向、切向、UV 原点和局部跨度，首阶段禁止自由移动中心以隔离变量。
+2. **高分辨率纹理支路**：保留低分辨率 backbone；另传未降采样 source RGB 与一致 K。
+   由 assignments 得到候选成员源 patch；将每个 surfel 的 UV 网格投回源图，按可见性/视角/
+   footprint 选源或融合，采样 RGB 作 base，轻量 texture head 预测 delta；SH 留低频视角色。
+3. **可导渲染与导出**：接入纹理 2DGS 光栅化及反向；RGB 先沿用高斯 alpha，alpha 纹理后测；
+   旧 PLY/viewer 不能无损承载，需新导出格式。控制总 texel、纹理分辨率和重复源存储。
+4. **训练与评测接口**：图像 crop/resize 同步变换原图 K；target 仅提供渲染位姿与 RGB 监督，
+   不进 source 编码或取纹理。保存成员索引、可见性和冻结参数/几何 hash，排除“冻了名字没冻输出”。
+
+### 分阶段训练建议
+
+| 阶段 | 参数与数据 | 回答的问题 / 通过条件 |
+|---|---|---|
+| Z0 免训练基线 | 原 504 权重；提高 TokenBA source 渲染/监督分辨率，FF 与 BA 分列 | 高分辨率 TTO 本身能恢复多少；不冒充 LGTM 或纯前馈提升 |
+| Z1 普通 2DGS | 冻结 backbone/token/中心；先适配 surfel 尺度/朝向，仍 SH 颜色；高分辨率独立 target 监督 | 表示转换是否退化。若普通 2DGS 已明显损失，先修几何，不能归咎纹理不足 |
+| Z2 RGB 局部纹理 | 固定中心/几何 hash；训练新投影与 delta 纹理层；原图 source + target RGB/LPIPS | 高频外观、LPIPS、总 texel、显存/耗时是否改善，且几何/覆盖不塌 |
+| Z3 受控扩展 | 逐项 alpha 纹理、T=2/4/8、纹理 TokenBA；仅必要时小 lr/LoRA 适配几何 | 哪项有独立增益；若变清但错层/重影增加则停止，不用更大骨干掩盖问题 |
+
+正式 LGTM 在静态场景先高分辨率训练普通 2DGS，再冻结非纹理参数训练纹理层；这支持上述
+优先级，但不证明 ZipSplat 只训 LoRA 就足够。Zip 原训练为 252、450K 步/16×GH200、4 target，
+504 微调 100K 步；这些不是本机小试预算。按主计划若未来获批，首轮只做 ≤100 步工程门，
+再选一个基座做受控人物/通用数据对照，不并行两套大训练，不宣称单卡 3090 可复现官方全量训练。
+
+### 数据、损失与验收
+
+- 训练需同静态场景/身份的高分辨率 source RGB、同步准确 K/位姿、独立 target RGB/相机；
+  保留 cone/GeoCE/pose 作为原几何辅助约束，新增高频 target RGB+LPIPS。GeoCE 训练锚点来自
+  DA3 + GT 相机预计算；pose-free 推理不等于训练无先验。人物近静态微动须单列。
+- 首轮 `T=2/4`、RGB-only 是工程起点，不是最优档承诺。固定 backbone 内部分辨率、基元数、
+  target 集合、低通对照；逐臂报输入/网络/输出/纹理四分辨率、总 texel、训练及推理显存/耗时。
+- 主看未见身份、留出视角紧脸 LPIPS、衣服文字/抱枕五官细节、alpha 覆盖、轮廓/重影；
+  合成可信 GT 才报鼻部 ED/p90，真人无深度不报毫米。输入自洽变锐只说明纹理获取能力。
+- 停止条件：无纹理 2DGS 已退化、纹理只复制错位源图、跨源接缝/遮挡恶化、总 texel/渲染成本
+  抵消少高斯优势、或 FF 无收益而只有 TokenBA 变锐。此时回到几何/相机/融合诊断，不继续加纹理。
+
+预期结论按条件表述：**几何基本正确且源图可见处，最可能提升高频外观/LPIPS，减少为细节继续堆
+高斯的需求，并允许 backbone 保持低分辨率；几何错层、跨视角冲突和无观测区域不会自动修复。**
+LGTM 多视 VGGT 论文也只到约 2K，未实现多视 4K，故本方案不承诺三图人像 4K。
+
 ## 2026-11-23 — PPT 二次扩版为 24 页：每视角一页整行四联
 
 - 用户反馈第 7–9 页多行网格被 PPT 框上下裁切 → 改为**每视角一页**：输入 ×3
