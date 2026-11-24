@@ -55,6 +55,10 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
     pcd/00.ply ... 02.ply
     fused_no_registration.ply
     splat/ pcd_depth/ pcd_reprojection/
+    single_frame/
+      depth/ normalized_inverse_depth/ own_camera_splat_depth/
+      pcd/00.ply ... 02.ply  # 独立 T=1 推理，全部有效点，不抽样/不融合
+      pcd/pcd_export_audit.json
     rgb_depth_pcd_comparison.mp4
     crossview_pcd_comparison.mp4
     view_splat_depth_100k/ # 输入/内插/外插三视角，固定 10 万点 splat/depth

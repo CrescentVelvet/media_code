@@ -109,8 +109,16 @@ for SCENE in human router; do
   env SCENE_DIR=/home/velvet/output/depth_pro_2_results/$SCENE \
     ~/miniconda3/envs/sharp/bin/python depth_pro_2/render_single_frame_splat_depth.py
 done
-# 输出 single_frame/{depth,normalized_inverse_depth,own_camera_splat_depth}。
+# 输出 single_frame/{depth,normalized_inverse_depth,own_camera_splat_depth,pcd}。
 # 无跨帧注意力/融合/ICP/逐帧尺度；路由器复用联合实验整组尺度。
+
+# ── 4e) 已有单帧深度时：仅导出六个逐帧 PLY，不重跑模型 ──
+for SCENE in human router; do
+  SCENE_DIR=/home/velvet/output/depth_pro_2_results/$SCENE \
+    ~/miniconda3/envs/sharp/bin/python depth_pro_2/export_single_frame_pcd.py || exit 1
+done
+# 输出各场景 single_frame/pcd/{00,01,02}.ply 与 pcd_export_audit.json。
+# 全部有效点、原 c2w、原 RGB；回读校验坐标/颜色/来源，不额外合并三帧。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。
