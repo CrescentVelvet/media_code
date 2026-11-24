@@ -77,6 +77,23 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
 
 `render_full_view_splat_depth.py` 为全点九视角版本：每组使用三帧融合 PCD 的全部有效点，不抽样；佳佳 5,289,530 点，路由器 3,981,312 点。输入为真实 Frame 00/01/02；内插为 00→01、01→02、00→02 的 `t=0.5`；外插为 00→01 `t=-0.5`、01→02 `t=1.5`、00→02 `t=-0.25`。虚拟相机使用第二端点 K；没有新几何或采集图像。输出 `view_splat_depth_full_9views/` 的 18 张 PNG、相机 JSON、点数/源 PLY/源深度哈希与审计，不重复写大 PLY。
 
+## 视频输入：官方 buffered 滑窗
+
+`05_run_video_inference.sh` 用官方 `infer_video(window=16, overlap=4, mode="buffered")` 逐帧处理整段视频，默认使用第一窗口估计的全视频共享焦距；`06_render_video_results.sh` 输出 RGB/深度并排 MP4、代表帧局部相机 PLY、PCD splat/depth 与来源审计。视频没有标定 K / 相机位姿时，**不得把逐帧局部 PCD 拼成已注册世界坐标点云**。官方天空逆深度可为 0、深度为 `inf`，只从有限深度导点；展示时以共同色阶保留无有限点区域，不伪造深度。
+
+```bash
+VIDEO_PATH=/mnt/c/Users/wangyufeng/Downloads/7ef19637-35f5-4473-8b59-9241e1a083a7.mp4 \
+OUT_DIR=/mnt/d/output/results/depth_pro_2_results/video_7ef19637 \
+DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
+CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-h-eivtm5w7m5.pt \
+FOV_CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-fov-ew55zg4kq7.pt \
+WINDOW=16 OVERLAP=4 FRAME_STRIDE=1 MAX_SIDE=1280 GPU=0 \
+bash depth_pro_2/05_run_video_inference.sh
+SCENE_DIR=/mnt/d/output/results/depth_pro_2_results/video_7ef19637 \
+PCD_FRAME_STRIDE=30 RGB_FROM_SOURCE=1 \
+bash depth_pro_2/06_render_video_results.sh
+```
+
 ## Config
 
 | 变量 | 含义 |
