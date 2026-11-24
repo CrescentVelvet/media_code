@@ -2,6 +2,13 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
 
+## 2026-11-24 — 整段视频两页与 46 页 PPT
+
+- **P41 猴子、P42 鸵鸟**：分别嵌入 `video_7ef19637/rgb_depth_comparison.mp4` 与 `video_a964d156/rgb_depth_comparison.mp4`，均为原 RGB／全场景深度两栏；封面 `assets/{scene}_rgb_depth_poster.png` 来自各自首帧，不使用点云或近景第三栏。
+- `build_video_results_ppt.py` 必须从已验收 44 页备份构建；两页先临时追加，再统一移除追加块、按顺序插入 SA 前，避免连续同锚点倒序或重复 slide 关系。保存后检查 ZIP 唯一条目与 46 个唯一页面关系。
+- `verify_video_results_ppt.py` 在临时包还原旧页序、页脚并剔除新增页关系及媒体，复用 42/44 页验收；再检查新视频字节、封面、播放 timing 和页脚。最终 **46 页 / 90 图片源 / 4 视频 / 8 PLY / 零警告**。
+- PowerPoint 只读导出 `_build/final_render_video_results/`；新增两页说明区在视频下方，不能越出画布。SA 顺延 P43–46。原始视频 SHA-256 猴子 `e2e217fb...08477`、鸵鸟 `ef1a89ca...e082`，PPT 内嵌字节一致。
+
 ## 2026-11-24 — 独立单帧 PCD 对照与 44 页 PPT
 
 - 两组 `single_frame/own_camera_splat_depth/` 各有三帧 splat/PCD depth、相机 JSON 与全点审计；正式素材为 `assets/{scene}_single_{00..02}_{splat,pcd_depth}.png`，与实际渲染 SHA-256 一致。单帧推理与相机口径见 `README_wsl.md`、`EXPERIMENTS.md`。
