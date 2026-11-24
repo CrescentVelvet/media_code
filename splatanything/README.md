@@ -2,7 +2,7 @@
 
 在 Ubuntu + NVIDIA 服务器上运行 [SplatAnything](https://github.com/zju3dv/SplatAnything)：多张 RGB 图一次前馈输出 3D Gaussian PLY、点云、相机与逐视角深度。支持模型自估位姿（`rgb`）和已知相机（`pose`）两种模式。本目录只含编排脚本，官方代码自动 clone，不复制进本仓。
 
-> 📄 本机 WSL 路径与人脸研究命令见 [README_wsl.md](README_wsl.md)；GSN、相机坐标及排错见 [NOTES.md](NOTES.md)；本机实测与人脸实验见 [EXPERIMENTS.md](EXPERIMENTS.md)。本文是基础推理链的服务器说明，**尚未在服务器上完整实跑**。
+> 📄 本机 WSL 路径与人脸研究命令见 [README_wsl.md](README_wsl.md)；GSN、相机坐标及排错见 [NOTES.md](NOTES.md)；本机实测与人脸实验见 [EXPERIMENTS.md](EXPERIMENTS.md)。本文基础前馈未在服务器完整实跑；35 号 LGTM 小试已在独立 H100 环境实测。
 
 ## 复现边界
 
@@ -13,6 +13,7 @@
 | 前馈推理、GSN、固定体素合并、标准 3DGS PLY | ✅ 官方代码与公开权重 |
 | 自洽渲染、PLY 往返、留出视角评测 | ✅ 本仓自接 `gsplat` |
 | 训练成本探针 | ⚠️ 研究脚本，仅训练属性头 |
+| LGTM 纹理小试（35） | ⚠️ 单场景、冻结几何；投影链通过，画质未通过 |
 | 官方训练与论文表格精确复现 | ❌ 发布包不支持 |
 
 ## 常用命令
@@ -277,6 +278,34 @@ GPU=0 CONDA_ENV=splatanything \
 ```
 
 09 冻结 encoder、深度、相机与 means，只开放两个高斯属性头；`steps` / `all` 是本地损失、优化器与 checkpoint 的研究性探针。不要把输出称作官方 stage-1/2 训练结果。
+
+## 可选：LGTM 式局部纹理小试（35，研究脚本）
+
+`35_lgtm_texture.py` 借用 LGTM 的源图投影局部纹理、textured 2DGS 与可学习 RGB 残差。两臂都在 **SA 体素合并前**保留逐源图元、冻结几何和透明度，仅压平最小厚度轴、保留两条切向尺度。`lgtm` 使用 K=4 纹理，`plain` 使用每图元一个 RGB 残差；二者参数量不同，不是等参数消融。**这不是 LGTM 官方跨场景训练、DepthSplat 权重实验或 4K 复现，也未通过视觉验收，勿用于人物主线。**
+
+```bash
+# 独立环境：不要覆盖原 SA 作业使用的 gsplat。
+# 在 GPU 节点编译 patched gsplat，官方 LGTM 仓保持只读。
+git clone https://github.com/apple-aiml-research/ml-lgtm ../ml-lgtm
+conda create -p /data/00950754/envs/splatanything_lgtm python=3.11 -y
+/data/00950754/envs/splatanything_lgtm/bin/pip install torch==2.7.1 torchvision
+/data/00950754/envs/splatanything_lgtm/bin/pip install -r ../SplatAnything/requirements.txt
+/data/00950754/envs/splatanything_lgtm/bin/pip install --no-build-isolation --no-deps -e ../ml-lgtm/extern/gsplat
+/data/00950754/envs/splatanything_lgtm/bin/pip install jaxtyping einops scipy pillow
+
+# 在 media_code 目录执行；09 与 35 放在同一目录，输出放到仓外。
+SPLATANYTHING_DIR=../SplatAnything \
+SPLATANYTHING_MODEL_DIR=../../model/splatanything \
+LGTM_DIR=../ml-lgtm \
+/data/00950754/envs/splatanything_lgtm/bin/python splatanything/35_lgtm_texture.py \
+  --scene ../SplatAnything/examples/object --pose-mode --res 252 \
+  --n-source 3 --texture-size 4 --steps 40 \
+  --out ../splatanything_results/lgtm40_object
+```
+
+H100 已用环境 `/data/00950754/envs/splatanything_lgtm`，该环境从 `../ml-lgtm/extern/gsplat` 以可编辑方式安装渲染包。复现服务器原结果时将 `LGTM_DIR=../ml-lgtm_official`。首次在新的官方 LGTM commit 上复跑前须核对纹理接口；本次使用 commit `587c121`，Python 3.11 + torch 2.7.1+cu126。不要加载 `gsplat_rayfix` 实验副本。
+
+输出 `report.json`、`smoke.json`、双臂 checkpoint、逐视角 GT/before/after/diff 和 alpha。先确认 `smoke.projection_center_identity.passed=true` 及 `initial_consistency` 两差为零，再读训练曲线；**数值门通过不代表画质通过**。正式报告、读数和实图结论见 [EXPERIMENTS.md](EXPERIMENTS.md)，投影与半像素约定见 [NOTES.md](NOTES.md)。
 
 ## 目录布局
 

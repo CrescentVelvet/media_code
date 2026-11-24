@@ -8,6 +8,16 @@
 
 ---
 
+## LGTM 纹理小试的投影契约（2026-11-24，已实测）
+
+`35_lgtm_texture.py` 只借用 LGTM 的源图投影局部纹理、textured 2DGS 与 RGB 残差，不是官方跨场景训练。SA 解码后的图元在体素合并前按 `[source, y, x]` 保留来源；几何与透明度冻结，只把最小厚度轴压成局部 Z，两个原切向尺度不改成小圆盘。`plain` 以相同未合并 surfel 和每图元 RGB 残差作对照，避免把几何变化误算为纹理收益。
+
+- patched gsplat 使用 `final_color = sampled_texture_color + base_color`；本脚本直接传 post-activation RGB，纹理表示相对 SA 底色的差值。普通臂仅返回残差，不能重复添加底色。纹理 alpha 使用 Gaussian，不引入额外可学习覆盖。
+- 原始 fused CUDA 的数学矩阵为 `M=[K@R[:,:2]*scale, K@means]`；packed/fused 均一致，不能再将第三列换成未乘 K 的 `means`，也不能用独立副本把矩阵写成 `M[j][i]`。独立 `rayfix` 目录不启用、不入库。
+- SA lifting 的齐次中心位于整数 `(u,v)`，而 `grid_sample(align_corners=False)` 的源像素坐标要 `(coord+0.5)/W`。本实验必须且只加这一次 `+0.5`。LGTM 官方 `project_texture_colors()` 不写该偏移；这是不同 lifting/源采样契约的差异，不是 CUDA 转置 bug。删除偏移在真实 SA 小例会产生约 0.5 px 误差。
+- 投影门检查像素 ramp 的 x/y、source ID、解析矩阵、packed 顺序、全 texel 同坐标采样以及 float64 像素回投。近奇异 surfel 的 float32 cross-product UV 大差不等于来源错配；常规 UV 反解与真实像素空间误差分别保留。自然 RGB 对整数像素取样的差含亚像素双线性插值，只作诊断，不能单独判投影失败。
+- 硬门通过后还需检查 train/eval/初始渲染一致、主 MSE 梯度及参数真实更新。即使这些全部通过，仍必须目检源图和留出图。本轮有密集网格、局部过曝与摩尔纹，不能以 PSNR 上升代替画质验收。数值及输出见 EXPERIMENTS.md。
+
 ## 深度倍率和场景整体缩放的区别（2026-11-24）
 
 三台相机中心固定，每张源图的前景点沿自己的相机射线按同一个倍率调整深度。因为三条射线从不同位置出发，这一步会改变各源表面的相对位置，并能改变新视角下的鼻部层距。若将相机间距和整个场景一起缩放，投影关系会保留，无法做这个诊断。为避免用验收答案调倍率，取已知相机基线和源图的跨视图纹理对应作为距离参照；对应不足时回退。完整高斯与点云的可见性不同，应分别验收。[两静态身份实测](EXPERIMENTS.md)
