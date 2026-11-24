@@ -57,18 +57,24 @@ def load_target_cams(scene):
     return [extr[i] for i in ids], [intr[i] for i in ids], ids
 
 
-def estimate_sim3(res, source_scene):
+def estimate_sim3(res, source_scene, source_ids=None):
     """用 source 相机对（场景 prior ↔ 结果 cameras.json）估计模型系 Sim(3)。
 
-    返回 (s, R, T, 残差list)。c2w_model[i] = [sR|T] @ c2w_prior[i]，
+    返回 (s, R, T, 残差list)。c2w_model[i] 的旋转为 R@R_prior，
+    相机中心为 s*R@C_prior+T；不是把完整 4x4 相机乘以非刚体 [sR|T]。
     R = R_res[0] @ inv(R_prior[0])（res[0]≈I 时即 inv(R_prior[0])），
     s = res/prior 相机中心间距比中位数，T 由第 0 对解出。
+    source_ids 可显式冻结原三锚点；五图新增的 source 不得隐式进入对齐。
     """
     d_prior = json.loads((source_scene / "prior_camera.json").read_text())
     d_res = json.loads((res / "cameras.json").read_text())
     P = {e["camera_id"]: np.asarray(e["matrix"], np.float64) for e in d_prior["extrinsics"]}
     Q = {e["camera_id"]: np.asarray(e["matrix"], np.float64) for e in d_res["extrinsics"]}
     ids = [k for k in P if k in Q]
+    if source_ids is not None:
+        ids = [k for k in source_ids if k in P and k in Q]
+        if len(ids) != len(set(source_ids)):
+            raise RuntimeError("Explicit source anchors are missing from camera export")
     if len(ids) < 2:
         raise SystemExit("❌ source 相机对不足，无法估计 Sim(3)")
     k0 = ids[0]
