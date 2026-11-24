@@ -79,7 +79,7 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
 
 ## 视频输入：官方 buffered 滑窗
 
-`05_run_video_inference.sh` 用官方 `infer_video(window=16, overlap=4, mode="buffered")` 逐帧处理整段视频，默认使用第一窗口估计的全视频共享焦距；`06_render_video_results.sh` 输出 RGB/深度并排 MP4、代表帧局部相机 PLY、PCD splat/depth 与来源审计。视频没有标定 K / 相机位姿时，**不得把逐帧局部 PCD 拼成已注册世界坐标点云**。官方天空逆深度可为 0、深度为 `inf`，只从有限深度导点；展示时以共同色阶保留无有限点区域，不伪造深度。
+`05_run_video_inference.sh` 用官方 `infer_video(window=16, overlap=4, mode="buffered")` 逐帧处理整段视频，默认使用第一窗口估计的全视频共享焦距；`VIDEO_ONLY=1 bash depth_pro_2/06_render_video_results.sh` 只输出原 RGB／全场景深度并排 MP4，不生成 PCD 或额外表格。省略 `VIDEO_ONLY` 时，旧模式另输出代表帧局部相机 PLY、PCD splat/depth 与来源审计。视频没有标定 K / 相机位姿时，**不得把逐帧局部 PCD 拼成已注册世界坐标点云**。官方天空逆深度可为 0、深度为 `inf`，只从有限深度导点；展示时以共同色阶保留无有限点区域，不伪造深度。
 
 ```bash
 VIDEO_PATH=/mnt/c/Users/wangyufeng/Downloads/7ef19637-35f5-4473-8b59-9241e1a083a7.mp4 \
