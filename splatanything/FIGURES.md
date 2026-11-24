@@ -1,5 +1,9 @@
 # 出图台账（PPT / 汇报用）
 
+## 2026-11-24 真值点云与刚性配准续页
+
+同一份 `D:/ppt/20261124-三图人脸双影逐层追踪.pptx` 扩至 20 页。P15 静态两人同机位深度替换，P16 三张 DP2 独立单帧的各源位置，P17 四帧鼻区米制读数，P18 黑衣 49 实拍与两种刚性修正，P19 真值点云经自动配准的负对照，P20 路线决策。沿用下方源码与再生成命令，新素材在 `assets/rigid`。实图、PowerPoint 导出预览及 `slides15-20.jpg` 在 `D:/output/results/splatanything_results/rigid_face_20261124/`，原 14 页备份在 `D:/output/_backup/media_code_rigid_20261124_cf6db43a/original14.pptx`。P16 为等权叠加，P17 为最近可见点深度；Rosemary 34 的 DP2 前后只有单源支持。
+
 ## 2026-11-24 三图免训练脸部对齐续页
 
 `D:/ppt/20261124-三图人脸双影逐层追踪.pptx` 已从 8 页扩充到 14 页。第 9 页黑衣 49 整头实图，第 10 页佳佳两留出紧脸及扩展区差异，第 11–12 页合成鼻区几何与同机位实图，第 13 页灰衣两留出，第 14 页后续取舍。沿用同一源码工程，新增图片位于 `assets/align`。用 PowerPoint 导出 14 页，前 8 页预览与前版逐像素一致。新预览和九脸框总图在 `D:/output/results/splatanything_results/face_alignment_20261124/`；前版备份位于 `D:/output/_backup/media_code_face_alignment_ppt_20261124/`。再生成命令见下节。

@@ -4,6 +4,54 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-24 · 三张脸为何分开：真值深度替换与脸部刚性配准
+
+**保留原版 SA（P0）。** 在静态人头上，只换成真值深度，原来的投影流程就能把鼻部拼回留出位置。黑衣真人上，两张源脸可以靠刚性移动大幅收拢，但收拢后的脸偏离实拍下颌，脸和头发、脖子之间出现接缝。两项实验分别回答“投影能不能对”和“靠搬动每张脸够不够”。
+
+### 固定相机，仅替换源像素的深度
+
+固定 Rosemary、Daven 各三张不同机位的源 RGB、有效前景、每帧内外参和两个留出机位。每个源像素按其深度反投影到共同坐标系，再向留出相机投影。表中数值是鼻尖区域相对留出深度真值的轴向绝对误差 p90，单位毫米。点云按最近可见点取深度，点图中的孔洞来自离散采样。SA 沿用已有的源相机尺度对齐，DP2 用已知焦距和模型原生米制深度。这些数字描述各自进入当前管线后的定位误差。
+
+| 身份、留出帧 | 真值点云 | SA 点云 | DP2 独立单帧 | 同一 DP2 点云经刚性配准 | DP2 前后共同鼻区像素 / 其中有至少两源 |
+|---|---:|---:|---:|---:|---:|
+| Rosemary 24 | 0.63 | 11.43 | 233.27 | 231.92 | 779 / 427 |
+| Rosemary 34 | 1.17 | 10.90 | 285.64 | 285.64 | 528 / 0 |
+| Daven 24 | 0.54 | 3.94 | 30.21 | 30.48 | 1071 / 302 |
+| Daven 34 | 0.54 | 5.06 | 60.56 | 61.66 | 1026 / 783 |
+
+前两列共享 GT/SA 支持，后两列共享同来源的 GT/DP2 配准前后支持，跨组可见像素有差别。Rosemary 34 的后两列只有单源支持，不能用来量双层厚度。在 GT/SA 都有至少两源的鼻区像素上，沿同一条目标射线，三源中最远与最近表面的深度差中位数分别为 GT 0.27–0.57 mm、SA 0.69–5.18 mm。两人的六次 DP2 推理均为单张输入、窗口 1，使用相同的源 RGB 和已知焦距；已有三帧联合输出另存。此次直接复验的是两个静态身份，真人旧 PLY 的成因仍需单独验证。
+
+### 固定形状，每个来源只允许旋转和平移
+
+五身份沿用前一轮源图、高斯和留出机位。A 回放原版，每个有效脸框重现上轮颜色误差，差值小于 0.01/255。R0 将可用源脸配到第一张源脸，Rtri 将各源脸配到仅用三张源图射线三角化得到的共同地标。拟合只用可见眼角、鼻翼和面颊，至少要有五个分布充分的共有地标。大侧脸远侧与既有误检点剔除，支持不足保留原位置。刚性变换只作用于脸部遮罩内的高斯中心与朝向，头发、颈部保持原位置。另留两个鼻部和五个下颌地标作独立检查，实拍二维地标仍有遮挡和检测误差。
+
+| 黑衣留出 49 | A 原版 | R0 配第一源 | Rtri 配三角化地标 |
+|---|---:|---:|---:|
+| 两源鼻部标记间距中位数（px）↓ | 47.2 | 5.7 | 6.5 |
+| 鼻部标记到实拍标记（px）↓ | 24.0 | 24.7 | 58.7 |
+| 下颌标记到实拍标记（px）↓ | 17.9 | 42.1 | 38.0 |
+| 脸框 RGB MAE（0–255）↓ | 34.2 | 52.3 | 45.7 |
+
+五身份预定十个留出，其中九个有有效脸框；黑衣 147 沿用既有无有效框标记。佳佳两个留出上，R0 均增加颜色误差，Rtri 一帧改善、一帧退化。静态身份按原门槛验收（鼻尖/鼻翼 p90 平均相对降幅 ≥10%，最差整脸深度 MAE 增量 ≤1 mm，有效支持 ≥50%），R0 两人均失败，Rtri 仅 Rosemary 通过（+41.2%），Daven 退化（−172.9%，最差整脸增加 4.90 mm）。百分比受原始小误差放大。再对本来就对齐的真值点云跑 R0：Daven 34 的同支持鼻区误差由 0.54 增至 5.19 mm。地标、可见性与脸部遮罩本身就可能引入错误移动。此次结果不能单独辨别真人的头动、外参和深度偏差。
+
+**复查入口。** 产物根为 `D:/output/results/splatanything_results/rigid_face_20261124/`。先看 `depth_review.jpg` 和 `paired_review.jpg`，再看各身份的 `eval.json`、`source_transforms.json` 和各帧投影图。静态身份含 `point_rigid_control.json` 和带 RGB、米制坐标与来源编号的 `GT_points_m.ply`、`DP1_points_m.ply`、`DP1_R0_points_m.ply`；`R0.ply` 和 `Rtri.ply` 是 SA 原回放坐标系的高斯。五身份汇总在 `summary.json`。同机位实图见[汇报第 15–20 页](<D:/ppt/20261124-三图人脸双影逐层追踪.pptx>)。
+
+~~~bash
+cd /mnt/c/code/media_code
+export GPU=0
+export ROOT=/mnt/d/output/results/splatanything_results/densitok_portrait_probe/protocol_v5
+export TRACE=/mnt/d/output/results/splatanything_results/ghost_trace_20261124
+export DEPTH=/mnt/d/output/results/splatanything_results/pose_nose_20261123
+export OUT=/mnt/d/output/results/splatanything_results/rigid_face_repeat
+export SPLATANYTHING_DIR=~/repos/SplatAnything
+export JIA_ARCHIVE=~/output/splatanything_results/pose_face3v/jiajia_face3v
+export DEPTH_PRO_2_DIR=~/repos/ml-depth-pro-2
+export CKPT_PATH=/mnt/d/wheel/depth_pro_2_ms/depthpro2-h-eivtm5w7m5.pt
+export FOV_CKPT_PATH=/mnt/d/wheel/depth_pro_2_ms/depthpro2-fov-ew55zg4kq7.pt
+bash splatanything/33a_run_single_depth.sh
+bash splatanything/33_run_rigid_face.sh
+~~~
+
 ## 2026-11-24 · 三图免训练脸部对齐 A/B/C（五个身份）
 
 **保留 P0。** 降低冲突来源权重（B）没有消除黑衣 49 双脸。局部深度对齐（C）在佳佳两帧都改善，黑衣的两源鼻尖间距也缩小，但黑衣侧脸仍然分裂。两个静态身份中，仅 Rosemary 通过既定几何门槛。
