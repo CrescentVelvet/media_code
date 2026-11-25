@@ -84,6 +84,12 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
 
 `render_full_view_splat_depth.py` 为全点九视角版本：每组使用三帧融合 PCD 的全部有效点，不抽样；佳佳 5,289,530 点，路由器 3,981,312 点。输入为真实 Frame 00/01/02；内插为 00→01、01→02、00→02 的 `t=0.5`；外插为 00→01 `t=-0.5`、01→02 `t=1.5`、00→02 `t=-0.25`。虚拟相机使用第二端点 K；没有新几何或采集图像。输出 `view_splat_depth_full_9views/` 的 18 张 PNG、相机 JSON、点数/源 PLY/源深度哈希与审计，不重复写大 PLY。
 
+## 连续机位：82 帧 RGB／深度与世界系 PCD
+
+`01c_prepare_sequence.sh`、`02c_run_sequence_inference.sh`、`06c_render_sequence_results.sh` 处理全部有序 Remy 相机，官方 buffered 滑窗只接收 RGB 与已知 fx，c2w 仅用于深度输出后的世界系反投影。输出 `human_sequence_82/` 的两段 82 帧视频、82 份逐帧全点 PLY 和不配准／不体素合并的融合 PLY；视频每帧用前后各 8 帧作局部邻域，预览每 2×2 像素取 1 点。PCD splat 是 RGB 点圆盘，不是训练的 3DGS；完整 PLY 与预览抽样必须区分。
+
+实测密机位没有自动消除人物重影：同一 buffered 深度、固定目标相机下，全 82 帧直接叠加比三帧保留更多时刻的姿态。详见 [EXPERIMENTS.md](EXPERIMENTS.md)；WSL 显式路径命令见 [README_wsl.md](README_wsl.md)，PPT 重建和验收见 [FIGURES.md](FIGURES.md)。
+
 ## 视频输入：官方 buffered 滑窗
 
 `05_run_video_inference.sh` 用官方 `infer_video(window=16, overlap=4, mode="buffered")` 逐帧处理整段视频，默认使用第一窗口估计的全视频共享焦距；`VIDEO_ONLY=1 bash depth_pro_2/06_render_video_results.sh` 只输出原 RGB／全场景深度并排 MP4，不生成 PCD 或额外表格。省略 `VIDEO_ONLY` 时，旧模式另输出代表帧局部相机 PLY、PCD splat/depth 与来源审计。视频没有标定 K / 相机位姿时，**不得把逐帧局部 PCD 拼成已注册世界坐标点云**。官方天空逆深度可为 0、深度为 `inf`，只从有限深度导点；展示时以共同色阶保留无有限点区域，不伪造深度。

@@ -130,6 +130,30 @@ DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
 bash depth_pro_2/03b_audit_pose.sh
 # 输出：pose_audit.json、忽略/使用外参的同深度指标、重投影对照图和 1/8 抽样 PLY。
 # 旧全点 PLY 保持不变；无 ICP、逐帧尺度或模型结构修改。
+# ── 4g) 82 连续机位：全部 RGB 深度、局部邻域 PCD 视频与全点 PLY ──
+# 输入：82 HEIC + transforms.json；外参只用于深度输出后的世界系反投影。
+# 正式输入准备 / 推理 / 渲染分别执行；已有推理时只执行最后的渲染命令。
+SCENE=human_sequence_82 \
+RAW_DIR=/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕 \
+OUT_DIR=/mnt/d/output/results/depth_pro_2_results/human_sequence_82/input \
+MAX_SIDE=1536 PLAYBACK_FPS=12 \
+bash depth_pro_2/01c_prepare_sequence.sh
+
+DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
+CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-h-eivtm5w7m5.pt \
+FOV_CKPT_PATH=/home/velvet/model/depth_pro_2/depthpro2-fov-ew55zg4kq7.pt \
+INPUT_DIR=/mnt/d/output/results/depth_pro_2_results/human_sequence_82/input \
+OUT_DIR=/mnt/d/output/results/depth_pro_2_results/human_sequence_82 \
+WINDOW=16 OVERLAP=4 OFFICIAL_REVISION=aa389cbb0b74341664ed663a0966c859905cd6c0 \
+GPU=0 bash depth_pro_2/02c_run_sequence_inference.sh
+
+SCENE_DIR=/mnt/d/output/results/depth_pro_2_results/human_sequence_82 \
+PCD_PIXEL_STRIDE=2 NEIGHBORHOOD_RADIUS=8 PCD_POINT_RADIUS=0.65 \
+VIDEO_FPS=12 FULL_PLY=1 METRIC_STRIDE=8 \
+bash depth_pro_2/06c_render_sequence_results.sh
+# 输出：rgb_depth_comparison.mp4、pcd_splat_depth_comparison.mp4；
+# pcd/000000.ply～000081.ply、fused_all_82_no_registration.ply。
+# 全点 PLY 不抽样；视频仅每 2x2 像素取 1 点；无 ICP / 逐帧尺度 / 体素合并。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。

@@ -2,6 +2,37 @@
 
 记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。本页另含无需 PPT 的几何诊断图。
 
+## 2026-11-25 — 连续机位四页与 51 页 PPT
+
+- **P42 RGB／全场景深度、P43 局部邻域 PCD Splat／PCD Depth**：视频来自 `human_sequence_82/`，各 82 帧、12fps、2304×1574；海报是真实中间帧。每页说明模型不接收外参、点圆盘不是训练 3DGS、预览抽样与全点 PLY 的区别。无采集时间戳，12fps 只作浏览。
+- **P44 同深度三帧／全 82 帧对照**：固定目标相机 41，图片为 `three_vs_82/{three,dense}_{splat,pcd_depth}.png`；全弧直接叠加的重影更明显，不隐藏失败。**P45 实测判断**使用 `previews/000010_*`、`000070_*`，区分短基线观测连接与未解决的动态／遮挡错层。相邻 Z 指标无可见性筛选，不能作几何精度或融合成功证据。
+- 页序为 P41 CloudCompare，P42–45 本轮四页，P46 猴子、P47 鸵鸟，P48–51 SA。P41 真实截图是 `assets/cloudcompare_original.jpg`，尺寸 **2560×1372**；旧录屏缺失，不拿新视频替代。原损坏 47 页备份保留，但构建输入只用可打开的恢复包 `D:/output/_backup/depth_pro_2_before_continuous_sequence_recovered_47_20261125.pptx`。
+- `build_sequence_results_ppt.py` 固定从上述 47 页输入构建，先修正 P41 原比例和越界说明，再插入四页，统一页脚，并恢复四段旧 MP4。最终共 **51 页 / 6 段 MP4**，内嵌字节与源文件一致；不要在 51 页结果上重复运行插入。
+- `verify_sequence_results_ppt.py` 核对 82 帧推理、82 份 PLY 顶点数、融合 PLY 哈希与 145,096,704 点、两段视频完整解码、全部 XML、页脚／页序、六段视频字节和 P41 静态图片比例。仅支持 `FFMPEG_PATH` 时用完整 null-sink 解码，不要求额外下载 ffprobe。PowerPoint COM 实际打开并导出 `_build/final_render_sequence_51/Slide1.PNG～Slide51.PNG`，目检 P41–47。报告为 `human_sequence_82/ppt_validation.json`；唯一 warning 是旧 CloudCompare 录屏未恢复。
+
+Windows 重建（需有 `python-pptx`、Pillow 的解释器；海报默认复用，`GENERATE_POSTERS=1` 时才需 FFmpeg）：
+
+```powershell
+$env:RESULTS_DIR = "D:\output\results\depth_pro_2_results"
+$env:ASSET_DIR = "D:\ppt\_src\20261123-DepthPro2算法实验与SA管线分析\assets"
+$env:PPTX_INPUT = "D:\output\_backup\depth_pro_2_before_continuous_sequence_recovered_47_20261125.pptx"
+$env:PPTX_PATH = "D:\ppt\20261123-DepthPro2算法实验与SA管线分析.pptx"
+python C:\code\media_code\depth_pro_2\build_sequence_results_ppt.py
+```
+
+WSL 文件级验收（临时 PPT 依赖可用 `pip --target /home/velvet/.cache/dp2_ppt_validate python-pptx lxml` 安装，不改推理环境）：
+
+```bash
+cd /mnt/c/code/media_code
+export RESULTS_DIR=/mnt/d/output/results/depth_pro_2_results
+export ASSET_DIR="/mnt/d/ppt/_src/20261123-DepthPro2算法实验与SA管线分析/assets"
+export PPTX_PATH="/mnt/d/ppt/20261123-DepthPro2算法实验与SA管线分析.pptx"
+export EXPECT_MEDIA_REPAIRED=1
+export FFMPEG_PATH=/home/velvet/miniconda3/envs/sharp/lib/python3.13/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2
+PYTHONPATH=/home/velvet/.cache/dp2_ppt_validate \
+  ~/miniconda3/envs/sharp/bin/python -B depth_pro_2/verify_sequence_results_ppt.py
+```
+
 ## 2026-11-25 — 三帧外参接口与同深度后处理复核
 
 - `depth_pro_2/audit_pose_conditioning.py` / `03b_audit_pose.sh`：读取用户指定三图包的 `transforms.json` 和 RGB，验证与旧 manifest 一致、原全点 PLY 可复现。官方 H+ 无外参输入；本实验仅在深度输出后应用 c2w。
