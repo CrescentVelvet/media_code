@@ -3,6 +3,7 @@
 
 JSON 的 OpenGL c2w 转 OpenCV w2c；DA3 的高斯仍在自估世界，必须用与输出
 相机相同的 Umeyama Sim(3) 把 means/scales/rotations/SH 对齐到输入世界。
+最终再与相机同步施加绕 X 轴 180° 的显示旋转，直接写 depthanything3_cameras.ply。
 米制倍率与相机对齐尺度只组合一次。保留所有高斯和完整 SH，不读取竞品几何。
 
 Env vars:
@@ -27,6 +28,7 @@ _io = module_from_spec(_spec)
 _spec.loader.exec_module(_io)
 
 FLIP_CV = np.diag([1.0, -1.0, -1.0, 1.0])
+WORLD_ROTATION = np.diag([1.0, -1.0, -1.0])
 
 
 def load_inputs(case):
@@ -131,31 +133,41 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
     device = g.means.device
     R_t = torch.as_tensor(R, dtype=torch.float32, device=device)
     t_t = torch.as_tensor(t, dtype=torch.float32, device=device)
+    # 对角F与Umeyama旋转交换会引入符号变化，不能合写成F@R再乘t。
+    # 单独施加F可保证与已验收的“Sim(3)后180度转正”逐点一致。
+    F_t = torch.as_tensor(WORLD_ROTATION, dtype=torch.float32, device=device)
     g.means = (g.means.float() @ R_t.T) * total_scale + t_t
     g.scales = g.scales * total_scale
-    rot = R_t @ quat_to_mat(g.rotations.float())
+    g.means = g.means @ F_t.T
+    rot = F_t @ (R_t @ quat_to_mat(g.rotations.float()))
     g.rotations = torch.nn.functional.normalize(mat_to_quat(rot), dim=-1)
     # sh_helpers 的 einsum 需要与 SH 相同的点数维，不能用单矩阵广播。
-    rotations = R_t.reshape(1, 1, 3, 3).expand(len(g.harmonics), 3, 3, 3)
+    R_sh = F_t @ R_t
+    rotations = R_sh.reshape(1, 1, 3, 3).expand(len(g.harmonics), 3, 3, 3)
     g.harmonics = rotate_sh(g.harmonics, rotations)
 
     c2w_pred = np.linalg.inv(raw_ext44)
     c2w_aligned = c2w_pred.copy()
-    c2w_aligned[:, :3, :3] = R @ c2w_pred[:, :3, :3]
-    c2w_aligned[:, :3, 3] = pose_scale * (c2w_pred[:, :3, 3] @ R.T) + t
-    c2w_input = np.linalg.inv(input_extrinsics)
-    camera_error = np.abs(c2w_aligned - c2w_input).max()
-    position_error = np.linalg.norm(c2w_aligned[:, :3, 3] - c2w_input[:, :3, 3], axis=-1)
+    c2w_aligned[:, :3, :3] = WORLD_ROTATION @ (R @ c2w_pred[:, :3, :3])
+    c2w_aligned[:, :3, 3] = (pose_scale * (c2w_pred[:, :3, 3] @ R.T) + t) @ WORLD_ROTATION.T
+    c2w_output = np.linalg.inv(input_extrinsics)
+    c2w_output[:, :3, :3] = WORLD_ROTATION @ c2w_output[:, :3, :3]
+    c2w_output[:, :3, 3] = c2w_output[:, :3, 3] @ WORLD_ROTATION.T
+    camera_error = np.abs(c2w_aligned - c2w_output).max()
+    position_error = np.linalg.norm(c2w_aligned[:, :3, 3] - c2w_output[:, :3, 3], axis=-1)
     if not np.isfinite(camera_error) or not np.isfinite(position_error).all():
         raise RuntimeError("相机 Sim(3) 往返出现非有限值")
     return {"metric_scale_factor": float(sf), "pose_scale": float(pose_scale),
             "total_gaussian_scale": total_scale, "umeyama_rotation": R.tolist(),
-            "umeyama_translation": t.tolist(), "aligned_camera_max_abs_error": float(camera_error),
+            "umeyama_translation": t.tolist(), "gaussian_rotation": (WORLD_ROTATION @ R).tolist(),
+            "gaussian_translation": (WORLD_ROTATION @ t).tolist(), "aligned_camera_max_abs_error": float(camera_error),
             "aligned_camera_max_position_error": float(position_error.max()),
             "aligned_camera_mean_position_error": float(position_error.mean()),
             "raw_camera_centers": c2w_pred[:, :3, 3].tolist(),
             "aligned_camera_centers": c2w_aligned[:, :3, 3].tolist(),
-            "input_camera_centers": c2w_input[:, :3, 3].tolist()}
+            "output_camera_centers": c2w_output[:, :3, 3].tolist(),
+            "world_rotation": WORLD_ROTATION.tolist(),
+            "output_extrinsics": np.linalg.inv(c2w_output)[:, :3].tolist()}
 
 
 def main():
@@ -181,6 +193,8 @@ def main():
         if (target.is_file() and (out / "cameras.npz").is_file()
                 and (out / "summary.json").is_file() and not force):
             previous = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+            if not np.array_equal(previous.get("world_rotation"), WORLD_ROTATION):
+                raise RuntimeError(f"旧相机版未登记180度转正，不能直接跳过: {case.name}；请用 FORCE=1 重建")
             previous.update(_io.inspect_ply(target))
             pending.append((case, files, ext, ixt, camera_path, manifest, target, out,
                             previous))
@@ -209,9 +223,10 @@ def main():
     model = DepthAnything3.from_pretrained(model_dir).to("cuda")
     report = {"root": str(root), "model": model_dir, "process_res": process_res,
               "camera_input": "各案例 stage1_cameras.json；OpenGL c2w -> OpenCV w2c",
-              "gaussian_frame": "官方 Umeyama Sim(3) 同步变换高斯至输入相机世界；不直接用输入相机反投影",
+              "gaussian_frame": "官方 Sim(3) 对齐后与相机同步绕X轴180度显示旋转；直接写相机版PLY",
               "export": {"prune_border_gs": False, "prune_by_depth_percent": 1.0,
-                         "save_sh_dc_only": False, "scale": "input_world"},
+                         "save_sh_dc_only": False, "scale": "input_world",
+                         "world_rotation": WORLD_ROTATION.tolist()},
               "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
     failed = False
     for case, files, ext, ixt, camera_path, manifest, target, out, existing in pending:
@@ -238,15 +253,15 @@ def main():
             np.savez_compressed(
                 out / "raw_cameras.npz", raw_extrinsics=raw_extrinsics)
             alignment = transform_gaussians(prediction, raw_extrinsics, ext)
-            if not np.allclose(prediction.extrinsics, ext[:, :3], atol=1e-5, rtol=0):
-                raise RuntimeError("输出外参不是已缩放的输入外参")
             np.savez_compressed(
-                out / "cameras.npz", extrinsics=ext[:, :3], intrinsics=prediction.intrinsics,
+                out / "cameras.npz", extrinsics=alignment["output_extrinsics"],
+                intrinsics=prediction.intrinsics,
                 input_extrinsics_original=ext, input_intrinsics_original=ixt,
                 depth=prediction.depth, conf=prediction.conf,
                 scale_factor=np.float32(alignment["total_gaussian_scale"]),
                 is_metric=np.int32(1), view_indices=np.arange(len(files)),
                 image_names=np.asarray([p.name for p in files]),
+                world_rotation=WORLD_ROTATION,
                 source_indices=np.asarray([v["sourceIndex"] for v in
                                            json.loads(camera_path.read_text(encoding="utf-8"))["views"]]))
             ctx_depth = torch.from_numpy(prediction.depth).unsqueeze(-1).to(
@@ -261,7 +276,7 @@ def main():
                          "n_views": len(files), "image_names": [p.name for p in files],
                          "input_sha256": [_io.sha256(p) for p in files],
                          "camera_json": camera_path.name, "camera_json_sha256": _io.sha256(camera_path),
-                         "camera_coordinate": "OpenCV w2c; 平移为输入 JSON 坐标系",
+                         "camera_coordinate": "OpenCV w2c；相机与高斯已同步绕输入世界X轴180度",
                          "depth_median_m": float(np.median(prediction.depth)),
                          "peak_vram_gb": round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2),
                          "backup": str(backup) if backup else None, **alignment})

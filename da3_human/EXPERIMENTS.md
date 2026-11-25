@@ -5,7 +5,14 @@
 
 ---
 
-## 2026-11-26 海思输入位姿 PLY 补 180° 显示偏转
+## 2026-11-26 海思相机版原地转正（取消 upright 命名）
+
+- 按用户要求，转正结果直接替换每例 `depthanything3_cameras.ply`，配套 `depthanything3_cameras/cameras.npz` 同步替换；RGB-only 的 `depthanything3.ply` 不动。数据目录不再保留 `depthanything3_cameras_upright.ply` 或同名目录，不重新推理、不裁点、不美化。
+- 直接复用前一节已验收的转正 PLY，先备份17例原 PLY/相机/记录，再同盘改名并核对 SHA-256。原版本与临时 upright 文件均移至 `D:/output/_backup/da3_cameras_pre_rotation_20261126/`，不是删除原始结果。根目录验收表为 `depthanything3_cameras_{batch_summary,validation}.json`。
+- 当前路径下17例/170源视角重新回放完成；case16 目检无倒置、空白或整体错位，原有模糊/破碎不变。原 PLY 的备份 SHA-256 逐例匹配；所有交付 PLY 保持 2,540,160 高斯、41 属性，共 7,081,983,199 bytes。
+- `36_run_hisilicon_cameras.py` 后续直接在 Umeyama 对齐后施加 `diag(1,-1,-1)`，不再依赖额外 upright 步骤。F 与 R 虽均为正交旋转，**不能合写成 `F@R` 后再乘 Umeyama 平移**；平移需保持 `t` 后再由 F 旋转。用 case16 原始预测相机与保存的 Sim(3) 参数验证：参数最大误差 0，直接输出与两阶段高斯位置最大差 3.25e-6（float32）。
+
+## 2026-11-26 海思输入位姿 PLY 补 180° 显示偏转（后续已原地替换）
 
 - 按用户对比需求，每例新增 `depthanything3_cameras_upright.ply` 和 `depthanything3_cameras_upright/cameras.npz`；原 RGB-only 与输入相机版均不覆盖。显示坐标 `X'=diag(1,-1,-1)X`，同步旋转位置、四元数、完整 SH 与配套相机，尺度、透明度、点数和深度不更改。
 - `37_flip_hisilicon_display.{py,sh}` 复用官方 `quat_to_mat/mat_to_quat` 与 `rotate_sh`，后者采用 `(N,3,9)` 及 `(N,3,3,3)`，不能用渲染加载器的 `(N,9,3)` 直接替代。case16 十视角回放与原几何/颜色一致；这只是显示坐标转正，**不是两版注册，也不改善模糊或破碎**。

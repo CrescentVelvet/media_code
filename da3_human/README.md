@@ -56,24 +56,16 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   bash da3_human/36_run_hisilicon_cameras.sh
 # 每个 CASE 输出 depthanything3_cameras.ply，及 depthanything3_cameras/{cameras.npz,summary.json}
 # JSON OpenGL c2w -> DA3 OpenCV w2c；按 sourceIndex 配对，模型输入外参/内参。
-# 高斯经与 API 相同的 Sim(3) 对齐到输入世界，含米制倍率、旋转和完整 SH，不裁剪。
+# 高斯经与 API 相同的 Sim(3) 对齐，再与相机同步绕X轴180度转正显示，含米制倍率和完整 SH，不裁剪。
+# 位姿版直接输出上述文件名，不再额外生成 upright 副本；转正不改善模糊或几何质量。
 # 在 vggt_human env 回放全部输入视角：
 CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   PLY_NAME=depthanything3_cameras.ply \
   CAMERAS_NPZ=depthanything3_cameras/cameras.npz \
   OUT_NAME=depthanything3_cameras/render_check.jpg \
   python da3_human/35_render_hisilicon.py
-# 6) 位姿版补绕世界X轴180度，便于默认查看器正向对比（不重新推理）
-ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
-  bash da3_human/37_flip_hisilicon_display.sh
-# 新增 CASE/depthanything3_cameras_upright.ply 与 depthanything3_cameras_upright/cameras.npz；
-# X'=diag(1,-1,-1)X，位置/高斯朝向/完整SH/相机同步旋转。原两版PLY不覆盖，尺度和点数不变。
-# 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹，也不改善模糊。
-CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
-  PLY_NAME=depthanything3_cameras_upright.ply \
-  CAMERAS_NPZ=depthanything3_cameras_upright/cameras.npz \
-  OUT_NAME=depthanything3_cameras_upright/render_check.jpg \
-  python da3_human/35_render_hisilicon.py
+
+# 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹。
 ```
 
 各脚本的 env 契约以脚本头注释为准。

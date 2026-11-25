@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""海思输入相机 PLY：补绕世界 X 轴 180° 的显示坐标变换。
+"""海思相机版：把已完成的180°转正结果收敛到原文件名，不再生成第三套PLY。
 
-原 depthanything3_cameras.ply 保留不动；新文件为
-CASE/depthanything3_cameras_upright.ply，配套相机在
-depthanything3_cameras_upright/cameras.npz。两者同为 X' = diag(1,-1,-1) X，
-所以渲染不变。此操作不改善模糊、位姿或多视图几何，也不声称两版已同一原点。
+只搬迁现有文件、更新配套相机和记录，不重新推理。原始位姿版先整体备份到
+BACKUP_ROOT，再用已验收的显示版替换 depthanything3_cameras.ply。
 
 Env vars:
-  ROOT, CASE_FILTER, FORCE
+  ROOT, BACKUP_ROOT, CASE_FILTER
 """
 import os
 import sys
@@ -46,8 +44,8 @@ def camera_to_display(cam):
     display_c2w[:, :3, :3] = np.einsum("ij,vjk->vik", ROTATE_X_180, c2w[:, :3, :3])
     display_c2w[:, :3, 3] = c2w[:, :3, 3] @ ROTATE_X_180.T
     result["extrinsics"] = np.linalg.inv(display_c2w)[:, :3]
-    result["original_world_rotation"] = ROTATE_X_180
-    result["display_coordinate"] = np.asarray("原输入世界绕X轴180度；相机同步左乘同一世界旋转")
+    result["world_rotation"] = ROTATE_X_180
+    result["coordinate"] = np.asarray("输入世界绕X轴180度；高斯与相机同步旋转")
     return result
 
 
@@ -113,76 +111,125 @@ def transform_ply(source, target):
     return _io.inspect_ply(target)
 
 
-def main():
-    root = Path(os.environ.get("ROOT", "/mnt/d/dataset/测试数据/海思端侧重建拍摄数据"))
-    selected = os.environ.get("CASE_FILTER", "")
-    force = os.environ.get("FORCE", "0") == "1"
+def migrate_existing(root, backup_root):
+    """先备份，再原子改名替换；每例前后均核验已验收的SHA-256。"""
+    selected = ""
+    if os.environ.get("CASE_FILTER"):
+        sys.exit("❌ 文件收敛必须整批执行，不能用CASE_FILTER缩减总表")
     cases = sorted(root.glob("case*_nopose_recentered"),
                    key=lambda p: int(p.name.split("_")[0][4:]))
-    if selected:
-        cases = [p for p in cases if p.name == selected]
-    if not root.is_dir() or not cases:
-        sys.exit(f"❌ 没有匹配案例: ROOT={root}, CASE_FILTER={selected}")
-    report = {"root": str(root), "source_ply": "depthanything3_cameras.ply",
-              "output_ply": DISPLAY_PLY, "output_directory": DISPLAY_DIR,
-              "world_rotation": ROTATE_X_180.tolist(),
-              "scope": "仅位姿版显示坐标转换；相机同步，渲染不变；不改善画质或对齐",
-              "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
-    failed = False
-    report_path = root / "depthanything3_cameras_upright_batch_summary.json"
-    # 单案例补跑不能把其它15/16例从根目录总表抹掉。
-    if selected and report_path.is_file():
-        previous = json.loads(report_path.read_text(encoding="utf-8"))
-        selected_names = {p.name for p in cases}
-        report["cases"] = [r for r in previous.get("cases", [])
-                           if r.get("case") not in selected_names]
+    if backup_root.exists():
+        sys.exit(f"❌ 备份目录已存在，拒绝覆盖: {backup_root}")
+    backup_root.mkdir(parents=True)
+    report_path = root / "depthanything3_cameras_batch_summary.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    previous = {r["case"]: r for r in report["cases"]}
+    records = []
+    pending = []
+
+    def move_to_backup(source, relative):
+        if source.is_symlink() or not source.is_file():
+            raise RuntimeError(f"只迁移普通非链接文件: {source}")
+        target = backup_root / relative
+        if target.exists():
+            raise RuntimeError(f"备份目标已存在: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        expected = _io.sha256(source)
+        source.replace(target)
+        if _io.sha256(target) != expected:
+            raise RuntimeError(f"备份哈希不一致: {target}")
+        return expected
+
+    try:
+        for case in cases:
+            original = case / "depthanything3_cameras.ply"
+            original_cameras = case / "depthanything3_cameras/cameras.npz"
+            transformed = case / DISPLAY_PLY
+            transformed_cameras = case / DISPLAY_DIR / "cameras.npz"
+            if any(p.is_symlink() or not p.is_file() for p in
+                   (original, original_cameras, transformed, transformed_cameras)):
+                raise RuntimeError(f"原文件或已验收转正文件缺失/为链接: {case.name}")
+            old_info = _io.inspect_ply(original)
+            new_info = _io.inspect_ply(transformed)
+            with np.load(original_cameras, allow_pickle=False) as cam:
+                original_ext = cam["extrinsics"].copy()
+            with np.load(transformed_cameras, allow_pickle=False) as cam:
+                transformed_ext = cam["extrinsics"].copy()
+                if not np.allclose(camera_to_display(cam)["extrinsics"], original_ext,
+                                   atol=2e-6, rtol=0):
+                    raise RuntimeError(f"配套相机180度往返不一致: {case.name}")
+            pending.append((case, old_info, new_info, original_ext, transformed_ext))
+        print(f"📦 预备份{len(pending)}例原PLY和相机到: {backup_root}", flush=True)
+        for case, old_info, new_info, _, _ in pending:
+            move_to_backup(case / "depthanything3_cameras.ply",
+                           Path(case.name) / "depthanything3_cameras.ply")
+            move_to_backup(case / "depthanything3_cameras/cameras.npz",
+                           Path(case.name) / "depthanything3_cameras/cameras.npz")
+            move_to_backup(case / "depthanything3_cameras/summary.json",
+                           Path(case.name) / "depthanything3_cameras/summary.json")
+            # 源与目标均在同一文件系统，replace不复制400MiB，也不会留下半写文件。
+            (case / DISPLAY_PLY).replace(case / "depthanything3_cameras.ply")
+            (case / DISPLAY_DIR / "cameras.npz").replace(
+                case / "depthanything3_cameras/cameras.npz")
+            if _io.sha256(case / "depthanything3_cameras.ply") != new_info["sha256"]:
+                raise RuntimeError(f"替换后PLY哈希不一致: {case.name}")
+            out = case / "depthanything3_cameras"
+            info = dict(previous[case.name])
+            new_info["path"] = str(case / "depthanything3_cameras.ply")
+            info.update(new_info)
+            info.update({"case": case.name, "status": "completed",
+                         "world_rotation": ROTATE_X_180.tolist(),
+                         "gaussian_rotation": (ROTATE_X_180 @ np.asarray(
+                             previous[case.name]["umeyama_rotation"])).tolist(),
+                         "gaussian_translation": (ROTATE_X_180 @ np.asarray(
+                             previous[case.name]["umeyama_translation"])).tolist(),
+                         "pre_rotation_sha256": old_info["sha256"],
+                         "output_extrinsics": transformed_ext.tolist(),
+                         "camera_coordinate": "OpenCV w2c；相机与高斯已同步绕输入世界X轴180度",
+                         "scope": "高斯和相机已同步绕X轴180度；不裁点、不美化，不改善几何",
+                         "input_camera_centers": previous[case.name]["input_camera_centers"],
+                         "output_camera_centers": (np.asarray(
+                             previous[case.name]["input_camera_centers"]) @ ROTATE_X_180.T).tolist(),
+                         "pre_rotation_backup": str(backup_root / case.name)})
+            _io.dump_json(out / "summary.json", info)
+            _io.dump_json(out / "batch_summary.json", info)
+            records.append(info)
+            print(f"✅ {case.name}: depthanything3_cameras.ply 已替换为转正版", flush=True)
+    except Exception:
+        # 备份始终保留；错误留给使用者处理，不自动跨文件回滚覆盖已验收结果。
+        _io.dump_json(backup_root / "interrupted.json", {
+            "completed": [r["case"] for r in records],
+            "pending": [p[0].name for p in pending if p[0].name not in {r["case"] for r in records}],
+        })
+        raise
+
+    report.update({"cases": records,
+                   "gaussian_frame": "官方Sim(3)对齐后，高斯与相机同步绕X轴180度；相机版原地转正",
+                   "migration": "复用已验收的180度结果替换原相机版；原文件在BACKUP_ROOT，无upright副本",
+                   "backup_root": str(backup_root),
+                   "world_rotation": ROTATE_X_180.tolist(),
+                   "migrated_at": datetime.now(timezone.utc).isoformat()})
+    if report.get("export") is not None:
+        report["export"]["world_rotation"] = ROTATE_X_180.tolist()
+    _io.dump_json(report_path, report)
     for case in cases:
-        source = case / "depthanything3_cameras.ply"
-        source_cameras = case / "depthanything3_cameras/cameras.npz"
-        target = case / DISPLAY_PLY
-        out = case / DISPLAY_DIR
-        out.mkdir(parents=True, exist_ok=True)
-        if target.exists() and (target.is_symlink() or not target.is_file()):
-            failed = True
-            print(f"❌ 拒绝处理非普通目标文件: {target}", flush=True)
-            continue
-        if target.is_file() and not force:
-            info = _io.inspect_ply(target)
-            if not (out / "cameras.npz").is_file() or not (out / "summary.json").is_file():
-                raise RuntimeError(f"显示版缺少相机或记录，请用 FORCE=1 重建: {case.name}")
-            info.update({"case": case.name, "status": "existing"})
-        else:
-            try:
-                if not source.is_file() or not source_cameras.is_file():
-                    raise RuntimeError(f"缺少已验收的位姿版PLY或相机: {source}={source.is_file()}, {source_cameras}={source_cameras.is_file()}")
-                print(f"🔄 {case.name}: 原PLY + X轴180度显示变换", flush=True)
-                info = transform_ply(source, target)
-                info.update({"case": case.name, "status": "completed",
-                             "source_sha256": _io.sha256(source)})
-                cam = np.load(source_cameras, allow_pickle=False)
-                display_cam = camera_to_display(cam)
-                np.savez_compressed(out / "cameras.npz", **display_cam)
-                # 用原始相机反演应回到输入外参，独立于变换路径检查。
-                recovered = camera_to_display(display_cam)["extrinsics"]
-                if not np.allclose(recovered, cam["extrinsics"], atol=2e-6, rtol=0):
-                    raise RuntimeError("相机180度往返不一致")
-                _io.dump_json(out / "summary.json", info)
-                print(f"✅ {case.name}: {info['n_gaussians']:,} 高斯, "
-                      f"{info['bytes'] / 1024**2:.1f} MiB", flush=True)
-            except Exception as exc:
-                failed = True
-                info = {"case": case.name, "status": "failed", "error": str(exc)}
-                _io.dump_json(out / "summary.json", info)
-                print(f"❌ {case.name}: {exc}", flush=True)
-        report["cases"].append(info)
-        _io.dump_json(out / "batch_summary.json", report)
-        _io.dump_json(root / "depthanything3_cameras_upright_batch_summary.json", report)
-    report["cases"].sort(key=lambda r: int(r["case"].split("_")[0][4:]))
-    report["finished_at"] = datetime.now(timezone.utc).isoformat()
-    _io.dump_json(root / "depthanything3_cameras_upright_batch_summary.json", report)
-    print(f"🎉 本轮{len(cases)}例已处理，总表{len(report['cases'])}例", flush=True)
-    if failed or len(report["cases"]) < len(cases):
-        sys.exit(1)
+        for path in case.glob("*upright*"):
+            if path.is_symlink():
+                raise RuntimeError(f"拒绝处理链接: {path}")
+            path.replace(backup_root / path.relative_to(root))
+    for path in root.glob("*upright*"):
+        if path.is_symlink():
+            raise RuntimeError(f"拒绝处理链接: {path}")
+        path.replace(backup_root / path.relative_to(root))
+    _io.dump_json(backup_root / "migration_summary.json", report)
+    print(f"🎉 {len(records)}例已原地转正；数据目录不再保留upright命名；原文件备份完成", flush=True)
+
+
+def main():
+    migrate_existing(
+        Path(os.environ.get("ROOT", "/mnt/d/dataset/测试数据/海思端侧重建拍摄数据")),
+        Path(os.environ.get("BACKUP_ROOT", "/mnt/d/output/_backup/da3_cameras_pre_rotation_20261126")),
+    )
 
 
 if __name__ == "__main__":
