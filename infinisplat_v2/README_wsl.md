@@ -251,7 +251,7 @@ IMAGES_DIR=/mnt/d/data/imgs COLMAP_LONG_SIDE=1024 bash 05_pose_colmap.sh
 DATASET_ROOT=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据 \
   OUTPUT_DIRNAME=colmap_sfm_results \
   bash 05b_batch_colmap_sfm.sh
-# 查看：双击数据根目录 colmap_sfm_results_summary.html；每组有交互 index.html。
+# 查看：双击根目录 colmap_sfm_results_summary.html，逐组展开内嵌交互位姿（不依赖子页跳转）。
 # 模型/位姿：<case>/colmap_sfm_results/{sparse/0,cameras.npz,camera_poses.csv}。
 # 已有完整结果会跳过；SIFT_RATIO=0.9 可针对剧烈视角变化重试（需 FORCE=1，旧结果自动备份）。
 
