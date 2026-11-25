@@ -247,6 +247,14 @@ python bench_stages.py --model ~/model/infinisplat_v2/da3 \
 # 8) COLMAP 供位姿（DA3 塌缩时的备选；物体数据集上因纹理太少未能重建）
 IMAGES_DIR=/mnt/d/data/imgs COLMAP_LONG_SIDE=1024 bash 05_pose_colmap.sh
 
+# 8b) 批量完整 SfM：每个 case/images 独立十图重建，结果留在各 case 内
+DATASET_ROOT=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据 \
+  OUTPUT_DIRNAME=colmap_sfm_results \
+  bash 05b_batch_colmap_sfm.sh
+# 查看：双击数据根目录 colmap_sfm_results_summary.html；每组有交互 index.html。
+# 模型/位姿：<case>/colmap_sfm_results/{sparse/0,cameras.npz,camera_poses.csv}。
+# 已有完整结果会跳过；SIFT_RATIO=0.9 可针对剧烈视角变化重试（需 FORCE=1，旧结果自动备份）。
+
 # 9) 手机采集包（transforms.json + HEIC + pcd.ply）→ 推理 + 显存耗时
 RAW_DIR="/mnt/d/dataset/手部微动样例/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕" \
   OUT_NAME=jiajia N_VIEWS=32 LONG_SIDE=518 bash 07_run_capture.sh
