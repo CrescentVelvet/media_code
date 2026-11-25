@@ -49,6 +49,20 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
 # 在 vggt_human env 回放交付 PLY 的源视角，输出 depthanything3/render_check.jpg：
 CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   python da3_human/35_render_hisilicon.py
+
+# 5) 海思十视角 + 各案例原始 stage1 相机（不覆盖第 4 步 RGB-only 结果）
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  bash da3_human/36_run_hisilicon_cameras.sh
+# 每个 CASE 输出 depthanything3_cameras.ply，及 depthanything3_cameras/{cameras.npz,summary.json}
+# JSON OpenGL c2w -> DA3 OpenCV w2c；按 sourceIndex 配对，模型输入外参/内参。
+# 高斯经与 API 相同的 Sim(3) 对齐到输入世界，含米制倍率、旋转和完整 SH，不裁剪。
+# 在 vggt_human env 回放全部输入视角：
+CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PLY_NAME=depthanything3_cameras.ply \
+  CAMERAS_NPZ=depthanything3_cameras/cameras.npz \
+  OUT_NAME=depthanything3_cameras/render_check.jpg \
+  python da3_human/35_render_hisilicon.py
 ```
 
 各脚本的 env 契约以脚本头注释为准。

@@ -5,6 +5,9 @@ Env vars:
   ROOT          海思案例根目录
   CASE_FILTER   可选，单个 case 完整目录名
   OUT_NAME      案例内输出图名，默认 depthanything3/render_check.jpg
+  PLY_NAME      案例内 PLY 文件名，默认 depthanything3.ply
+  CAMERAS_NPZ   案例内相机文件，默认 depthanything3/cameras.npz
+  VIEW_INDICES  可选，逗号分隔源视角；默认全部十视角
 """
 import os
 import sys
@@ -37,10 +40,17 @@ def load_ply(path):
 
 def main():
     from gsplat import rasterization
+    from plyfile import PlyData
 
     root = Path(os.environ.get("ROOT", "/mnt/d/dataset/测试数据/海思端侧重建拍摄数据"))
     selected = os.environ.get("CASE_FILTER", "")
     out_name = os.environ.get("OUT_NAME", "depthanything3/render_check.jpg")
+    ply_name = os.environ.get("PLY_NAME", "depthanything3.ply")
+    cameras_npz = os.environ.get("CAMERAS_NPZ", "depthanything3/cameras.npz")
+    view_indices = [int(x) for x in os.environ.get("VIEW_INDICES", "").split(",") if x]
+    for relative in (out_name, ply_name, cameras_npz):
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            sys.exit(f"❌ 输出/输入必须是案例目录内相对路径: {relative}")
     cases = sorted(root.glob("case*_nopose_recentered"),
                    key=lambda p: int(p.name.split("_")[0][4:]))
     if selected:
@@ -49,13 +59,15 @@ def main():
         sys.exit("❌ 没有匹配案例")
     rows = []
     for case in cases:
-        cam = np.load(case / "depthanything3/cameras.npz", allow_pickle=False)
-        means, scales, quats, _, sh, opacity = load_ply(case / "depthanything3.ply")
+        cam = np.load(case / cameras_npz, allow_pickle=False)
+        means, scales, quats, _, sh, opacity = load_ply(case / ply_name)
         args = dict(means=means, scales=torch.exp(scales),
                     quats=torch.nn.functional.normalize(quats, dim=-1),
                     opacities=torch.sigmoid(opacity), colors=sh)
         pairs = []
         for i, name in enumerate(cam["image_names"]):
+            if view_indices and i not in view_indices:
+                continue
             w2c = torch.eye(4, device="cuda")
             w2c[:3] = torch.from_numpy(cam["extrinsics"][i]).cuda().float()
             color, _, _ = rasterization(

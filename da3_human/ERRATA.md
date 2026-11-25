@@ -17,6 +17,8 @@
 | 8 | 拿 cameras.json 的 `rotation` 直接当 w2c 用 | 该 rotation 是 **c2w**（渲染判决：c2w 约定 25~28 dB vs w2c 5~8 dB）；D1 诊断 FT_30k 本脚本重渲值 5~28 dB 即此坑 | 用 cameras.json 前先渲染判决约定；该数据包 transforms.json 约定也与 som_human 标准包不同，勿套 `w2c=inv(M@flip)` |
 | 9 | Umeyama/Kabsch 行映射 `Q=U@Vt` 与列向量混用 | 对齐残差假大 0.8~1.6 m，还引出"预测世界与 GT 互为镜像"的假结论（实际 det=+1） | 行向量映射 `dst≈s·src@Q+t`；套列向量世界变换用 `Q^T`，w2c' = R·Q/s |
 | 10 | DA3 `cameras.npz`：extrinsics 是 **w2c 直接用**（勿求逆，求逆=静默出貌似合理的错图）；intrinsics/depth 已是 process_res 口径（504p 时 378×504，**勿再缩放**）；平移 ÷ scale_factor 回到高斯尺度 | 渲染人物位置全错但画面"看起来还行"，PSNR 掉 5~10 dB 不报警 | 三查：w2c/c2w 方向、K 的分辨率口径、sf 是否只除一次（对齐 29m 与 29_d1_diag 的写法） |
+| 11 | 输入相机后把 API 返回外参当原始预测相机，再拿去对齐高斯；或不转高斯只换相机 | 海思 case16 试验 PLY 41 字段、有限值全通过，源视角却整体放大错位 | API 在 `_align_to_input_extrinsics_intrinsics` 覆盖外参；高斯头仍按预测相机反投影。先保留对齐前外参，再用同一 RANSAC Sim(3) 变换 means/scales/rotations/SH，源视角回放才可验收 |
+| 12 | 把官方 `mat_to_quat` / `quat_to_mat` 的 `xyzw` 输出误按 `wxyz` 解读 | 海思输入相机对齐试验中高斯朝向错误 | 官方 `gs_adapter` 的历史注释仅指 raw 输入；两个转换函数输出为 **xyzw**，最终 Gaussians/PLY 沿用其分量顺序。PLY 的 `f_rest` 是 channel-major，但官方 `rotate_sh` 需要 `(N,3,K)`；gsplat 需要 `(N,K,3)`，两者转换必须显式 transpose |
 
 ## 防再犯清单（报数/下结论前必查）
 

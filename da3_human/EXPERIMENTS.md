@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-11-25 海思输入相机 DA3 重建与坐标修正
+
+- 输入：17 例各自 `*_stage1_cameras.json` 与同一批十视角 RGB。按 `sourceIndex` 配对，OpenGL c2w 转 OpenCV w2c；每例十张 704×704 图、图像/相机 JSON SHA-256、SO(3) 和内参均校验。
+- 前向：仍是官方 `DA3NESTED-GIANT-LARGE-1.1`、504p、`saddle_balanced`、`infer_gs=True`，日志逐例出现 `Using camera conditions provided by the user`。DA3 高斯头继续使用预测相机反投影，故这是**输入相机条件前向 + 高斯到输入世界的 Sim(3) 对齐**，不是直接用输入相机反投影。
+- 修复：API 会用输入外参覆盖 `prediction.extrinsics`，需在对齐前保留真正的预测外参；十视角时复用官方 RANSAC 配置（`random_state=42`）。当前 `align_poses_umeyama(pred,input)` 实际返回 input→pred，显式求逆。高斯 means/scales 乘 `metric_scale_factor×pose_scale` 一次，同时变换旋转与 SH；官方转换函数的输出按 `xyzw` 分量使用。case16 初次试验因此出现的整体放大、错位已消除。
+- 交付：每例 `depthanything3_cameras.ply`，均 2,540,160 高斯、41 float 属性、完整 SH degree 2、不裁边/深度、全部有限；总计 7,081,983,199 bytes（约 6.59 GiB）。同目录 `depthanything3_cameras/{cameras.npz,summary.json,render_check.jpg}`，不覆盖此前 `depthanything3.ply`。根目录 `depthanything3_cameras_batch_summary.json` 与 `depthanything3_cameras_validation.json` 留档。
+- 验收：完成全部 170 个输入相机下的源视角回放，排除了早期坐标系/尺度整体错误。case7 的侧面/后脑近景、case14/15 的室外侧面与全身视角仍有严重破碎和拖影；其余场景也有不同程度模糊、局部缺失。**17/17 文件与回放工程验收通过，不代表所有视角的几何/画质通过**。
+- 工具：`36_run_hisilicon_cameras.{py,sh}`，`35_render_hisilicon.py` 新增 PLY/相机/输出名配置及批量显存释放。坐标与四元数坑见 `ERRATA.md` #11/#12。
+
+
 ## 2026-11-25 海思十视角数据的原生 DA3 批量重建
 
 - 输入：`D:/dataset/测试数据/海思端侧重建拍摄数据/` 的 17 个 case。每例复用 `splatanything/36_extract_hisilicon.py` 已登记的 10 张静止视角 RGB，校验图片 SHA-256；不输入海思或 SA 的相机与几何，DA3 用 RGB 自估相机。
