@@ -2,9 +2,10 @@
 
 > 日期明细见 `.workbuddy/memory/YYYY-MM-DD.md`。本文件只留跨会话仍需遵守的结论，后续复审覆盖旧推断。
 
-## da3_human / splatanything 当前路线（2026-11-23）
+## da3_human / splatanything 当前路线（2026-11-25）
 
-- 唯一入口 `da3_human/EXPERIMENT_PLAN.md` 顶部 **N0～N2**：修复几何测量 → SA 原生 P0 / ZipSplat FF 同协议头部对照 → 只选一个基座做人物域适配小试。三图指不同机位三张人像；DA3 是历史基线。
+- 唯一入口 `da3_human/EXPERIMENT_PLAN.md` 顶部。当前评审允许原版 SA 人物域增训小试，不承诺消除重影；先严格 3 source + ≥2 target、保持原表示/推理，学生属性与几何教师适配置于独立臂。数据按身份/sequence：5～10 身份只冒烟，30～50 训练 + 5 验证 + 10 测试身份判别，正向后才扩 200～500。通用 H/G 同预算，从官方权重独立开始。
+- 历史 N0～N2：修复几何测量 → SA 原生 P0 / ZipSplat FF 同协议头部对照 → 人物域适配小试。三图指不同机位三张人像；DA3 是历史基线。
 - **N0 测量契约与本轮 N1 已完成，N2 冻结**。正式 `five_view_rigid_v28/geometry_audit_v2.json`：官方 GSN pose-align=0.9428013563、spacing=1.4887673855、总教师倍率=1.4036118984；五视角 hash、Depth 类型、K、刚体相机与坐标往返通过。测量通过≠几何/属性分支裁决。
 - GT 按 manifest 文件路径/hash 对齐：id20→000021，id24→000025，id30→000031，id34→000035，id38→000039。旧 F3 错帧与强结论停用。
 - **Blender Depth pass 是轴向 Z**，已用斜视/主点偏移探针验证，不做射线距离除法。ED 是 alpha 归一化的轴向 Z 期望，须配 alpha 与局部 p90。
