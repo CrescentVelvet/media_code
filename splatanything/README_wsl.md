@@ -25,6 +25,22 @@
 | 训练（stage-1/2） | ❌ 不可得 | 无训练代码 |
 | 论文表里的精确数值 | ⚠️ 不可直接对标 | 官方划分未公开；本仓只做自洽 + 自建 holdout |
 
+## 海思端侧静止视角包：17 场景批量推理与回放（2026-11-25 已执行）
+
+输入 `D:/dataset/测试数据/海思端侧重建拍摄数据/case*_nopose_recentered`，本机 WSL / RTX 3090，**不是黄区或蓝区服务器任务**。每包 MP4 是十个静止画面的连续重复，`sourceIndex` 不是 MP4 帧号。`36_extract_hisilicon.py` 按缩略图内容差识别十段，默认跳过段首 8 帧，逐段取一帧；PNG、`extraction.json`、`contact_sheet.jpg` 均写入 `CASE/splatanything/`，原 MP4 / 相机 / bounds / 竞品 PLY 不改。
+
+```bash
+cd /mnt/c/code/media_code
+# 分步执行；已有顶层 PLY 时 infer 跳过，不重复推理。
+ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据' bash splatanything/36_run_hisilicon.sh extract
+ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据' bash splatanything/36_run_hisilicon.sh infer
+ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据' FRAMES=100 FPS=15 RENDER_SIZE=704 \
+  bash splatanything/36_run_hisilicon.sh compare
+# 单场景调试用 CASE_FILTER=case1_nopose_recentered；强制重渲用 SKIP_EXISTING_VIDEO=0。
+```
+
+输出 `CASE/splatanything.ply` 和 `CASE/splatanything/{splatanything,competitor,comparison}.mp4`，各 100 帧、15fps、H.264。轨迹沿实际 source 相机中心方向和距离插值，共同注视 bounds.center，不做无依据 360° 外推。竞品仅按随包相机原生 SH3 回放；未提供查看器或坐标/尺度契约时近距离局部模糊不得换算成算法排名。SA 原生 K 属 756² 预处理画布；共同采集回放用原 K / 704²，两者不可混作 NVS 指标。完整实测与验收见 [EXPERIMENTS.md](EXPERIMENTS.md)。
+
 ## N0 几何测量审计（2026-11-22 已执行）
 
 不训练、不拟合 target；先阅读 NOTES 顶部坐标契约。输入为本机 rosemary33v 三源与两个留出视角，
