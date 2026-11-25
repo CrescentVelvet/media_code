@@ -119,6 +119,17 @@ for SCENE in human router; do
 done
 # 输出各场景 single_frame/pcd/{00,01,02}.ply 与 pcd_export_audit.json。
 # 全部有效点、原 c2w、原 RGB；回读校验坐标/颜色/来源，不额外合并三帧。
+
+# ── 4f) 位姿接口与三帧 c2w 复核：复用联合深度，不重跑模型 ──
+# 官方 infer 只有 RGB 与 f_px；外参只能在输出深度后用于世界系反投影。
+# 此包三 HEIC 与旧实验相同，已应用的 c2w 也逐项相同，不声称新增位姿收益。
+SCENE_DIR=/mnt/d/output/results/depth_pro_2_results/human \
+RAW_DIR=/mnt/d/dataset/人像手部微动三图数据/01e954de1b8a4cde9315c976f4dcb964-佳佳抱枕 \
+OUT_DIR=/mnt/d/output/results/depth_pro_2_results/human/pose_conditioned \
+DEPTH_PRO_2_DIR=/home/velvet/repos/ml-depth-pro-2 \
+bash depth_pro_2/03b_audit_pose.sh
+# 输出：pose_audit.json、忽略/使用外参的同深度指标、重投影对照图和 1/8 抽样 PLY。
+# 旧全点 PLY 保持不变；无 ICP、逐帧尺度或模型结构修改。
 ```
 
 输出：`human/`、`router/` 各有 `pcd/00.ply`～`02.ply`、`fused_no_registration.ply`、`splat/`、`depth_rgb/`（近红远蓝）、`pcd_depth/`、`pcd_reprojection/`、`consistency.json`、`rgb_depth_pcd_comparison.mp4`、`crossview_pcd_comparison.mp4`。路由器另有 `colmap_audit.json`、`sfm_scale.json`。

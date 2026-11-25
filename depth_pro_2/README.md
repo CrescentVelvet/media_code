@@ -30,6 +30,8 @@ GPU=0 bash depth_pro_2/04_run_all.sh
 
 单场景已有缓存时，仅重跑几何与一致性，不重复 H+ 推理。`02b_run_single_frame_inference.sh` 是独立单帧对照：每组三帧分别调用 `model.infer(T=1)`，不共享跨帧特征；`render_single_frame_splat_depth.py` 用原始相机生成全部有效点的自身视角 PCD splat / PCD depth。路由器仍继承联合实验的整组 SfM 尺度，禁止逐帧尺度配准。具体命令见 [README_wsl.md](README_wsl.md)。
 
+**官方 H+ 不能输入相机外参。** `model.infer(x, f_px=None)` 只接收 RGB 与焦距；跨帧注意力使用图像 patch 的二维 RoPE，没有外参、相机射线或相对位姿条件。`transforms.json` 的 c2w 用于输出深度后的反投影与世界坐标对齐，不能约束网络直接预测多视图一致的深度。佳佳原始联合与独立单帧 PLY **已经应用这套位姿**，不是局部相机坐标直接拼接；`03b_audit_pose.sh` 复核输入/位姿身份、复现旧 PLY，并以相同深度对照忽略外参的反事实情况，不重跑模型、不做 ICP。
+
 ```bash
 SCENE_DIR=../depth_pro_2_results/human bash depth_pro_2/03_render_geometry.sh
 SCENE_DIR=../depth_pro_2_results/router \
@@ -59,6 +61,11 @@ SCENE_DIR=../depth_pro_2_results/router bash depth_pro_2/03_render_geometry.sh
       depth/ normalized_inverse_depth/ own_camera_splat_depth/
       pcd/00.ply ... 02.ply  # 独立 T=1 推理，全部有效点，不抽样/不融合
       pcd/pcd_export_audit.json
+    pose_conditioned/         # 外参接口审计与同深度后处理对照，不是位姿条件推理
+      pose_audit.json supplied_poses_world_metrics.json
+      identity_extrinsics_counterfactual_metrics.json
+      side_by_side/ fused_pose_comparison.jpg
+      fused_supplied_poses_world.ply  # 每 8 像素取 1 点的预览，不替代全点原 PLY
     rgb_depth_pcd_comparison.mp4
     crossview_pcd_comparison.mp4
     view_splat_depth_100k/ # 输入/内插/外插三视角，固定 10 万点 splat/depth

@@ -1,6 +1,12 @@
 # Depth Pro 2 出图台账
 
-记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。
+记录 `D:/ppt/figures/depth_pro_2/` 中汇报素材的来源与再生成方式。实验结果以 `D:/output/results/depth_pro_2_results/` 为准；本目录仅改变展示，不改变深度、相机或 PLY。本页另含无需 PPT 的几何诊断图。
+
+## 2026-11-25 — 三帧外参接口与同深度后处理复核
+
+- `depth_pro_2/audit_pose_conditioning.py` / `03b_audit_pose.sh`：读取用户指定三图包的 `transforms.json` 和 RGB，验证与旧 manifest 一致、原全点 PLY 可复现。官方 H+ 无外参输入；本实验仅在深度输出后应用 c2w。
+- `D:/output/results/depth_pro_2_results/human/pose_conditioned/side_by_side/target_{00,01,02}.jpg`：目标 RGB / 故意忽略外参 / 正确外参。`fused_pose_comparison.jpg` 为同深度的中间机位对照；不是新模型推理结果，不放入既有 46 页 PPT（用户本轮未要求改版）。
+- 数字与契约见 `pose_audit.json`、`supplied_poses_world_metrics.json` 和 `identity_extrinsics_counterfactual_metrics.json`；无 ICP、逐帧尺度或新几何监督。预览 PLY 为每 8 像素取 1 点，完整点云仍为原 `pcd/`、`fused_no_registration.ply`。
 
 ## 2026-11-24 — 整段视频两页与 46 页 PPT
 
