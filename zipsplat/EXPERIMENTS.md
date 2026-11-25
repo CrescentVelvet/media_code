@@ -1,5 +1,22 @@
 # ZipSplat 实验记录
 
+## 2026-11-25 · ZipSplat × SplatAnything 表示机制讲解（无新实验）
+
+交付 `D:/ppt/20261125-ZipSplat与SplatAnything算法思路对比.pptx`（15 页）及 D 盘同名 `_src` 工程；官方机制图、机制示意与本机同帧实测分开标注，PPT / 图片不入 git。本轮只读源码与归档，不启动训练或 GPU 实验。
+
+### 分水岭不是“有没有 token”
+
+- 两者骨干均把图像转为 token。SA 的“逐像素”指高斯中心依附源像素射线：深度与相机反投影定中心；`SplatAnything/src/models/models/rasterization.py:170-187,212-298` 的 12 通道为 quat4 / scale3 / opacity1 / residual SH3 / merge weight1，**不含自由 XYZ**，但深度和相机仍属预测几何。GSN 后固定 voxel 加权合并不保证消除跨源深度错层或重影，合并后也不是一像素一高斯。
+- ZipSplat 的 scene token 是多视角场景代理，不是语义物体或大像素。`models/networks/zipsplat.py:229-380` 以 scene token 为 Q、geometry token 为 K、视觉/颜色 payload 为 V 融合；`models/decoders/gaussian_head.py:64-84,197-231` 每 token 解出 G 个高斯，23 参数含自由 position3 / scale3 / quat4 / opacity1 / SH1 12。一个 token 可分工生成多高斯，但表达空间不等于正确率。
+- 本地 `configs/zipsplat_ft504.yaml:8-19` 为 G=16、`query_sample_ratio=[.025,1]`；三图 378×504 推理取 1.0，`K>=V*T` 时跳过 k-means，故 2,916 tokens → 46,656 Gaussians，**不能说本机先压缩 token 再重建**，跨视角注意力仍发生。assignments + `models/losses.py:221-263` ConeLoss 可复用源 patch 投影链，但不是 UV、真实表面或遮挡保证。
+
+### 对分辨率、重影与 LGTM 的边界
+
+- SA 的源像素追踪在合并前较直接；Zip 有源 patch 归属，却须另建稳定 surfel、局部 UV、选源/遮挡和纹理渲染。两者都不能“直接贴原图”获得可靠高分辨率纹理，LoRA 也不会创造这些接口。
+- 提高输入分辨率仍增加两者 backbone patch/注意力成本；SA 还增加逐像素深度、属性和候选高斯规模。自由中心不等于 2K 免费，内部 token 增多不保证输出锐度。
+- 两条链均可能重影：SA 可检查合并前后跨源点层，Zip 需检查 token 融合与自由几何解码。锐度不能替代几何，覆盖不能证明无重影。
+- P12 复用佳佳同三输入、29 留出、512² 黑底、source-only 对齐：SA pose 13.4221 dB / .3805 / 锐度比 .3078 / 覆盖 82.62%；Zip FF 无位姿 17.6399 / .4558 / .1149 / 100%；TokenBA 17.2682 / .4729 / .2953 / 99.99%。输入条件不同、TokenBA 属 TTO、人物与抱枕微动，单场景不构成总体排名。
+
 ## 2026-11-24 · ZipSplat × LGTM 接入调研（候选设计，未训练）
 
 ### 问题边界
