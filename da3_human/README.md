@@ -63,6 +63,17 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
   CAMERAS_NPZ=depthanything3_cameras/cameras.npz \
   OUT_NAME=depthanything3_cameras/render_check.jpg \
   python da3_human/35_render_hisilicon.py
+# 6) 位姿版补绕世界X轴180度，便于默认查看器正向对比（不重新推理）
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  bash da3_human/37_flip_hisilicon_display.sh
+# 新增 CASE/depthanything3_cameras_upright.ply 与 depthanything3_cameras_upright/cameras.npz；
+# X'=diag(1,-1,-1)X，位置/高斯朝向/完整SH/相机同步旋转。原两版PLY不覆盖，尺度和点数不变。
+# 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹，也不改善模糊。
+CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PLY_NAME=depthanything3_cameras_upright.ply \
+  CAMERAS_NPZ=depthanything3_cameras_upright/cameras.npz \
+  OUT_NAME=depthanything3_cameras_upright/render_check.jpg \
+  python da3_human/35_render_hisilicon.py
 ```
 
 各脚本的 env 契约以脚本头注释为准。

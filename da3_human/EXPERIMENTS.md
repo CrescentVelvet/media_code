@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-11-26 海思输入位姿 PLY 补 180° 显示偏转
+
+- 按用户对比需求，每例新增 `depthanything3_cameras_upright.ply` 和 `depthanything3_cameras_upright/cameras.npz`；原 RGB-only 与输入相机版均不覆盖。显示坐标 `X'=diag(1,-1,-1)X`，同步旋转位置、四元数、完整 SH 与配套相机，尺度、透明度、点数和深度不更改。
+- `37_flip_hisilicon_display.{py,sh}` 复用官方 `quat_to_mat/mat_to_quat` 与 `rotate_sh`，后者采用 `(N,3,9)` 及 `(N,3,3,3)`，不能用渲染加载器的 `(N,9,3)` 直接替代。case16 十视角回放与原几何/颜色一致；这只是显示坐标转正，**不是两版注册，也不改善模糊或破碎**。
+- 全部17例转换完成：每例2,540,160高斯、41属性、完整SH、全部有限，总计7,081,983,199 bytes（约6.59 GiB）；逐点核验X不变、Y/Z反号，尺度与opacity完全不变，相机同步世界旋转最大绝对误差为0。17张共170源视角回放完成，抽查case1/7/14/16无新增颜色或整体扭曲；case7侧面后脑、case14侧面全身原有破碎仍保留。汇总为数据集根目录 `depthanything3_cameras_upright_{batch_summary,validation}.json`。
+
 ## 2026-11-25 海思两版 DA3 的 180° 与模糊复查
 
 - **180° 是相机参考系转换，不是人物额外倒转**：逐例计算位姿版 `summary.json` 的 Umeyama 旋转与 `R_input[0] @ diag(1,-1,-1) @ R_raw[0].T` 的差，17 例均小于 0.94°；DA3 的第一帧预测旋转距单位阵也均小于 0.073°。这解释了自估 OpenCV 相机世界到 JSON 的 OpenGL 世界上 Y/-Z 的翻转。两版 PLY 到同一输入世界都需近似 180° 变换；RGB-only 不能直接套输入相机渲染。
