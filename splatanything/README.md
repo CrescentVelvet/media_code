@@ -1,8 +1,10 @@
-# SplatAnything（InfiniSplat v3）— 服务器运行手册
+# SplatAnything（InfiniSplat v3）— 黄区普通服务器运行手册
 
-在 Ubuntu + NVIDIA 服务器上运行 [SplatAnything](https://github.com/zju3dv/SplatAnything)：多张 RGB 图一次前馈输出 3D Gaussian PLY、点云、相机与逐视角深度。支持模型自估位姿（`rgb`）和已知相机（`pose`）两种模式。本目录只含编排脚本，官方代码自动 clone，不复制进本仓。
+在**黄区普通 Ubuntu + NVIDIA 容器服务器**上运行 [SplatAnything](https://github.com/zju3dv/SplatAnything)：多张 RGB 图一次前馈输出 3D Gaussian PLY、点云、相机与逐视角深度。支持模型自估位姿（`rgb`）和已知相机（`pose`）两种模式。本目录只含编排脚本，官方代码自动 clone，不复制进本仓。
 
-> 📄 本机 WSL 路径与人脸研究命令见 [README_wsl.md](README_wsl.md)；GSN、相机坐标及排错见 [NOTES.md](NOTES.md)；本机实测与人脸实验见 [EXPERIMENTS.md](EXPERIMENTS.md)。本文基础前馈未在服务器完整实跑；35 号 LGTM 小试已在独立 H100 环境实测。
+> **两套服务器不要混淆：** 本文 00–11 节及 35 节的通用命令只面向**黄区普通服务器**，**不是蓝区 H100 集群的操作手册**。蓝区的专用路径、环境和 Slurm 运行方式见 [README_H100.md](README_H100.md)，集群公共规则见 [canada_h100/README.md](../canada_h100/README.md)。
+>
+> 📄 本机 WSL 路径与人脸研究命令见 [README_wsl.md](README_wsl.md)；GSN、相机坐标及排错见 [NOTES.md](NOTES.md)；本机实测与人脸实验见 [EXPERIMENTS.md](EXPERIMENTS.md)。黄区普通服务器的基础前馈流程尚未完整实跑；35 号 LGTM 小试只在**蓝区 H100** 独立环境实测，两者验证状态分开记录。
 
 ## 复现边界
 
@@ -283,29 +285,37 @@ GPU=0 CONDA_ENV=splatanything \
 
 `35_lgtm_texture.py` 借用 LGTM 的源图投影局部纹理、textured 2DGS 与可学习 RGB 残差。两臂都在 **SA 体素合并前**保留逐源图元、冻结几何和透明度，仅压平最小厚度轴、保留两条切向尺度。`lgtm` 使用 K=4 纹理，`plain` 使用每图元一个 RGB 残差；二者参数量不同，不是等参数消融。**这不是 LGTM 官方跨场景训练、DepthSplat 权重实验或 4K 复现，也未通过视觉验收，勿用于人物主线。**
 
-```bash
-# 独立环境：不要覆盖原 SA 作业使用的 gsplat。
-# 在 GPU 节点编译 patched gsplat，官方 LGTM 仓保持只读。
-git clone https://github.com/apple-aiml-research/ml-lgtm ../ml-lgtm
-conda create -p /data/00950754/envs/splatanything_lgtm python=3.11 -y
-/data/00950754/envs/splatanything_lgtm/bin/pip install torch==2.7.1 torchvision
-/data/00950754/envs/splatanything_lgtm/bin/pip install -r ../SplatAnything/requirements.txt
-/data/00950754/envs/splatanything_lgtm/bin/pip install --no-build-isolation --no-deps -e ../ml-lgtm/extern/gsplat
-/data/00950754/envs/splatanything_lgtm/bin/pip install jaxtyping einops scipy pillow
+### 黄区普通服务器：安装与运行
 
-# 在 media_code 目录执行；09 与 35 放在同一目录，输出放到仓外。
+下面只给黄区容器的相对路径示例；`LGTM_ENV` 是专用环境前缀，可按实际落点替换，**不是蓝区 H100 的历史路径**。先完成黄区 SA 环境准备，另建 LGTM 环境，避免覆盖原 SA 的 `gsplat`。patched gsplat 应在有 GPU、nvcc 和编译器的节点安装，官方 LGTM 仓保持只读。
+
+```bash
+# 在 media_code 目录执行。
+git clone https://github.com/apple-aiml-research/ml-lgtm ../ml-lgtm
+LGTM_ENV="$HOME/miniconda3/envs/splatanything_lgtm"
+conda create -p "$LGTM_ENV" python=3.11 -y
+"$LGTM_ENV/bin/pip" install torch==2.7.1 torchvision
+"$LGTM_ENV/bin/pip" install -r ../SplatAnything/requirements.txt
+"$LGTM_ENV/bin/pip" install --no-build-isolation --no-deps -e ../ml-lgtm/extern/gsplat
+"$LGTM_ENV/bin/pip" install jaxtyping einops scipy pillow
+
+# 黄区运行命令：不依赖蓝区 Slurm、H100 账号或历史作业。
 SPLATANYTHING_DIR=../SplatAnything \
 SPLATANYTHING_MODEL_DIR=../../model/splatanything \
 LGTM_DIR=../ml-lgtm \
-/data/00950754/envs/splatanything_lgtm/bin/python splatanything/35_lgtm_texture.py \
+"$LGTM_ENV/bin/python" splatanything/35_lgtm_texture.py \
   --scene ../SplatAnything/examples/object --pose-mode --res 252 \
   --n-source 3 --texture-size 4 --steps 40 \
   --out ../splatanything_results/lgtm40_object
 ```
 
-H100 已用环境 `/data/00950754/envs/splatanything_lgtm`，该环境从 `../ml-lgtm/extern/gsplat` 以可编辑方式安装渲染包。复现服务器原结果时将 `LGTM_DIR=../ml-lgtm_official`。首次在新的官方 LGTM commit 上复跑前须核对纹理接口；本次使用 commit `587c121`，Python 3.11 + torch 2.7.1+cu126。不要加载 `gsplat_rayfix` 实验副本。
+输出 `report.json`、`smoke.json`、双臂 checkpoint、逐视角 GT/before/after/diff 和 alpha。先确认 `smoke.projection_center_identity.passed=true` 及 `initial_consistency` 两差为零，再读训练曲线；**数值门通过不代表画质通过**。首次在新的官方 LGTM commit 上复跑前须核对纹理接口；本次使用 commit `587c121`，Python 3.11 + torch 2.7.1+cu126。不要加载 `gsplat_rayfix` 实验副本。
 
-输出 `report.json`、`smoke.json`、双臂 checkpoint、逐视角 GT/before/after/diff 和 alpha。先确认 `smoke.projection_center_identity.passed=true` 及 `initial_consistency` 两差为零，再读训练曲线；**数值门通过不代表画质通过**。正式报告、读数和实图结论见 [EXPERIMENTS.md](EXPERIMENTS.md)，投影与半像素约定见 [NOTES.md](NOTES.md)。
+### 蓝区 H100
+
+蓝区的专用路径、已建环境、Slurm 复跑方式及本次实验产物见 [README_H100.md](README_H100.md)，不要在黄区命令中替换几个路径就当蓝区运行。
+
+正式报告、读数和实图结论见 [EXPERIMENTS.md](EXPERIMENTS.md)，投影与半像素约定见 [NOTES.md](NOTES.md)。
 
 ## 目录布局
 
@@ -320,8 +330,8 @@ H100 已用环境 `/data/00950754/envs/splatanything_lgtm`，该环境从 `../ml
 
 ## Notes
 
-- 本机 RTX 3090 上，官方物体 23 视角、756² 的整卡显存采样约 23.5 GB；这是 WSL 单例参考，**不是服务器各 GPU 的保证**。遇到显存压力先降到 504²，并减小评测 `CHUNK`。
+- 本机 RTX 3090 上，官方物体 23 视角、756² 的整卡显存采样约 23.5 GB；这是 WSL 单例参考，**不是黄区或蓝区服务器各 GPU 的保证**。遇到显存压力先降到 504²，并减小评测 `CHUNK`。
 - 03/06/08/09/11 首次运行会安装 `gsplat==1.5.2` 并 JIT 编译；需要匹配 PyTorch 的 nvcc、gcc/g++ 与 glm。无 GPU 的登录节点不要执行这些脚本。
 - 官方 `tests/test_inference.py` 依赖发布包未包含的 `validation.py`；00 只运行自包含相机测试。官方 `examples/object/prior_camera.json` 的 `num_cameras` 与实际图片数不一致，加载按真实图片条目处理。
-- 人脸几何、三图/五图、双影和深度尺度属于研究实验，输入与验收命令见 WSL 手册和实验记录；本服务器文档不绑定本机 D 盘数据，也不把测量通过写成几何分支已裁决。
+- 人脸几何、三图/五图、双影和深度尺度属于研究实验，输入与验收命令见 WSL 手册和实验记录；本黄区文档不绑定本机 D 盘数据，也不把测量通过写成几何分支已裁决。
 - 官方代码与权重遵循各自许可证；本目录只负责编排。`proxy.env` 含本机配置/凭据，已在 gitignore 中，不要提交。

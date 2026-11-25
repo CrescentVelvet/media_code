@@ -1,4 +1,6 @@
-# H100 集群使用指南（ca-uae / 迪拜）
+# 蓝区 H100 集群使用指南（ca-uae / 迪拜）
+
+> 本目录只描述**蓝区 H100 集群**，不是黄区普通服务器的部署说明。SplatAnything 的黄区运行见 `splatanything/README.md`，蓝区 SA 专用落点与 LGTM 小试见 `splatanything/README_H100.md`。
 
 > 账号 `00950754` · 登录 `ssh h100` · 实测记录 2026-11-13
 > 节点 8×H100 PCIe 80GB · 192 核 · 1.35T 内存

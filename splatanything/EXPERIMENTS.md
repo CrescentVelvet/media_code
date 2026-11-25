@@ -1,10 +1,10 @@
 # EXPERIMENTS — SplatAnything（InfiniSplat v3）复现实验记录
 
-> 按日期倒序追加。机器：WSL2 / i9-12900K / RTX 3090 24 GB / 驱动 595.95。
+> 默认机器：WSL2 / i9-12900K / RTX 3090 24 GB / 驱动 595.95；蓝区 H100 实验单独标注。
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
-## 2026-11-24 · H100 上 LGTM 式局部纹理：链路通过，视觉未通过
+## 2026-11-24 · 蓝区 H100 上 LGTM 式局部纹理：链路通过，视觉未通过
 
 **结论：保留研究脚本，不进入默认推理或人物主线。** 原始 patched gsplat 的投影、纹理采样和梯度链均通过；40 步拟合的 PSNR 上升，但 LGTM 臂留出增量小于普通对照，三张源图和一张留出图仍有明显网格、局部过曝及摩尔纹。不能用本轮证明 LGTM 相对普通拟合有效，更不能据此宣称官方 LGTM、跨场景或 4K 已复现。此前未过投影门的旧曲线作废，以本次 `lgtm40_verified_v4` 为准。
 
@@ -27,7 +27,7 @@ LGTM 的 source 增益较大，但留出增益比普通臂少 0.486 dB。两臂�
 
 参考（不同表示，非纯纹理消融）：merged SA 3DGS source/held-out PSNR=18.657/19.196 dB；raw 3DGS source=15.852 dB。不得跨此口径宣称纹理优劣。
 
-正式产物 `/data/00950754/runs/splatanything_lgtm/lgtm40_verified_v4/`：`report.json` 记录输入、版本、代码 SHA、所有硬门、逐层参数更新、训练曲线与逐视角指标；`*_source/`、`*_held_out/` 有 GT/before/after/diff 和 alpha；双臂 checkpoint 同目录。环境 `/data/00950754/envs/splatanything_lgtm`，原始 patched gsplat 从只读 LGTM 仓安装；原 SA 作业 201373222 始终未停止或修改。复跑见 README 的 35 节。
+正式产物 `/data/00950754/runs/splatanything_lgtm/lgtm40_verified_v4/`：`report.json` 记录输入、版本、代码 SHA、所有硬门、逐层参数更新、训练曲线与逐视角指标；`*_source/`、`*_held_out/` 有 GT/before/after/diff 和 alpha；双臂 checkpoint 同目录。环境 `/data/00950754/envs/splatanything_lgtm`，原始 patched gsplat 从只读 LGTM 仓安装；原 SA 作业 201373222 始终未停止或修改。黄区普通服务器命令见 README 的 35 节；蓝区路径与 Slurm 复跑见 [README_H100.md](README_H100.md)。
 
 ## 2026-11-24 · 用源图三角测量校准深度，并回放最终高斯
 
