@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-11-25 海思十视角数据的原生 DA3 批量重建
+
+- 输入：`D:/dataset/测试数据/海思端侧重建拍摄数据/` 的 17 个 case。每例复用 `splatanything/36_extract_hisilicon.py` 已登记的 10 张静止视角 RGB，校验图片 SHA-256；不输入海思或 SA 的相机与几何，DA3 用 RGB 自估相机。
+- 权重及前向：官方 `depth-anything/DA3NESTED-GIANT-LARGE-1.1`，`process_res=504`、`saddle_balanced`、`infer_gs=True`。用 `da3_frame.gaussians_to_metric` 将高斯中心/尺度和相机深度统一到米制，只折算一次。
+- 交付：每例 `depthanything3.ply`；原生高斯、不裁边、不按深度裁剪、完整 SH degree 2（41 个 float 属性）。相机/深度/置信度保留于同目录的 `depthanything3/cameras.npz`。
+- 工具：`34_run_hisilicon.py` / `34_run_hisilicon.sh`。单进程复用权重，完整 PLY 跳过；`FORCE=1` 会备份旧文件。case1 首轮官方导出与连续数组导出的所有属性逐点一致。17 例均交付，每例 2,540,160 个高斯、约 397.3 MiB，合计约 6.59 GiB；所有字段为有限值。用 `35_render_hisilicon.py` 完成 170 个源视角回放，主体均可辨认；case8 人物边缘、case12 腿部/远景存在明显软化和拖影，未做独立视角几何验收。
+- 数值修正：case1 有 39 个高斯的 opacity 精确饱和到 1，官方 `log(x/(1-x))` 得 `+Inf`。批处理改用数学等价的 `log(x)-log1p(-x)`，饱和点用 float32 可计算最大 logit `-log(eps)`，不删点、不改几何，其余字段按官方导出。交付前逐文件检查非有限值和字段数；这是模型/导出数值统计，不冒充场景重建质量验收。
+
+
 ## 2026-11-24 三源深度倍率与逐源偏移
 
 两静态身份各两个留出，完成点云和 SA 最终高斯回放。Rosemary 仅用脸外纹理估得倍率，最终高斯鼻尖深度 p90 从 10.94/10.68 降至 4.02/6.74 mm；Daven 缺少可靠匹配，回退原输出。保留默认 SA，下一轮换有独立尺度参照的新身份。见[逐帧实测](../splatanything/EXPERIMENTS.md)和[总计划](EXPERIMENT_PLAN.md)。
