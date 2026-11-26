@@ -136,6 +136,7 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
 # 旧 PLY 会备份至各案例 depthanything3_sfm_backup_*；新版另存 native.ply/native_cameras.npz
 # 以区分前向预测退化与输入世界对齐退化。COLMAP 是 OpenCV，不套 glTF 的中心取负规则。
 # 独立 A/B 可用新的 OUT_ROOT（一次性实验根，已有输出拒绝覆盖）：
+# 不带 OUT_ROOT 的单例 CASE_FILTER 摘要写到该案例 depthanything3_sfm/，不覆盖根目录17例总表。
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
   CASE_FILTER=case14_nopose_recentered \

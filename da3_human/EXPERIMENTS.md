@@ -48,6 +48,10 @@
   `depthanything3_sfm_validation.json` 为最终17/17通过记录。
 - 38号支持 `OUT_ROOT` 的一次性新实验目录；shell 只创建外层日志目录，已有目标案例拒绝覆盖。
   默认正式重跑需 FORCE=1，旧尺度结果不允许被跳过逻辑冒充新版。
+- 收尾发现单例 `CASE_FILTER` 曾覆盖根目录17例总表（正式 PLY、各例摘要和 validation 不受影响）。
+  现改为单例摘要写到 `CASE/depthanything3_sfm/depthanything3_sfm_single_summary.json`；根总表
+  仅由全量运行更新，并已用17份现存摘要恢复。恢复时补注 `summary_status: restored_after_single_case_overwrite`
+  及恢复时间，保留原始 `status`，不重新推理、不改变高斯或相机数值。
 
 ---
 

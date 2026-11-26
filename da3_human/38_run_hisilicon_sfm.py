@@ -11,6 +11,7 @@ Env vars:
   仅外层 shell 创建 OUT_ROOT 供日志落盘；Python 不重复创建该根。
   PLY_NAME / OUT_SUBDIR 仅新实验根可覆盖；默认 depthanything3_sfm(.ply)。
   正式重跑自动将旧 PLY、相机和摘要备份至各案例 depthanything3_sfm_backup_*。
+  单例 CASE_FILTER 的摘要写到该案例输出目录，不覆盖根目录批量总表。
 """
 import hashlib
 import importlib.util
@@ -132,7 +133,12 @@ def main():
     if not cases:
         sys.exit("❌ 没有匹配案例")
     pending = []
-    report_path = experiment / "depthanything3_sfm_batch_summary.json" if experiment else root / "depthanything3_sfm_batch_summary.json"
+    if experiment:
+        report_path = experiment / "depthanything3_sfm_batch_summary.json"
+    elif selected:
+        report_path = cases[0] / out_subdir / "depthanything3_sfm_single_summary.json"
+    else:
+        report_path = root / "depthanything3_sfm_batch_summary.json"
     for case in cases:
         dest = experiment / case.name if experiment else case
         out = dest / out_subdir
