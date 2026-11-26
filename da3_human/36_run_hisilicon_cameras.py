@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""海思十视角：输入 stage1 相机运行原生 DA3，导出 depthanything3_cameras.ply。
+"""海思十视角：输入 stage1/glTF 相机运行原生 DA3，导出 depthanything3_cameras.ply。
 
-JSON 的 OpenGL c2w 转 OpenCV w2c；DA3 的高斯仍在自估世界，必须用与输出
-相机相同的 Umeyama Sim(3) 把 means/scales/rotations/SH 对齐到输入世界。
-最终再与相机同步施加绕 X 轴 180° 的显示旋转，直接写 depthanything3_cameras.ply。
-米制倍率与相机对齐尺度只组合一次。保留所有高斯和完整 SH，不读取竞品几何。
+旧包 JSON 的 OpenGL c2w、新包 glTF c2w_keyframes 均转 OpenCV w2c；DA3 的高斯
+仍在自估世界，必须用与输出相机相同的 Umeyama Sim(3) 把 means/scales/rotations/SH
+对齐到输入世界。旧17例再与相机同步施加绕 X 轴 180° 的显示旋转；新 glTF 数据
+保留原生世界。米制倍率与相机对齐尺度只组合一次。保留所有高斯和完整 SH。
 
 Env vars:
   ROOT, CASE_FILTER, FORCE, PROCESS_RES, DA3_MODEL_DIR
@@ -31,7 +31,53 @@ FLIP_CV = np.diag([1.0, -1.0, -1.0, 1.0])
 WORLD_ROTATION = np.diag([1.0, -1.0, -1.0])
 
 
+def load_gltf_inputs(case):
+    """新数据：frame_0001..0010 与 glTF 的 10 个 c2w 关键帧按序对应。"""
+    from PIL import Image
+
+    camera_path = case / f"{case.name}_camera.json"
+    data = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera = data["extrinsics"]
+    path = camera["camera_path"]
+    matrices = np.asarray(path["c2w_keyframes"], dtype=np.float64)
+    K = np.asarray(data["intrinsics"]["K"], dtype=np.float64)
+    size = data["intrinsics"]["reference_image_size"]
+    if matrices.shape != (10, 4, 4) or path["keyframe_count"] != 10:
+        raise RuntimeError(f"{case.name}: 需要10个完整 glTF c2w 关键帧")
+    files = [case / "images" / f"frame_{i:04d}.png" for i in range(1, 11)]
+    w2cs = []
+    for file, c2w_gl in zip(files, matrices):
+        if not file.is_file():
+            raise RuntimeError(f"缺少输入图: {file}")
+        with Image.open(file) as im:
+            if im.size != (size["width"], size["height"]):
+                raise RuntimeError(f"图像尺寸与 glTF 相机不一致: {file}")
+        if (not np.isfinite(c2w_gl).all()
+                or not np.array_equal(c2w_gl[3], np.array([0.0, 0.0, 0.0, 1.0]))):
+            raise RuntimeError(f"非法 glTF c2w: {file}")
+        R = c2w_gl[:3, :3]
+        if (np.abs(R @ R.T - np.eye(3)).max() > 1e-5
+                or abs(np.linalg.det(R) - 1) > 1e-5):
+            raise RuntimeError(f"glTF c2w 旋转不是 SO(3): {file}")
+        if (K.shape != (3, 3) or not np.isfinite(K).all()
+                or K[0, 0] <= 0 or K[1, 1] <= 0
+                or not (0 <= K[0, 2] < size["width"] and 0 <= K[1, 2] < size["height"])):
+            raise RuntimeError(f"非法 glTF 内参: {camera_path}")
+        w2cs.append(np.linalg.inv(c2w_gl @ FLIP_CV))
+    manifest = {"frames": [{"image": f"images/{p.name}", "sourceIndex": i}
+                          for i, p in enumerate(files)],
+                "camera_file": camera_path.name,
+                "input_camera_convention": "glTF camera-to-world (-Z forward, +Y up)"}
+    return files, np.asarray(w2cs), np.broadcast_to(K, (10, 3, 3)).copy(), camera_path, manifest
+
+
 def load_inputs(case):
+    if (case / "splatanything/extraction.json").is_file():
+        return load_stage1_inputs(case)
+    return load_gltf_inputs(case)
+
+
+def load_stage1_inputs(case):
     """按 sourceIndex 一一配对 RGB 和原始 JSON 相机，拒绝猜测文件顺序。"""
     images_dir = case / "splatanything/images"
     manifest_path = case / "splatanything/extraction.json"
@@ -195,30 +241,28 @@ def main():
     model_dir = os.environ.get("DA3_MODEL_DIR", "") or os.environ.get("DA3_HUMAN_MODEL_DIR", "")
     if not root.is_dir() or not (Path(model_dir) / "model.safetensors").is_file():
         sys.exit(f"❌ ROOT/权重无效: ROOT={root}, DA3_MODEL_DIR={model_dir}")
-    cases = sorted(root.glob("case*_nopose_recentered"),
-                   key=lambda p: int(p.name.split("_")[0][4:]))
-    if selected:
-        cases = [p for p in cases if p.name == selected]
-    if not cases:
-        sys.exit("❌ 没有匹配案例")
+    cases = _io.discover_cases(root, selected)
 
     pending = []
+    report_path = (root / "depthanything3_cameras_batch_summary.json") if not selected else None
     for case in cases:
         files, ext, ixt, camera_path, manifest = load_inputs(case)
         target = case / "depthanything3_cameras.ply"
         out = case / "depthanything3_cameras"
+        display_rotation = (WORLD_ROTATION if (case / "splatanything/extraction.json").is_file()
+                            else np.eye(3))
+        existing = None
         if (target.is_file() and (out / "cameras.npz").is_file()
                 and (out / "summary.json").is_file() and not force):
             previous = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-            if not np.array_equal(previous.get("world_rotation"), WORLD_ROTATION):
-                raise RuntimeError(f"旧相机版未登记180度转正，不能直接跳过: {case.name}；请用 FORCE=1 重建")
+            if not np.array_equal(previous.get("world_rotation"), display_rotation):
+                raise RuntimeError(f"相机版显示旋转与输入格式不一致: {case.name}；请核对后 FORCE=1")
             previous.update(_io.inspect_ply(target))
-            pending.append((case, files, ext, ixt, camera_path, manifest, target, out,
-                            previous))
+            existing = previous
         elif target.exists() and not target.is_file():
             sys.exit(f"❌ 目标不是普通文件，拒绝覆盖: {target}")
-        else:
-            pending.append((case, files, ext, ixt, camera_path, manifest, target, out, None))
+        pending.append((case, files, ext, ixt, camera_path, manifest, target, out,
+                        existing, display_rotation, report_path))
 
     from depth_anything_3.api import DepthAnything3
     from depth_anything_3.utils import gsply_helpers as gh
@@ -239,14 +283,16 @@ def main():
     print(f"🏋️ 加载原生 DA3: {model_dir}", flush=True)
     model = DepthAnything3.from_pretrained(model_dir).to("cuda")
     report = {"root": str(root), "model": model_dir, "process_res": process_res,
-              "camera_input": "各案例 stage1_cameras.json；OpenGL c2w -> OpenCV w2c",
-              "gaussian_frame": "官方 Sim(3) 对齐后与相机同步绕X轴180度显示旋转；直接写相机版PLY",
+              "camera_input": "旧包 stage1 OpenGL c2w；新包 glTF c2w_keyframes；均转 OpenCV w2c",
+              "gaussian_frame": "完整 Sim(3) 对齐到输入世界；旧stage1包另转正，新glTF包保留原生世界",
+              "world_rotation_policy": {"stage1": WORLD_ROTATION.tolist(), "gltf": np.eye(3).tolist()},
+              "batch_summary": str(report_path) if report_path else "仅各案例 depthanything3_cameras/summary.json",
               "export": {"prune_border_gs": False, "prune_by_depth_percent": 1.0,
                          "save_sh_dc_only": False, "scale": "input_world",
                          "world_rotation": WORLD_ROTATION.tolist()},
               "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
     failed = False
-    for case, files, ext, ixt, camera_path, manifest, target, out, existing in pending:
+    for case, files, ext, ixt, camera_path, manifest, target, out, existing, display_rotation, report_path in pending:
         out.mkdir(parents=True, exist_ok=True)
         if existing is not None:
             info = dict(existing)
@@ -254,7 +300,9 @@ def main():
             report["cases"].append(info)
             print(f"⏭️ {case.name}: 已有有效 PLY，跳过", flush=True)
             _io.dump_json(out / "summary.json", info)
-            _io.dump_json(root / "depthanything3_cameras_batch_summary.json", report)
+            _io.dump_json(out / "batch_summary.json", report)
+            if report_path is not None:
+                _io.dump_json(report_path, report)
             continue
         backup = None
         if target.exists():
@@ -269,7 +317,7 @@ def main():
                 model, files, ext, ixt, process_res)
             np.savez_compressed(
                 out / "raw_cameras.npz", raw_extrinsics=raw_extrinsics)
-            alignment = transform_gaussians(prediction, raw_extrinsics, ext)
+            alignment = transform_gaussians(prediction, raw_extrinsics, ext, display_rotation)
             np.savez_compressed(
                 out / "cameras.npz", extrinsics=alignment["output_extrinsics"],
                 intrinsics=prediction.intrinsics,
@@ -278,9 +326,8 @@ def main():
                 scale_factor=np.float32(alignment["total_gaussian_scale"]),
                 is_metric=np.int32(1), view_indices=np.arange(len(files)),
                 image_names=np.asarray([p.name for p in files]),
-                world_rotation=WORLD_ROTATION,
-                source_indices=np.asarray([v["sourceIndex"] for v in
-                                           json.loads(camera_path.read_text(encoding="utf-8"))["views"]]))
+                world_rotation=display_rotation,
+                source_indices=np.arange(len(files)))
             ctx_depth = torch.from_numpy(prediction.depth).unsqueeze(-1).to(
                 prediction.gaussians.means)
             gh.save_gaussian_ply(
@@ -293,7 +340,8 @@ def main():
                          "n_views": len(files), "image_names": [p.name for p in files],
                          "input_sha256": [_io.sha256(p) for p in files],
                          "camera_json": camera_path.name, "camera_json_sha256": _io.sha256(camera_path),
-                         "camera_coordinate": "OpenCV w2c；相机与高斯已同步绕输入世界X轴180度",
+                         "camera_coordinate": ("OpenCV w2c；glTF原生世界，无显示旋转" if manifest["input_camera_convention"].startswith("glTF")
+                                               else "OpenCV w2c；相机与高斯已同步绕输入世界X轴180度"),
                          "depth_median_m": float(np.median(prediction.depth)),
                          "peak_vram_gb": round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2),
                          "backup": str(backup) if backup else None, **alignment})
@@ -312,10 +360,13 @@ def main():
             if "prediction" in locals():
                 del prediction
             torch.cuda.empty_cache()
-            _io.dump_json(root / "depthanything3_cameras_batch_summary.json", report)
+            _io.dump_json(out / "batch_summary.json", report)
+            if report_path is not None:
+                _io.dump_json(report_path, report)
     print(f"🎉 批量结束: {len(report['cases'])}/{len(cases)} 有结果", flush=True)
     report["finished_at"] = datetime.now(timezone.utc).isoformat()
-    _io.dump_json(root / "depthanything3_cameras_batch_summary.json", report)
+    if report_path is not None:
+        _io.dump_json(report_path, report)
     if failed or len(report["cases"]) != len(cases):
         sys.exit(1)
 

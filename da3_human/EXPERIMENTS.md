@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-11-26 新增 model_man / model_plant 的原生与 glTF 相机 DA3
+
+- 输入均为原始 `images/frame_0001..0010.png`，每例10张704×704 RGB。原生版不读相机、已有 `model_*.ply` 或 `renders/`；相机版按文件名序号一一对应 `*_camera.json` 的10个 `c2w_keyframes`，使用顶层显式 `intrinsics.K`（`fx=fy=322.548528`），glTF c2w 转 OpenCV w2c。没有借用旧17例的抽帧清单或 stage1 JSON。
+- 权重仍为本机 `DA3NESTED-GIANT-LARGE-1.1`（MD5 `4e54bf75031acc19cf210d3423a3954a`），504p、`saddle_balanced`、`infer_gs=True`。两次相机版日志均明确 `Using camera conditions provided by the user`。输出 `depthanything3.ply` 和 `depthanything3_cameras.ply`；相机版使用捕获的预测相机 + 完整 Sim(3) 对齐，保留 glTF 原生世界，不施加旧17例的180°显示旋转。
+- 四份 PLY 均为 2,540,160 高斯、41属性、完整SH degree2、416,587,247 bytes，全部有限；两例两版共40源视角回放完成。`model_man`/`model_plant` 的相机尺度分别3.02814484/6.31354576，总高斯尺度1.28684797/1.37502991，预测—输入相机最大中心残差0.04689972/0.07070256（输入世界单位），不能认定为零误差。
+- ⚠️ 工程通过不等于质量通过：RGB-only 的人物/盆栽主体可辨但偏软；相机版两例均有大范围重影、雾化，人像几乎不可辨，保留原始输出不裁点/美化。`depthanything3_new_models_validation.json` 记录四份哈希与40视角回放。顶层 yfov 与 K 也不一致（704px 下约327.3 vs 322.55），关键帧另有动画 yfov；本次严格使用顶层 K，**没有在无依据时切换参数或把重影根因归给其中一方**。
+- 工具兼容：34/36 支持新 `images/` + glTF 相机格式，35 自动适配原始 RGB 回放；单例摘要在各自输出目录，不覆盖旧17例根总表。
+
+---
+
 ## 2026-11-26 海思使用最终 SfM 相机重跑 DA3
 
 - 输入为 17 例各自 `colmap_sfm_results/sparse/0` 的最终模型；按图像名只取已注册视角。16 例为 10/10，case7 仅 6/10，缺失的 4 帧不伪造位姿。SFM 的 OPENCV 畸变先用 `cv2.undistort` 去除，K 和外参保留原模型口径；DA3 504p 条件前向，日志逐例出现 `Using camera conditions provided by the user`。

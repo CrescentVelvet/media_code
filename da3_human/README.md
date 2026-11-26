@@ -67,7 +67,20 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
 
 # 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹。
 
-# 6) 海思最终 COLMAP SfM 相机版（不覆盖第 4/5 步结果）
+# 6) 新增 model_man / model_plant（glTF 相机关键帧）
+# 原始 images/frame_0001..0010.png 分别与 *_camera.json 的10个 c2w_keyframes 按序对应；
+# 用顶层 intrinsics.K，glTF c2w 转 OpenCV w2c；完整 Sim(3) 对齐，保留原生世界，不做旧包的180度转正。
+# 不读取目录中既有 model_*.ply 或 renders/ 作为 DA3 输入。
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  CASE_FILTER=model_man PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  bash da3_human/34_run_hisilicon.sh
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  CASE_FILTER=model_man PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  bash da3_human/36_run_hisilicon_cameras.sh
+# model_plant 同样将 CASE_FILTER 改为 model_plant；单例摘要在各自 depthanything3*/ 下，
+# 不覆盖根目录17例的总表。35号回放对原始 images/ 目录自动适配。
+
+# 7) 海思最终 COLMAP SfM 相机版（不覆盖第 4/5 步结果）
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
   bash da3_human/38_run_hisilicon_sfm.sh

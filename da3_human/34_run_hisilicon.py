@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """批量运行原生 DA3 GSDPT，将海思十视角案例导出为 depthanything3.ply。
 
-复用已验收的 splatanything/images 抽帧结果；只读取 RGB，不读其相机或 PLY。
+复用旧案例已验收的 splatanything/images，或读取新案例原始 images/；只读取 RGB。
 模型只加载一次；高斯与相机统一为米制，不裁边/深度、保留全部 SH。
 
 Env vars:
   ROOT            海思案例根目录
   OUT_SUBDIR      每个案例的中间产物目录，默认 depthanything3
-  CASE_FILTER     可选，只跑一个完整目录名（冒烟用）
+  CASE_FILTER     可选，只跑一个完整目录名（冒烟/单例用）
   FORCE           1=备份已有 PLY 后重建；默认完整输出直接跳过
   PROCESS_RES     DA3 输入分辨率，默认 504
   DA3_MODEL_DIR   原生 DA3NESTED-GIANT-LARGE-1.1 权重目录
@@ -91,6 +91,48 @@ def inspect_ply(path):
             "bounds_max": xyz.max(axis=0).tolist()}
 
 
+def load_rgb_images(case):
+    """读取旧抽帧包或新原始 images/；只复用 RGB，不读取既有 PLY/渲染。"""
+    from PIL import Image
+
+    images_dir = case / "splatanything" / "images"
+    manifest_path = case / "splatanything" / "extraction.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        files = [images_dir / Path(r["image"]).name for r in manifest["frames"]]
+        if len(files) != 10 or any(not p.is_file() for p in files):
+            raise RuntimeError(f"{case.name} 应有 10 张已登记图像: {images_dir}")
+        for path, record in zip(files, manifest["frames"]):
+            if sha256(path) != record["sha256"]:
+                raise RuntimeError(f"输入图与抽帧清单不一致: {path}")
+        return files, "已验收 splatanything/images 的 RGB；不使用海思/SA 相机或几何"
+    images_dir = case / "images"
+    camera_path = case / f"{case.name}_camera.json"
+    if images_dir.is_dir() and camera_path.is_file():
+        files = sorted(images_dir.glob("frame_*.png"))
+        if len(files) != 10 or [p.name for p in files] != [f"frame_{i:04d}.png" for i in range(1, 11)]:
+            raise RuntimeError(f"{case.name}: 需要连续 frame_0001.png 至 frame_0010.png")
+        for path in files:
+            with Image.open(path) as im:
+                if im.size != (704, 704):
+                    raise RuntimeError(f"新数据图像不是 704x704: {path}")
+        return files, "原始 images/frame_0001..0010.png；不使用相机、既有 PLY 或 renders"
+    raise RuntimeError(f"{case.name}: 缺少旧抽帧包或新 images/+相机JSON输入")
+
+
+def discover_cases(root, selected):
+    if selected:
+        cases = [root / selected]
+    else:
+        cases = [p for p in root.iterdir() if p.is_dir()
+                 and ((p / "splatanything/extraction.json").is_file()
+                      or (p / "images").is_dir() and (p / f"{p.name}_camera.json").is_file())]
+        cases = sorted(cases, key=lambda p: p.name)
+    if not root.is_dir() or not cases or any(not p.is_dir() for p in cases):
+        raise RuntimeError(f"没有匹配案例: ROOT={root}, CASE_FILTER={selected}")
+    return cases
+
+
 def main():
     root = Path(os.environ.get("ROOT", "/mnt/d/dataset/测试数据/海思端侧重建拍摄数据"))
     out_subdir = os.environ.get("OUT_SUBDIR", "depthanything3")
@@ -106,26 +148,19 @@ def main():
         sys.exit(f"❌ 权重缺失: {model_dir}")
     if Path(out_subdir).is_absolute() or ".." in Path(out_subdir).parts:
         sys.exit("❌ OUT_SUBDIR 必须是案例目录内的相对路径")
-    cases = sorted((p for p in root.iterdir() if p.is_dir() and p.name.startswith("case")),
-                   key=lambda p: int(p.name.split("_")[0][4:]))
-    if selected:
-        cases = [p for p in cases if p.name == selected]
-    if not cases:
-        sys.exit("❌ 没有匹配案例")
+    try:
+        cases = discover_cases(root, selected)
+    except RuntimeError as exc:
+        sys.exit(f"❌ {exc}")
 
     pending = []
+    input_sources = []
     for case in cases:
-        images_dir = case / "splatanything" / "images"
-        manifest_path = case / "splatanything" / "extraction.json"
-        if not manifest_path.is_file():
-            sys.exit(f"❌ 缺少已验收抽帧清单: {manifest_path}")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        files = [images_dir / Path(r["image"]).name for r in manifest["frames"]]
-        if len(files) != 10 or any(not p.is_file() for p in files):
-            sys.exit(f"❌ {case.name} 应有 10 张已登记图像: {images_dir}")
-        for path, record in zip(files, manifest["frames"]):
-            if sha256(path) != record["sha256"]:
-                sys.exit(f"❌ 输入图与抽帧清单不一致: {path}")
+        try:
+            files, input_source = load_rgb_images(case)
+        except RuntimeError as exc:
+            sys.exit(f"❌ {exc}")
+        input_sources.append(input_source)
         target = case / "depthanything3.ply"
         if target.is_file() and not force:
             print(f"⏭️ {case.name}: 已有 PLY，核验后跳过", flush=True)
@@ -160,12 +195,14 @@ def main():
     model = DepthAnything3.from_pretrained(model_dir).to("cuda")
     print(f"⏱️ 模型加载 {time.time() - t0:.1f}s", flush=True)
     report = {"root": str(root), "model": model_dir, "process_res": process_res,
-              "input_policy": "已验收 splatanything/images 的 RGB；不使用海思/SA 相机或几何",
+              "input_policy": "旧包只读抽帧 RGB；新包只读 images/ 原始 RGB；不使用相机、既有 PLY 或 renders",
+              "input_sources": dict(zip((p.name for p in cases), input_sources)),
+              "batch_summary": "仅各案例 depthanything3/summary.json" if selected else "根目录与案例的 batch_summary.json",
               "export": {"prune_border_gs": False, "prune_by_depth_percent": 1.0,
                          "save_sh_dc_only": False, "scale": "metric"},
               "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
     failed = False
-    for case, files, target, existing in pending:
+    for (case, files, target, existing), input_source in zip(pending, input_sources):
         out = case / out_subdir
         out.mkdir(parents=True, exist_ok=True)
         summary_path = out / "summary.json"
@@ -206,6 +243,7 @@ def main():
             info = inspect_ply(target)
             info.update({
                 "case": case.name, "status": "completed", "seconds": round(time.time() - t0, 1),
+                "input_source": input_source,
                 "n_views": len(files), "image_names": [p.name for p in files],
                 "input_sha256": [sha256(p) for p in files],
                 "scale_factor": sf, "is_metric": int(prediction.is_metric),

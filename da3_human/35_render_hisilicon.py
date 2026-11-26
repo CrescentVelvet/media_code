@@ -53,14 +53,20 @@ def main():
     for relative in (out_name, ply_name, cameras_npz, source_images_dir):
         if Path(relative).is_absolute() or ".." in Path(relative).parts:
             sys.exit(f"❌ 输出/输入必须是案例目录内相对路径: {relative}")
-    cases = sorted(root.glob("case*_nopose_recentered"),
-                   key=lambda p: int(p.name.split("_")[0][4:]))
-    if selected:
-        cases = [p for p in cases if p.name == selected]
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from importlib.util import module_from_spec, spec_from_file_location
+    _spec = spec_from_file_location(
+        "hisilicon_rgb", Path(__file__).resolve().parent / "34_run_hisilicon.py")
+    _io = module_from_spec(_spec)
+    _spec.loader.exec_module(_io)
+    cases = _io.discover_cases(root, selected)
     if not cases:
         sys.exit("❌ 没有匹配案例")
     rows = []
     for case in cases:
+        source_dir = source_images_dir
+        if source_dir == "splatanything/images" and not (case / source_dir).is_dir():
+            source_dir = "images"
         cam = np.load(case / cameras_npz, allow_pickle=False)
         means, scales, quats, _, sh, opacity = load_ply(case / ply_name)
         args = dict(means=means, scales=torch.exp(scales),
@@ -78,7 +84,7 @@ def main():
                 width=504, height=504, packed=False, sh_degree=2,
                 eps2d=0.01, backgrounds=torch.ones(1, 3, device="cuda"), render_mode="RGB")
             rendered = Image.fromarray((color[0].clamp(0, 1).cpu().numpy() * 255).astype(np.uint8))
-            source = Image.open(case / source_images_dir / str(name)).convert("RGB").resize((504, 504))
+            source = Image.open(case / source_dir / str(name)).convert("RGB").resize((504, 504))
             pair = Image.new("RGB", (1008, 534), "white")
             pair.paste(source, (0, 30))
             pair.paste(rendered, (504, 30))
