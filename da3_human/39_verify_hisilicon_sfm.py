@@ -2,6 +2,7 @@
 """核验海思 depthanything3_sfm.ply 的字段、数值和 SfM 相机配对。
 
 Env vars: ROOT, REQUIRE_RENDERS=1（最终验收默认必须已有源回放）
+  EXPECTED_CASES 可选：约束实际有待验收摘要的案例数，不再硬编码旧17例。
 """
 import json
 import os
@@ -14,10 +15,14 @@ from plyfile import PlyData
 
 def main():
     root = Path(os.environ.get("ROOT", "/mnt/d/dataset/测试数据/海思端侧重建拍摄数据"))
-    cases = sorted(root.glob("case*_nopose_recentered"),
+    cases = sorted((p for p in root.glob("case*_nopose_recentered")
+                    if (p / "depthanything3_sfm/summary.json").is_file()),
                    key=lambda p: int(p.name.split("_")[0][4:]))
     report = {"checked_at": datetime.now(timezone.utc).isoformat(), "cases": [], "failures": []}
     require_renders = os.environ.get("REQUIRE_RENDERS", "1") == "1"
+    expected_cases = os.environ.get("EXPECTED_CASES", "")
+    if expected_cases and len(cases) != int(expected_cases):
+        raise SystemExit(f"❌ 最终案例数与预期不符: {len(cases)} != {expected_cases}")
     for case in cases:
         try:
             ply, out = case / "depthanything3_sfm.ply", case / "depthanything3_sfm"
@@ -80,7 +85,7 @@ def main():
         f.write("\n")
     print(f"🎉 {report['successful']}/{len(cases)} 通过；{report['total_views']} 视角；"
           f"{report['total_bytes']:,} bytes；报告: {path}", flush=True)
-    if report["failures"] or len(cases) != 17:
+    if report["failures"] or (expected_cases and len(report["cases"]) != int(expected_cases)):
         raise SystemExit(1)
 
 

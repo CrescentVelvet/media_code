@@ -12,6 +12,7 @@ Env vars:
   PLY_NAME / OUT_SUBDIR 仅新实验根可覆盖；默认 depthanything3_sfm(.ply)。
   正式重跑自动将旧 PLY、相机和摘要备份至各案例 depthanything3_sfm_backup_*。
   单例 CASE_FILTER 的摘要写到该案例输出目录，不覆盖根目录批量总表。
+  无最终 summary/sparse/0/txt 的案例跳过并登记；EXPECTED_CASES 可选约束批量数。
 """
 import hashlib
 import importlib.util
@@ -126,13 +127,23 @@ def main():
                                         or out_subdir != "depthanything3_sfm"))):
         sys.exit("❌ 案例内路径必须相对且无..；仅新 OUT_ROOT 可自定义文件名/子目录")
     sys.path.insert(0, str(SCRIPT_DIR.parent / "infinisplat_v2"))
-    cases = sorted(root.glob("case*_nopose_recentered"),
+    cases = sorted((p for p in root.glob("case*_nopose_recentered")
+                    if (p / "colmap_sfm_results/summary.json").is_file()
+                    and (p / "colmap_sfm_results/sparse/0/txt/images.txt").is_file()),
                    key=lambda p: int(p.name.split("_")[0][4:]))
+    skipped_incomplete = [p.name for p in root.glob("case*_nopose_recentered")
+                          if not (p / "colmap_sfm_results/summary.json").is_file()
+                          or not (p / "colmap_sfm_results/sparse/0/txt/images.txt").is_file()]
+    if skipped_incomplete:
+        print(f"⚠️ 跳过无最终 SFM 导出案例: {skipped_incomplete}", flush=True)
     if selected:
         cases = [p for p in cases if p.name == selected]
     if not cases:
         sys.exit("❌ 没有匹配案例")
     pending = []
+    expected_cases = os.environ.get("EXPECTED_CASES", "")
+    if expected_cases and len(cases) != int(expected_cases):
+        sys.exit(f"❌ 最终案例数与预期不符: {len(cases)} != {expected_cases}")
     if experiment:
         report_path = experiment / "depthanything3_sfm_batch_summary.json"
     elif selected:
@@ -179,7 +190,8 @@ def main():
                          "save_sh_dc_only": False, "scale": "sfm_arbitrary_units"},
               "alignment_version": "adapter_scaled_camera_single_sim3_v2",
               "scale_formula": "Umeyama(input, adapter_scaled_pred) -> adapter原生高斯；不含Nested sf或再次除a",
-              "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
+              "started_at": datetime.now(timezone.utc).isoformat(),
+              "skipped_incomplete_sfm": skipped_incomplete, "cases": []}
     failed = False
     for case, inputs, previous in pending:
         dest = experiment / case.name if experiment else case

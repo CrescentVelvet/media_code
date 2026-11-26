@@ -3,6 +3,29 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
+## 2026-11-26 海思 v2：32例有效 SFM 的 DA3 重建完成，画质不作整体放行
+
+- 用户完成 v2 SFM 后要求沿用38号重建。以 `colmap_sfm_results_batch_summary.json` 为准：
+  **32例成功、319个注册视角**，31例10/10，case14为9/10（view07未注册）。
+  case5、case6仅有 database/logs/sparse_raw，没有最终 `sparse/0`、文本模型或 summary；
+  不用数据库、stage1或猜位姿补齐，因此本批不是34例完成。
+- 38号发现阶段只接收最终 summary + sparse/0/txt/images.txt，跳过案例写入日志及根总表
+  `skipped_incomplete_sfm`；新增可选 `EXPECTED_CASES` 防静默少跑。39号按实际待验收摘要
+  发现案例，移除旧17例硬编码。其他项目未提交的脚本改动不纳入本轮。
+- 已生成32份正式 `CASE/depthanything3_sfm.ply`，全部 `adapter_scaled_camera_single_sim3_v2`、
+  504p、完整SH2、不裁点。31例各2,540,160高斯，case14为2,286,144；正式PLY合计
+  **13,289,133,280 bytes**。另保留每例 native PLY、原始/adapter相机及SFM相机，不混用坐标。
+- 319个注册源视角均完成504² EWA回放。39号严格核验32/32通过：正式/native PLY均41属性、
+  全有限，SFM输入K/w2c与导出相机配对、adapter缩放前后相机及尺度链均通过；
+  `depthanything3_sfm_validation.json` 是最终含回放存在性检查的报告。
+- **文件/数值验收不等于画质验收。** 首视角总览覆盖32例，另逐视角查看case1/7/14/16及
+  8例input08侧视角：case1/34主体完整但软化，case7背景拖影明显；case12/14/16/24/27
+  有严重人像或物体雾化、重影，case14椅子、case16手与椅子尤其明显。人像总体存在软化。
+  审计图在 `D:/output/results/da3_human_results/hisilicon_v2_sfm_visual_audit/`；
+  这些是源视角回放，不是独立新视角或几何真值证明，不能宣称所有重影已解决。
+
+---
+
 ## 2026-11-26 SFM 条件分支：adapter 尺度修复及17例正式重跑
 
 ### 日志与根因：需要重跑，不套用 glTF 坐标规则

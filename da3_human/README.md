@@ -136,7 +136,12 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
 # 旧 PLY 会备份至各案例 depthanything3_sfm_backup_*；新版另存 native.ply/native_cameras.npz
 # 以区分前向预测退化与输入世界对齐退化。COLMAP 是 OpenCV，不套 glTF 的中心取负规则。
 # 独立 A/B 可用新的 OUT_ROOT（一次性实验根，已有输出拒绝覆盖）：
-# 不带 OUT_ROOT 的单例 CASE_FILTER 摘要写到该案例 depthanything3_sfm/，不覆盖根目录17例总表。
+# 不带 OUT_ROOT 的单例 CASE_FILTER 摘要写到该案例 depthanything3_sfm/，不覆盖根目录批量总表。
+# 无最终 SFM summary/sparse/0/txt 的案例会跳过并登记；EXPECTED_CASES 可选，约束本批实际案例数。
+# v2 正式运行（本批 32 例，case14 9/10；case5/6 无最终 SFM，不生成目标 PLY）：
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2" \
+  PROCESS_RES=504 EXPECTED_CASES=32 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  bash da3_human/38_run_hisilicon_sfm.sh
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
   CASE_FILTER=case14_nopose_recentered \
@@ -148,9 +153,10 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
   SOURCE_IMAGES_DIR=depthanything3_sfm/images \
   OUT_NAME=depthanything3_sfm/render_check.jpg \
   python da3_human/35_render_hisilicon.py
-# 数值/相机/回放完整性核验：
+# 数值/相机/回放完整性核验（按实际摘要案例数验收，可显式约束 EXPECTED_CASES）：
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
-  python da3_human/39_verify_hisilicon_sfm.py
+  EXPECTED_CASES=17 python da3_human/39_verify_hisilicon_sfm.py
+# v2 将 ROOT 换为 .../海思端侧重建拍摄数据v2，EXPECTED_CASES=32。
 ```
 
 各脚本的 env 契约以脚本头注释为准。
