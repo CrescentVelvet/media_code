@@ -3,7 +3,17 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
-## 2026-11-27 海思 v2 全10图 RGB / stage1 位姿双分支重建（33例完整，case14 双支导出失败）
+## 2026-11-27 海思端侧19例六路高斯渲染视频对比展示
+
+- 任务以 `D:/dataset/测试数据/海思端侧重建拍摄数据` 的19个样例为范围，每例一页；case1–17展示竞品、DA3原版、DA3采集位姿、DA3 SfM位姿、SplatAnything、ZipSplat六路，case18/19只展示真实存在的DA3原版、DA3采集位姿、ZipSplat三路，不伪造缺失结果。正式输出 `D:/output/results/da3_human_results/hisilicon_video_comparison_v3/`、PPT `D:/ppt/20261127-海思端侧重建效果视频对比.pptx` 与 `_src` 同名工程。
+- 51号使用 `gsplat.rasterization` 渲染原生完整高斯和SH，不裁点、不筛选画质；704×704、120帧、15fps、8秒、H.264/yuv420p。逐帧RGB经stdin送FFmpeg，临时视频通过编码与帧数检查后才替换正式文件；不恢复不明来源的旧PNG残留。轨迹为对应方法原生输入相机的闭环内插：旋转SLERP、位置Catmull–Rom、内参线性，不作无依据360°外推。
+- 竞品保留随包相机下近距离、局部模糊、倒置或近乎空白的原貌，注明相机契约待确认；SfM使用实际 `input_extrinsics_original` 与对应内参，不强制与stage1构成单一刚体。采集位姿case15–17兼容 `original_world_rotation`，已逐例与摘要 `world_rotation` 验证一致，不是新坐标协议。case18/19用各自原生预测轨迹，不宣称共同物理相机。
+- 耗时只来自原算法日志/摘要，逐格写单例及口径；缺失写不详，不把本轮展示渲染耗时当推理耗时，也不跨口径作速度排名。
+- 续跑曾因旧整例记录先折叠后又追加而形成重复方法；51号现从空列表按固定六路顺序登记，子集运行按旧摘要保留未处理方法，并拒绝重复旧键或指定方法无旧登记的续跑。case1连续两次全量续跑均为6条且视频SHA一致；另在独立测试目录连续执行 `ONLY_METHODS=da3`、`ONLY_METHODS=zip`，均保留6个唯一方法且6段视频SHA不变。全量整理后每例6个方法槽位，108段正式视频未因摘要或脚本修复而重渲染。
+- 页面逐页写入并检查布局，再用 `python-pptx add_movie` 真实内嵌视频。`media_validation.json` 实测19页、ZIP内108个MP4、108个唯一内容SHA；case1–17每页6段，case18/19每页3段，按真实页面顺序与源视频SHA一致，全部为704×704、120帧、15fps、H.264/yuv420p且完整解码通过。
+- 中段目检已覆盖全部108段的4秒处（约第61帧），七张总览位于 `_src` 同名工程的 `video_midpoint_audit/`；结合此前首帧抽检，除竞品契约异常外，多数方法可辨对应主体。case7的SA与Zip中段帧为后视人物，case14的DA3原版与ZipSplat中段帧主要显示背景、人物缺失或很弱，均如实保留，不作整体画质放行。抽检不代表全轨迹、PowerPoint/WPS人工播放或几何精度认证。
+
+---
 
 - 用户明确要求全部10张图输入DA3，不再使用8源2留出。正式根目录
   `D:/output/results/da3_human_results/hisilicon_camera_all10_v2_20261127/`；不改原始RGB、相机JSON或v1。
