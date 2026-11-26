@@ -3,6 +3,105 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
+## 2026-11-26 图像几何独立审计：坐标解释错误坐实，修正不等于普遍增益
+
+本节修正下方同日中间记录。保留用户原始JSON、RGB、两份正式PLY以及同事PLY，未覆盖。
+输出根目录 `D:/output/results/da3_human_results/`。
+
+### 独立证据与根因
+
+1. 使用SIFT ratio=0.7，图像自身估计F（USAC_MAGSAC，1px）过滤误匹配，**不使用待测相机过滤**。
+   人像35个有效图像对、4401个匹配观测，源704像素下Sampson距离：
+
+   | 相机解释 | 中位 / p90（px） | 三角化双相机正深度占比 |
+   |---|---:|---:|
+   | 原flip + 顶层静态K | 44.314 / 100.053 | 74.14% |
+   | 原flip + 动画K | 38.886 / 85.023 | 96.00% |
+   | 去掉flip + 动画K | 0.316 / 0.917 | 0.045%（不合法的修复） |
+   | 保持R、中心C取负 + 动画K | 0.316 / 0.917 | 99.955% |
+
+   JSON矩阵记为`[R,C;0,1]`；图像支持的诊断相机为`w2c=inv([R,-C;0,1])`，
+   所有R仍是SO(3)。这识别的是**图片/JSON之间的坐标及手性解释不一致**，不是证明
+   JSON采集轨迹本身坏掉，更不是通用glTF转换。只凭当前包不能定位上游视频渲染/导出中的哪一环。
+   帧序仍为0001→关键帧0…0010→关键帧9；直接反序、把c2w当w2c、其它轴翻转均不通过。
+   盆栽独立复核：原动画K方案24.414px，特殊解释0.352px，99.865%正深度；本轮未再推理盆栽。
+2. 顶层95°与K**内部一致**，`352/tan(yfov/2)=322.54852773`，不是此前记载的327.3。
+   但它与实际动画yfov不同。动画K为687.318974@704；即便改正外参，顶层K仍产生16.234px中位误差。
+3. 官方41736238的adapter会将预测相机中心与深度同时乘`a`。36号旧版保存的相机来自
+   **乘a之前**；原生高斯实际已含a。旧review的a=1.7395488，不能将两者直接配对，
+   也不能用该相机直接拟合对齐后声称“无需a修正”。现将捕获的w2c平移乘a后再拟合单一Sim(3)；
+   等价于对未缩放相机拟合的尺度再除a，且不混入Nested sf。真实官方adapter合成尺度2回归通过。
+   本轮不修改官方仓。旧stage1/SfM后处理公式保持原样，未声称这些历史结果已重新验收。
+
+### 受控重建（同本地官方权重，700×700，完整SH2，seed42）
+
+`camera_control_20261126/`：同10张RGB、同DA3NESTED-GIANT-LARGE-1.1、process_res=704（实际700）、
+同saddle_balanced、同完整导出，每支490万高斯、41属性、全部有限。
+每支adapter相机都正确包含a；全10视角504×504 EWA渲染，白背景、eps2d=.01。
+
+| 分支 | 源视角平均PSNR | 观察 |
+|---|---:|---|
+| rgb | 21.2379dB | 人物完整，软化、局部细节偏差 |
+| declared_gltf（动画K、原flip） | 13.3572dB | 多头、大范围叠影；仅修正adapter尺度无效 |
+| negative_centers（动画K、图像验证坐标） | 21.8719dB | 严重多头消失，仍有局部软化/眼镜细节问题；9/10源视角PSNR更高 |
+
+该表使用各分支自己的生成相机，只能证明源回放改善，不能代替共同target的评测。
+同事两PLY实读仍为4,776,138/4,776,089点、17属性（DC），用户原始本地两PLY为2,540,160点、41属性；
+配置和导出口径不同，不能从文件名逆推出同事是否实际启用CameraEnc，用户无同事脚本。
+
+### 8源+2留出：没有支持“位姿一定更好”
+
+`camera_holdout_20261126/`：固定source索引`0,1,3,4,5,6,8,9`，target为`2,7`（frame_0003/0008）。
+两支各392万完整高斯，target RGB不送入模型。仅用8个source相机拟合一个非RANSAC Sim(3)，
+将同一组图像验证target相机映射至各自adapter世界；target K均为动画K，704→504同比缩放。
+未按target得分改参数或重选帧；这是一次诊断留出，坐标约定此前看过整包图像匹配，不冒充盲测基准。
+
+| target | RGB-only | 修正位姿 |
+|---|---:|---:|
+| frame_0003 | 19.4205dB | 19.0716dB |
+| frame_0008 | 18.3907dB | 16.3229dB |
+| 平均 | 18.9056dB | 17.6972dB |
+
+目检两支均仍有细节损失；修正版第8帧背景/边缘退化更多。不能以源视角+0.634dB掩盖留出-1.208dB。
+当前结论是**原严重退化的主要原因已定位到错误相机解释，且另有配套相机尺度bug；
+但本例未证明加位姿对新视角整体更好**。后续应预设多案例/多留出和人物ROI、全图及几何指标，
+再评价位姿输入收益；不得只选有利视角。
+
+### 工具与复现
+
+- `audit_gltf_camera.py`：纯CPU图像/相机审计；`CASE_DIR`、`RESULTS_DIR`必填，输出目录须不存在。
+  可选`AUDIT_SOURCE`检查旧native.ply与其相机a尺度；输出不覆盖输入。
+- `run_gltf_camera_control.py`：三分支对照，设置`SOURCE_INDICES`/`BRANCHES`可复现留出。
+  `render_camera_control.py`接受明确PLY、相机NPZ、原图目录，`EVAL_ROLE=heldout`标记留出。
+- 36号新增显式`GLTF_CAMERA_CONVENTION=image_verified_negative_centers`，默认仍是标准glTF，
+  特殊模式仅对已审计数据使用；记录转换与K模式，旧摘要缺失或不匹配拒绝静默复用。
+  使用新的`PLY_NAME/OUT_SUBDIR`；读取相机和完整对齐的修复不自动覆盖用户原文件。
+- 实际命令：
+
+```bash
+cd /mnt/c/code/media_code
+CASE_DIR=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据/model_man \
+RESULTS_DIR=/mnt/d/output/results/da3_human_results/camera_audit_repeat \
+~/miniconda3/envs/da3_human/bin/python da3_human/audit_gltf_camera.py
+
+CASE_DIR=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据/model_man \
+DA3_MODEL_DIR=/mnt/d/wheel/da3_human_ms \
+RESULTS_DIR=/mnt/d/output/results/da3_human_results/camera_holdout_repeat \
+GLTF_INTRINSICS_MODE=camera_path_yfov GLTF_CAMERA_CONVENTION=gltf \
+SOURCE_INDICES=0,1,3,4,5,6,8,9 BRANCHES=rgb,negative_centers PROCESS_RES=704 \
+~/miniconda3/envs/da3_human/bin/python da3_human/run_gltf_camera_control.py
+
+PLY_FILE=/mnt/d/output/results/da3_human_results/camera_holdout_repeat/negative_centers/native.ply \
+CAMERAS_FILE=/mnt/d/output/results/da3_human_results/camera_holdout_repeat/negative_centers/heldout_cameras.npz \
+IMAGE_DIR=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据/model_man/images \
+RESULTS_DIR=/mnt/d/output/results/da3_human_results/camera_holdout_repeat/negative_centers/heldout_render \
+GSPLAT_CACHED_SO=/home/velvet/.cache/torch_extensions/py311_cu126/gsplat_cuda/gsplat_cuda.so \
+EVAL_ROLE=heldout LABEL=corrected_pose \
+~/miniconda3/envs/splatanything/bin/python da3_human/render_camera_control.py
+```
+
+---
+
 ## 2026-11-26 带位姿重建最终复核：原生前向多头，尚不能质量验收
 
 - 最终重新对 `model_man`、`model_plant` 跑704输入（实际700×700）、动画 `camera_path.yfov`、`saddle_balanced`、`DA3NESTED-GIANT-LARGE-1.1` 十视角相机条件前向，日志均明确 `Using camera conditions provided by the user`。两例输入世界 `input_world.ply` 均为4,900,000高斯、41属性、完整SH degree2、全部有限、803,601,007 bytes，配套 `cameras.npz`；同前向另存 `native.ply/native_cameras.npz`。

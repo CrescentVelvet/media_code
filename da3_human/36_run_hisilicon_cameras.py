@@ -4,10 +4,12 @@
 旧包 JSON 的 OpenGL c2w、新包 glTF c2w_keyframes 均转 OpenCV w2c；DA3 的高斯
 仍在自估世界，必须用与输出相机相同的 Umeyama Sim(3) 把 means/scales/rotations/SH
 对齐到输入世界。旧17例再与相机同步施加绕 X 轴 180° 的显示旋转；新 glTF 数据
-保留原生世界。米制倍率与相机对齐尺度只组合一次。保留所有高斯和完整 SH。
+默认保留声明的glTF世界；经图像验证的特殊坐标解释须显式选择。
+米制倍率与相机对齐尺度只组合一次。保留所有高斯和完整 SH。
 
 Env vars:
   ROOT, CASE_FILTER, FORCE, PROCESS_RES, DA3_MODEL_DIR, GLTF_INTRINSICS_MODE
+  GLTF_CAMERA_CONVENTION=gltf|image_verified_negative_centers
   PLY_NAME, OUT_SUBDIR 仅诊断输出时覆盖默认正式文件名；不修改原始输入
 """
 import json
@@ -44,6 +46,9 @@ def load_gltf_inputs(case):
     K = np.asarray(data["intrinsics"]["K"], dtype=np.float64)
     size = data["intrinsics"]["reference_image_size"]
     intrinsics_mode = os.environ.get("GLTF_INTRINSICS_MODE", "camera_path_yfov")
+    camera_convention = os.environ.get("GLTF_CAMERA_CONVENTION", "gltf")
+    if camera_convention not in ("gltf", "image_verified_negative_centers"):
+        raise ValueError(f"未知 GLTF_CAMERA_CONVENTION: {camera_convention}")
     if intrinsics_mode == "camera_path_yfov":
         yfov = np.asarray(path["yfov"], dtype=np.float64).reshape(-1)
         if yfov.shape != (len(matrices),) or not (np.isfinite(yfov) & (yfov > 0)).all():
@@ -78,12 +83,21 @@ def load_gltf_inputs(case):
         if (np.abs(R @ R.T - np.eye(3)).max() > 1e-5
                 or abs(np.linalg.det(R) - 1) > 1e-5):
             raise RuntimeError(f"glTF c2w 旋转不是 SO(3): {file}")
-        w2cs.append(np.linalg.inv(c2w_gl @ FLIP_CV))
+        if camera_convention == "image_verified_negative_centers":
+            # model_man/plant 的图像极线与正深度验证支持该解释；不能泛用于标准 glTF。
+            c2w_cv = c2w_gl.copy()
+            c2w_cv[:3, 3] *= -1
+        else:
+            c2w_cv = c2w_gl @ FLIP_CV
+        w2cs.append(np.linalg.inv(c2w_cv))
     manifest = {"frames": [{"image": f"images/{p.name}", "sourceIndex": i}
                           for i, p in enumerate(files)],
                 "camera_file": camera_path.name,
                 "input_camera_convention": "glTF camera-to-world (-Z forward, +Y up)",
-                "intrinsics_mode": intrinsics_mode}
+                "intrinsics_mode": intrinsics_mode,
+                "camera_conversion": camera_convention,
+                "output_world_note": ("图像验证的相机世界：R不变，中心取负；不是原glTF世界"
+                                      if camera_convention == "image_verified_negative_centers" else "原glTF世界")}
     return files, np.asarray(w2cs), K, camera_path, manifest
 
 
@@ -140,6 +154,15 @@ def load_stage1_inputs(case):
     return files, np.asarray(w2cs), np.asarray(intrinsics), camera_path, manifest
 
 
+def adapter_camera_extrinsics(extrinsics, scale):
+    """adapter 对中心/深度乘 scale，其配套 w2c 也必须将平移乘 scale。"""
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError(f"非法 adapter scale: {scale}")
+    result = np.asarray(extrinsics).copy()
+    result[..., :3, 3] *= scale
+    return result
+
+
 def inference_preserving_raw_cameras(model, files, ext, ixt, process_res):
     """保留预测相机、归一化输入相机，并捕获 adapter 实际施加的尺度。"""
     imgs_cpu, ext_t, ixt_t = model._preprocess_inputs(
@@ -181,7 +204,9 @@ def inference_preserving_raw_cameras(model, files, ext, ixt, process_res):
         raise RuntimeError("相机条件未进入 adapter 对齐分支，不能推导尺度修正")
     prediction.adapter_scale = holder["adapter_scale"]
     prediction.normalized_input_extrinsics = ext_norm[0].detach().cpu().numpy()
-    prediction.gs_extrinsics = holder["gs_extrinsics"]
+    prediction.gs_extrinsics_before_scale = holder["gs_extrinsics"]
+    prediction.gs_extrinsics = adapter_camera_extrinsics(
+        holder["gs_extrinsics"], prediction.adapter_scale)
     prediction.gs_intrinsics = holder["gs_intrinsics"]
     return prediction, raw_extrinsics
 
@@ -266,7 +291,7 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rota
 
 
 def transform_gltf_gaussians(prediction, input_extrinsics):
-    """新 glTF：对 adapter 原生高斯只施加一次 pred -> input 的 Sim(3)。"""
+    """新 glTF：从已含 adapter 尺度的相机拟合一次高斯到输入的 Sim(3)。"""
     from depth_anything_3.utils.pose_align import align_poses_umeyama
     pred = np.asarray(prediction.gs_extrinsics, dtype=np.float64)
     R, t, scale = align_poses_umeyama(
@@ -297,7 +322,7 @@ def transform_gltf_gaussians(prediction, input_extrinsics):
     return {"metric_scale_factor": None if sf is None else float(sf),
             "pose_scale": float(scale), "adapter_pose_scale": float(prediction.adapter_scale),
             "total_gaussian_scale": float(scale),
-            "scale_formula": "align_poses_umeyama(input, adapter_pred) -> adapter原生高斯；无Nested sf/a补偿",
+            "scale_formula": "align_poses_umeyama(input, adapter_scaled_pred)；相机平移已乘a，不再额外乘sf或除a",
             "umeyama_rotation": R.tolist(), "umeyama_translation": t.tolist(),
             "aligned_camera_max_position_error": float(errors.max()),
             "aligned_camera_mean_position_error": float(errors.mean()),
@@ -331,6 +356,10 @@ def main():
         if (target.is_file() and (out / "cameras.npz").is_file()
                 and (out / "summary.json").is_file() and not force):
             previous = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+            if "camera_conversion" in manifest and (
+                    previous.get("camera_conversion") != manifest["camera_conversion"]
+                    or previous.get("intrinsics_mode") != manifest["intrinsics_mode"]):
+                raise RuntimeError(f"{case.name}: 已有结果的相机约定/内参模式缺失或不同；请用新的 PLY_NAME/OUT_SUBDIR 保存对照")
             if not np.array_equal(previous.get("world_rotation"), display_rotation):
                 raise RuntimeError(f"相机版显示旋转与输入格式不一致: {case.name}；请核对后 FORCE=1")
             previous.update(_io.inspect_ply(target))
@@ -398,6 +427,7 @@ def main():
                 model, files, ext, ixt, process_res)
             np.savez_compressed(
                 out / "raw_cameras.npz", raw_extrinsics=raw_extrinsics,
+                adapter_extrinsics_before_scale=prediction.gs_extrinsics_before_scale,
                 adapter_extrinsics=prediction.gs_extrinsics,
                 adapter_intrinsics=prediction.gs_intrinsics)
             is_gltf = manifest["input_camera_convention"].startswith("glTF")
@@ -431,7 +461,7 @@ def main():
                 input_extrinsics_original=ext, input_intrinsics_original=ixt,
                 depth=prediction.depth, conf=prediction.conf,
                 scale_factor=np.float32(alignment["total_gaussian_scale"]),
-                is_metric=np.int32(1), view_indices=np.arange(len(files)),
+                is_metric=np.int32(0 if is_gltf else 1), view_indices=np.arange(len(files)),
                 image_names=np.asarray([p.name for p in files]),
                 world_rotation=display_rotation,
                 source_indices=np.arange(len(files)))
@@ -447,7 +477,10 @@ def main():
                          "n_views": len(files), "image_names": [p.name for p in files],
                          "input_sha256": [_io.sha256(p) for p in files],
                          "camera_json": camera_path.name, "camera_json_sha256": _io.sha256(camera_path),
-                         "camera_coordinate": ("OpenCV w2c；glTF原生世界，无显示旋转" if manifest["input_camera_convention"].startswith("glTF")
+                         "intrinsics_mode": manifest.get("intrinsics_mode"),
+                         "camera_conversion": manifest.get("camera_conversion"),
+                         "output_world_note": manifest.get("output_world_note"),
+                         "camera_coordinate": (("OpenCV w2c；" + manifest["output_world_note"]) if is_gltf
                                                else "OpenCV w2c；相机与高斯已同步绕输入世界X轴180度"),
                          "depth_median_m": float(np.median(prediction.depth)),
                          "peak_vram_gb": round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2),

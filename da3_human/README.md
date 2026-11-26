@@ -69,14 +69,23 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
 
 # 6) 新增 model_man / model_plant（glTF 相机关键帧）
 # 原始 images/frame_0001..0010.png 分别与 *_camera.json 的10个 c2w_keyframes 按序对应；
-# 用顶层 intrinsics.K，glTF c2w 转 OpenCV w2c；完整 Sim(3) 对齐，保留原生世界，不做旧包的180度转正。
+# 这两例按标准glTF读取与图像不一致！先用动画yfov + 经极线验证的特殊坐标解释。
+# 细节与限制见 EXPERIMENTS.md 2026-11-26「图像几何独立审计」；不能泛用于其它glTF。
 # 不读取目录中既有 model_*.ply 或 renders/ 作为 DA3 输入。
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   CASE_FILTER=model_man PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
   bash da3_human/34_run_hisilicon.sh
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
-  CASE_FILTER=model_man PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  CASE_FILTER=model_man PROCESS_RES=704 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  GLTF_INTRINSICS_MODE=camera_path_yfov GLTF_CAMERA_CONVENTION=image_verified_negative_centers \
+  PLY_NAME=depthanything3_cameras_verified.ply OUT_SUBDIR=depthanything3_cameras_verified \
   bash da3_human/36_run_hisilicon_cameras.sh
+# 同口径RGB/原读取/修正读取对照（结果目录必须尚不存在，原文件保留）：
+CASE_DIR="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据/model_man" \
+  DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" PROCESS_RES=704 \
+  GLTF_INTRINSICS_MODE=camera_path_yfov GLTF_CAMERA_CONVENTION=gltf \
+  RESULTS_DIR="/mnt/d/output/results/da3_human_results/camera_control_repeat" \
+  python da3_human/run_gltf_camera_control.py
 # model_plant 同样将 CASE_FILTER 改为 model_plant；单例摘要在各自 depthanything3*/ 下，
 # 不覆盖根目录17例的总表。35号回放对原始 images/ 目录自动适配。
 
