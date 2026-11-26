@@ -125,7 +125,9 @@ def main():
         "hisilicon_rgb", Path(__file__).resolve().parent / "34_run_hisilicon.py")
     _io = module_from_spec(_spec)
     _spec.loader.exec_module(_io)
-    cases = _io.discover_cases(root, selected)
+    cases = [case for case in _io.discover_cases(root, selected)
+             if (case / cameras_npz).is_file()
+             and (Path(external_ply).is_file() if external_ply else (case / ply_name).is_file())]
     if not cases:
         sys.exit("❌ 没有匹配案例")
     rows = []

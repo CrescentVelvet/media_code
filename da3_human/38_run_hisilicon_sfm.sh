@@ -10,7 +10,10 @@ source "$SCRIPT_DIR/_env.sh"
 : "${CASE_FILTER:=}"
 : "${PROCESS_RES:=504}"
 : "${FORCE:=0}"
-export ROOT CASE_FILTER PROCESS_RES FORCE DA3_MODEL_DIR
+: "${OUT_ROOT:=}"
+: "${PLY_NAME:=depthanything3_sfm.ply}"
+: "${OUT_SUBDIR:=depthanything3_sfm}"
+export ROOT CASE_FILTER PROCESS_RES FORCE DA3_MODEL_DIR OUT_ROOT PLY_NAME OUT_SUBDIR
 
 if [ ! -f "$DA3_MODEL_DIR/model.safetensors" ]; then
     echo "❌ 原生 DA3 权重缺失: $DA3_MODEL_DIR" >&2
@@ -21,7 +24,10 @@ if [ ! -d "$ROOT" ]; then
     exit 1
 fi
 LOG_DIR="$ROOT"
-if [ -n "$CASE_FILTER" ]; then
+if [ -n "$OUT_ROOT" ]; then
+    LOG_DIR="$OUT_ROOT"
+    mkdir -p "$OUT_ROOT" "$LOG_DIR/logs"
+elif [ -n "$CASE_FILTER" ]; then
     LOG_DIR="$ROOT/$CASE_FILTER/depthanything3_sfm"
 fi
 mkdir -p "$LOG_DIR/logs"
@@ -36,6 +42,7 @@ RC=$?
 tail -n 30 "$LOG_DIR/logs/da3_sfm_inference.log"
 if [ "$RC" -ne 0 ]; then
     echo "❌ 有案例失败，详见日志与各案例 summary" >&2
+    tail -n 40 "$LOG_DIR/logs/da3_sfm_inference.log" >&2
     exit "$RC"
 fi
 echo "🎉 Done."

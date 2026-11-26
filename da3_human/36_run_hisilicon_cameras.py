@@ -211,18 +211,32 @@ def inference_preserving_raw_cameras(model, files, ext, ixt, process_res):
     return prediction, raw_extrinsics
 
 
-def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rotation=None):
-    """旧 stage1/SFM 导出保留其既有后处理口径；新 glTF 不走此函数。"""
+def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rotation=None,
+                        use_adapter_camera=False):
+    """旧 stage1 可复现历史后处理；SFM 必须使用 adapter 缩放后的相机。
+
+    use_adapter_camera=True 时，输入/输出 depth 与原生高斯处于同一坐标尺度，
+    只拟合 adapter 世界 -> 输入世界的一个 Sim(3)，不能再乘 Nested 的 sf 或除 a。
+    默认 False 仅保留旧 stage1 正式 PLY 的复现口径，不代表其尺度已重新验收。
+    """
     from depth_anything_3.model.utils.transform import mat_to_quat, quat_to_mat
     from depth_anything_3.utils.pose_align import align_poses_umeyama
     from depth_anything_3.utils.sh_helpers import rotate_sh
 
-    raw_ext = np.asarray(raw_extrinsics, dtype=np.float64)
-    if raw_ext.shape[1:] == (3, 4):
-        raw_ext44 = np.repeat(np.eye(4, dtype=np.float64)[None], len(raw_ext), axis=0)
-        raw_ext44[:, :3] = raw_ext
+    if use_adapter_camera:
+        raw_ext = np.asarray(prediction.gs_extrinsics, dtype=np.float64)
+        if raw_ext.shape[1:] == (3, 4):
+            raw_ext44 = np.repeat(np.eye(4, dtype=np.float64)[None], len(raw_ext), axis=0)
+            raw_ext44[:, :3] = raw_ext
+        else:
+            raw_ext44 = raw_ext.copy()
     else:
-        raw_ext44 = raw_ext.copy()
+        raw_ext = np.asarray(raw_extrinsics, dtype=np.float64)
+        if raw_ext.shape[1:] == (3, 4):
+            raw_ext44 = np.repeat(np.eye(4, dtype=np.float64)[None], len(raw_ext), axis=0)
+            raw_ext44[:, :3] = raw_ext
+        else:
+            raw_ext44 = raw_ext.copy()
     R_in_to_pred, t_in_to_pred, s_in_to_pred = align_poses_umeyama(
         raw_ext44, input_extrinsics, ransac=len(raw_ext44) >= 10, random_state=42)
     if not (np.isfinite(R_in_to_pred).all() and np.isfinite(t_in_to_pred).all()
@@ -240,7 +254,13 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rota
     adapter_scale = float(prediction.adapter_scale)
     if not np.isfinite(adapter_scale) or adapter_scale <= 0:
         raise RuntimeError(f"官方 adapter 返回非法尺度: {adapter_scale}")
-    total_scale = float(sf * pose_scale / adapter_scale)
+    if use_adapter_camera:
+        # 官方 adapter 已将高斯 means/scales/gs_depth 同时乘 a；此处不可再除以 a。
+        total_scale = float(pose_scale)
+        scale_formula = "Umeyama(input, adapter_scaled_pred) -> adapter原生高斯；单Sim(3)，不含Nested sf"
+    else:
+        total_scale = float(sf * pose_scale / adapter_scale)
+        scale_formula = "历史stage1：Nested sf * Umeyama pose / adapter scale；未重新验收"
     if not np.isfinite(total_scale) or total_scale <= 0:
         raise RuntimeError(f"非法高斯尺度链: sf={sf}, pose={pose_scale}, adapter={adapter_scale}")
     g = prediction.gaussians
@@ -277,6 +297,8 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rota
         raise RuntimeError("相机 Sim(3) 往返出现非有限值")
     return {"metric_scale_factor": float(sf), "pose_scale": float(pose_scale),
             "adapter_pose_scale": adapter_scale, "total_gaussian_scale": total_scale,
+            "camera_alignment_source": "adapter_scaled" if use_adapter_camera else "raw_prediction_legacy",
+            "scale_formula": scale_formula,
             "umeyama_rotation": R.tolist(), "umeyama_translation": t.tolist(),
             "gaussian_rotation": (world_rotation @ R).tolist(),
             "gaussian_translation": (world_rotation @ t).tolist(),

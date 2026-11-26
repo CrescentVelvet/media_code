@@ -5,6 +5,17 @@
 
 ## ⛔ 事故清单（全部有实测代价）
 
+### 2026-11-26 SFM 相机分支也须修正 adapter 尺度链
+
+- 原 SFM 日志已明确 `Using camera conditions provided by the user`，因此不能因输入来自 COLMAP 就排除
+  adapter 尺度问题。官方 `gs_adapter` 对 means/scales/gs_depth 同乘 a，配套 w2c 平移也须乘 a；
+  原38号却用未缩放 raw camera 拟合 Sim(3)，并额外执行 `sf*pose/a`，导致高斯尺寸与输入相机不一致。
+- 新版只从 **adapter 缩放后相机** 到 SFM 输入相机拟合一次 Sim(3)，不套 Nested 的 sf，也不再次除 a。
+  SFM 本身是 OpenCV w2c，不能使用新 glTF 两包的 `R不变/C取负` 特殊约定。
+- case14 同源504p A/B：11.8379→16.3920dB（+4.5541），case7：10.2586→16.3942dB（+6.1356）。
+  同前向 adapter 原生 case14 仅9.8845dB，说明前向仍有退化，完整 Sim(3) 不是唯一根因。
+  17例正式 PLY 已全部更新并备份；每例保留 native PLY/相机。源回放改善不能冒充新视角或几何真值改善。
+
 ### 2026-11-26 相机分支重跑：输入身份、公平留出与指定16例范围
 
 - 用户明确旧17例历史 `depthanything3_cameras.ply` 严重重影。即使PLY存在、能回放，

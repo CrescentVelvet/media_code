@@ -7,6 +7,10 @@
 
 Env vars:
   ROOT, CASE_FILTER, FORCE, PROCESS_RES, DA3_MODEL_DIR
+  OUT_ROOT 可选：将案例目录映射至不存在的新实验根，正式默认仍写各案例目录。
+  仅外层 shell 创建 OUT_ROOT 供日志落盘；Python 不重复创建该根。
+  PLY_NAME / OUT_SUBDIR 仅新实验根可覆盖；默认 depthanything3_sfm(.ply)。
+  正式重跑自动将旧 PLY、相机和摘要备份至各案例 depthanything3_sfm_backup_*。
 """
 import hashlib
 import importlib.util
@@ -108,6 +112,18 @@ def main():
     model_dir = os.environ.get("DA3_MODEL_DIR", "") or os.environ.get("DA3_HUMAN_MODEL_DIR", "")
     if not root.is_dir() or not (Path(model_dir) / "model.safetensors").is_file():
         sys.exit(f"❌ ROOT/权重无效: ROOT={root}, DA3_MODEL_DIR={model_dir}")
+    experiment_root = os.environ.get("OUT_ROOT", "")
+    experiment = Path(experiment_root) if experiment_root else None
+    if experiment is not None:
+        if not experiment.is_absolute():
+            sys.exit("❌ OUT_ROOT 必须是绝对路径")
+    ply_name = os.environ.get("PLY_NAME", "depthanything3_sfm.ply")
+    out_subdir = os.environ.get("OUT_SUBDIR", "depthanything3_sfm")
+    if (Path(ply_name).is_absolute() or ".." in Path(ply_name).parts
+            or Path(out_subdir).is_absolute() or ".." in Path(out_subdir).parts
+            or (experiment is None and (ply_name != "depthanything3_sfm.ply"
+                                        or out_subdir != "depthanything3_sfm"))):
+        sys.exit("❌ 案例内路径必须相对且无..；仅新 OUT_ROOT 可自定义文件名/子目录")
     sys.path.insert(0, str(SCRIPT_DIR.parent / "infinisplat_v2"))
     cases = sorted(root.glob("case*_nopose_recentered"),
                    key=lambda p: int(p.name.split("_")[0][4:]))
@@ -116,15 +132,21 @@ def main():
     if not cases:
         sys.exit("❌ 没有匹配案例")
     pending = []
+    report_path = experiment / "depthanything3_sfm_batch_summary.json" if experiment else root / "depthanything3_sfm_batch_summary.json"
     for case in cases:
-        out = case / "depthanything3_sfm"
-        target = case / "depthanything3_sfm.ply"
+        dest = experiment / case.name if experiment else case
+        out = dest / out_subdir
+        target = dest / ply_name
         if out.is_symlink() or target.is_symlink():
             sys.exit(f"❌ 输出为符号链接，拒绝写入: {case.name}")
+        if experiment is not None and (target.exists() or out.exists()):
+            sys.exit(f"❌ 目标已存在，拒绝覆盖或复用未登记实验: {target}, {out}")
         out.mkdir(parents=True, exist_ok=True)
         inputs = load_sfm_inputs(case, out)
         if target.is_file() and (out / "cameras.npz").is_file() and (out / "summary.json").is_file() and not force:
             previous = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+            if previous.get("alignment_version") != "adapter_scaled_camera_single_sim3_v2":
+                raise RuntimeError(f"{case.name}: 已有旧尺度链结果；正式更新须 FORCE=1，或将 OUT_ROOT 指向新目录")
             if previous.get("sfm_provenance") != inputs["sfm_provenance"]:
                 raise RuntimeError(f"SfM 输入已改变，不能复用旧结果: {case.name}; 请用 FORCE=1")
             previous.update(_io.inspect_ply(target))
@@ -135,6 +157,7 @@ def main():
             pending.append((case, inputs, None))
 
     from depth_anything_3.api import DepthAnything3
+    from depth_anything_3.specs import Gaussians
     from depth_anything_3.utils import gsply_helpers as gh
     gh.export_ply = _io.fast_export_ply
     gh.inverse_sigmoid = lambda x: torch.where(
@@ -148,23 +171,27 @@ def main():
               "gaussian_frame": "完整 Umeyama Sim(3) 对齐至 SfM 原生坐标；无显示旋转；SfM 任意尺度非米制",
               "export": {"prune_border_gs": False, "prune_by_depth_percent": 1.0,
                          "save_sh_dc_only": False, "scale": "sfm_arbitrary_units"},
+              "alignment_version": "adapter_scaled_camera_single_sim3_v2",
+              "scale_formula": "Umeyama(input, adapter_scaled_pred) -> adapter原生高斯；不含Nested sf或再次除a",
               "started_at": datetime.now(timezone.utc).isoformat(), "cases": []}
     failed = False
     for case, inputs, previous in pending:
-        out, target = case / "depthanything3_sfm", case / "depthanything3_sfm.ply"
+        dest = experiment / case.name if experiment else case
+        out, target = dest / out_subdir, dest / ply_name
         if previous is not None:
             previous.update({"case": case.name, "status": "existing"})
             report["cases"].append(previous)
             _io.dump_json(out / "summary.json", previous)
-            _io.dump_json(root / "depthanything3_sfm_batch_summary.json", report)
+            _io.dump_json(report_path, report)
             print(f"⏭️ {case.name}: 有效旧结果，跳过", flush=True)
             continue
         backup = None
         if target.exists():
-            # 保留旧 PLY、相机与摘要；其他可再生图/深度无需备份。
+            # 保留旧 PLY、相机、摘要和回放；其余图像/深度可再生。
             backup_dir = case / ("depthanything3_sfm_backup_" + time.strftime("%Y%m%d_%H%M%S"))
             backup_dir.mkdir()
-            for path in [target, out / "cameras.npz", out / "summary.json"]:
+            for path in [target, out / "cameras.npz", out / "summary.json",
+                         out / "render_check.jpg", out / "render_check.json"]:
                 if path.exists():
                     shutil.move(str(path), str(backup_dir / path.name))
             backup = str(backup_dir)
@@ -172,11 +199,32 @@ def main():
         try:
             print(f"🚀 {case.name}: {len(inputs['files'])}/{inputs['n_input']} 个 SfM 注册视角", flush=True)
             t0 = time.time()
+            torch.manual_seed(42)
+            np.random.seed(42)
             torch.cuda.reset_peak_memory_stats()
             prediction, raw_extrinsics = _camera_pipeline.inference_preserving_raw_cameras(
                 model, inputs["files"], inputs["w2cs"], inputs["intrinsics"], process_res)
             alignment = _camera_pipeline.transform_gaussians(
-                prediction, raw_extrinsics, inputs["w2cs"], world_rotation=np.eye(3))
+                prediction, raw_extrinsics, inputs["w2cs"], world_rotation=np.eye(3),
+                use_adapter_camera=True)
+            np.savez_compressed(out / "raw_cameras.npz", raw_extrinsics=raw_extrinsics,
+                adapter_extrinsics_before_scale=prediction.gs_extrinsics_before_scale,
+                adapter_extrinsics=prediction.gs_extrinsics,
+                adapter_intrinsics=prediction.gs_intrinsics)
+            native = Gaussians(**{key: getattr(prediction.gaussians, key).clone()
+                for key in ("means", "scales", "rotations", "harmonics", "opacities")})
+            np.savez_compressed(out / "native_cameras.npz",
+                extrinsics=prediction.gs_extrinsics[:, :3],
+                intrinsics=prediction.gs_intrinsics, depth=prediction.depth,
+                image_shape=np.asarray(prediction.depth.shape[-2:]),
+                image_names=np.asarray(inputs["names"]),
+                camera_frame="adapter原生预测世界；与输入SFM坐标不同，勿与input world PLY混用")
+            gh.save_gaussian_ply(gaussians=native, save_path=str(out / "native.ply"),
+                ctx_depth=torch.from_numpy(prediction.depth).unsqueeze(-1).to(native.means),
+                shift_and_scale=False, save_sh_dc_only=False, gs_views_interval=1,
+                inv_opacity=True, prune_by_depth_percent=1.0, prune_border_gs=False,
+                match_3dgs_mcmc_dev=False)
+            del native
             np.savez_compressed(out / "cameras.npz",
                 extrinsics=alignment["output_extrinsics"], intrinsics=prediction.intrinsics,
                 input_extrinsics_original=inputs["w2cs"], input_intrinsics_original=inputs["intrinsics"],
@@ -184,7 +232,9 @@ def main():
                 scale_factor=np.float32(alignment["total_gaussian_scale"]), is_metric=np.int32(0),
                 image_names=np.asarray(inputs["names"]),
                 source_indices=np.asarray([int(p.stem.split("_source_")[1]) for p in inputs["files"]]),
-                world_rotation=np.eye(3), coordinate_units="SfM arbitrary units, not meters")
+                world_rotation=np.eye(3), coordinate_units="SfM arbitrary units, not meters",
+                image_shape=np.asarray(prediction.depth.shape[-2:]),
+                alignment_version="adapter_scaled_camera_single_sim3_v2")
             ctx_depth = torch.from_numpy(prediction.depth).unsqueeze(-1).to(prediction.gaussians.means)
             gh.save_gaussian_ply(gaussians=prediction.gaussians, save_path=str(target), ctx_depth=ctx_depth,
                 shift_and_scale=False, save_sh_dc_only=False, gs_views_interval=1, inv_opacity=True,
@@ -198,7 +248,8 @@ def main():
                     encoding="utf-8"))["registered_names"],
                 "depth_median_sfm_units": float(np.median(prediction.depth)),
                 "peak_vram_gb": round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2),
-                "backup": backup, "world_rotation": np.eye(3).tolist(), **alignment})
+                "backup": backup, "world_rotation": np.eye(3).tolist(),
+                "alignment_version": "adapter_scaled_camera_single_sim3_v2", **alignment})
             _io.dump_json(out / "summary.json", info)
             report["cases"].append(info)
             print(f"✅ {case.name}: {info['n_gaussians']:,} 高斯, "
@@ -213,9 +264,9 @@ def main():
             if "prediction" in locals():
                 del prediction
             torch.cuda.empty_cache()
-            _io.dump_json(root / "depthanything3_sfm_batch_summary.json", report)
+            _io.dump_json(report_path, report)
     report["finished_at"] = datetime.now(timezone.utc).isoformat()
-    _io.dump_json(root / "depthanything3_sfm_batch_summary.json", report)
+    _io.dump_json(report_path, report)
     print(f"🎉 批量结束: {len(report['cases'])}/{len(cases)} 有结果", flush=True)
     if failed or len(report["cases"]) != len(cases):
         sys.exit(1)

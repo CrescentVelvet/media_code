@@ -132,6 +132,15 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
 # 每例输出 depthanything3_sfm.ply 和 depthanything3_sfm/{cameras.npz,summary.json}。
 # 输入 colmap_sfm_results/sparse/0，按名字只取已注册图像；case7 为 6/10，其余为 10/10。
 # OPENCV 图像先去畸变，外参不变；高斯用完整 Sim(3) 对齐至 SFM 原生坐标，不转正、不是米制。
+# 尺度链（2026-11-26 修订）：用含 adapter a 的相机拟合一次 Sim(3)，不再额外乘 Nested sf 或除 a。
+# 旧 PLY 会备份至各案例 depthanything3_sfm_backup_*；新版另存 native.ply/native_cameras.npz
+# 以区分前向预测退化与输入世界对齐退化。COLMAP 是 OpenCV，不套 glTF 的中心取负规则。
+# 独立 A/B 可用新的 OUT_ROOT（一次性实验根，已有输出拒绝覆盖）：
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  CASE_FILTER=case14_nopose_recentered \
+  OUT_ROOT="/mnt/d/output/results/da3_human_results/sfm_scale_ab_new" \
+  bash da3_human/38_run_hisilicon_sfm.sh
 CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
   PLY_NAME=depthanything3_sfm.ply \
   CAMERAS_NPZ=depthanything3_sfm/cameras.npz \

@@ -3,6 +3,54 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
+## 2026-11-26 SFM 条件分支：adapter 尺度修复及17例正式重跑
+
+### 日志与根因：需要重跑，不套用 glTF 坐标规则
+
+- 旧正式日志 `logs/da3_sfm_inference.log` 每例均有 `Using camera conditions provided by the user`。
+  SFM 输入经 DA3 相机条件前向，故会进入 `gs_adapter(gt_extrinsics=...)` 的尺度分支。
+- 官方 adapter 对高斯中心、尺度和反投影深度都乘 `a`；旧38号使用缩放前 raw camera 拟合，
+  又用 `sf*pose/a` 修正，造成重复尺度。新版用 `adapter_camera_extrinsics` 将相机 w2c 平移乘 a，
+  然后只对 adapter 原生高斯施加一次 `input <- adapter` Sim(3)，不再额外乘 Nested sf 或除 a。
+  版本标记 `adapter_scaled_camera_single_sim3_v2`；`total_gaussian_scale == pose_scale`。
+- COLMAP 本来就是 OpenCV w2c，本轮不改变相机旋转/中心、帧序、内参、深度或前向输入。
+  新 glTF 两包经图像验证的 `R不变/C取负` **不能推广到 SFM**。真实官方 adapter 合成尺度2回归通过。
+- 旧36号 stage1 默认公式保持不动，本轮只让38号显式走 adapter 对齐分支；
+  不据此宣称旧 stage1 已重新验收。36号函数默认 False 仅用于历史正式结果复现。
+
+### case14 单例 A/B 与剩余前向问题
+
+- 独立目录 `D:/output/results/da3_human_results/sfm_scale_ab_20261126/`。
+  同 SFM、同去畸变 RGB、同权重、504p、seed42、saddle_balanced、完整SH2、不裁点。
+  case14 实测 adapter a=2.6260230541；`pose_scale=3.5079156450`。
+  新旧对齐旋转/平移数值基本一致，实际差别在尺度链及正确的相机配对。
+- case14 旧版源视角平均 PSNR=11.8379471313dB，修复正式版=16.3920040674dB，**+4.5540569362dB**。
+  10个视角中9个改善，正面视角略降约0.317dB；平均改善不能当作每视角都改善。
+  人物从大面积缺失/错位恢复为完整主体，重影显著减弱，仍有软化与局部背景模糊。
+- 同一次前向的 adapter 原生 PLY/相机回放=9.8845188045dB，仍存在明显错位与缺失。
+  因此 SFM 前向预测本身尚未通过质量验收，修复 Sim(3) 不是全部根因；
+  应另查输入相机条件如何改变前向几何，不得只凭对齐后的源回放称“所有重影已解决”。
+- case7 备份旧版=10.2585937781dB，修复正式版=16.3941871987dB，**+6.1355934206dB**；
+  仍严格只用6个 COLMAP 注册视角。目检人物完整性明显改善，但侧面面部仍有局部串色/拖影。
+  case16 背景雾化仍明显，case12 主体完整但软化和局部拖影仍在。
+
+### 17例正式输出与验收
+
+- 原路径 `CASE/depthanything3_sfm.ply` 仍为正式交付名，17/17 重跑无失败；
+  16例各2,540,160高斯，case7为1,524,096，全部41属性、数值有限、完整SH2、不裁点。
+  正式 PLY 合计 **6,915,348,703 bytes**；新版每例另存 `depthanything3_sfm/native.ply`
+  和 `native_cameras.npz`，与 SFM 输入世界 PLY 严格分开。
+- 每例旧 PLY、相机、摘要及旧回放备份在 `CASE/depthanything3_sfm_backup_20261126_204420` 起的
+  时间戳目录（各例时间不同，准确路径见新版 summary.backup）；无旧文件被删除。
+  原根总表与 validation 属可再生元数据，不逐版本备份。
+- 全部166个已注册源视角完成新版正式 PLY 回放。39号强化核验：SFM 输入外参/K配对、
+  新旧尺度版本、adapter缩放前后相机、原生 PLY 与原生相机均逐例通过。
+  `depthanything3_sfm_validation.json` 为最终17/17通过记录。
+- 38号支持 `OUT_ROOT` 的一次性新实验目录；shell 只创建外层日志目录，已有目标案例拒绝覆盖。
+  默认正式重跑需 FORCE=1，旧尺度结果不允许被跳过逻辑冒充新版。
+
+---
+
 ## 2026-11-26 用户指定16例相机条件共同留出对照（已完成附录）
 
 用户明确旧17例 `depthanything3_cameras.ply` 有严重重影，不能作为有效相机分支直接复用。

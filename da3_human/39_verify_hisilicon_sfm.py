@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """核验海思 depthanything3_sfm.ply 的字段、数值和 SfM 相机配对。
 
-Env vars: ROOT
+Env vars: ROOT, REQUIRE_RENDERS=1（最终验收默认必须已有源回放）
 """
 import json
 import os
@@ -17,14 +17,24 @@ def main():
     cases = sorted(root.glob("case*_nopose_recentered"),
                    key=lambda p: int(p.name.split("_")[0][4:]))
     report = {"checked_at": datetime.now(timezone.utc).isoformat(), "cases": [], "failures": []}
+    require_renders = os.environ.get("REQUIRE_RENDERS", "1") == "1"
     for case in cases:
         try:
             ply, out = case / "depthanything3_sfm.ply", case / "depthanything3_sfm"
             summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
             saved = np.load(out / "cameras.npz", allow_pickle=False)
+            native_cameras = np.load(out / "native_cameras.npz", allow_pickle=False)
+            raw = np.load(out / "raw_cameras.npz", allow_pickle=False)
+            native_vertex = PlyData.read(str(out / "native.ply"))["vertex"].data
             sfm = np.load(case / "colmap_sfm_results/cameras.npz", allow_pickle=False)
             vertex = PlyData.read(str(ply))["vertex"].data
             order = [list(sfm["names"]).index(n) for n in saved["image_names"]]
+            assert summary["alignment_version"] == "adapter_scaled_camera_single_sim3_v2"
+            assert saved["alignment_version"] == "adapter_scaled_camera_single_sim3_v2"
+            assert summary["camera_alignment_source"] == "adapter_scaled"
+            assert abs(summary["total_gaussian_scale"] - summary["pose_scale"]) < 1e-6
+            assert np.isfinite([summary["adapter_pose_scale"], summary["pose_scale"]]).all()
+            assert summary["adapter_pose_scale"] > 0 and summary["pose_scale"] > 0
             assert saved["image_names"].tolist() == summary["image_names"]
             assert len(vertex) == summary["n_gaussians"] == len(order) * 504 * 504
             assert len(vertex.dtype.names) == 41
@@ -39,13 +49,23 @@ def main():
             assert k_error < 2e-4, f"内参误差 {k_error}"
             roundtrip = float(np.abs(saved["extrinsics"] - saved["input_extrinsics_original"][:, :3]).max())
             assert roundtrip < 2e-6, f"外参往返误差 {roundtrip}"
+            assert np.isfinite(np.asarray(native_vertex).view("<f4").reshape(len(native_vertex), -1)).all()
+            assert len(native_vertex) == len(vertex)
+            assert len(native_vertex.dtype.names) == 41
+            assert np.abs(native_cameras["extrinsics"] - raw["adapter_extrinsics"][:, :3]).max() < 1e-7
+            assert np.abs(raw["adapter_extrinsics"][:, :3, 3]
+                          - summary["adapter_pose_scale"] * raw["adapter_extrinsics_before_scale"][:, :3, 3]).max() < 2e-5
             assert saved["depth"].shape == (len(order), 504, 504)
-            assert (out / "render_check.jpg").is_file(), "缺少源视角回放"
+            if require_renders:
+                assert (out / "render_check.jpg").is_file(), "缺少源视角回放"
             record = {"case": case.name, "status": "passed", "n_views": len(order),
                       "n_gaussians": len(vertex), "n_properties": len(vertex.dtype.names),
                       "bytes": ply.stat().st_size, "sha256": summary["sha256"],
                       "camera_max_error": w2c_error, "intrinsics_max_error": k_error,
-                      "camera_roundtrip_max_error": roundtrip, "all_finite": True}
+                      "camera_roundtrip_max_error": roundtrip, "all_finite": True,
+                      "adapter_pose_scale": summary["adapter_pose_scale"],
+                      "pose_scale": summary["pose_scale"],
+                      "native_pairing_verified": True}
             report["cases"].append(record)
             print(f"✅ {case.name}: {len(order)} 视角, {len(vertex):,} 高斯, 41 属性, 全有限", flush=True)
         except Exception as exc:
