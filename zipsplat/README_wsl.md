@@ -101,6 +101,31 @@ SSIM 0.4817；严格前馈分别为 20.827 / 0.5088 与 19.757 / 0.4772。协议
 
 `01b_prepare_jiajia.sh` 的第一个参数也可直接写采集包路径，避免跨 Windows/WSL 传中文环境变量。
 
+## 海思十图批处理与验收
+
+- 每例为 704² PNG → 官方 504² 网络输入；207,360 高斯，26 属性，21,566,072 字节。
+- 2026-11-26 完成 19/19：`case1..case17_nopose_recentered`、`model_man`、`model_plant`；
+  全部使用 TokenBA 后高斯，官方 commit `73ab63f048fcc15ee54ada4ef9cdd79b925611a8`。
+- 原始相机 JSON、其它算法 PLY 和输入图未作为 ZipSplat 条件，也未修改；不能将预测的
+  首视角任意尺度坐标当作真实米制场景，也不能将输入自渲覆盖当作新视角质量结论。
+- 最终报告：`D:/output/results/zipsplat_results/hisilicon_10v/final_validation.json`。
+
+```bash
+# 十图批处理（WSL shell 直接运行，勿经 Git Bash 传中文 env）
+DATASET_ROOT=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据 \
+  ZIPSPLAT_RESULTS_DIR=/mnt/d/output/results/zipsplat_results/hisilicon_10v \
+  WEIGHT_PATH=~/model/zipsplat/zipsplat-da3g-504.tar \
+  MIN_FREE_MIB=14000 bash zipsplat/04_batch_hisilicon.sh
+
+# 只跑一组验证；已有成品默认跳过，绝不静默覆盖。
+# 显存不足时保留进度并停止后续批次。每组恰好十图，不读已有相机/PLY。
+ONLY=model_man ZIPSPLAT_RESULTS_DIR=/mnt/d/output/results/zipsplat_results/hisilicon_10v \
+  MIN_FREE_MIB=14000 bash zipsplat/04_batch_hisilicon.sh
+
+# 独立验收：检查十图清单、PLY 点数据、必需属性、有限值、SHA-256 和 TokenBA。
+python zipsplat/validate_hisilicon.py
+```
+
 ## 输出与口径
 
 - `jiajia_16v/gaussians_feedforward.ply`：官方前馈高斯；`gaussians.ply`：TokenBA 后高斯。

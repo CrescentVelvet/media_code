@@ -1,5 +1,26 @@
 # ZipSplat 实验记录
 
+## 2026-11-26 · 海思端侧 19 例十图重建与交付
+
+- 输入 `D:/dataset/测试数据/海思端侧重建拍摄数据/` 下 19 个 `images/` 子目录：
+  `case1..case17_nopose_recentered` 及 `model_man`、`model_plant`。每例恰好 10 张 704² PNG。
+  使用官方 `zipsplat-da3g-504.tar`、commit `73ab63f048fcc15ee54ada4ef9cdd79b925611a8`，
+  前馈后默认 TokenBA，不读取已有 stage1/SfM/glTF 相机或已有 PLY。
+- 最终每例 `zipsplat.ply` 为 TokenBA 后高斯，207,360 点、26 属性、binary little-endian、
+  21,566,072 字节；19/19 全部属性有限、SHA-256、十图输入清单与推理记录一致。
+  中间结果在 `D:/output/results/zipsplat_results/hisilicon_10v/<case>/`，日志在 `logs/`，
+  独立验收报告 `final_validation.json`。原始图像、相机和其它算法 PLY 未改动。
+- 抽查 `model_man`、`case10`、`case1`、`case7`、`case14`、`model_plant` 输入自渲：
+  主体与局部环境可辨，未见整帧空白；人物侧后方和部分纹理有软化。输入自渲不代表未观测视角
+  或独立留出已达标，本批未做跨方法几何/PSNR 结论。
+- 复用入口 `04_batch_hisilicon.sh`、`batch_hisilicon.py`；核验 `validate_hisilicon.py`。
+  只处理恰好十图的目录；成品先写临时 PLY、完整长度校验后改名；再次运行核对已有成品、输入
+  清单与推理记录，不覆盖。`_env.sh` 会预设通用 RESULTS_DIR，本入口须在 source 前设置
+  `ZIPSPLAT_RESULTS_DIR`，不能沿用普通 RESULTS_DIR 覆盖习惯。
+- `model_man` 首次 TokenBA 为 132.25s，后续 18 例每例 35.9–49.5s；不据此宣称稳定每例耗时。
+  运行中 shell 曾因换行时序出现末尾解析异常，最终入口已在全部完成后回归通过，19/19 跳过。
+  中间归档时误复制的旧佳佳结果副本已移入本批 `unrelated_legacy/`，旧原目录未改动。
+
 ## 2026-11-25 · ZipSplat × SplatAnything 表示机制讲解（无新实验）
 
 交付 `D:/ppt/20261125-ZipSplat与SplatAnything算法思路对比.pptx`（15 页）及 D 盘同名 `_src` 工程；官方机制图、机制示意与本机同帧实测分开标注，PPT / 图片不入 git。本轮只读源码与归档，不启动训练或 GPU 实验。
