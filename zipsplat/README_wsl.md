@@ -124,6 +124,20 @@ ONLY=model_man ZIPSPLAT_RESULTS_DIR=/mnt/d/output/results/zipsplat_results/hisil
 
 # 独立验收：检查十图清单、PLY 点数据、必需属性、有限值、SHA-256 和 TokenBA。
 python zipsplat/validate_hisilicon.py
+
+# ── v2：先从静止段 MP4 抽十帧，再复用同一批处理（WSL shell 内执行）──
+CASE=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2/case1_nopose_recentered
+~/miniconda3/envs/zipsplat/bin/python splatanything/36_extract_hisilicon.py \
+  --case "$CASE" --out "$CASE"
+# 逐例重复以上抽帧命令；要求恰好十段，sourceIndex 不是视频帧号。
+DATASET_ROOT=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2 \
+  ZIPSPLAT_RESULTS_DIR=/mnt/d/output/results/zipsplat_results/hisilicon_v2_10v \
+  MIN_FREE_MIB=14000 bash zipsplat/04_batch_hisilicon.sh
+# 独立验收：显式传 v2 根与独立结果目录，不混用 v1 报告。
+DATASET_ROOT=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2 \
+  RESULTS_DIR=/mnt/d/output/results/zipsplat_results/hisilicon_v2_10v \
+  ~/miniconda3/envs/zipsplat/bin/python zipsplat/validate_hisilicon.py
+# 2026-11-26：34/34 完成并通过，报告为该目录 final_validation.json。
 ```
 
 ## 输出与口径

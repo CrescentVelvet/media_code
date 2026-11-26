@@ -1,5 +1,24 @@
 # ZipSplat 实验记录
 
+## 2026-11-26 · 海思端侧 v2 三十四例十图重建与交付
+
+- 输入 `D:/dataset/测试数据/海思端侧重建拍摄数据v2/` 下 `case1..case34_nopose_recentered`。
+  原始包没有 `images/`，每例一支 151 帧 MP4，由十段静止画面组成。沿用已验证的
+  `splatanything/36_extract_hisilicon.py --case CASE --out CASE`，逐段跳过开头 8 帧取一帧；
+  `sourceIndex` 仅作原采集编号，**不是 MP4 帧号**。每例生成 10 张 704² PNG、
+  `extraction.json` 和 `contact_sheet.jpg`，不修改 MP4、相机 JSON 或已有 PLY。
+- 随后复用 `04_batch_hisilicon.sh` / `batch_hisilicon.py`，官方 504 权重前馈 + 默认 TokenBA，
+  不读取已有相机或 PLY。先验证 case1，再串行完成其余 33 例；case1 复跑按输入记录核对后跳过。
+  全部 34 例输出各案例根目录 `zipsplat.ply`，每份 207,360 高斯、26 属性、
+  21,566,072 字节；总计 733,246,448 字节，34 份 SHA-256 均不同。
+- `D:/output/results/zipsplat_results/hisilicon_v2_10v/final_validation.json`：
+  34/34 通过 PLY 完整长度、必需 Gaussian 属性、全部属性有限值、十图清单和 TokenBA 口径。
+  `extraction_validation.json` 另核验抽帧 PNG 哈希、sourceIndex、推理清单和 PLY 哈希一致。
+  34 例输入总览与第六输入视角自渲总览已目检，无整帧空白；细节/侧后方仍可能软化，
+  输入自渲不等于未观测视角质量。
+- 中间产物位于 `D:/output/results/zipsplat_results/hisilicon_v2_10v/`；
+  本批结果目录与 v1 的 `hisilicon_10v` 隔离，默认不覆盖已有成品。
+
 ## 2026-11-26 · 海思端侧 19 例十图重建与交付
 
 - 输入 `D:/dataset/测试数据/海思端侧重建拍摄数据/` 下 19 个 `images/` 子目录：
