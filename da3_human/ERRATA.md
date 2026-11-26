@@ -21,7 +21,14 @@
 | 12 | 把官方 `mat_to_quat` / `quat_to_mat` 的 `xyzw` 输出误按 `wxyz` 解读 | 海思输入相机对齐试验中高斯朝向错误 | 官方 `gs_adapter` 的历史注释仅指 raw 输入；两个转换函数输出为 **xyzw**，最终 Gaussians/PLY 沿用其分量顺序。PLY 的 `f_rest` 是 channel-major，但官方 `rotate_sh` 需要 `(N,3,K)`；gsplat 需要 `(N,K,3)`，两者转换必须显式 transpose |
 | 13 | 官方 `gs_adapter.py:89-101` 在 `gt_extrinsics` 分支只对齐尺度，只乘 c2w 平移与深度，漏掉 Umeyama 旋转和平移 | 若直接采用该分支结果，高斯仍在预测世界而输出相机已换到输入世界，产生整体错位；纯缩放 clamp 不能修复 | 相机版必须从对齐前预测外参显式求完整 Sim(3)，同步 means/scales/rotations/SH。`R_c2w'=R R_c2w`、`C'=s R C+t`，**不是给旋转矩阵乘 s**；数值检查是 `isfinite(s) & (s>0)`，不能写 `isfinite(s>0)`。海思36号后处理已覆盖；官方 adapter 的异常回退仍是另一待修项 |
 
-### 2026-11-26 官方高斯 adapter 审查与本轮处置
+### 2026-11-26 新 glTF 数据的焦距、原生相机与多头问题
+
+- 同一 JSON 的静态 `intrinsics.K` 对应 95° 视场，动画 `camera_path.yfov` 却对应约 54°；海思新增人像原始 RGB 在 RGB-only 下的自估焦距约 `fx=678, fy=706 @700`，接近后者。动画 yfov 条件的预测焦距约665–671/699–703，比顶层 K 条件的306–313/333–341合理；但**焦距一致不等于几何一致**。最终两例带位姿输入的原生相机回放仍多头/重影，撤回此前“动画焦距使人物接近 RGB-only 清晰度”的过度乐观描述。
+- 原始 704×704 图片不等于网络处理尺寸。旧默认504导致每例2,540,160点；`process_res=704` 实际经 PATCH_SIZE=14 圆整至700，完整点数4,900,000。同事704 PLY为4,776,138/4,776,089点、SH DC only；不能将更多点数等同于更高分辨率或更好画质。
+- `align_poses_umeyama(ext_ref, ext_est)` 返回 **est → ref** 的 R/t/s，点变换为 `X_ref=s X_est R^T+t`。已对 adapter 原生高斯直接使用 `align_poses_umeyama(input, adapter_pred)` 的单一 Sim(3)，**不再另乘 Nested sf 或除 adapter a**；sf/a 只在捕获的原始预测相机中进入拟合一次。旧 stage1/SfM 后处理保持独立，不能未经其各自回归而覆盖。
+- 原生高斯不能直接配 API 最终输入相机。最终 `model_man` 的原生预测世界和输入世界均多头，RGB-only 原生世界仅软化而无多个人脸结构；所以本例多头主要已经在带位姿条件的前向预测中出现，不能归因于单一世界变换、PLY 导出或回放 K。它仍未区分 glTF 位姿/帧对应关系错误与 DA3 相机条件响应错误。
+- 相机文件无 depth/image_shape 时必须显式提供 `CAMERA_BASE_SIZE=WxH`。700px K 不可未经缩放直接用于504px渲染；全部回放须保存 K 基准与相机世界说明，拒绝 NaN/Inf 进入渲染器。
+
 
 - 官方代码版本 `41736238f5bced4debf3f2a12375d2466874866d`。`gs_adapter.py:89-101` 调用 `batch_align_poses_umeyama` 后丢弃 R/t，只缩放 c2w 平移和 `gs_depths`；`pose_align.py:39-45` 已知正确形式是旋转左乘 R、平移 `sRC+t`。因此“输入相机条件分支的 adapter 对齐不完整”成立，但“用 `einsum` 缩放整个旋转矩阵”不成立：`s` 属于点/中心/深度/高斯尺度，相机旋转仍必须保持 SO(3)。
 - 海思36号入口在 `inference_preserving_raw_cameras()` 中捕获真正预测相机，再调用 `transform_gaussians()` 覆盖完整 R/t/s、旋转四元数与 SH，最后仅施加显示转正。它不是直接采用 adapter 的相机对齐结果；RGB-only 34号的 `gt_extrinsics=None`，也不走此分支。故本轮不重跑17例、不修改已有 PLY；现有170源视角回放仍是有效工程验收。

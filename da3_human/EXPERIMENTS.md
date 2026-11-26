@@ -3,6 +3,28 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
+## 2026-11-26 带位姿重建最终复核：原生前向多头，尚不能质量验收
+
+- 最终重新对 `model_man`、`model_plant` 跑704输入（实际700×700）、动画 `camera_path.yfov`、`saddle_balanced`、`DA3NESTED-GIANT-LARGE-1.1` 十视角相机条件前向，日志均明确 `Using camera conditions provided by the user`。两例输入世界 `input_world.ply` 均为4,900,000高斯、41属性、完整SH degree2、全部有限、803,601,007 bytes，配套 `cameras.npz`；同前向另存 `native.ply/native_cameras.npz`。
+- 最终 `transform_gltf_gaussians` 使用 adapter 捕获的预测相机拟合 `align_poses_umeyama(input,pred)` 返回的 pred→input 单一 Sim(3)，不再叠加 Nested sf 或除 adapter a。man/plant 尺度分别1.41561975/1.46105687，相机中心最大残差0.03914112/0.03477079输入单位；这些残差不是独立位姿真值或画质通过证明。
+- 每例完成原生预测世界与输入世界各10个源视角回放，渲染K均由700×700缩放至504×504，使用同一渲染器与缓存扩展；结果图和参数JSON在各自 `depthanything3_camera_audit/review_20261126/`。man 两路均有多个叠合人脸/头部，plant 两路叶片和花盆多层混叠。**原生相机条件前向已经退化，完整Sim(3)不会消除这类重影，仍不可标为质量通过。**
+- 同版本、同704处理、同504回放配置下，`model_man` RGB-only 原生预测世界十视角只表现软化、局部细节不准，未出现这种多重人脸。该对照在 `model_man/depthanything3_camera_audit/rgb_saddle_v2/native_render.jpg`，排除了“只要原生DA3输出就多头”的解释。
+- 顶层95°K 与动画约54°yfov 的冲突确实存在，但动画焦距并未修复多头。撤回此前“动画焦距使原生人物接近RGB-only、未见多个头部”的结论；相关旧图受相机/K口径混杂影响，不作最终证据。仅传 intrinsics 时官方 CameraEnc 不生成 cam_token，也不是有效内参独立消融。first 与 saddle 本例输出逐字节相同，不能构成独立参考帧消融。
+- 当前边界：可排除“仅靠修正尺度/世界变换即可解决”，但尚不能区分 glTF 外参或帧映射错误与 DA3 CameraEnc/前馈多视角深度不一致；同事 PLY 不能证明其权重、参考帧或调用方式。正式 `depthanything3_cameras.ply` 未覆盖，两例最终结果仅供用户目检。旧 stage1/SfM 共用后处理保持原路径，未借本轮结论批量重跑。
+
+---
+
+## 2026-11-26 同事 PLY 对照：输入焦距、原生尺度与处理分辨率
+
+> 本节是中间调查记录；其中“动画焦距接近RGB-only、未见多头”与 `sf×pose_scale/a` 尺度结论已被上方最终统一回放复核修正，保留仅用于追溯，不作最终结论。
+
+- 对照文件为 `D:/dataset/测试数据/陈镇枫DA3重建结果/0000-DA3-704-{NoPose,pose}-man.ply`。二者分别为 4,776,138/4,776,089 高斯，17 个 float 属性、仅 SH DC、每点68 bytes；本地此前的 2,540,160 点来自 `PROCESS_RES=504`：`10×504×504`，而非输入原始照片尺寸。官方预处理将 `process_res=704` 圆整到 **700×700**，完整点是 4,900,000，十视角700前向实测峰值约15.2GiB；同事点数约为其97.47%，精确筛选逻辑尚需其导出代码，不能凭点数宣称“原始像素更多”。
+- 同事无位姿与位姿 PLY 都接近 DA3 自估相机世界。借用本地 RGB-only 相机回放两版，人物均清楚、无本地相机版多头部；直接配原始 glTF 相机则倒置/偏小，故不是原生高斯可任意配 API 最终输入相机的证据。逐点检查显示部分视角仅浮点末位不同，另一些视角确有变化，不能简化为“完全复用 RGB-only”。这些图像尚需按最终明确 K 基准重新复核，不能反推同事实现。
+- 原生 700 前向同时捕获 `gs_adapter` 的真实预测外参/内参。顶层 K 条件时预测焦距约306–313/333–341px，原生预测相机回放人物显著偏小、背景大量漂浮球；动画 `camera_path.yfov=0.9466165900230408` 条件时预测焦距约665–671/699–703px，接近 RGB-only 的678/706px，人物比例与清晰度接近 RGB-only，未见原相机版那种多个头部。这坐实新增两例**静态节点95°K 与实际图像/动画约54°视场不匹配**，而不是704 RGB或权重本身导致退化。
+- 原生高斯即使采用动画焦距，也不能直接配 API 最终输入相机（会倒置/缩小）；仍需同尺度完整 Sim(3)。此前自定义尺度链遗漏撤销 adapter 在 Nested 米制缩放前施加的中间尺度 `a`，旧 `sf×pose_scale` 使物体相对输入相机额外放大。36号现捕获 adapter 实际使用的原张量并计算 `sf×pose_scale/a`，禁止拿 Nested 后的相机反推 `a`。用错误a=3得到的中间文件不作为修复结果。
+- 新增两例的默认 PROCESS_RES 改为704（实际700），`GLTF_INTRINSICS_MODE=camera_path_yfov`；旧 `top_level_K` 仅保留诊断。完整对齐的诊断输出放在 `depthanything3_camera_audit/final_yfov_sim3/`，未覆盖正式 PLY，待同输入多视角回放验收后再替换。
+- 撤回“36号完全绕开 adapter 中间尺度、17例均无需复核”的绝对表述。官方 adapter 不应用完整R/t仍是事实，但其 `a` 已实际进入旧高斯；旧17例须单独按新尺度链复核，不能用本轮新glTF内参结论替代。
+
 ---
 
 ## 2026-11-26 新增 model_man / model_plant 的原生与 glTF 相机 DA3

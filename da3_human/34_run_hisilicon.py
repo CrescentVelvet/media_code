@@ -63,12 +63,30 @@ def fast_export_ply(means, scales, rotations, harmonics, opacities, path,
         cols.append(np32(harmonics[..., 1:].reshape(n, -1)))
     cols += [np32(opacities[..., None]), np32(scales.log()), np32(rotations)]
     arr = np.ascontiguousarray(np.concatenate(cols, axis=1), dtype="<f4")
+    if arr.shape != (n, len(names)):
+        raise ValueError(f"PLY 属性数与拼接列数不一致: header={len(names)}, data={arr.shape[1]}, "
+                         f"shapes={[c.shape for c in cols]}, "
+                         f"harmonics={tuple(harmonics.shape)}, opacity={tuple(opacities.shape)}, "
+                         f"scales={tuple(scales.shape)}, rotations={tuple(rotations.shape)}")
+    if not np.isfinite(arr).all():
+        bad = {name: int((~np.isfinite(arr[:, i])).sum())
+               for i, name in enumerate(names) if not np.isfinite(arr[:, i]).all()}
+        raise RuntimeError(f"PLY 导出前出现非有限值: {bad}")
     header = ["ply", "format binary_little_endian 1.0", f"element vertex {n}"]
     header += [f"property float {name}" for name in names] + ["end_header"]
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         f.write(("\n".join(header) + "\n").encode("ascii"))
         arr.tofile(f)
+        expected_bytes = f.tell()
+        f.flush()
+        os.fsync(f.fileno())
+    if path.stat().st_size != expected_bytes:
+        raise RuntimeError(f"PLY 写盘不完整: {path}, {path.stat().st_size} != {expected_bytes}")
+    from plyfile import PlyData
+    check = PlyData.read(str(path))
+    if len(check["vertex"].data) != n:
+        raise RuntimeError(f"PLY 回读顶点数不一致: {path}")
 
 
 def inspect_ply(path):

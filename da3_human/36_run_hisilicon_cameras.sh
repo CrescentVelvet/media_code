@@ -8,9 +8,10 @@ source "$SCRIPT_DIR/_env.sh"
 
 : "${ROOT:=/mnt/d/dataset/测试数据/海思端侧重建拍摄数据}"
 : "${CASE_FILTER:=}"
-: "${PROCESS_RES:=504}"
+: "${PROCESS_RES:=704}"
+: "${GLTF_INTRINSICS_MODE:=camera_path_yfov}"
 : "${FORCE:=0}"
-export ROOT CASE_FILTER PROCESS_RES FORCE DA3_MODEL_DIR
+export ROOT CASE_FILTER PROCESS_RES FORCE DA3_MODEL_DIR GLTF_INTRINSICS_MODE
 
 if [ ! -f "$DA3_MODEL_DIR/model.safetensors" ]; then
     echo "❌ 原生 DA3 权重缺失: $DA3_MODEL_DIR" >&2
