@@ -19,6 +19,15 @@
 | 10 | DA3 `cameras.npz`：extrinsics 是 **w2c 直接用**（勿求逆，求逆=静默出貌似合理的错图）；intrinsics/depth 已是 process_res 口径（504p 时 378×504，**勿再缩放**）；平移 ÷ scale_factor 回到高斯尺度 | 渲染人物位置全错但画面"看起来还行"，PSNR 掉 5~10 dB 不报警 | 三查：w2c/c2w 方向、K 的分辨率口径、sf 是否只除一次（对齐 29m 与 29_d1_diag 的写法） |
 | 11 | 输入相机后把 API 返回外参当原始预测相机，再拿去对齐高斯；或不转高斯只换相机 | 海思 case16 试验 PLY 41 字段、有限值全通过，源视角却整体放大错位 | API 在 `_align_to_input_extrinsics_intrinsics` 覆盖外参；高斯头仍按预测相机反投影。先保留对齐前外参，再用同一 RANSAC Sim(3) 变换 means/scales/rotations/SH，源视角回放才可验收 |
 | 12 | 把官方 `mat_to_quat` / `quat_to_mat` 的 `xyzw` 输出误按 `wxyz` 解读 | 海思输入相机对齐试验中高斯朝向错误 | 官方 `gs_adapter` 的历史注释仅指 raw 输入；两个转换函数输出为 **xyzw**，最终 Gaussians/PLY 沿用其分量顺序。PLY 的 `f_rest` 是 channel-major，但官方 `rotate_sh` 需要 `(N,3,K)`；gsplat 需要 `(N,K,3)`，两者转换必须显式 transpose |
+| 13 | 官方 `gs_adapter.py:89-101` 在 `gt_extrinsics` 分支只对齐尺度，只乘 c2w 平移与深度，漏掉 Umeyama 旋转和平移 | 若直接采用该分支结果，高斯仍在预测世界而输出相机已换到输入世界，产生整体错位；纯缩放 clamp 不能修复 | 相机版必须从对齐前预测外参显式求完整 Sim(3)，同步 means/scales/rotations/SH。`R_c2w'=R R_c2w`、`C'=s R C+t`，**不是给旋转矩阵乘 s**；数值检查是 `isfinite(s) & (s>0)`，不能写 `isfinite(s>0)`。海思36号后处理已覆盖；官方 adapter 的异常回退仍是另一待修项 |
+
+### 2026-11-26 官方高斯 adapter 审查与本轮处置
+
+- 官方代码版本 `41736238f5bced4debf3f2a12375d2466874866d`。`gs_adapter.py:89-101` 调用 `batch_align_poses_umeyama` 后丢弃 R/t，只缩放 c2w 平移和 `gs_depths`；`pose_align.py:39-45` 已知正确形式是旋转左乘 R、平移 `sRC+t`。因此“输入相机条件分支的 adapter 对齐不完整”成立，但“用 `einsum` 缩放整个旋转矩阵”不成立：`s` 属于点/中心/深度/高斯尺度，相机旋转仍必须保持 SO(3)。
+- 海思36号入口在 `inference_preserving_raw_cameras()` 中捕获真正预测相机，再调用 `transform_gaussians()` 覆盖完整 R/t/s、旋转四元数与 SH，最后仅施加显示转正。它不是直接采用 adapter 的相机对齐结果；RGB-only 34号的 `gt_extrinsics=None`，也不走此分支。故本轮不重跑17例、不修改已有 PLY；现有170源视角回放仍是有效工程验收。
+- 17例保存的 R/t/s 已复核：全部有限、尺度正、det(R)=1（浮点误差内），`pose_scale=0.23403496–5.24071031`。官方 `[1/3,3]` clamp 若直接搬到本路径会改变实际尺度，尤其 case14/17，不能照搬。
+- `torch.isfinite(pose_scales > 0)` 先得到 bool，再判断有限，恒为 True；正确形式为 `torch.isfinite(pose_scales) & (pose_scales > 0)`。36号还检查 R/t 有限、R 为 SO(3)，非法结果拒绝导出，不能把失败静默写成错位 PLY。
+- 官方 adapter 的 `except` 只令 `pose_scales=1` 且没有 R/t 对齐，不是“完整 Sim(3) 无变换”的充分修复。若之后直接依赖该分支，应返回 B×3×3 单位 R、B×3 零 t、B 个1的 s，校验三者后统一施加 `C'=sRC+t`，并先小规模 A/B。该修改与当前海思独立后处理路径无兼容性必要，官方仓本轮保持未修改。
 
 ## 防再犯清单（报数/下结论前必查）
 

@@ -101,6 +101,8 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
 
     官方 API 只覆盖 prediction.extrinsics/depth，未变换 gaussians。这里不能
     改喂 self.extrinsics：depth 仍定义在自估相机局部坐标，直接换相机会错。
+    官方 gs_adapter 的 gt_extrinsics 分支又只缩放了 c2w 平移/深度；本路径以
+    捕获的预测相机 + 独立 Sim(3) 后处理覆盖 R、t、s，不直接采用该分支结果。
     """
     from depth_anything_3.model.utils.transform import mat_to_quat, quat_to_mat
     from depth_anything_3.utils.pose_align import align_poses_umeyama
@@ -116,6 +118,13 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
     # 所以返回 input -> pred，而非名字暗示的 pred -> input；这里显式求逆。
     R_in_to_pred, t_in_to_pred, s_in_to_pred = align_poses_umeyama(
         raw_ext44, input_extrinsics, ransac=len(raw_ext44) >= 10, random_state=42)
+    if not (np.isfinite(R_in_to_pred).all() and np.isfinite(t_in_to_pred).all()
+            and np.isfinite(s_in_to_pred) and s_in_to_pred > 0):
+        # 已输入的相机仍应保留在输出，不能因数值对齐失败写一帧/一批坏几何。
+        raise RuntimeError("相机 Umeyama 返回非有限参数或非正尺度；拒绝导出，不静默退化为错位结果")
+    if (np.abs(R_in_to_pred @ R_in_to_pred.T - np.eye(3)).max() > 1e-5
+            or abs(np.linalg.det(R_in_to_pred) - 1) > 1e-5):
+        raise RuntimeError("相机 Umeyama 旋转不是 SO(3)")
     R = R_in_to_pred.T
     pose_scale = 1.0 / float(s_in_to_pred)
     t = -(R @ t_in_to_pred) * pose_scale

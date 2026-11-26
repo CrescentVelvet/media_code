@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-11-26 官方 gs_adapter 相机对齐 bug 复核：本轮不重跑
+
+- 同事指出的 `gs_adapter.py` 相机条件分支确有问题：只缩放 c2w 平移与深度，丢弃 Umeyama 的旋转/平移；且异常时只把尺度置1，不能完整回退。但完整 Sim(3) 的点/中心变换是 `X'=sRX+t`，c2w 为 `R'=R Rc`、`C'=sR Cc+t`，**旋转矩阵不乘尺度**。`isfinite(pose_scales > 0)` 也恒为 True，应检查 `isfinite(pose_scales) & (pose_scales > 0)`。
+- 海思相机版36号已捕获原始预测相机，并独立变换 means/scales/rotations/SH 与配套相机；RGB-only 的 `gt_extrinsics=None`。因此已有17例未直接依赖该不完整 adapter 输出，本轮不重新推理、不修改 PLY。17例保存的 R/t/s 均为有限正尺度和 SO(3)，pose_scale 范围 0.23403496–5.24071031；不能套用官方 `[1/3,3]` clamp。
+- 官方 adapter 若另行修复，异常应回退 B×3×3 单位旋转、B×3 零平移和 B 个1的尺度，并校验全部参数；本批后处理路径选择显式报错，不静默输出错位结果。详见 `ERRATA.md` #13。
+
 ## 2026-11-26 海思相机版原地转正（取消 upright 命名）
 
 - 按用户要求，转正结果直接替换每例 `depthanything3_cameras.ply`，配套 `depthanything3_cameras/cameras.npz` 同步替换；RGB-only 的 `depthanything3.ply` 不动。数据目录不再保留 `depthanything3_cameras_upright.ply` 或同名目录，不重新推理、不裁点、不美化。
