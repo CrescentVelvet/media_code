@@ -66,6 +66,23 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
   python da3_human/35_render_hisilicon.py
 
 # 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹。
+
+# 6) 海思最终 COLMAP SfM 相机版（不覆盖第 4/5 步结果）
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PROCESS_RES=504 DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  bash da3_human/38_run_hisilicon_sfm.sh
+# 每例输出 depthanything3_sfm.ply 和 depthanything3_sfm/{cameras.npz,summary.json}。
+# 输入 colmap_sfm_results/sparse/0，按名字只取已注册图像；case7 为 6/10，其余为 10/10。
+# OPENCV 图像先去畸变，外参不变；高斯用完整 Sim(3) 对齐至 SFM 原生坐标，不转正、不是米制。
+CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  PLY_NAME=depthanything3_sfm.ply \
+  CAMERAS_NPZ=depthanything3_sfm/cameras.npz \
+  SOURCE_IMAGES_DIR=depthanything3_sfm/images \
+  OUT_NAME=depthanything3_sfm/render_check.jpg \
+  python da3_human/35_render_hisilicon.py
+# 数值/相机/回放完整性核验：
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  python da3_human/39_verify_hisilicon_sfm.py
 ```
 
 各脚本的 env 契约以脚本头注释为准。

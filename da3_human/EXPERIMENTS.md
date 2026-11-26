@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-11-26 海思使用最终 SfM 相机重跑 DA3
+
+- 输入为 17 例各自 `colmap_sfm_results/sparse/0` 的最终模型；按图像名只取已注册视角。16 例为 10/10，case7 仅 6/10，缺失的 4 帧不伪造位姿。SFM 的 OPENCV 畸变先用 `cv2.undistort` 去除，K 和外参保留原模型口径；DA3 504p 条件前向，日志逐例出现 `Using camera conditions provided by the user`。
+- 输出每例 `depthanything3_sfm.ply` 与 `depthanything3_sfm/{cameras.npz,summary.json,render_check.jpg}`；高斯从预测世界经完整 Umeyama Sim(3) 对齐到 SFM 原生坐标，不施加 stage1 版显示转正。SFM 是任意尺度，不能标成米制；不裁剪，完整 SH degree 2。
+- 17/17 文件与 166 个已注册源视角回放完成。16 例每例 2,540,160 高斯，case7 为 1,524,096；全部 41 float 属性、有限值，总计 6,915,348,703 bytes（约 6.44 GiB）。验证报告在数据集根 `depthanything3_sfm_validation.json`，批量摘要为 `depthanything3_sfm_batch_summary.json`。
+- 工程验收不代表画质改善：总览未见整例空白或整体错位，但 case7 侧面、case14 多个侧面/全身视角仍有明显人物缺失和拖影，多例人物/背景雾化；未用裁点或替换视角掩盖。
+- 工具：`38_run_hisilicon_sfm.{py,sh}`、`39_verify_hisilicon_sfm.py`。36 号的 `transform_gaussians` 新增可选世界旋转参数，默认保持原 stage1 转正路径；35 号支持无畸变图目录和按实际视角数排版。
+
+---
+
 ## 2026-11-26 官方 gs_adapter 相机对齐 bug 复核：本轮不重跑
 
 - 同事指出的 `gs_adapter.py` 相机条件分支确有问题：只缩放 c2w 平移与深度，丢弃 Umeyama 的旋转/平移；且异常时只把尺度置1，不能完整回退。但完整 Sim(3) 的点/中心变换是 `X'=sRX+t`，c2w 为 `R'=R Rc`、`C'=sR Cc+t`，**旋转矩阵不乘尺度**。`isfinite(pose_scales > 0)` 也恒为 True，应检查 `isfinite(pose_scales) & (pose_scales > 0)`。

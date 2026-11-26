@@ -96,13 +96,15 @@ def inference_preserving_raw_cameras(model, files, ext, ixt, process_res):
     return prediction, raw_extrinsics
 
 
-def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
+def transform_gaussians(prediction, raw_extrinsics, input_extrinsics, world_rotation=None):
     """用官方同一次 Umeyama 参数把高斯从自估世界送到输入世界。
 
     官方 API 只覆盖 prediction.extrinsics/depth，未变换 gaussians。这里不能
     改喂 self.extrinsics：depth 仍定义在自估相机局部坐标，直接换相机会错。
     官方 gs_adapter 的 gt_extrinsics 分支又只缩放了 c2w 平移/深度；本路径以
     捕获的预测相机 + 独立 Sim(3) 后处理覆盖 R、t、s，不直接采用该分支结果。
+    world_rotation 仅用于最终显示转正；None 保持海思历史口径，单位阵保留
+    SFM 原生世界坐标。坐标/高斯/SH 必须使用同一个旋转。
     """
     from depth_anything_3.model.utils.transform import mat_to_quat, quat_to_mat
     from depth_anything_3.utils.pose_align import align_poses_umeyama
@@ -144,7 +146,13 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
     t_t = torch.as_tensor(t, dtype=torch.float32, device=device)
     # 对角F与Umeyama旋转交换会引入符号变化，不能合写成F@R再乘t。
     # 单独施加F可保证与已验收的“Sim(3)后180度转正”逐点一致。
-    F_t = torch.as_tensor(WORLD_ROTATION, dtype=torch.float32, device=device)
+    world_rotation = WORLD_ROTATION if world_rotation is None else np.asarray(
+        world_rotation, dtype=np.float64)
+    if (world_rotation.shape != (3, 3)
+            or np.abs(world_rotation @ world_rotation.T - np.eye(3)).max() > 1e-6
+            or abs(np.linalg.det(world_rotation) - 1) > 1e-6):
+        raise RuntimeError("显示世界旋转不是 SO(3)")
+    F_t = torch.as_tensor(world_rotation, dtype=torch.float32, device=device)
     g.means = (g.means.float() @ R_t.T) * total_scale + t_t
     g.scales = g.scales * total_scale
     g.means = g.means @ F_t.T
@@ -157,25 +165,25 @@ def transform_gaussians(prediction, raw_extrinsics, input_extrinsics):
 
     c2w_pred = np.linalg.inv(raw_ext44)
     c2w_aligned = c2w_pred.copy()
-    c2w_aligned[:, :3, :3] = WORLD_ROTATION @ (R @ c2w_pred[:, :3, :3])
-    c2w_aligned[:, :3, 3] = (pose_scale * (c2w_pred[:, :3, 3] @ R.T) + t) @ WORLD_ROTATION.T
+    c2w_aligned[:, :3, :3] = world_rotation @ (R @ c2w_pred[:, :3, :3])
+    c2w_aligned[:, :3, 3] = (pose_scale * (c2w_pred[:, :3, 3] @ R.T) + t) @ world_rotation.T
     c2w_output = np.linalg.inv(input_extrinsics)
-    c2w_output[:, :3, :3] = WORLD_ROTATION @ c2w_output[:, :3, :3]
-    c2w_output[:, :3, 3] = c2w_output[:, :3, 3] @ WORLD_ROTATION.T
+    c2w_output[:, :3, :3] = world_rotation @ c2w_output[:, :3, :3]
+    c2w_output[:, :3, 3] = c2w_output[:, :3, 3] @ world_rotation.T
     camera_error = np.abs(c2w_aligned - c2w_output).max()
     position_error = np.linalg.norm(c2w_aligned[:, :3, 3] - c2w_output[:, :3, 3], axis=-1)
     if not np.isfinite(camera_error) or not np.isfinite(position_error).all():
         raise RuntimeError("相机 Sim(3) 往返出现非有限值")
     return {"metric_scale_factor": float(sf), "pose_scale": float(pose_scale),
             "total_gaussian_scale": total_scale, "umeyama_rotation": R.tolist(),
-            "umeyama_translation": t.tolist(), "gaussian_rotation": (WORLD_ROTATION @ R).tolist(),
-            "gaussian_translation": (WORLD_ROTATION @ t).tolist(), "aligned_camera_max_abs_error": float(camera_error),
+            "umeyama_translation": t.tolist(), "gaussian_rotation": (world_rotation @ R).tolist(),
+            "gaussian_translation": (world_rotation @ t).tolist(), "aligned_camera_max_abs_error": float(camera_error),
             "aligned_camera_max_position_error": float(position_error.max()),
             "aligned_camera_mean_position_error": float(position_error.mean()),
             "raw_camera_centers": c2w_pred[:, :3, 3].tolist(),
             "aligned_camera_centers": c2w_aligned[:, :3, 3].tolist(),
             "output_camera_centers": c2w_output[:, :3, 3].tolist(),
-            "world_rotation": WORLD_ROTATION.tolist(),
+            "world_rotation": world_rotation.tolist(),
             "output_extrinsics": np.linalg.inv(c2w_output)[:, :3].tolist()}
 
 

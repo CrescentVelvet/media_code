@@ -7,7 +7,8 @@ Env vars:
   OUT_NAME      案例内输出图名，默认 depthanything3/render_check.jpg
   PLY_NAME      案例内 PLY 文件名，默认 depthanything3.ply
   CAMERAS_NPZ   案例内相机文件，默认 depthanything3/cameras.npz
-  VIEW_INDICES  可选，逗号分隔源视角；默认全部十视角
+  VIEW_INDICES  可选，逗号分隔源视角；默认全部已保存视角
+  SOURCE_IMAGES_DIR 可选，案例内源 RGB 目录，默认 splatanything/images
 """
 import os
 import sys
@@ -47,8 +48,9 @@ def main():
     out_name = os.environ.get("OUT_NAME", "depthanything3/render_check.jpg")
     ply_name = os.environ.get("PLY_NAME", "depthanything3.ply")
     cameras_npz = os.environ.get("CAMERAS_NPZ", "depthanything3/cameras.npz")
+    source_images_dir = os.environ.get("SOURCE_IMAGES_DIR", "splatanything/images")
     view_indices = [int(x) for x in os.environ.get("VIEW_INDICES", "").split(",") if x]
-    for relative in (out_name, ply_name, cameras_npz):
+    for relative in (out_name, ply_name, cameras_npz, source_images_dir):
         if Path(relative).is_absolute() or ".." in Path(relative).parts:
             sys.exit(f"❌ 输出/输入必须是案例目录内相对路径: {relative}")
     cases = sorted(root.glob("case*_nopose_recentered"),
@@ -76,13 +78,13 @@ def main():
                 width=504, height=504, packed=False, sh_degree=2,
                 eps2d=0.01, backgrounds=torch.ones(1, 3, device="cuda"), render_mode="RGB")
             rendered = Image.fromarray((color[0].clamp(0, 1).cpu().numpy() * 255).astype(np.uint8))
-            source = Image.open(case / "splatanything/images" / str(name)).convert("RGB").resize((504, 504))
+            source = Image.open(case / source_images_dir / str(name)).convert("RGB").resize((504, 504))
             pair = Image.new("RGB", (1008, 534), "white")
             pair.paste(source, (0, 30))
             pair.paste(rendered, (504, 30))
             ImageDraw.Draw(pair).text((8, 8), f"{case.name} | input {i:02d} / DA3 PLY render", fill="black")
             pairs.append(pair)
-        sheet = Image.new("RGB", (2016, 534 * 5), "white")
+        sheet = Image.new("RGB", (2016, 534 * ((len(pairs) + 1) // 2)), "white")
         for i, pair in enumerate(pairs):
             sheet.paste(pair, ((i % 2) * 1008, (i // 2) * 534))
         out = case / out_name
