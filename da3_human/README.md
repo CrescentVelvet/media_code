@@ -67,7 +67,43 @@ CONDA_ENV=vggt_human ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄�
 
 # 仅消除上下显示差异，不把RGB-only版与位姿版配准到同一原点、尺度或相机轨迹。
 
+# 5b) 旧17例历史相机PLY有严重重影，不直接作为有效对照；先独立审计stage1：
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  RESULTS_DIR="/mnt/d/output/results/da3_human_results/stage1_camera_audit_repeat" \
+  python da3_human/46_audit_stage1_cameras.py
+# 8源+2留出、同704、同seed42的RGB/pose双分支，串行避免24GB显存争用。
+# 批处理要求RESULTS_ROOT预先不存在；续跑未完成案例须给新的根目录，不覆盖历史结果。
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" PROCESS_RES=704 \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_ab_repeat/stage1" \
+  ~/miniconda3/envs/da3_human/bin/python da3_human/48_batch_stage1_control.py
+# 完整双分支后统一渲染原生PLY与共同物理source/target相机，核验RGB/JSON/PLY身份。
+DATASET_ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_ab_repeat/stage1" \
+  GSPLAT_CACHED_SO="/home/velvet/.cache/torch_extensions/py311_cu126/gsplat_cuda/gsplat_cuda.so" \
+  ~/miniconda3/envs/splatanything/bin/python da3_human/49_render_camera_ab.py
+# 不套用新glTF的中心取负；case7几何风险单列。替换默认入口前必须确认完整实验摘要。
+# 用户2026-11-26明确允许覆盖旧失败产物；每批明确1–10例，先备份再替换PLY/相机/摘要。
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_ab_repeat/stage1" \
+  BACKUP_ROOT="/mnt/d/output/_backup/da3_stage1_pre_holdout_repeat_case01" \
+  CASE_FILTER=case1_nopose_recentered \
+  CONDA_ENV=da3_human bash -c 'source da3_human/_env.sh; python da3_human/48a_install_stage1_pose.py'
+# 需source项目环境加载DA3的SH/四元数旋转依赖；不能用缺DA3包的渲染env直接运行。
+# 默认入口保留10个相机槽位：8个源视角前向，2个留出视角仅回放。旧文件移入BACKUP_ROOT。
+# 原始图像/相机JSON与实验输出目录不动；新PLY为8源pose分支对齐输入世界后同步转正，不宣称质量通过。
+
 # 6) 新增 model_man / model_plant（glTF 相机关键帧）
+# 已替换的全10视角默认入口与下面8源留出实验不是同一口径；实验native.ply保留在RESULTS_ROOT。
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/gltf_pose_install_repeat" \
+  BACKUP_ROOT="/mnt/d/output/_backup/gltf_pose_pre_install_repeat" \
+  CASES=model_man,model_plant DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" \
+  CONDA_ENV=da3_human bash -c 'source da3_human/_env.sh; python da3_human/50_run_gltf_pose_install.py'
+# 仅对已审计两例、两个新输出根目录执行；先产出并核验490万高斯再替换，旧PLY/相机/摘要成套备份。
+# 原始图像/相机JSON不动；不做显示转正，不宣称质量通过，不推广特殊坐标解释。
+# 这两例的8源+2留出附录用此前的有效native.ply，不能用全10视角安装版替代留出结果。
+
 # 原始 images/frame_0001..0010.png 分别与 *_camera.json 的10个 c2w_keyframes 按序对应；
 # 这两例按标准glTF读取与图像不一致！先用动画yfov + 经极线验证的特殊坐标解释。
 # 细节与限制见 EXPERIMENTS.md 2026-11-26「图像几何独立审计」；不能泛用于其它glTF。

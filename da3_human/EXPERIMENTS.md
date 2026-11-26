@@ -3,6 +3,43 @@
 > 按日期倒序追加。实验计划/决策依据见 `EXPERIMENT_PLAN.md`，机制解释见 `NOTES.md`（阶段E补）。
 > 三视角实验的规划与评审见 `PLAN_REVIEW_3VIEW.md`（D1~D5 主表）。
 
+## 2026-11-26 用户指定16例相机条件共同留出对照（已完成附录）
+
+用户明确旧17例 `depthanything3_cameras.ply` 有严重重影，不能作为有效相机分支直接复用。
+本附录只覆盖用户指定的 case1–14、`model_man`、`model_plant`；case15–17不纳入本批统计。
+默认入口的替换有独立备份，原始RGB/相机JSON不动，有效对照均取输出目录内新前向 `native.ply`。
+`model_man/model_plant` 的特殊glTF解释不套到旧stage1。
+
+### 统一协议与输入审计
+
+- 本批14例stage1与 `model_man/model_plant` 均固定 source=`0,1,3,4,5,6,8,9`、target=`2,7`。
+  target RGB不前向；同一 `DA3NESTED-GIANT-LARGE-1.1`、seed42、process_res=704（实际700×700）、
+  saddle_balanced、完整SH2、不裁点，504×504 EWA。各分支8源前向均为392万高斯；
+  glTF另外安装的全10视角版为490万，不能混用两种输入规模。
+  仅用source相机拟合各分支一个Sim(3)，将相同物理target映射到原生世界；源回放另作诊断。
+- 46号用图像独立SIFT ratio=.7、USAC_MAGSAC基础矩阵筛选，旧stage1除case7外16例原flip约定
+  Sampson中位0.227–0.542px；case7为2.156px、双正深度93.55%、7对/558观测，风险单列。
+  该检验不证明绝对尺度、动态几何或独立真值。结果：`stage1_camera_audit_20261126_v4/`。
+- 正式输出 `hisilicon_camera_ab_20261126/stage1/`，主批处理串行运行47/48号。
+  49号强制检查case、RGB与相机JSON hash、PLY归属/hash、视角名称及source/heldout角色；
+  旧渲染同时复核GT像素与PNG量化分数，不放宽严格身份校验，不改原始浮点metrics。
+- `model_man` 有效留出为18.9056→17.6972dB（Δ−1.2084），`model_plant` 为
+  14.0257→16.2780dB（Δ+2.2523），盆栽两个留出均改善但仍有软化/纹理损失。
+  盆栽有效目录只有 `camera_holdout_plant_true_20261126/`；此前man/plant错配前向目录排除出统计。
+- 本次16例完整指标 `hisilicon_camera_ab_20261126/comparison_metrics_case1_14.json`：
+  留出Δ均值+0.2858dB；按描述性阈值Δ>+0.2改善、|Δ|≤0.2基本持平、Δ<−0.2退化，
+  **改善8 / 持平1 / 退化7**。均值只作分布摘要，不能当质量放行线。
+- 逐例留出Δ（dB）：case1 +2.1231、case2 −0.1191、case3 −0.2659、case4 +1.1976、
+  case5 +1.1384、case6 −0.3895、case7 −0.4350、case8 +1.3901、case9 −1.7395、
+  case10 −0.9803、case11 −1.2212、case12 +1.2532、case13 +0.7195、case14 +0.8575。
+- case14虽平均PSNR提升，实际第一帧人物几乎消失、第二帧人物破碎/偏移，明确**画面质量不通过**；
+  case7几何审计风险与面部破碎/拖影/雾化另列，不能由源回放或均分掩盖。
+- case14输入来自 `hisilicon_camera_ab_20261126/stage1_remaining_14_17/case14_nopose_recentered/`，
+  只补已有双分支的渲染，未重跑case15–17。成品PPT共29页，第13–28页为16例真实双分支留出对照。
+  全10视角安装版是另一实验口径，不与8源留出混算。
+
+---
+
 ## 2026-11-26 图像几何独立审计：坐标解释错误坐实，修正不等于普遍增益
 
 本节修正下方同日中间记录。保留用户原始JSON、RGB、两份正式PLY以及同事PLY，未覆盖。
