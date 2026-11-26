@@ -93,6 +93,23 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \
 # 默认入口保留10个相机槽位：8个源视角前向，2个留出视角仅回放。旧文件移入BACKUP_ROOT。
 # 原始图像/相机JSON与实验输出目录不动；新PLY为8源pose分支对齐输入世界后同步转正，不宣称质量通过。
 
+# 5c) 海思 v2 全10图 RGB-only / 原始stage1相机双分支（不做8源留出）：
+ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2" \
+  DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" PROCESS_RES=704 \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_all10_v2_20261127" \
+  ~/miniconda3/envs/da3_human/bin/python da3_human/51_run_stage1_all10_ab.py
+# 34例全部10图进入各自前向，模型只加载一次。每支保存native.ply/native_cameras.npz，
+# 以及同一输入世界下可比较但仅事后Sim(3)对齐的input_world.ply/input_cameras.npz。
+# 不覆盖原始RGB/相机JSON或v1；完整案例可核验续跑，不完整目录拒绝静默覆盖。
+# CASE_FILTER 仅核验/补跑子集，摘要写 batch_summary_subset.json，不覆盖全量总表。
+# 诊断单分支须使用新的RESULTS_ROOT并加 BRANCH_FILTER=pose；其完成状态不代表完整A/B。
+# 正式总表以逐例唯一摘要为准，不能把部分案例或独立补跑目录合并冒充完整双分支。
+DATASET_ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2" \
+  RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_all10_v2_20261127" \
+  GSPLAT_CACHED_SO="/home/velvet/.cache/torch_extensions/py311_cu126/gsplat_cuda/gsplat_cuda.so" \
+  ~/miniconda3/envs/splatanything/bin/python da3_human/49_render_camera_ab.py
+# all10协议只渲染source回放；十图均前向，分数不是留出泛化或几何质量证明。
+
 # 6) 新增 model_man / model_plant（glTF 相机关键帧）
 # 已替换的全10视角默认入口与下面8源留出实验不是同一口径；实验native.ply保留在RESULTS_ROOT。
 ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据" \

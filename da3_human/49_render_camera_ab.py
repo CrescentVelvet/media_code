@@ -3,6 +3,7 @@
 
 Env vars: RESULTS_ROOT（单案例或 per-case 根）, DATASET_ROOT, GSPLAT_CACHED_SO,
           CASE_FILTER（可选，逗号分隔案例名）, BRANCH_FILTER, RENDER_SIZE=504（保留已有渲染）
+支持固定8源2留出，或 protocol=all10_rgb_vs_input_pose 的全10图源视角回放。
 """
 import hashlib
 import importlib.util
@@ -36,12 +37,22 @@ def locate_case(summary_path, dataset_root):
     expected = dataset_root / case.name
     if case.resolve() != expected.resolve():
         raise ValueError(f"案例 {case} 不属于指定数据集 {dataset_root}")
-    if len(summary["branches"]) != 2:
+    is_all10 = summary.get("protocol") == "all10_rgb_vs_input_pose" and summary.get("holdout") is False
+    if is_all10 and summary.get("requested_branches") == ["pose"]:
+        # 单分支诊断允许RGB缺失，但不能把case级completed误当成完整A/B。
+        if summary.get("scope") != "单分支诊断；completed只表示请求分支成功，不是完整A/B":
+            raise ValueError(f"{summary_path} 缺少明确的单分支范围声明")
+        if set(summary.get("branches", {})) != {"pose"}:
+            raise ValueError(f"{summary_path} 位姿单分支诊断缺少pose或混有其他分支")
+    elif len(summary["branches"]) != 2:
         raise ValueError(f"{summary_path} 需恰好含 RGB 与一个相机分支")
-    if not summary.get("holdout", summary.get("target_indices")):
-        raise ValueError(f"{summary_path} 不是明确的留出前向摘要")
+    if not is_all10 and not summary.get("holdout", summary.get("target_indices")):
+        raise ValueError(f"{summary_path} 不是明确的留出前向或全10图摘要")
     indices = summary.get("source_indices")
-    if indices != [0, 1, 3, 4, 5, 6, 8, 9] or summary.get("target_indices") != [2, 7]:
+    if is_all10:
+        if indices != list(range(10)) or summary.get("target_indices") != []:
+            raise ValueError(f"{summary_path} 不符合全10图协议")
+    elif indices != [0, 1, 3, 4, 5, 6, 8, 9] or summary.get("target_indices") != [2, 7]:
         raise ValueError(f"{summary_path} 不符合固定8源2留出协议")
     if summary.get("process_res") != 704 or summary.get("seed") != 42:
         raise ValueError(f"{summary_path} 处理分辨率或seed不符")
@@ -97,6 +108,7 @@ def validate_existing_render(out, cameras, images_dir, role, native, branch, siz
         raise ValueError(f"渲染视角数与相机不一致: {out}")
     target_hashes = {}
     errors = []
+    max_bound_excess = 0.0
     for index, view in enumerate(metrics["views"]):
         name = str(cameras["image_names"][index])
         if view["image_name"] != name:
@@ -112,15 +124,21 @@ def validate_existing_render(out, cameras, images_dir, role, native, branch, siz
         if rendered.shape != (size, size, 3):
             raise ValueError(f"渲染分辨率不符: {out}/{index:02d}.png")
         psnr = float(-10 * np.log10(np.mean((rendered - np.asarray(source) / 255.) ** 2).clip(1e-12)))
-        # 8bit RGB量化本身可能在高频边缘带来约0.05dB，阈值仅用于量化校验；
-        # 输入hash、GT像素、文件名及PLY hash仍必须严格一致，不能用此阈值掩盖错图。
-        if abs(psnr - float(view["psnr_db"])) > 0.06:
-            raise ValueError(f"磁盘渲染与PSNR不符: {out}/{index:02d}.png: {psnr} vs {view['psnr_db']}")
+        # 原始PSNR在float32渲染上计算，保存PNG时两图均截断到8bit。逐通道误差差最多
+        # 1/255，因此可由原始MSE给出严格的量化后MSE上界，不能用固定dB阈值误拒真图。
+        metric_mse = 10 ** (-float(view["psnr_db"]) / 10)
+        quantized_mse = 10 ** (-psnr / 10)
+        quantization_bound = (np.sqrt(metric_mse) + 1 / 255.) ** 2 + 1e-12
+        if quantized_mse > quantization_bound:
+            raise ValueError(f"磁盘渲染超出8bit量化误差上界: {out}/{index:02d}.png: "
+                             f"MSE {quantized_mse} > {quantization_bound}")
         errors.append(abs(psnr - float(view["psnr_db"])))
+        max_bound_excess = max(max_bound_excess, quantized_mse - quantization_bound)
     validation = {"role": role, "branch": branch, "ply": str(native), "ply_sha256": sha256(native),
                   "input_sha256": target_hashes, "metrics_sha256": sha256(metrics_path),
                   "max_png_quantization_psnr_delta": max(errors, default=0.),
-                  "limits": "磁盘PNG复核支持输入归属及量化分数；未重新计算alpha，原始指标不改写。"}
+                  "max_png_mse_above_quantization_bound": max_bound_excess,
+                  "limits": "磁盘PNG按原始MSE及8bit误差上界复核；未重新计算alpha，原始指标不改写。"}
     with open(out / "render_validation.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(validation, f, ensure_ascii=False, indent=2)
         f.write("\n")
@@ -164,12 +182,19 @@ def main():
                 continue
             if os.environ.get("BRANCH_FILTER") and branch != os.environ["BRANCH_FILTER"]:
                 continue
-            native = Path(summary["branches"][branch]["path"])
+            branch_info = summary["branches"][branch]
+            native_info = branch_info.get("native_ply", branch_info)
+            native = Path(native_info["path"])
+            if (native.name == "native.partial.ply" and summary.get("protocol") == "all10_rgb_vs_input_pose"):
+                # 原子导出摘要记录的是校验时的临时名，完成后才改名；只允许这一精确路径。
+                native = native.with_name("native.ply")
             if native.parent.resolve() != (case_out / branch).resolve() or native.name != "native.ply" or not native.is_file():
                 raise ValueError(f"PLY不归属摘要目录: {native}")
-            if sha256(native) != summary["branches"][branch]["sha256"]:
+            if sha256(native) != native_info["sha256"]:
                 raise ValueError(f"PLY hash与摘要不同: {native}")
-            for role, suffix in (("heldout", "heldout"), ("source", "common_source")):
+            is_all10 = summary.get("protocol") == "all10_rgb_vs_input_pose"
+            roles = (("source", "common_source"),) if is_all10 else (("heldout", "heldout"), ("source", "common_source"))
+            for role, suffix in roles:
                 cameras = case_out / branch / f"{suffix}_cameras.npz"
                 if not cameras.is_file():
                     raise FileNotFoundError(cameras)
@@ -181,7 +206,6 @@ def main():
                     z = np.load(cameras, allow_pickle=False)
                     cams = {k: z[k] for k in z.files}
                     verify_input(summary, case, images_dir, cams["image_names"], cams)
-                    target_hashes = {str(n): sha256(images_dir / str(n)) for n in cams["image_names"]}
                     target_hashes = validate_existing_render(out, cams, images_dir, role, native, branch, size)
                     identity = json.loads(metrics_path.read_text(encoding="utf-8")).get("input_sha256")
                     if identity is None:
@@ -225,7 +249,7 @@ def main():
                     records.append({"local_view": i, "image_name": str(image_name), "psnr_db": psnr,
                                     "alpha_mean": float(alpha.mean())})
                 info = {"case": str(case), "branch": branch, "role": role, "ply": str(native),
-                        "ply_sha256": summary["branches"][branch]["sha256"], "cameras": str(cameras),
+                        "ply_sha256": native_info["sha256"], "cameras": str(cameras),
                         "render_size": size, "intrinsics_base_size": list(base), "input_sha256": target_hashes,
                         "mean_psnr_db": float(np.mean([r["psnr_db"] for r in records])),
                         "mean_alpha": float(np.mean([r["alpha_mean"] for r in records])), "views": records,

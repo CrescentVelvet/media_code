@@ -112,6 +112,12 @@ def main():
             for j in range(i + 1, len(files)):
                 ki, di = features[i]
                 kj, dj = features[j]
+                # 无纹理视角可能没有SIFT描述子；不能让空数组触发knnMatch的dtype断言。
+                if di is None or dj is None or len(di) < 2 or len(dj) < 2:
+                    pairs.append({"views": [i, j], "matches": 0,
+                                  "status": "insufficient_descriptors"})
+                    continue
+                di, dj = np.asarray(di, dtype=np.float32), np.asarray(dj, dtype=np.float32)
                 good = [a for a, b in matcher.knnMatch(di, dj, k=2) if a.distance < .7 * b.distance]
                 if len(good) < min_matches:
                     pairs.append({"views": [i, j], "matches": 0, "status": "insufficient_raw_matches"})
