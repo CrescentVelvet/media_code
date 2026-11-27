@@ -3,6 +3,8 @@
 > 依据本仓脚本、本机官方代码和已有实验记录整理。本文解释“现在可以跑什么”，不声称复现了未公开的训练器。
 >
 > 以下命令默认在 **WSL Ubuntu、仓库根目录 `/mnt/c/code/media_code`** 执行。示例数据路径 `my_scene` 是需要替换的占位名，不表示该数据已经存在。
+>
+> 训练数据的官方配方、规模、许可和手动下载入口见同目录的 [训练数据集与下载清单](TRAINING_DATASETS.md)。
 
 ## 1. 先看结论：这里的“训练”不是同一件事
 
@@ -511,7 +513,7 @@ total = rgb_full + 2.0 * rgb_person
 
 人物 RGB 与 alpha 监督是为了避免“把人物抹掉”被误报为重影减少。正式训练强制逐视角人工 `--review`，不能用开关绕过。
 
-**截至已核对的 2026-11-27 状态，UE53 尚未启动真实人物 100-step 训练。** 当前 27 个身份、53 个 sequence 的人工 review 仍 pending；合成/真实零更新门通过不等于训练或质量通过。因此这里不给一条可直接绕过审核的训练命令，正式操作应严格按 [`splatanything/README_H100.md`](splatanything/README_H100.md) 的顺序：
+**截至已核对的 2026-11-27 状态，UE53 尚未启动真实人物 100-step 训练。** 当前 27 个身份、53 个 sequence 的人工 review 仍 pending；合成/真实零更新门通过不等于训练或质量通过。因此这里不给一条可直接绕过审核的训练命令，正式操作应严格按 [`splatanything/README_H100.md`](../splatanything/README_H100.md) 的顺序：
 
 1. `44_test_portrait.py`：离线契约测试；
 2. `43_smoke_portrait.py`：合成 GPU 零更新冒烟；
