@@ -466,7 +466,7 @@ def setup_method(case, method, capture, K, count, size, zip_root, pose_root):
             return native_path, native_K, {"protocol": "补充样例：原生预测轨迹，无 stage1 共同世界"}
         R, t, scale, report = fit_similarity(capture[:, :3, 3], model_c2w[:, :3, 3])
         return transform_path(path, R, t, scale), path_K, {
-            "protocol": "ZipSplat 原生预测相机与 stage1 源相机拟合 Sim(3)", **report}
+            "protocol": "ZipSplat 原生OpenCV c2w与 stage1 源相机中心拟合 Sim(3)；相机位置不取负", **report}
     raise ValueError(method)
 
 
