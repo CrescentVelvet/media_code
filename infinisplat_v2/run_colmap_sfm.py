@@ -3,6 +3,8 @@
 
 Env: DATASET_ROOT, CASE_REGEX, EXPECTED_IMAGES, OUTPUT_DIRNAME, FORCE, RESUME,
      SIFT_RATIO, MAX_CASES, USE_GPU, COLMAP_ENV, ANALYSIS_PYTHON.
+窄基线诊断可显式设 INIT_MIN_TRI_ANGLE / INIT_IMAGE_ID1 / INIT_IMAGE_ID2；
+这些参数只影响初始化，最终仍做几何验证和全局 BA。
 """
 import json
 import os
@@ -99,12 +101,23 @@ def run_case(case):
     db = out / "database.db"
     common = ["--database_path", str(db), "--image_path", str(images_dir)]
     print(f"🚀 {case.name}: {len(files)} 图 SIFT / 穷举匹配 / 增量 SfM", flush=True)
+    mapper_overrides = []
+    if os.environ.get("INTRINSICS_FROM_STAGE1", "0") == "1":
+        camera_json = next(case.glob("*_stage1_cameras.json"))
+        camera_data = json.loads(camera_json.read_text(encoding="utf-8"))
+        first_view = camera_data["views"][0]
+        camera_params = [first_view[k] for k in ("fx", "fy", "cx", "cy")] + [0.0] * 4
+        mapper_overrides += ["--ImageReader.camera_params", ",".join(str(x) for x in camera_params)]
     run_colmap(["feature_extractor"] + common + [
         "--ImageReader.camera_model", "OPENCV", "--ImageReader.single_camera", "1",
         "--ImageReader.default_focal_length_factor", "1.2", "--FeatureExtraction.use_gpu", USE_GPU,
         "--FeatureExtraction.max_image_size", "2000", "--SiftExtraction.max_num_features", "16384",
         "--SiftExtraction.first_octave", "-1", "--SiftExtraction.peak_threshold", "0.004",
-        "--SiftExtraction.estimate_affine_shape", "1", "--SiftExtraction.domain_size_pooling", "1"], out / "logs/01_features.log")
+        "--SiftExtraction.estimate_affine_shape", "1", "--SiftExtraction.domain_size_pooling", "1"] + mapper_overrides, out / "logs/01_features.log")
+    mapper_overrides = []
+    for key in ("INIT_IMAGE_ID1", "INIT_IMAGE_ID2"):
+        if os.environ.get(key):
+            mapper_overrides += ["--Mapper." + key.lower(), os.environ[key]]
     run_colmap(["exhaustive_matcher", "--database_path", str(db), "--FeatureMatching.use_gpu", USE_GPU,
         "--FeatureMatching.guided_matching", "1", "--SiftMatching.max_ratio", os.environ.get("SIFT_RATIO", "0.8"),
         "--TwoViewGeometry.max_error", "4"], out / "logs/02_matching.log")
@@ -113,9 +126,11 @@ def run_case(case):
         "--Mapper.min_num_matches", "15", "--Mapper.abs_pose_min_num_inliers", os.environ.get("ABS_POSE_MIN_INLIERS", "30"),
         "--Mapper.init_num_trials", os.environ.get("INIT_NUM_TRIALS", "200"),
         "--Mapper.tri_re_max_trials", "3", "--Mapper.tri_re_min_ratio", "0.15",
-        "--Mapper.filter_max_reproj_error", "3", "--Mapper.ba_refine_focal_length", "1",
-        "--Mapper.ba_refine_principal_point", "1", "--Mapper.ba_refine_extra_params", "1",
-        "--Mapper.ba_global_max_refinements", "5"], out / "logs/03_mapper.log")
+        "--Mapper.init_min_tri_angle", os.environ.get("INIT_MIN_TRI_ANGLE", "16"),
+        "--Mapper.filter_max_reproj_error", "3", "--Mapper.ba_refine_focal_length", os.environ.get("REFINE_FOCAL", "1"),
+        "--Mapper.ba_refine_principal_point", os.environ.get("REFINE_PRINCIPAL", "1"),
+        "--Mapper.ba_refine_extra_params", os.environ.get("REFINE_DISTORTION", "1"),
+        "--Mapper.ba_global_max_refinements", "5"] + mapper_overrides, out / "logs/03_mapper.log")
     candidates = []
     for model in sorted((out / "sparse_raw").iterdir()):
         if (model / "images.bin").exists():
@@ -136,11 +151,19 @@ def run_case(case):
 
 def finish_and_export(case, files, out, best, db, start):
     (out / "sparse" / "0").mkdir(parents=True, exist_ok=True)
+    ba_overrides = []
+    for flag, option in (("REFINE_FOCAL", "refine_focal_length"),
+                         ("REFINE_PRINCIPAL", "refine_principal_point"),
+                         ("REFINE_DISTORTION", "refine_extra_params")):
+        if os.environ.get(flag) == "0":
+            ba_overrides += ["--BundleAdjustment." + option, "0"]
     run_colmap(["bundle_adjuster", "--input_path", str(best), "--output_path", str(out / "sparse" / "0"),
-        "--BundleAdjustment.refine_focal_length", "1", "--BundleAdjustment.refine_principal_point", "1",
-        "--BundleAdjustment.refine_extra_params", "1", "--BundleAdjustment.refine_points3D", "1",
+        "--BundleAdjustment.refine_focal_length", os.environ.get("REFINE_FOCAL", "1"),
+        "--BundleAdjustment.refine_principal_point", os.environ.get("REFINE_PRINCIPAL", "1"),
+        "--BundleAdjustment.refine_extra_params", os.environ.get("REFINE_DISTORTION", "1"),
+        "--BundleAdjustment.refine_points3D", "1",
         "--BundleAdjustmentCeres.max_num_iterations", "200", "--BundleAdjustmentCeres.function_tolerance", "1e-10",
-        "--BundleAdjustmentCeres.gradient_tolerance", "1e-12", "--BundleAdjustmentCeres.parameter_tolerance", "1e-10"], out / "logs/05_global_ba.log")
+        "--BundleAdjustmentCeres.gradient_tolerance", "1e-12", "--BundleAdjustmentCeres.parameter_tolerance", "1e-10"] + ba_overrides, out / "logs/05_global_ba.log")
     (out / "sparse" / "0" / "txt").mkdir(exist_ok=True)
     run_colmap(["model_converter", "--input_path", str(out / "sparse" / "0"), "--output_path", str(out / "sparse" / "0" / "txt"),
                 "--output_type", "TXT"], out / "logs/06_final_txt.log")
