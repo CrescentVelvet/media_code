@@ -112,7 +112,8 @@ def main():
     segments, differences, threshold, n_frames = find_static_segments(
         video, n_views, args.threshold)
     out = args.out.resolve() if args.out else case / "splatanything"
-    if out != case / "splatanything" and case not in out.parents:
+    # 默认仍写入 splatanything/；显式 --out CASE 时把 images/ 放案例根目录。
+    if out != case and case not in out.parents:
         raise RuntimeError("Extraction output must stay inside its case directory")
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)

@@ -25,6 +25,21 @@
 | 训练（stage-1/2） | ❌ 不可得 | 无训练代码 |
 | 论文表里的精确数值 | ⚠️ 不可直接对标 | 官方划分未公开；本仓只做自洽 + 自建 holdout |
 
+## 海思端侧 v2：34 场景 PLY 批量重建（2026-11-27 已执行）
+
+输入 `D:/dataset/测试数据/海思端侧重建拍摄数据v2/case*_nopose_recentered`，共 34 例，沿用上一节的十视角抽帧和已知相机。已有 `CASE/splatanything/` 抽帧在推理前已核验；无需重复抽帧，也不影响案例根目录的 DA3／ZipSplat 结果。只跑 PLY 推理，不运行 compare。
+
+```bash
+cd /mnt/c/code/media_code
+ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2' \
+  bash splatanything/36_run_hisilicon.sh infer
+# 输出：每例 CASE/splatanything.ply
+#       官方完整导出 CASE/splatanything/inference/splatanything/gaussians.ply
+# 已完成顶层 PLY 默认跳过；若官方目录存在而顶层 PLY 缺失，先备份再续跑。
+```
+
+完整文件验收位于 `D:/output/results/splatanything_results/hisilicon_v2_20261127/validation.json`。这是原生前馈高斯导出，未额外裁点或转米制；文件验收不代表视觉质量、独立新视角或几何精度通过。
+
 ## 海思端侧静止视角包：17 场景批量推理与回放（2026-11-25 已执行）
 
 输入 `D:/dataset/测试数据/海思端侧重建拍摄数据/case*_nopose_recentered`，本机 WSL / RTX 3090，**不是黄区或蓝区服务器任务**。每包 MP4 是十个静止画面的连续重复，`sourceIndex` 不是 MP4 帧号。`36_extract_hisilicon.py` 按缩略图内容差识别十段，默认跳过段首 8 帧，逐段取一帧；PNG、`extraction.json`、`contact_sheet.jpg` 均写入 `CASE/splatanything/`，原 MP4 / 相机 / bounds / 竞品 PLY 不改。
@@ -40,6 +55,17 @@ ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据' FRAMES=100 FPS
 ```
 
 输出 `CASE/splatanything.ply` 和 `CASE/splatanything/{splatanything,competitor,comparison}.mp4`，各 100 帧、15fps、H.264。轨迹沿实际 source 相机中心方向和距离插值，共同注视 bounds.center，不做无依据 360° 外推。竞品仅按随包相机原生 SH3 回放；未提供查看器或坐标/尺度契约时近距离局部模糊不得换算成算法排名。SA 原生 K 属 756² 预处理画布；共同采集回放用原 K / 704²，两者不可混作 NVS 指标。完整实测与验收见 [EXPERIMENTS.md](EXPERIMENTS.md)。
+
+同结构新批次若只要各案例根目录的 `images/`，显式指定 `--out CASE`；选帧、相机转换及十视角查重逻辑完全不变。此模式仍会在案例根目录保存相机 JSON、抽帧清单和预览图，且不覆盖原 MP4、相机、bounds 或 PLY。已有 `images/` 时不要直接重跑，先核对文件避免同名覆盖。
+
+```bash
+source /mnt/c/code/media_code/splatanything/_env.sh
+ROOT='/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2'
+for CASE in "$ROOT"/case*_nopose_recentered; do
+  python /mnt/c/code/media_code/splatanything/36_extract_hisilicon.py \
+    --case "$CASE" --out "$CASE"
+done
+```
 
 ## N0 几何测量审计（2026-11-22 已执行）
 

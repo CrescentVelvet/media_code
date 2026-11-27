@@ -4,6 +4,14 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-27 · 海思端侧 v2：34 场景 SA PLY 批量生成与完整文件验收
+
+**34/34 场景均已生成正式 `CASE/splatanything.ply`，没有失败或缺失案例。** 本机 WSL2 / RTX 3090，使用公开 SA 权重、十图和随包相机、pose 模式、756²。复用 `36_extract_hisilicon.py` 的静止段抽帧及 `36_run_hisilicon.sh` 批量推理，不重跑抽帧、不生成对比视频、不改动同目录 DA3／ZipSplat 结果。
+
+34 包均为 151 帧 / 704²，十视角静止段图已逐张对照原 MP4 映射及相机 ID 核验；跨场景所选十图最小两两 RGB MAE 为 **6.797–63.014/255**，通过非近重复输入检查。每份 PLY 为完整二进制 17-float 高斯属性，**1,058,264–2,658,309** 个高斯，**68.63–172.39 MiB**；总计 **64,189,097** 个高斯 / **4.065 GiB**。逐份完整读取，全部数值有限，且与官方 `inference/splatanything/gaussians.ply` 的 SHA256／字节完全一致。每例 10 相机、10 深度、10 预处理 RGB 及 `run.json` 配置均通过。显存峰值 **23.53–23.65 GB**；case1 独立冷启动，其他场景串行总耗时 **48–117 秒**，耗时仅描述本次运行。
+
+正式 PLY 保留 SA 原生 GSN 后坐标，不额外裁点、不补尺度变换；它们不是米制几何或独立新视角质量证明。本轮为 PLY-only 文件交付，未做全量渲染目检。完整清单及逐场景输入／输出 SHA：`D:/output/results/splatanything_results/hisilicon_v2_20261127/validation.json`；批处理日志：`D:/output/results/splatanything_results/hisilicon_v2_infer_20261127.log`。复跑见 [README_wsl.md](README_wsl.md)。
+
 ## 2026-11-25 · 海思端侧 17 场景：十段取图、17 份 SA PLY 与 51 支回放视频完成
 
 **17/17 场景均已完成十图前馈和渲染验收；这只证明交付链完整，不等于全部场景画质或竞品公平横评通过。** 本机 WSL2 / RTX 3090，已知相机、756²，使用公开 SA 权重。每场景生成顶层 `splatanything.ply`，以及 `splatanything/{splatanything,competitor,comparison}.mp4`，共 51 支 H.264 / yuv420p 视频。全部逐支解码为 100 帧、15fps，704² 单画布或 1408×776 并排画布；非静止帧检查通过。
