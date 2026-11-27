@@ -22,6 +22,113 @@
 - 本目录的通用 `00–11` 脚本可以按显式路径在蓝区使用，但蓝区的 Slurm 调度与集群约束不能从黄区 README 推断。基础前馈目前只有黄区通用命令模板，不能写成黄区或蓝区均已完整验收。
 - 下面的 Slurm 模板是依据已实测环境和集群公共规则整理的复跑模板，尚未以独立作业实跑；已验证的实验产物见末节。
 
+## 人像 UE53 短训：手动上传、审核、训练与多 checkpoint 评测（38–44）
+
+**状态（2026-11-27）：本机 RTX 3090 上合成及真实 UE 的零更新 GPU 门已通过；蓝区 H100 尚未运行 38–44，也没有训练 loss 或重影改善证据。** 训练前必须人工完成下面第 2 步；不能由 gate-only 代替审核，也不能停止或修改已有通用作业。
+
+### 1. 本机上传数据与审核模板
+
+本机 PowerShell 执行，目的地是远端 home 下的新目录。`rsync` 走 SSH 直连，不要把 SSH 代理塞给 v2rayN；`--dry-run` 先看清单，确认后再去掉它。不要把尚未人工批准的 review 当成通过。若 Windows 没有 rsync，用本机 WSL 的 `rsync`，将 `/cygdrive/d` 改成 `/mnt/d`；下面第二条 review 命令同理。
+
+```bash
+ssh h100 "mkdir -p ~/datasets ~/runs/splatanything_portrait"
+rsync -az --info=progress2 --dry-run -e ssh \
+  "/mnt/d/dataset/训练数据/第一批UE渲染数据-53组/" \
+  "h100:~/datasets/ue53_portrait/"
+# 去掉 --dry-run 后正式执行同一命令。
+rsync -az -e ssh \
+  "/mnt/d/output/results/splatanything_results/portrait_ue53/short_v3_review.json" \
+  "h100:~/runs/splatanything_portrait/review_template.json"
+```
+
+H100 上生成与机器路径匹配的 manifest；`short_v1` 必须不存在：
+
+```bash
+ssh h100
+source /data/00950754/envs/activate_splatanything.sh
+export SPLATANYTHING_DIR=/data/00950754/repos/SplatAnything
+export SPLATANYTHING_MODEL_DIR=/data/00950754/models/splatanything
+cd /data/00950754/code/media_code
+git pull --ff-only
+mkdir -p ~/runs/splatanything_portrait
+python splatanything/38_prepare_portrait_ue53.py \
+  --dataset-root ~/datasets/ue53_portrait \
+  --audit-views 2 \
+  --out ~/runs/splatanything_portrait/manifest_v1 \
+  --write-review-template ~/runs/splatanything_portrait/review.json
+```
+
+### 2. 逐视角人工审核（训练硬门）
+
+`38` 固定 `s03/s06/s09` 三源、`e06/e19_p00` 训练 target、四个近输入评测及四个背面试图。每包另有 2 个仅结构 QA 视角。将 `review.json` 中 `views` 的每项 `status` 按原 RGB 改成 `accepted` 或 `rejected`，并核对 `exposure_flag`。由于这是三源固定协议，source 不可静默换图；rejected 序列暂不进入本轮，需要新协议时另建 manifest，不能用开关放行。13 个 c6-fail 身份只能作 hard-example 诊断，不进入优化。
+
+### 3. 在已分配的 GPU 上先跑零更新门
+
+不要在登录节点跑 CUDA。用独立单卡作业或 `srun -p h100a011 --gres=gpu:1 --pty bash` 获取 GPU；分区与作业纪律见 `canada_h100/README.md`。下面 `RUN` 换成唯一新目录；已存在或失败目录不覆盖。
+
+```bash
+RUN=~/runs/splatanything_portrait/gate_ada_v1
+python splatanything/43_smoke_portrait.py \
+  --official-repo "$SPLATANYTHING_DIR" --res 112 --out "$RUN/synthetic"
+python splatanything/40_train_portrait.py \
+  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --official-repo "$SPLATANYTHING_DIR" \
+  --sequences ada_env17 --gate-only --res 504 --out "$RUN/real504"
+```
+
+成功标记分别是 `SMOKE_PASS` 和 `GATE_ONLY_PASS`。检查 `gate.json` 的 `optimizer_steps=0`、非空 person coverage、ED 最大差 ≤1e-5、有限非零学生梯度与全部 `parameter_max_delta=0`，并目检 RGB/alpha。**本机 `ada_env17` 504² 实测：n_merged=425019、人物 α>0.5 覆盖 0.813587、有效深度覆盖 0.828069、ED 最大差 0、峰值分配 12.32 GiB；B0 仍有拖影和大块黑色遮挡，不是质量通过。** 本机证据位于 `D:/output/results/splatanything_results/portrait_ue53/gate504_v1/`，合成证据在同目录树 `synthetic_v21/`。
+
+### 4. 100 step 工程冒烟、按实测步速续训
+
+只有人工审核与 H100 两项门均通过才执行。`RUN` 用新的训练目录，先保存 B0；只开放 `gs_head` 和 `gs_renderer.decoder.gs_head`，冻结外部教师和 source encoder。
+
+```bash
+TRAIN=~/runs/splatanything_portrait/ue53_v1
+python splatanything/40_train_portrait.py \
+  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --review ~/runs/splatanything_portrait/review.json \
+  --official-repo "$SPLATANYTHING_DIR" \
+  --out "$TRAIN" --res 504 --steps 100 --lr 1e-4 --depth-weight 0.1 \
+  --max-train-sequences 16 --checkpoint-at 1,25,50,100
+python splatanything/41_plot_portrait.py --run "$TRAIN"
+```
+
+先读 `run.json` 的实测 `measured_mean_step_s` / `eta_2000_only_steps_hours`、真实 `metrics.jsonl` 和 loss 图，再决定是否续训。目前不能给可信 H100 2000-step ETA；不能拿本机 4.85 秒的单次门检乘步数。
+
+```bash
+python splatanything/40_train_portrait.py \
+  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --review ~/runs/splatanything_portrait/review.json \
+  --official-repo "$SPLATANYTHING_DIR" \
+  --out "$TRAIN" --res 504 --steps 2000 --lr 1e-4 --depth-weight 0.1 \
+  --resume "$TRAIN/step_0100.pt" --checkpoint-at 250,500,1000,2000
+python splatanything/41_plot_portrait.py --run "$TRAIN"
+```
+
+### 5. 独立身份、多 checkpoint 与真人开发集回放
+
+先用 val 身份选 checkpoint，再对 test 只评一次；不要用 target 拟合 Sim(3) 或选参数。现有两测试身份只支持探索性正/负信号。H100 上尚未实测 `42`；若蓝区原环境的 gsplat 与本机 D-pass 接口不同，先停在 gate，不切换或覆盖现有环境。
+
+```bash
+python splatanything/42_eval_portrait.py \
+  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --rundir "$TRAIN" --split test --res 504 \
+  --official-repo "$SPLATANYTHING_DIR" \
+  --out ~/runs/splatanything_portrait/eval_test_v1 --save-ply
+# 先上传冻结真人 protocol.json / real_eval_v18/n1_real_eval.json 及其引用的原图后，
+# 另用 --real-protocol ... --real-report ... --real-res 756；不能省掉真实输入目录。
+```
+
+输出 `per_view_metrics.csv`、`checkpoint_eval.json`、`*_B0_vs_checkpoints.png` 和 alpha/ED 图。逐项看人物 bbox 与整图重影、低通外观、人物覆盖和有效 ED 覆盖；PSNR/loss 上升或把人物抹掉都不是通过。当前 UE 包没有鼻区地标，**不能输出虚构的鼻区毫米误差**，也不能把静态 UE 结果外推成同步真人泛化。
+
+本机 WSL 回传（不覆盖本地同名旧实验）：
+
+```bash
+rsync -az --info=progress2 -e ssh \
+  "h100:~/runs/splatanything_portrait/" \
+  "/mnt/d/output/results/splatanything_results/portrait_ue53/h100_v1/"
+```
+
 ## 原 SA 八卡训练
 
 这是 `canada_h100` 的自研训练链，不是 SA 官方发布的训练代码，也不是 35 号 LGTM 小试。

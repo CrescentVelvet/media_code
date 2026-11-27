@@ -8,6 +8,15 @@
 
 ---
 
+---
+
+## UE 人像短训的相机、ED 与冻结边界（2026-11-27）
+
+- `build_views(..., cam_align=True)` 将 source c2w 变为 `P_i=P_0^-1 C_i`，高斯 lifting 和 `export_camera_poses` 都在该首源坐标系。原始 target 必须先算 `P_target=P_0^-1 C_target`，再做 source-only `X_model=s R X_relative+T`；`R_model=R R_target`，只缩相机中心，绝不把 scale 塞进旋转块。保存的 `source_first_w2c` 形状为 `[B,4,4]`，target 边界取 `[0]`；不要把原始 target 直接套 GSN，也别用 target 拟合或选点。
+- 本机对 `ada_env17` 的三源 export 实测是近单位旋转、纯平移缩放，504² 尺度约 0.10686354；这是该序列的 GSN 诊断，不是通用教师倍率，也不是深度真值校准。
+- `render_splats` 的 native `RGB+ED` 为 alpha 归一化轴向 Z。训练附加 detached-alpha 归一化的 D pass，避免空像素的 0/0 反向 NaN；有效覆盖区 native/auxiliary ED 必须 ≤1e-5，实际合成、112² 和 504² 对拍均为 0。评测始终用 native ED，米制为 `ED/s`。
+- 只开放 `gs_head`、`gs_renderer.decoder.gs_head`，冻结外部教师与学生 source encoder。梯度有限非零、cache 只有三 source、参数零更新都是工程门；人物 alpha、深度有效覆盖、整图/人物 RGB 与目检共同约束“抹掉人物冒充去重影”。短训上限 2000 step 是停止预算，不是收益承诺。
+
 ## LGTM 纹理小试的投影契约（2026-11-24，已实测）
 
 `35_lgtm_texture.py` 只借用 LGTM 的源图投影局部纹理、textured 2DGS 与 RGB 残差，不是官方跨场景训练。SA 解码后的图元在体素合并前按 `[source, y, x]` 保留来源；几何与透明度冻结，只把最小厚度轴压成局部 Z，两个原切向尺度不改成小圆盘。`plain` 以相同未合并 surfel 和每图元 RGB 残差作对照，避免把几何变化误算为纹理收益。

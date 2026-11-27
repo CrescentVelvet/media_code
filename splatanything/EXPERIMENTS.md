@@ -4,6 +4,37 @@
 > 数值全部为本仓实测。**与论文数字不可直接对比**（官方评测划分未公开，发布包无训练代码）。
 > 截图对比：`eval/contact_sheet.png`（GT / render / |diff|×4 三列）。
 
+## 2026-11-27 · UE53 人像短训工程链：审计完成，合成/真实 GPU 零更新门通过
+
+**这是短训前的工程验证，不是训练成功、H100 复验或重影改善结论。** 新增 `38–44`：UE53 只读审计和身份隔离 manifest、公共相机/渲染/缓存、冻结 Gaussian heads 的单臂短训、loss 绘图、多 checkpoint UE/真人评测、合成 GPU 冒烟与离线契约测试。官方 SA 仓及其网络、公开权重未修改；尚未上传数据、启动蓝区作业或优化任何参数。
+
+### 数据与冻结协议
+
+正式 manifest 为 `D:/output/results/splatanything_results/portrait_ue53/short_v4/manifest.json`。完整读取 53 包，确认为 **27 个具名 MetaHuman / 53 sequence**，不是 53 独立身份；每包 141 相机，审计 13 个固定协议视角 + 2 个额外结构 QA，共 795 视角。train=16 身份/32 序列，val=2/4，test=2/4，hard-example-only=7/13；13 个 c6-fail 包不进入优化。身份隔离和划分硬门通过，单包 gate 的 `ada_env17` 相机与正式 manifest 逐项一致。正式曝光 QA 689 视角中 269 个被规则标记（train 171、val 20、test 11、hard 67；env17 233、env15 36）；这是人工复核提示，不是自动删包。同级 `short_v3_review.json` 为全部 pending 的模板，尚无人工通过。
+
+三源固定 `s03/s06/s09=−45°/0°/+45°`；训练监督 `e06/e19_p00`；近输入评测固定 `e02/e04/e21/e23_p00`；背面仅次级诊断。target RGB/K/depth/mask 不进教师/学生 source cache、Sim(3) 或 checkpoint 选择。radial uint16-mm 在 crop/resize 前转 axial Z。人物 mask 不是脸/鼻 ROI，本轮不报虚构鼻区毫米误差。
+
+### GPU 与离线验证
+
+| 门 | 实测结果 |
+|---|---|
+| 合成 112² `/tmp/sa_portrait_smoke_v21` | `SMOKE_PASS`；11,262 covered pixels，native/auxiliary ED 最大差 0，有限非零学生梯度，教师/source encoder 无梯度，optimizer_steps=0 |
+| 真实 `ada_env17` 112² `/tmp/sa_portrait_real_gate_v7` | `GATE_ONLY_PASS`；n_merged=19,336，人物 α>0.5 覆盖 0.910137，有效深度覆盖 0.951233，ED 最大差 0，参数变化全 0 |
+| 真实 `ada_env17` 504² `/tmp/sa_portrait_real_gate504_v1` | `GATE_ONLY_PASS`；n_merged=425,019，人物 α>0.5 覆盖 0.813587，有效深度覆盖 0.828069，ED 最大差 0，参数变化全 0；峰值分配 12.318 GiB，source cache 后 gate 区间 4.852 s（非单步 ETA） |
+| 离线 `/tmp/sa_portrait_contract_v32` | radial→axial、非平凡首源+source-only Sim(3)、相机往返、cache 隔离、checkpoint 恢复/排序、十条合成 JSONL 的 SVG/PNG 绘图全通过；无权重更新 |
+
+`e06_p00` 504² 的 B0 RGB/alpha 已目检：人物在正确侧向位置，但仍有明显拖影、大片黑色遮挡和偏暗。不能把非空覆盖或有限反传误写成画质验收。通过的 JSON 和图保存在 `D:/output/results/splatanything_results/portrait_ue53/{gate504_v1,gate112_v7,synthetic_v21}/`。
+
+### 关键修复与仍未完成
+
+- 原始 source 相机在 double 下计算一次 `source_first_w2c=P0^-1`；target 必须先变到 `P0^-1 C_target`，再施加 source-only GSN 尺度。保存的 `[B,4,4]` 首源逆在边界显式取 batch 0，避免 `(3,3)` 赋值误收到 `(3,4)`。`fit_source_sim3` 的方向为 source→model，`R_model=R R_source`；旧 N1 的“先逆 fit”并不推出此处应逆转，不能混用约定。
+- 合成 look-at 改为合法右手系，最终 3m 相机组合通过；不放宽空覆盖/ED/梯度硬门。auxiliary D 用轴向 Z 三通道和 detached alpha 归一化，防止空像素 native ED 的 0/0 反向 NaN；它不改变网络结构。
+- `38` 的输出目录检查在读盘前完成，协议视角总有曝光 QA，额外视角仅结构 QA；报表按真实字段导出。安全复用仅限内容一致的 pending 模板，不覆盖人工决定。
+- 离线测试夹具的 batch 维、重合相机和 float64 精度阈值已修正；无证据表明 NumPy/Torch 数学库损坏。
+- **仍待执行**：逐视角人工 review、H100 零更新复跑、100-step 真实短训、实测步速与 2000-step 预算、多 checkpoint UE/真人外观与覆盖评测。没有真实训练 loss，没有 B0 后权重对比，不宣称人物域训练可消除重影。
+
+运行与手动上传命令见 [README_H100.md](README_H100.md)。
+
 ## 2026-11-27 · 海思端侧 v2：34 场景 SA PLY 批量生成与完整文件验收
 
 **34/34 场景均已生成正式 `CASE/splatanything.ply`，没有失败或缺失案例。** 本机 WSL2 / RTX 3090，使用公开 SA 权重、十图和随包相机、pose 模式、756²。复用 `36_extract_hisilicon.py` 的静止段抽帧及 `36_run_hisilicon.sh` 批量推理，不重跑抽帧、不生成对比视频、不改动同目录 DA3／ZipSplat 结果。
