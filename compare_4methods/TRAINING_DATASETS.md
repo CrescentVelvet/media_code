@@ -1,6 +1,6 @@
 # 四种方法：训练数据集与手动下载清单
 
-> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [官方训练数据与训练配置明细](OFFICIAL_TRAINING_DETAILS.md)（逐数据集规模、模态、采样、单步张数、算力与耗时）。
+> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [官方训练数据与训练配置明细](OFFICIAL_TRAINING_DETAILS.md)（逐数据集规模、模态、采样、单步张数、算力与耗时）｜ [ZipSplat 重训数据准备手册](ZIPSPLAT_DATA_PREP.md)（含逐数据集下载命令与后处理顺序）。
 >
 > 核对日期：2026-11-27。优先依据论文、ZipSplat 官方配置/下载脚本及数据集官方页面；容量均为近似值，不代表解压后仍相同。
 
