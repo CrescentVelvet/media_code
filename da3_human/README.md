@@ -98,16 +98,22 @@ ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2" \
   DA3_MODEL_DIR="/mnt/d/wheel/da3_human_ms" PROCESS_RES=704 \
   RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_all10_v2_20261127" \
   ~/miniconda3/envs/da3_human/bin/python da3_human/51_run_stage1_all10_ab.py
-# 34例全部10图进入各自前向，模型只加载一次。每支保存native.ply/native_cameras.npz，
-# 以及同一输入世界下可比较但仅事后Sim(3)对齐的input_world.ply/input_cameras.npz。
-# 不覆盖原始RGB/相机JSON或v1；完整案例可核验续跑，不完整目录拒绝静默覆盖。
+# 34例全部10图进入各自前向，模型只加载一次。默认最终PLY直接写到样例目录：
+# 原版DA3=CASE/depthanything3.ply，采集位姿DA3=CASE/depthanything3_cameras.ply。
+# 配套 cameras.npz/summary.json 写入同名子目录；只保存最终input_world坐标，不再复制安装。
+# 已有结果必须身份/哈希一致才能跳过，不完整或不一致拒绝覆盖；不改原始RGB/相机JSON。
+# 原生/实验副本默认不保存，节省每例两份约800MB PLY及复制时间；诊断存档显式开启：
+# SAVE_NATIVE=1：实验目录保存原生PLY与相机；SAVE_INPUT_WORLD=1：保存对齐后的PLY。
+# DIRECT_INSTALL=0关闭样例目录安装时，须至少开启一个SAVE_*；旧双PLY存档复现也显式设置。
 # CASE_FILTER 仅核验/补跑子集，摘要写 batch_summary_subset.json，不覆盖全量总表。
-# 诊断单分支须使用新的RESULTS_ROOT并加 BRANCH_FILTER=pose；其完成状态不代表完整A/B。
+# 单分支诊断须 DIRECT_INSTALL=0、新的RESULTS_ROOT及BRANCH_FILTER=pose，不代表完整A/B。
 # 正式总表以逐例唯一摘要为准，不能把部分案例或独立补跑目录合并冒充完整双分支。
 DATASET_ROOT="/mnt/d/dataset/测试数据/海思端侧重建拍摄数据v2" \
   RESULTS_ROOT="/mnt/d/output/results/da3_human_results/hisilicon_camera_all10_v2_20261127" \
   GSPLAT_CACHED_SO="/home/velvet/.cache/torch_extensions/py311_cu126/gsplat_cuda/gsplat_cuda.so" \
   ~/miniconda3/envs/splatanything/bin/python da3_human/49_render_camera_ab.py
+# 旧双PLY实验存档可用49号回放；全10图直接安装若需另跑源回放，须显式SAVE_NATIVE=1
+# 或SAVE_INPUT_WORLD=1。世界归档配输入相机，原生归档配原生诊断相机，不混用坐标。
 # all10协议只渲染source回放；十图均前向，分数不是留出泛化或几何质量证明。
 
 # 6) 新增 model_man / model_plant（glTF 相机关键帧）

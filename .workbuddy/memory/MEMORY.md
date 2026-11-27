@@ -25,6 +25,7 @@
 - 中文 `<项目名>: <简短描述>`，默认一行，完成即提交；只 add 具体文件并核对 staged diff。AI 不 push、不改远端；动手前读 AGENTS.md，WSL 训练前读 README_wsl.md。
 - 主落点 `C:\code\media_code`；服务器 `h100:00950754@69.48.159.15:/data/00950754/code/media_code`。同一改动只在一侧提交，另一侧 `git pull --rebase`；memory 只在本机写；两边 `core.fileMode=false`。
 - 删除先判 `is_symlink()`，临时文件备份搬移。只入可复用脚本/规格文档，产物与一次性脚本不入库；JSON 显式 UTF-8/LF。
+- 海思 DA3 默认直接写样例目录：原版 `depthanything3.ply`、采集位姿 `depthanything3_cameras.ply`，配套相机/摘要在同名子目录；不再默认生成实验副本后再复制。诊断归档须显式保存，回放不混用原生/输入世界坐标。
 - 动 D 盘前读 `D:\ppt\README.md` 和 AGENTS.md §15。成品 `D:\ppt\YYYYMMDD-标题.pptx`，源码 `_src\同名前缀\`，配图 `figures\<项目>\`，实验产物 `D:\output\results\<algo>_results\`；slide 只用相对 `assets/`。
 
 ## 其它项目已定论

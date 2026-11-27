@@ -4,6 +4,8 @@
 Env vars: RESULTS_ROOT（单案例或 per-case 根）, DATASET_ROOT, GSPLAT_CACHED_SO,
           CASE_FILTER（可选，逗号分隔案例名）, BRANCH_FILTER, RENDER_SIZE=504（保留已有渲染）
 支持固定8源2留出，或 protocol=all10_rgb_vs_input_pose 的全10图源视角回放。
+全10图渲染要求显式 SAVE_NATIVE=1 或 SAVE_INPUT_WORLD=1 的归档高斯；
+SAVE_INPUT_WORLD=1时原生诊断相机必须配套保存，不能把input_world当原生PLY。
 """
 import hashlib
 import importlib.util
@@ -185,17 +187,31 @@ def main():
             branch_info = summary["branches"][branch]
             native_info = branch_info.get("native_ply", branch_info)
             native = Path(native_info["path"])
-            if (native.name == "native.partial.ply" and summary.get("protocol") == "all10_rgb_vs_input_pose"):
+            is_all10 = summary.get("protocol") == "all10_rgb_vs_input_pose"
+            world_archive = is_all10 and not summary.get("save_native", True)
+            if is_all10 and not summary.get("save_native", True) and not summary.get("save_input_world", False):
+                raise ValueError(f"直接安装默认不复制PLY到实验目录；仅做源回放须显式SAVE_NATIVE=1")
+            if world_archive:
+                if not summary.get("save_input_world"):
+                    raise ValueError(f"实验目录没有可回放PLY: {case_out}/{branch}")
+                native_info = branch_info["input_world_ply"]
+                native = Path(native_info["path"])
+            if (native.name == "native.partial.ply" and is_all10):
                 # 原子导出摘要记录的是校验时的临时名，完成后才改名；只允许这一精确路径。
                 native = native.with_name("native.ply")
-            if native.parent.resolve() != (case_out / branch).resolve() or native.name != "native.ply" or not native.is_file():
+            if native.parent.resolve() != (case_out / branch).resolve() or native.name != (
+                    "input_world.ply" if world_archive else "native.ply") or not native.is_file():
                 raise ValueError(f"PLY不归属摘要目录: {native}")
             if sha256(native) != native_info["sha256"]:
                 raise ValueError(f"PLY hash与摘要不同: {native}")
             is_all10 = summary.get("protocol") == "all10_rgb_vs_input_pose"
             roles = (("source", "common_source"),) if is_all10 else (("heldout", "heldout"), ("source", "common_source"))
+            if world_archive and summary.get("holdout", True):
+                raise ValueError(f"世界归档回放只支持全10图输入相机，不能冒充原生世界留出协议")
             for role, suffix in roles:
                 cameras = case_out / branch / f"{suffix}_cameras.npz"
+                if world_archive and role == "source":
+                    cameras = case_out / branch / "input_cameras.npz"
                 if not cameras.is_file():
                     raise FileNotFoundError(cameras)
                 out = case_out / branch / f"{role}_render"
