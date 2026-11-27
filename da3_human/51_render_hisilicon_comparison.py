@@ -6,7 +6,8 @@ stage1 案例使用随包相机，位姿/尺度只在输入源相机上拟合；
 
 Env vars:
   ROOT, OUT_DIR, OUT_DIR_OVERRIDE, CASE_FILTER, FRAMES, FPS, RENDER_SIZE, FFMPEG, ZIP_RESULTS_DIR,
-  ONLY_METHODS, SKIP_EXISTING, DECK_ASSETS, RESUME_INCOMPLETE, SMOKE
+  ONLY_METHODS, SKIP_EXISTING, DECK_ASSETS, RESUME_INCOMPLETE, SMOKE,
+  POSE_RESULTS_DIR, GSPLAT_CACHED_SO
 """
 import importlib.util
 import json
@@ -14,6 +15,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -246,7 +248,22 @@ def zip_time(case, zip_root):
 
 class GaussianRenderer:
     def __init__(self, path, quat="passthrough"):
+        # 本机没有 nvcc，但已有同一 torch/CUDA ABI 的编译扩展。
+        # 无 GSPLAT_CACHED_SO 时保持原环境行为，不硬编码机器路径。
+        cached = os.environ.get("GSPLAT_CACHED_SO", "")
+        if cached:
+            if not Path(cached).is_file():
+                raise FileNotFoundError(f"GSPLAT_CACHED_SO 不存在: {cached}")
+            spec = importlib.util.spec_from_file_location("gsplat_cuda", cached)
+            extension = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(extension)
+            sys.modules["gsplat_cuda"] = extension
+            sys.modules["gsplat.csrc"] = extension
+            import gsplat
+            gsplat.csrc = extension
         from gsplat import rasterization
+        if not callable(rasterization):
+            raise RuntimeError("gsplat 光栅化入口不可用")
         self.rasterization = rasterization
         g = module37().load_gaussians(path, quat)
         self.meta = {"points": g["point_count"], "sh_degree": g["degree"]}
@@ -293,6 +310,71 @@ def locate(case, method, zip_root, pose_root):
     raise ValueError(method)
 
 
+def competitor_trajectory(capture, K, metadata, count, case):
+    """源相机到 recentered PLY 显示世界的可复核映射。
+
+    源中心先加 recenterOffset，再取主体正面侧；显示方向看向 bounds
+    中心，显示距离按随包 min/maxDistance 约束。保留所有源机位与内参，
+    不裁点、不筛点；不把原始 position 当作重居中世界的米制平移。
+    """
+    capture = np.asarray(capture, dtype=np.float64)
+    if metadata.get("recenterOffset") is None or len(capture) < 3:
+        raise ValueError("竞品重居中相机缺少 recenterOffset 或源机位不足")
+    bounds_path = case / f"{case.name.removesuffix('_recentered')}_stage1_bounds.json"
+    bounds = json.loads(bounds_path.read_text(encoding="utf-8"))
+    if not bounds.get("recentered") or bounds["minDistance"] <= 0:
+        raise ValueError(f"竞品缺少重居中显示距离范围: {bounds_path}")
+    target = np.array([bounds["centerX"], bounds["centerY"], bounds["centerZ"]])
+    centers = -(capture[:, :3, 3] + np.asarray(metadata["recenterOffset"])) - target
+    radius = np.linalg.norm(centers, axis=1)
+    if radius.min() <= 0 or not np.isfinite(capture).all():
+        raise ValueError("竞品源机位中心非法")
+    scales = np.clip(radius, bounds["minDistance"], bounds["maxDistance"]) / radius
+    outliers = np.flatnonzero(np.abs(scales - 1) > 1e-6).tolist()
+    display_roll = 180.
+    if case.name == "case14_nopose_recentered":
+        # 此例 view3 的源半径约为其余机位的十二倍，直接把轨迹带到屋顶远景。
+        # 仅用随包初始显示距离约束该离群机位；135° 是逐帧目检确定的图像横滚。
+        outliers = np.flatnonzero(radius > 3 * np.median(radius)).tolist()
+        if outliers != [3]:
+            raise ValueError(f"case14 离群源机位与已核验记录不一致: {outliers}")
+        scales[outliers] = bounds["initDistance"] / radius[outliers]
+        display_roll = 135.
+    centers = centers * scales[:, None] + target
+    if case.name == "case7_nopose_recentered":
+        # 该例原始机位含高俯角，沿用球面方向会在中段穿过人物头顶。
+        # 保留各源机位水平方位，以水平半径中位数做展示环绕。
+        horizontal = centers - target
+        horizontal[:, 1] = 0.
+        horizontal_radius = np.linalg.norm(horizontal, axis=1)
+        centers = horizontal / horizontal_radius[:, None] * np.median(horizontal_radius) + target
+    forward = target - centers
+    forward /= np.linalg.norm(forward, axis=1, keepdims=True)
+    up = np.tile([0., 1., 0.], (len(centers), 1))
+    x = np.cross(up, -forward)
+    x /= np.linalg.norm(x, axis=1, keepdims=True)
+    y = np.cross(-forward, x)
+    gl = np.tile(np.eye(4), (len(centers), 1, 1))
+    gl[:, :3, :3] = np.stack([x, y, -forward], axis=2)
+    gl[:, :3, 3] = centers
+    roll = np.eye(4)
+    roll[:3, :3] = Rotation.from_euler("z", display_roll, degrees=True).as_matrix()
+    path, path_K = trajectory(gl @ FLIP_HOM @ roll, K, count)
+    return path, path_K, {
+        "bounds_file": str(bounds_path),
+        "source_radius_after_recenter": radius.tolist(),
+        "distance_scale": scales.tolist(),
+        "display_center": target.tolist(),
+        "outlier_source_indices": outliers,
+        "display_roll_degrees": display_roll,
+        "case14_outlier_rule": "radius>3*median(source radii): use supplied initDistance; visual roll=135deg" if case.name.startswith("case14_") else None,
+        "case7_display_orbit_rule": "preserve source horizontal directions; median horizontal radius; upright look-at; not exact original camera attitudes" if case.name.startswith("case7_") else None,
+        "recenter_rule": "C_display=-(C_source+recenterOffset)-center; radial display distance clipped to supplied bounds; case14 extreme source outlier uses initDistance",
+        "rotation_rule": "look_at(display_center,bounds.center) with source-derived direction; case-specific upright display roll",
+        "mapping_evidence": "Rendering-based display mapping, not verified against original exporter source",
+    }
+
+
 def setup_method(case, method, capture, K, count, size, zip_root, pose_root):
     """返回 (原生世界轨迹, 原生内参, 协议)；补充包不伪造共同世界。"""
     is_stage1 = "_nopose_recentered" in case.name
@@ -301,7 +383,16 @@ def setup_method(case, method, capture, K, count, size, zip_root, pose_root):
     summary_path = case / subdir / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
     if method == "competitor":
-        return path, path_K, {"protocol": "随包 OpenGL c2w 转 OpenCV；原始完整 PLY，契约待确认"}
+        if not is_stage1:
+            return None, None, None
+        native_path, native_K, audit = competitor_trajectory(
+            capture, K, json.loads(camera_path(case).read_text(encoding="utf-8")), count, case)
+        return native_path, native_K, {
+            "protocol": "重居中竞品：源机位加recenterOffset后映射至主体正面侧，朝向bounds中心并约束显示距离；全源机位闭环内插",
+            "source_camera_transform": "C_display=-(C_source+recenterOffset)-center; clamp radial distance to bounds; look_at(center) @ flip_cv @ roll_z_180",
+            "visual_validation": "case1/7/14 十源机位的重居中与两侧诊断；17例多机位辅助抽检",
+            "coordinate_units": "recentered PLY native units; not metric",
+            "not_quality_certification": True, **audit}
     if method == "da3":
         cam = npz(case / "depthanything3/cameras.npz")
         model_c2w = ext_to_c2w(cam)
@@ -453,7 +544,12 @@ def main():
         raise FileNotFoundError("没有匹配案例")
     out.mkdir(parents=True, exist_ok=True)
     dump(out / "protocol_version.json", {
-        "version": 3, "video": "704x704, 120 frames, 15 fps, H.264/yuv420p",
+        "version": 3,
+        "competitor_protocol": "recentered_v1: source centers + recenterOffset mapped to front side; bounds center/distance and upright look-at",
+        "competitor_mapping_evidence": "Rendering-based display mapping; original exporter contract not verified",
+        "case7_display_orbit_rule": "Preserve source horizontal directions; median horizontal radius; upright look-at; not exact original camera attitudes",
+        "case14_outlier_rule": "radius>3*median(source radii): use supplied initDistance; visual roll=135deg",
+        "video": "704x704, 120 frames, 15 fps, H.264/yuv420p",
         "trajectory": "对应方法原生输入相机的关键机位闭环内插",
         "stage1_methods": ["competitor", "da3", "cameras", "sa", "zip"],
         "native_sfm": "实际 SfM 输入相机及内参，不强制与 stage1 单刚体一致",
