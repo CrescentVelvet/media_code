@@ -128,11 +128,6 @@ RSYNC_OPTS=(-a --human-readable --info=progress2,stats1 --partial --partial-dir=
 [ -n "$BW_LIMIT" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
 [ "$DRY_RUN" -eq 1 ] && RSYNC_OPTS+=(--dry-run)
 
-# --verify 只对拍：跳过真正传输，直接进末尾的 diff 检查
-if [ "$VERIFY" -eq 1 ]; then
-  DRY_RUN=1
-fi
-
 # ---------- 传输（带断线重试，每次重跑都从断点续上）----------
 run_rsync() {
   rsync "${RSYNC_OPTS[@]}" -e "$SSH_CMD" "$SRC" "$REMOTE:$DEST"
