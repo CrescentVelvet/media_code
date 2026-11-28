@@ -28,17 +28,24 @@
 
 ### 1. 本机上传数据与审核模板
 
-本机 PowerShell 执行，目的地是远端 home 下的新目录。`rsync` 走 SSH 直连，不要把 SSH 代理塞给 v2rayN；`--dry-run` 先看清单，确认后再去掉它。不要把尚未人工批准的 review 当成通过。若 Windows 没有 rsync，用本机 WSL 的 `rsync`，将 `/cygdrive/d` 改成 `/mnt/d`；下面第二条 review 命令同理。
+数据必须落在 **SSD 数据集目录**，不要放家目录（只有 51 G，装不下 121.6 G）。用 `canada_h100/13_rsync_dataset.sh` 在 WSL 里跑，它带进度条、断点续传和断线重试：
 
 ```bash
-ssh h100 "mkdir -p ~/datasets ~/runs/splatanything_portrait"
-rsync -az --info=progress2 --dry-run -e ssh \
-  "/mnt/d/dataset/训练数据/第一批UE渲染数据-53组/" \
-  "h100:~/datasets/ue53_portrait/"
-# 去掉 --dry-run 后正式执行同一命令。
+# 本机 WSL，先看清单
+wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh --dry-run
+# 去掉 --dry-run 正式传；Ctrl-C 或断网后重跑同一条命令即续传
+wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh
+# 传完对拍，应报「无待传文件」
+wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh --verify
+```
+
+默认落点 `/data/00950754/datasets/ue53_portrait/`。审核模板是小文件，单独传：
+
+```bash
+ssh h100 "mkdir -p /data/00950754/runs/splatanything_portrait"
 rsync -az -e ssh \
   "/mnt/d/output/results/splatanything_results/portrait_ue53/short_v3_review.json" \
-  "h100:~/runs/splatanything_portrait/review_template.json"
+  "h100:/data/00950754/runs/splatanything_portrait/review_template.json"
 ```
 
 H100 上生成与机器路径匹配的 manifest；`short_v1` 必须不存在：
@@ -50,12 +57,12 @@ export SPLATANYTHING_DIR=/data/00950754/repos/SplatAnything
 export SPLATANYTHING_MODEL_DIR=/data/00950754/models/splatanything
 cd /data/00950754/code/media_code
 git pull --ff-only
-mkdir -p ~/runs/splatanything_portrait
+mkdir -p /data/00950754/runs/splatanything_portrait
 python splatanything/38_prepare_portrait_ue53.py \
-  --dataset-root ~/datasets/ue53_portrait \
+  --dataset-root /data/00950754/datasets/ue53_portrait \
   --audit-views 2 \
-  --out ~/runs/splatanything_portrait/manifest_v1 \
-  --write-review-template ~/runs/splatanything_portrait/review.json
+  --out /data/00950754/runs/splatanything_portrait/manifest_v1 \
+  --write-review-template /data/00950754/runs/splatanything_portrait/review.json
 ```
 
 ### 2. 逐视角人工审核（训练硬门）
@@ -67,11 +74,11 @@ python splatanything/38_prepare_portrait_ue53.py \
 不要在登录节点跑 CUDA。用独立单卡作业或 `srun -p h100a011 --gres=gpu:1 --pty bash` 获取 GPU；分区与作业纪律见 `canada_h100/README.md`。下面 `RUN` 换成唯一新目录；已存在或失败目录不覆盖。
 
 ```bash
-RUN=~/runs/splatanything_portrait/gate_ada_v1
+RUN=/data/00950754/runs/splatanything_portrait/gate_ada_v1
 python splatanything/43_smoke_portrait.py \
   --official-repo "$SPLATANYTHING_DIR" --res 112 --out "$RUN/synthetic"
 python splatanything/40_train_portrait.py \
-  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --manifest /data/00950754/runs/splatanything_portrait/manifest_v1/manifest.json \
   --official-repo "$SPLATANYTHING_DIR" \
   --sequences ada_env17 --gate-only --res 504 --out "$RUN/real504"
 ```
@@ -83,10 +90,10 @@ python splatanything/40_train_portrait.py \
 只有人工审核与 H100 两项门均通过才执行。`RUN` 用新的训练目录，先保存 B0；只开放 `gs_head` 和 `gs_renderer.decoder.gs_head`，冻结外部教师和 source encoder。
 
 ```bash
-TRAIN=~/runs/splatanything_portrait/ue53_v1
+TRAIN=/data/00950754/runs/splatanything_portrait/ue53_v1
 python splatanything/40_train_portrait.py \
-  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
-  --review ~/runs/splatanything_portrait/review.json \
+  --manifest /data/00950754/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --review /data/00950754/runs/splatanything_portrait/review.json \
   --official-repo "$SPLATANYTHING_DIR" \
   --out "$TRAIN" --res 504 --steps 100 --lr 1e-4 --depth-weight 0.1 \
   --max-train-sequences 16 --checkpoint-at 1,25,50,100
@@ -97,8 +104,8 @@ python splatanything/41_plot_portrait.py --run "$TRAIN"
 
 ```bash
 python splatanything/40_train_portrait.py \
-  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
-  --review ~/runs/splatanything_portrait/review.json \
+  --manifest /data/00950754/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --review /data/00950754/runs/splatanything_portrait/review.json \
   --official-repo "$SPLATANYTHING_DIR" \
   --out "$TRAIN" --res 504 --steps 2000 --lr 1e-4 --depth-weight 0.1 \
   --resume "$TRAIN/step_0100.pt" --checkpoint-at 250,500,1000,2000
@@ -111,10 +118,10 @@ python splatanything/41_plot_portrait.py --run "$TRAIN"
 
 ```bash
 python splatanything/42_eval_portrait.py \
-  --manifest ~/runs/splatanything_portrait/manifest_v1/manifest.json \
+  --manifest /data/00950754/runs/splatanything_portrait/manifest_v1/manifest.json \
   --rundir "$TRAIN" --split test --res 504 \
   --official-repo "$SPLATANYTHING_DIR" \
-  --out ~/runs/splatanything_portrait/eval_test_v1 --save-ply
+  --out /data/00950754/runs/splatanything_portrait/eval_test_v1 --save-ply
 # 先上传冻结真人 protocol.json / real_eval_v18/n1_real_eval.json 及其引用的原图后，
 # 另用 --real-protocol ... --real-report ... --real-res 756；不能省掉真实输入目录。
 ```
@@ -125,7 +132,7 @@ python splatanything/42_eval_portrait.py \
 
 ```bash
 rsync -az --info=progress2 -e ssh \
-  "h100:~/runs/splatanything_portrait/" \
+  "h100:/data/00950754/runs/splatanything_portrait/" \
   "/mnt/d/output/results/splatanything_results/portrait_ue53/h100_v1/"
 ```
 

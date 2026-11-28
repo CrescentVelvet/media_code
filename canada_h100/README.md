@@ -22,6 +22,7 @@ chmod +x *.sh *.py    # 首次在新 clone 里必做，否则 ./12_sa_train.sh �
 | **逐卡指标汇总** | `./12_sa_train.sh metrics` — 各 rank 的 loss / 步速 / 显存 / util / 功耗 |
 | **停止训练** | `./12_sa_train.sh stop` → **再跑 `./12_sa_train.sh ls` 复查** |
 | 关掉某一个作业 | `scancel <JOBID>`；按名批量 `scancel --name=sa_train` |
+| **传数据上来** | 本机 WSL：`13_rsync_dataset.sh --dry-run` 看清单，去掉 `--dry-run` 正式传（见 6.5 节） |
 
 **最省心的用法：监控开一个终端常驻，另一个终端随便折腾。**
 
@@ -486,6 +487,38 @@ util/功耗是另一回事 —— 后者是「这个 rank 此刻真在算」的�
 - **原始/归档 → `/data/sata/00950754/`**（HDD 179 MB/s，107 T）
 - **家目录只有 51 G，不放数据**
 
+上传数据用 `13_rsync_dataset.sh`（见下节）。
+
+## 6.5 上传数据集：`13_rsync_dataset.sh`
+
+Windows 侧没有 `rsync`，脚本必须**在 WSL 里跑**（首次会自动把
+`C:\Users\wangyufeng\.ssh\id_ed25519_h100` 拷进 WSL 并 `chmod 600`，
+因为 `/mnt/c` 上的私钥权限是 0777，ssh 会直接拒用）。
+
+```bash
+# 1. 先看清单，不传
+wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh --dry-run
+
+# 2. 正式传（Ctrl-C 或断电后重跑同一条命令即续传）
+wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh
+
+# 3. VPN 额度紧张时限速 64 Mbps
+... 13_rsync_dataset.sh --bwlimit=8000
+
+# 4. 传完对拍（应报「无待传文件」）
+... 13_rsync_dataset.sh --verify
+```
+
+默认源 `D:\dataset\训练数据\第一批UE渲染数据-53组`（121.6 G，53 包共 6.75 万文件），
+默认落点 `/data/00950754/datasets/ue53_portrait/`（SSD）。**别改到家目录**——只有 51 G，
+塞满会连 ssh 都登不上。
+
+**断点续传**：rsync 跳过「大小 + mtime 一致」的已完成文件；`--partial-dir=.rsync-partial`
+把半截文件留在远端隐藏目录，重跑时对单个大文件做块级续传。脚本外层还有重试循环
+（默认 5 次，退避 20/40/60…s），网络抖动不用人盯。
+
+**退出码**：0 成功｜2 参数/环境错｜3 远端空间不足｜4 重试耗尽或连不上｜5 对拍仍有未同步条目。
+
 ## 七、网络
 
 **服务器在迪拜。** 国内镜像反而慢（清华 12 s 超时），用官方源：
@@ -509,5 +542,6 @@ HF 直连可用（0.069 s），**不需要镜像**。GitHub 直连 0.034 s。
 | `12_sa_train.py` | **SplatAnything 全参训练**（8 卡 NCCL 数据并行，25 万步） |
 | `12_sa_train.sbatch` | 训练的提交脚本（由 `12_sa_train.sh` 调用，torchrun 起 N 进程） |
 | `12_sa_train.sh` | 训练的登录节点入口（start / scene / ls / stat / metrics / stop / tail） |
+| `13_rsync_dataset.sh` | **本机→H100 数据集上传**（WSL 里跑，进度条、断点续传、自动重试） |
 | `STORAGE.md` | 存储策略详解 |
 | `README.md` | 本文件 |
