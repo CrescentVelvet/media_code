@@ -6,7 +6,7 @@
 #   wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh
 #
 # 落点默认 /data/00950754/datasets/ue53_portrait/（SSD，2.0 GB/s）。
-# 不要放 ~：家目录只有 51 G，装不下这批 121.6 G，塞满会连 ssh 都登不上。
+# 不要放 ~：家目录只有 51 G，装不下这批约 122 G，塞满会连 ssh 都登不上。
 #
 # 断点续传靠两件事：
 #   1. rsync 默认跳过「大小 + mtime 一致」的已完成文件 —— 中断后重跑即从断点继续；
@@ -46,7 +46,7 @@ usage() {
   --src PATH         本机源目录（默认 D:\dataset\训练数据\第一批UE渲染数据-53组）
   --dest PATH        远端目标目录（默认 /data/00950754/datasets/ue53_portrait/）
   --dry-run          只列清单不传输（首次必跑，看清单和总大小）
-  --verify           只做对拍：再跑一次 dry-run，输出应为空
+  --verify           只对拍不断传：跳过传输，直接报还有多少条目未同步
   --bwlimit KBPS     限速，单位 KB/s（VPN 额度紧张时用，如 --bwlimit=8000）
   --exclude-logs     跳过 console.log / ue.log / verify_out（省 30 M，调试时别加）
   --no-compress      关闭 -z（PNG 已压缩，CPU 换不来带宽时用）

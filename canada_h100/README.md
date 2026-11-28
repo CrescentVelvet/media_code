@@ -509,7 +509,7 @@ wsl -d Ubuntu2404 -- bash /mnt/c/code/media_code/canada_h100/13_rsync_dataset.sh
 ... 13_rsync_dataset.sh --verify
 ```
 
-默认源 `D:\dataset\训练数据\第一批UE渲染数据-53组`（121.6 G，53 包共 6.75 万文件），
+默认源 `D:\dataset\训练数据\第一批UE渲染数据-53组`（约 122 G，53 包共 6.75 万文件），
 默认落点 `/data/00950754/datasets/ue53_portrait/`（SSD）。**别改到家目录**——只有 51 G，
 塞满会连 ssh 都登不上。
 
