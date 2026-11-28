@@ -4,7 +4,7 @@
 >
 > 以下命令默认在 **WSL Ubuntu、仓库根目录 `/mnt/c/code/media_code`** 执行。示例数据路径 `my_scene` 是需要替换的占位名，不表示该数据已经存在。
 >
-> **只想快速定位：先看 [入口页](README.md)**（一页说明四份文档各管什么、你想做的事对应哪一节）。需要核对论文原始数字时查 [官方训练明细](OFFICIAL_TRAINING_DETAILS.md)；ZipSplat 重训的下载与后处理查 [数据准备手册](ZIPSPLAT_DATA_PREP.md)。
+> **只想快速定位：先看 [入口页](README.md)**（一页说明四份文档各管什么、你想做的事对应哪一节）。需要核对论文原始数字时查 [官方训练明细](OFFICIAL_TRAINING_DETAILS.md)；自己造数据训 ZipSplat（要多少数据 / 数据形态 / shard 结构 / 代码坑 / 参数表）查 [自训手册](ZIPSPLAT_DATA_PREP.md)。
 
 ## 1. 先看结论：这里的“训练”不是同一件事
 

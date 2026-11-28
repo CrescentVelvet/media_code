@@ -1,6 +1,6 @@
 # 四种方法：官方训练数据与训练配置明细
 
-> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [训练数据集与手动下载清单](TRAINING_DATASETS.md) ｜ [ZipSplat 重训数据准备手册](ZIPSPLAT_DATA_PREP.md)
+> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [训练数据集与手动下载清单](TRAINING_DATASETS.md) ｜ [ZipSplat 自训手册](ZIPSPLAT_DATA_PREP.md)（要多少数据 / 数据形态 / shard 结构 / 代码坑 / 参数表）
 >
 > 核对日期：2026-11-27。依据论文原文（arXiv HTML 全文）、ZipSplat 官方配置与源码、本仓脚本。**未执行任何官方训练，也未下载训练集。**
 

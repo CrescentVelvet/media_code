@@ -10,7 +10,7 @@
 |---|---|---|
 | 用发布权重跑推理、看 PLY / 渲染效果 | 各算法自己的 `README_wsl.md` | `da3_human/`、`zipsplat/`、`infinisplat_v2/`、`splatanything/` |
 | **单场景训练**：DA3 出点云后跑原版 3DGS | [训练指南](TRAINING_GUIDE_3DGS.md) | §2 |
-| **重训 ZipSplat 网络**（唯一有官方跨场景训练器） | 训练指南 + [数据准备](ZIPSPLAT_DATA_PREP.md) | §3 / 全文 |
+| **重训 ZipSplat 网络**（唯一有官方跨场景训练器） | 训练指南 + [自训手册](ZIPSPLAT_DATA_PREP.md)（要多少数据 / 数据形态 / shard 结构 / 代码坑 / 参数表） | §3 / 全文 |
 | 在已有 PLY 上做**属性精调**（InfiniSplat `14`、SplatAnything `09`） | 训练指南 | §4 / §5 |
 | 核对官方**超参、数据集规模、显卡与耗时** | [官方训练明细](OFFICIAL_TRAINING_DETAILS.md) | 表 1–11 |
 | 找**下载链接、体积、许可** | [数据集清单](TRAINING_DATASETS.md) | §2–§6 |
@@ -20,7 +20,7 @@
 - **训练指南**（570 行）= 每个算法“训练代码怎么走、命令怎么敲、产物在哪、坑在哪”。唯一主文档。
 - **官方训练明细**（17 张表）= 论文/官方代码的原始数字，用来核对，不教操作。
 - **数据集清单** = 全量数据目录、体积、许可，用来决定“要不要下”。
-- **数据准备手册** = 只服务 ZipSplat 重训，逐数据集下载命令 + 后处理顺序。
+- **ZipSplat 自训手册** = 只服务 ZipSplat 重训：前半“自己造数据去训”（数据量 / 数据形态 / shard 结构 / 代码坑 / 参数表），后半“下载官方数据集复现”。
 
 ## 2. 四种“训练”到底在训什么
 
@@ -125,7 +125,7 @@ bash splatanything/09_run_train_probe.sh --stages fwd \
   --out ~/output/splatanything_results/my_scene_probe/fwd.json
 ```
 
-ZipSplat 的**真正训练**不在本仓，在 `~/repos/ZipSplat`：先按数据准备手册造 shards，再 `torchrun -m splatfactory.train`，命令见指南 §3.5。
+ZipSplat 的**真正训练**不在本仓，在 `~/repos/ZipSplat`：先按[自训手册](ZIPSPLAT_DATA_PREP.md)造 shards，再 `torchrun -m splatfactory.train`，命令见指南 §3.5。
 
 ## 6. 三个最容易搞混的地方
 
