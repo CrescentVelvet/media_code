@@ -1,6 +1,6 @@
 # 四种方法：训练数据集与手动下载清单
 
-> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [官方训练数据与训练配置明细](OFFICIAL_TRAINING_DETAILS.md)（逐数据集规模、模态、采样、单步张数、算力与耗时）｜ [ZipSplat 自训手册](ZIPSPLAT_DATA_PREP.md)（自己造数据的前置条件、shard 结构与参数表；文末含逐数据集下载命令与后处理顺序）。
+> 配套阅读：[训练、精调与评测指南](TRAINING_GUIDE_3DGS.md) ｜ [官方训练数据与训练配置明细](OFFICIAL_TRAINING_DETAILS.md)（逐数据集规模、模态、采样、单步张数、算力与耗时）｜ [ZipSplat 重训准备手册](ZIPSPLAT_DATA_PREP.md)（环境与 backbone 权重、启动命令、shard 结构、参数表、产物与续训；文末含逐数据集下载命令与后处理顺序）。
 >
 > 核对日期：2026-11-27。优先依据论文、ZipSplat 官方配置/下载脚本及数据集官方页面；容量均为近似值，不代表解压后仍相同。
 
@@ -73,6 +73,26 @@ python -m splatfactory.datasets.scripts.gobjaverse.convert --num-workers 8
 - InfiniSplat v2 每样本 4–12 输入 + 4 target；`N≤8` 长边 1022，`N=9/10` 为 756，`N=11/12` 为 518。这里数据集的规模是训练来源，不表示本仓能运行官方 Stage I/II。
 - SplatAnything 表中数字是论文实际使用 `# Scenes` 和处理分辨率 H×W，不是官方总规模；官方训练 20K iterations、64×H20，不代表公开代码可复现。
 - ZipSplat 504 的百分数是**抽 scene 的权重**，不是容量、样本量或耗时占比。ScanNet++ 两设备、ARKitScenes 两方向是 child，合计仍十个数据集。
+
+### 3.2 相机轨迹与采集形态
+
+“数据是什么”之外还要看“相机怎么走”。下表只按官方描述里**采集形态**归类（视频 / 环绕 / 渲染 / 离散），不推断具体方位角分布——四套配方都没报轨迹统计量。
+
+| 采集形态 | 数据（括号为使用方） | 相邻视角的关系 | 对采样的含义 |
+|---|---|---|---|
+| 连续视频 / 手持漫游 | DL3DV（D·Z）、RE10K（Z）、ScanNet++ iPhone（I·Z）、ARKitScenes（S·Z）、GTA-SfM（S）、TartanGround 878 轨迹（S）、MatrixCity 航拍+街景（S）、OmniWorld（S） | 帧号相邻即有平移与重叠 | 可按帧距取 context，也能插中间帧当 target |
+| 物体环绕 | CO3D（Z）、WildRGB-D（Z）、OmniObject3D（S）、G-Objaverse 每对象约 40 视角（Z）、BlendedMVS（S·Z） | 光轴大致交于物心 | target 天然是“绕过去看到的那一侧” |
+| 合成可任意采样 | Hypersim（I·S·Z）、UnrealStereo4K（S·Z）、Raw3D / Rawmantic3D（I·S） | 位姿由渲染脚本给定 | 想要多大基线就能造多大 |
+| 全景 / 离散视点 / 散图 | Matterport3D 10,800 全景（S）、Taskonomy 视点采样（S）、MapFree 地点×少量 scan（S） | 视点之间没有过渡帧 | 只能做跨视点外推，不能插帧 |
+
+轨迹假设直接写进了采样器（ZipSplat 官方配置，见 §5）：
+
+- `bounded`：按**帧距**取 context —— RE10K 最小 35 帧、`gap×45`、连续 ≤90；DL3DV 最小 8 帧、`gap×11`、连续 ≤22。这两个数据集都是视频，帧距才是有意义的量。
+- `rank`：依赖预计算共视排序，远视角从 overlap `[0.2,0.8]` 抽（ScanNet++ / ARKitScenes / Hypersim / UnrealStereo4K）。
+- `random`：完全不看轨迹（BlendedMVS / CO3D / WildRGB-D / G-Objaverse）。
+- 共同门槛：一条样本至少 `context + 4` 张；相邻视角必须有不共面平移，纯旋转会三角化退化。
+
+**与人像三图的关系**：四套配方里没有一套用“3 张不成序列的机位”训练 —— 最小样本是 ZipSplat 的 6 张（2 context + 4 target）、InfiniSplat v2 的 8 张、DA3 GS-DPT 的 12 张。三图输入在轨迹维度上不是“少几张图”，而是**没有轨迹**：既没有帧序，也没有过渡帧。这与本仓三图 GT-相机外推实测 9–12 dB（`FINDINGS.md` §8）是同一件事。
 
 ## 4. 物体数据：训练使用与官方下载
 
