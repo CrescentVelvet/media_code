@@ -24,7 +24,7 @@
 
 - 中文 `<项目名>: <简短描述>`，默认一行，完成即提交；只 add 具体文件并核对 staged diff。AI 不 push、不改远端；动手前读 AGENTS.md，WSL 训练前读 README_wsl.md。
 - **代码只在本机 `C:\code\media_code` 改、只在本机 commit**（2026-11-28 定，取消「允许 AI 在服务器落点 commit」）。峰哥手动 push → 服务器手动 `git pull` 后只运行，不在服务器改代码。
-- **脚本落点判定**：通用训练脚本放各自 `<algo>/`；只在蓝区 H100 跑的（sbatch/queue/保活/8 卡 DDP/集群路径）放 `canada_h100/`。两边都要时训练主体留算法目录，`canada_h100/` 只放提交入口薄壳，不复制训练代码。
+- **脚本落点判定**：通用训练脚本放各自 `<algo>/`；只在蓝区 H100 跑的（sbatch/queue/保活/8 卡 DDP/集群路径）放 `canada_h100/`。两边都要时训练主体留算法目录，`canada_h100/` 只放提交入口薄壳，不复制训练代码。例外：`canada_h100/12_sa_train.py` 是早期 H100 专用训练本体，**不迁移**；此后新训练脚本一律进算法目录。
 - 主落点 `C:\code\media_code`；服务器 `h100:00950754@69.48.159.15:/data/00950754/code/media_code`。memory 只在本机写；两边 `core.fileMode=false`。
 - 删除先判 `is_symlink()`，临时文件备份搬移。只入可复用脚本/规格文档，产物与一次性脚本不入库；JSON 显式 UTF-8/LF。
 - 海思 DA3 默认直接写样例目录：原版 `depthanything3.ply`、采集位姿 `depthanything3_cameras.ply`，配套相机/摘要在同名子目录；不再默认生成实验副本后再复制。诊断归档须显式保存，回放不混用原生/输入世界坐标。
