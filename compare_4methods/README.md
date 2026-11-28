@@ -89,6 +89,8 @@ DA3-Giant backbone    多视角 token（+ ColorEmbedMLP 把 RGB patch 变颜色 
 | **InfiniSplat v2** | 图片 + 可选 `cameras.npz` | 官方权重 + gsplat | 精调 peak allocated 6.3 GB | 3000 步 ≈ 161 s |
 | **SplatAnything** | 图片（≥3）+ 可选 `prior_camera.json`（OpenCV c2w） | 官方权重 + gsplat | `09` peak allocated 12.62 GB | `09` 100 步 ≈ 51.6 s |
 
+**要买/渲染数据做人像 LoRA**：组数与身份多样性的采购判断见 [`splatanything/EXPERIMENTS.md`](../splatanything/EXPERIMENTS.md) 的 2026-11-28 条（400 组甜点区、100 组先验方向）。
+
 ## 5. 四条最短命令
 
 ```bash
