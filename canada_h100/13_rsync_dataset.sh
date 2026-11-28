@@ -29,6 +29,7 @@ WIN_KEY="/mnt/c/Users/wangyufeng/.ssh/id_ed25519_h100"
 WSL_KEY="$HOME/.ssh/id_ed25519_h100"
 
 DRY_RUN=0
+VERIFY=0
 EXCLUDE_LOGS=0
 COMPRESS=1
 BW_LIMIT=""
@@ -64,7 +65,7 @@ while [ $# -gt 0 ]; do
     --src)          SRC="${2:?--src 需要路径}"; shift 2 ;;
     --dest)         DEST="${2:?--dest 需要路径}"; shift 2 ;;
     --dry-run)      DRY_RUN=1; shift ;;
-    --verify)       DRY_RUN=1; shift ;;
+    --verify)       VERIFY=1; shift ;;
     --bwlimit)      BW_LIMIT="${2:?--bwlimit 需要数值}"; shift 2 ;;
     --exclude-logs) EXCLUDE_LOGS=1; shift ;;
     --no-compress)  COMPRESS=0; shift ;;
@@ -103,7 +104,7 @@ log "目标：$REMOTE:$DEST"
 # ---------- 远端预检：连得上、建目录、空间够 ----------
 LOCAL_BYTES=$(du -sb "$SRC" 2>/dev/null | cut -f1)
 [ -n "${LOCAL_BYTES:-}" ] || die "无法统计源目录大小" 2
-log "源目录：$SRC（$(numfmt --to=iec --suffix=B "$LOCAL_BYTES")）"
+log "源目录：$SRC（$(numfmt --to=si --suffix=B "$LOCAL_BYTES")）"
 
 REMOTE_REPORT=$($SSH_CMD "$REMOTE" "mkdir -p '$DEST' && df -Pk '$DEST' | tail -1" 2>&1) \
   || die "ssh 连不上或无法建目录：
@@ -111,10 +112,10 @@ $REMOTE_REPORT" 4
 
 AVAIL_KB=$(echo "$REMOTE_REPORT" | awk '{print $4}')
 AVAIL_BYTES=$(( AVAIL_KB * 1024 ))
-log "远端可用：$(numfmt --to=iec --suffix=B "$AVAIL_BYTES")"
+log "远端可用：$(numfmt --to=si --suffix=B "$AVAIL_BYTES")"
 
-if [ "$DRY_RUN" -eq 0 ] && [ "$AVAIL_BYTES" -lt "$LOCAL_BYTES" ]; then
-  echo "❌ 远端空间不足：需要 $(numfmt --to=iec --suffix=B "$LOCAL_BYTES")，可用 $(numfmt --to=iec --suffix=B "$AVAIL_BYTES")" >&2
+if [ "$DRY_RUN" -eq 0 ] && [ "$VERIFY" -eq 0 ] && [ "$AVAIL_BYTES" -lt "$LOCAL_BYTES" ]; then
+  echo "❌ 远端空间不足：需要 $(numfmt --to=si --suffix=B "$LOCAL_BYTES")，可用 $(numfmt --to=si --suffix=B "$AVAIL_BYTES")" >&2
   echo "   换到 /data/sata/00950754/datasets/ue53_portrait/ 用 --dest 指定（HDD，训练时会拖慢 dataloader）" >&2
   exit 3
 fi
@@ -125,40 +126,47 @@ RSYNC_OPTS=(-a --human-readable --info=progress2,stats1 --partial --partial-dir=
 [ "$COMPRESS" -eq 1 ] && RSYNC_OPTS+=(-z)
 [ "$EXCLUDE_LOGS" -eq 1 ] && RSYNC_OPTS+=(--exclude=console.log --exclude=ue.log --exclude=verify_out/)
 [ -n "$BW_LIMIT" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
-[ "$DRY_RUN" -eq 1 ] && RSYNC_OPTS+=(--dry-run --itemize-changes)
+[ "$DRY_RUN" -eq 1 ] && RSYNC_OPTS+=(--dry-run)
+
+# --verify 只对拍：跳过真正传输，直接进末尾的 diff 检查
+if [ "$VERIFY" -eq 1 ]; then
+  DRY_RUN=1
+fi
 
 # ---------- 传输（带断线重试，每次重跑都从断点续上）----------
 run_rsync() {
   rsync "${RSYNC_OPTS[@]}" -e "$SSH_CMD" "$SRC" "$REMOTE:$DEST"
 }
 
-ATTEMPT=0
-while :; do
-  ATTEMPT=$((ATTEMPT + 1))
-  log "开始传输（第 $ATTEMPT/$RETRIES 次）"
-  run_rsync
-  RC=$?
-  if [ "$RC" -eq 0 ]; then
-    log "rsync 正常结束"
-    break
-  fi
-  # 24 = 传输中文件被删；23 = 部分文件传不全（多为权限/磁盘）；都不是可重试的网络错
-  if [ "$RC" -eq 24 ] || [ "$ATTEMPT" -ge "$RETRIES" ]; then
-    die "rsync 退出码 $RC，第 $ATTEMPT 次失败，停止" 4
-  fi
-  WAIT=$((ATTEMPT * 20))
-  log "rsync 退出码 $RC（网络类错误），${WAIT}s 后自动续传"
-  sleep "$WAIT"
-done
+if [ "$VERIFY" -eq 0 ]; then
+  ATTEMPT=0
+  while :; do
+    ATTEMPT=$((ATTEMPT + 1))
+    log "开始传输（第 $ATTEMPT/$RETRIES 次）"
+    run_rsync
+    RC=$?
+    if [ "$RC" -eq 0 ]; then
+      log "rsync 正常结束"
+      break
+    fi
+    # 24 = 传输中文件被删；23 = 部分文件传不全（多为权限/磁盘）；都不是可重试的网络错
+    if [ "$RC" -eq 24 ] || [ "$ATTEMPT" -ge "$RETRIES" ]; then
+      die "rsync 退出码 $RC，第 $ATTEMPT 次失败，停止" 4
+    fi
+    WAIT=$((ATTEMPT * 20))
+    log "rsync 退出码 $RC（网络类错误），${WAIT}s 后自动续传"
+    sleep "$WAIT"
+  done
+fi
 
-[ "$DRY_RUN" -eq 1 ] && { log "dry-run 结束，未传输任何文件"; exit 0; }
+[ "$DRY_RUN" -eq 1 ] && [ "$VERIFY" -eq 0 ] && { log "dry-run 结束，未传输任何文件"; exit 0; }
 
 # ---------- 对拍：再 dry-run 一次，应无待传文件 ----------
-# 只数真正需要变更的条目（>f 传文件 / cd 建目录 / .f 属性变化），
-# 不数 "sending incremental file list" 这类提示行。
+# 只数真正需要变更的条目：新建文件是 `<f`、更新是 `>f`、新建目录是 `cd`、
+# 属性变化是 `.f`、硬链接是 `hf`。不数 "sending incremental file list" 这类提示行。
 log "对拍：检查是否还有未同步文件"
 LEFT=$(rsync "${RSYNC_OPTS[@]}" --dry-run --itemize-changes -e "$SSH_CMD" \
-        "$SRC" "$REMOTE:$DEST" 2>/dev/null | grep -cE '^(>f|cd|\.f|hf)')
+        "$SRC" "$REMOTE:$DEST" 2>/dev/null | grep -cE '^(<f|>f|cd|\.f|hf)')
 
 REMOTE_DU=$($SSH_CMD "$REMOTE" "du -sh '$DEST' 2>/dev/null | cut -f1" 2>/dev/null)
 if [ "$LEFT" -eq 0 ]; then
